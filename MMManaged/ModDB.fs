@@ -565,7 +565,12 @@ module ModDB =
 // This is needed for interop runs, where we need to keep the loaded ModDB state somewhere but we don't want
 // to pass it over the interop barrier directly.
 module State =
-    let private DataBaseDir = "MMData" 
+    // The data directory contains all data for all games, as well as the selection texture.
+    let private DefaultDataDir = "Data"
+    // This is another name for the data directory.  If a directory exists with this name, it is used instead of the default.  If a file
+    // exists and it contains a single line that is an absolute path to another directory that exists, that directory is used instead 
+    // (i.e., it acts like a symlink.)
+    let private SymlinkName = "MMData" 
 
     let mutable Moddb = new ModDB.ModDB([],[],[])
     let mutable RootDir = "."
@@ -574,9 +579,7 @@ module State =
     let mutable realDataDir = ""
 
     let private initDataDir() =
-        // DataBaseDir can be a directory or a file containing a single line that is an absolute path to another directory (i.e a poor-man's symlink)
-
-        let dPath = Path.Combine(RootDir,DataBaseDir)
+        let dPath = Path.Combine(RootDir,SymlinkName)
         let dPath = 
             if Directory.Exists(dPath) then dPath 
             else
@@ -587,7 +590,13 @@ module State =
                     else
                         failwithf "Sym link found in '%s' but the target directory '%s' does not exist" dPath symLink
                 else
-                    failwithf "Cannot initialize data directory: %s" dPath
+                    // symlink not found, use the default dir
+                    let dPath = Path.Combine(RootDir,DefaultDataDir)
+                    if not (Directory.Exists(dPath)) then
+                        failwithf "Cannot initialize data directory: %s" dPath
+                    else 
+                        dPath
+                    
         realDataDir <- dPath
                   
     let getBaseDataDir() = 
