@@ -79,10 +79,10 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="SharpDX">
-      <HintPath>..\vendor\monogame\ThirdParty\Dependencies\SharpDX\Windows\SharpDX.dll</HintPath>
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX.3.3.0.0\lib\net40\SharpDX.dll</HintPath>
     </Reference>
     <Reference Include="SharpDX.Direct3D9">
-      <HintPath>..\vendor\monogame\ThirdParty\Dependencies\SharpDX\Windows\SharpDX.Direct3D9.dll</HintPath>
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX.3.3.0.0\lib\net40\SharpDX.Direct3D9.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
