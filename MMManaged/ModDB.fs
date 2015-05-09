@@ -28,62 +28,13 @@ module ModDB =
 
     let loadMesh(path,(meshType:MeshType)) = MeshUtil.ReadFrom(path, meshType)       
 
-    let makePair<'T> (components:'T[] option) =
-        match components with
-        | Some v when v.Length = 2 -> Some (v.[0], v.[1])
-        | _ -> None
-
-    let (|FrameNumStart|_|) pattern str = REUtil.CheckGroupMatch pattern 3 str |> REUtil.Extract 1 int32 |> makePair
-
-    let findFrame pathname (keySubstr:string) =
-        let files = Directory.GetFiles pathname
-        let keySubstr = keySubstr.ToLower()
-        
-        let frameFile = files |> Array.tryFind (fun (x:string) ->  x.ToLower().Contains(keySubstr)) 
-        frameFile
-
-    let loadAnimFrames animPath (keySubstr:string) =
-        // each frame is actually a subdirectory
-        let frameDirs = Directory.GetDirectories(animPath)
-        log.Info "%s %A" animPath frameDirs
-        let frames = [
-            for f in frameDirs do
-                let basename = Path.GetFileName(f)
-                match basename with 
-                | FrameNumStart @".*frame(\d+)_(\d+).*" (num,time) -> 
-                    let frame = findFrame f keySubstr
-                    match frame with
-                    | None -> failwithf "Unable to locate animation frame in %s with substr %s" f keySubstr
-                    | Some f -> 
-                        let mesh = loadMesh (f,MeshType.Reference) 
-                        yield { new IMeshKeyframe with
-                            member x.FrameTime = time
-                            member x.Mesh = mesh
-                        }
-                | _ -> ()
-        ]
-
-        let fixMesh (keyframe:IMeshKeyframe) =
-            // TODO: these are specific to the one animation data set I have.  should push out to yaml.
-            let xformFn = MeshTransform.recenter keyframe.Mesh >> MeshTransform.rotX false 90.f
-
-            let mesh = MeshUtil.ApplyPositionTransformation xformFn keyframe.Mesh 
-
-            { new IMeshKeyframe with
-                member x.Mesh = mesh
-                member x.FrameTime = keyframe.FrameTime
-            }
-
-        frames |> List.map fixMesh |> List.sortBy (fun x -> x.FrameTime )
-
     type MThing() = class end
 
-    type MReference(name,mesh,animationFrames) =
+    type MReference(name,mesh) =
         inherit MThing()
         interface IReference with
             member x.Name = name
             member x.Mesh = mesh
-            member x.AnimationFrames = animationFrames
 
     type MMod(name,mesh,refName,ref,attrs) =
         inherit MThing()
@@ -314,16 +265,6 @@ module ModDB =
         let meshPath = Yaml.getRequiredValue node "meshpath" |> Yaml.getString
         let mesh = loadAndTransformMesh (Path.Combine(basePath, meshPath),MeshType.Reference)
 
-        let animation = Yaml.getOptionalValue node "animation" |> Yaml.getMapping
-        let animationFrames = 
-            match animation with
-            | None -> []
-            | Some animObj -> 
-                let animRootPath = Yaml.getRequiredValue animObj "rootpath" |> Yaml.getString
-                let keySubstr = Yaml.getRequiredValue animObj "keysubstr" |> Yaml.getString
-                loadAnimFrames (Path.Combine(basePath, animRootPath)) keySubstr
-        //printfn "%A" animationFrames
-
         // load vertex elements (binary)
         let binVertDeclPath = 
             let nval = Yaml.getOptionalValue node "VertDeclPath" 
@@ -355,7 +296,7 @@ module ModDB =
 //        sw.StopAndPrint()
 
         let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
-        new MReference(refName,mesh,animationFrames)
+        new MReference(refName,mesh)
         
     let loadFile (conf:MMView.Conf) (filename) =
         use sw = new Util.StopwatchTracker("load file: " + filename)
@@ -394,7 +335,7 @@ module ModDB =
                 | Some settings when settings.Transform = false -> loadUntransformedMesh (filename,MeshType.Reference)
                 | _ -> loadAndTransformMesh (filename,MeshType.Reference)
             let refName = Path.GetFileNameWithoutExtension filename
-            [ new MReference(refName,mesh,[]) ]
+            [ new MReference(refName,mesh) ]
         | _ -> failwithf "Don't know how to load: %s" filename
 
     let LoadIndexObjects (filename:string) (activeOnly:bool) conf =

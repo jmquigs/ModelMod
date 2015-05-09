@@ -106,10 +106,7 @@ type MeshViewApp(conf) as self =
 
         for ref in moddb.References do
             let ref = ref :> IReference
-            if ref.AnimationFrames.Length > 0 then
-                addToWorld(XnaRender.MakeAnimationMesh(self.GraphicsDevice, ref.AnimationFrames))
-            else 
-                addToWorld(XnaRender.MakeMesh(self.GraphicsDevice, ref.Mesh))
+            addToWorld(XnaRender.MakeMesh(self.GraphicsDevice, ref.Mesh))
             
     override m.UnloadContent() =
         base.UnloadContent()

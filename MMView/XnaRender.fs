@@ -53,50 +53,6 @@ let wireframeState =
 let toXNAVert position =
     VertexPositionColor(position, Color.RoyalBlue)
 
-let selectFrame elapsed (revKeyframes:IMeshKeyframe[]) lastFrameEnd animTime =
-    let currAnimTime = (animTime + elapsed)
-    // time expired on last frame?
-    let currAnimTime = if currAnimTime > lastFrameEnd then 0 else currAnimTime
-
-    let currentFrameIdx = revKeyframes |> Array.tryFindIndex (fun f -> f.FrameTime < currAnimTime)
-    let currentFrameIdx = 
-        match currentFrameIdx with
-        | None -> revKeyframes.Length - 1 // first frame
-        | Some idx -> idx
-    let currentFrame = revKeyframes.[currentFrameIdx]                        
-
-    let nextFrame,currFrameEnd =
-        let nextIdx = currentFrameIdx - 1
-        if nextIdx < 0 then
-            (revKeyframes.[revKeyframes.Length - 1], lastFrameEnd)
-        else
-            (revKeyframes.[nextIdx], revKeyframes.[nextIdx].FrameTime)
-                        
-    let frameDuration = currFrameEnd - currentFrame.FrameTime
-    let framePct = float32 (currAnimTime - currentFrame.FrameTime) / float32 frameDuration
-
-    let tweenVerts = 
-        Array.map2 (fun p1 p2 -> 
-            let delta = Vector3.Subtract(p2,p1)
-            let delta = Vector3.Multiply(delta,framePct)
-            let newP = Vector3.Add(p1, delta)
-            toXNAVert newP
-        ) currentFrame.Mesh.Positions nextFrame.Mesh.Positions
-
-    tweenVerts, currAnimTime
-
-let computeFrameStats (keyframes:IMeshKeyframe list) =
-    let ft,total = 
-        keyframes |> List.fold 
-            (fun acc elem -> 
-                let thisFrameTime = elem.FrameTime - snd acc
-                (thisFrameTime, snd acc + thisFrameTime ) 
-            ) (0,0)
-    // since last frame doesn't have a known end, compute average on num frames - 1
-    let avgFrameTime = if keyframes.Length > 1 then int32 (float32 total / (float32 keyframes.Length - 1.f)) else keyframes.Head.FrameTime
-    let lastFrameEnd = total + avgFrameTime
-    avgFrameTime,lastFrameEnd
-
 let makeVBIB device (mesh:Mesh) =
     let vt = typeof<VertexPositionColor>
     let numVerts = mesh.Positions.Length
@@ -116,46 +72,7 @@ let makeVBIB device (mesh:Mesh) =
 let setVBData (vb:VertexBuffer) verts =
     vb.GraphicsDevice.SetVertexBuffer null // Xna doesn't like it if we try to change the vb data while the vb is set on the device
     vb.SetData verts
-
-let MakeAnimationMesh (device, (keyframes:IMeshKeyframe list)) =
-    // should just need to populate index buffer once
-    // however will need to completely replace vertex buffer on each frame
-    
-    let vb,ib = makeVBIB device keyframes.Head.Mesh
-
-    let effect = new BasicEffect(device)
-    effect.LightingEnabled <- false
-    effect.World <- Matrix.Identity
-
-    // each time update is called, add elapsed time to animTime and compute current frame
-    // if animation has ended, reset animTime to 0 and compute frame
-    // reset vertex buffer from current frame's data
-
-    // determine average frame time; this is used to figure out how long to 
-    // display the last frame
-    let avgFrameTime,lastFrameEnd = computeFrameStats keyframes
-
-    setVBData vb (Array.map toXNAVert keyframes.Head.Mesh.Positions)
-        
-    let revKeyframes = List.rev keyframes |> List.toArray
-    let numVerts = keyframes.Head.Mesh.Positions.Length
-    let primCount = keyframes.Head.Mesh.Triangles.Length
-
-    // mutable animation state
-    let animTime = ref 0    
-
-    let renderFn = basicRender { Effect=effect; RasterizerState=wireframeState; VertexBuffer=vb;IndexBuffer=ib;VertCount=numVerts;PrimCount=primCount }
-
-    { new IXnaRenderable with 
-        member x.Update elapsed = 
-            let tweenVerts,currAnimTime = selectFrame elapsed revKeyframes lastFrameEnd animTime.Value
-            animTime.Value <- currAnimTime
-            setVBData vb tweenVerts
-
-        member x.Render wrd = 
-            renderFn(wrd)
-    }
-    
+   
 let MakeMesh(device, mesh:Mesh) =
     let vt = typeof<VertexPositionColor>
 

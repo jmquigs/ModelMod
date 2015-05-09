@@ -48,11 +48,6 @@ module ModTypes =
         TexturePath: string option
     }
 
-    // A mesh keyframe, used when displaying an animation in MMView.
-    type IMeshKeyframe = 
-        abstract member FrameTime: int32
-        abstract member Mesh: Mesh
-
     // ------------------------------------------------------------------------
     // These are types loaded by the moddb from yaml files
 
@@ -63,9 +58,6 @@ module ModTypes =
         inherit IThing
         abstract member Name : string
         abstract member Mesh : Mesh
-        // Few references will have these; they have to be explicitly 
-        // generated and are only used (and loaded) in MMView
-        abstract member AnimationFrames : IMeshKeyframe list
 
     type GeomDeletion = { PrimCount: int; VertCount: int }
 
