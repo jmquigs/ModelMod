@@ -115,6 +115,16 @@ module Snapshot =
                 | SDXVertexDeclType.Float4 ->
                     fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
                 | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
+            | SDXVertexDeclUsage.Color ->
+                match el.Type with
+                | SDXVertexDeclType.Float4 ->
+                    // TODO: currently ignored, but should probably keep this as baggage.
+                    reader.ReadSingle() |> ignore
+                    reader.ReadSingle() |> ignore
+                    reader.ReadSingle() |> ignore
+                    reader.ReadSingle() |> ignore
+                | _ -> failwithf "Unsupported type for color: %A" el.Type
+                ()
             | _ -> failwithf "Unsupported usage: %A" el.Usage
 
     let makeLoggedDisposable (disp:System.IDisposable) (message:string) = 
@@ -183,6 +193,8 @@ module Snapshot =
                 // warn if stream > 0 is used
                 if el.Stream <> 255s && el.Stream > 0s then
                     log.Warn "Stream %d is not supported" el.Stream
+                if el.Usage = SDXVertexDeclUsage.Color then
+                    log.Warn "Vertex uses color usage; this data is currently ignored"
 
             // store raw vertex elements in byte array
             let declMS = new MemoryStream()

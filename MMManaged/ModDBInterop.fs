@@ -452,6 +452,15 @@ module ModDBInterop =
                         | SDXVertexDeclUsage.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
                         | SDXVertexDeclUsage.BlendIndices -> blendIndexWriter modVertIndex el bw
                         | SDXVertexDeclUsage.BlendWeight -> blendWeightWriter modVertIndex el bw
+                        | SDXVertexDeclUsage.Color ->
+                            // TODO: if/when snapshot & import/export write this out, will need to populate it here
+                            match el.Type with
+                            | SDXVertexDeclType.Float4 ->
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                            | _ -> failwith "Unsupported type for Color: %A" el.Type
                         | _ -> failwithf "Unsupported usage: %A" el.Usage
 
                 let writeVertex (v:VTNIndex) = 
