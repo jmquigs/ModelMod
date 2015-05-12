@@ -466,6 +466,9 @@ module ModDBInterop =
                 let writeVertex (v:VTNIndex) = 
                     let writeToVert = writeElement v
                     declElements |> List.iter writeToVert
+                    if (bw.BaseStream.Position % (int64 md.vertSizeBytes) <> 0L) then
+                        failwith "Wrote an insufficient number of bytes for the vertex"
+
                 let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
 
                 modm.Triangles |> Array.iter writeTriangle
