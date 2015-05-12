@@ -2,7 +2,6 @@
 using namespace ModelMod;
 
 #include <d3dx9tex.h>
-
 #include "Util.h"
 
 #include "MMInterop.h"
@@ -25,7 +24,8 @@ RenderState::RenderState(void) :
 		_dev(NULL),
 		_focusWindow(INVALID_HANDLE_VALUE),
 		_selectionTexture(NULL),
-		_currHookVB0(NULL)
+		_currHookVB0(NULL),
+		_pCurrentKeyMap(NULL)
 		//_modTexture(NULL),
 		//_modVertexShader(NULL),
 		//_modPixelShader(NULL) 
@@ -198,6 +198,23 @@ void RenderState::init(IDirect3DDevice9* dev) {
 		}
 	}
 
+	// TODO: should push this out to a conf file eventually
+	_defaultKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
+	_defaultKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
+	_defaultKeyMap[DIK_Z] = [&]() { this->requestSnap(); };
+	_defaultKeyMap[DIK_T] = [&]() { this->clearTextureLists(); };
+	_defaultKeyMap[DIK_SEMICOLON] = [&]() { this->toggleShowModMesh(); };
+	_defaultKeyMap[DIK_SLASH] = [&]() { this->loadMeshes(); };
+
+	_fKeyMap[DIK_F1] = [&]() { this->loadMeshes(); };
+	_fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
+	_fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
+	_fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
+	_fKeyMap[DIK_F6] = [&]() { this->requestSnap(); };
+	_fKeyMap[DIK_F7] = [&]() { this->clearTextureLists(); };
+
+	_pCurrentKeyMap = &_fKeyMap;
+
 	_initted = true;
 }
 
@@ -222,7 +239,7 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 
 	// process input only when the d3d window is in the foreground.  this style of processing creates issues for keyup processing, 
 	// since we can lose events, but we don't do any of that currently.
-	if (_focusWindow != INVALID_HANDLE_VALUE 
+	if (_pCurrentKeyMap && _focusWindow != INVALID_HANDLE_VALUE 
 		//&& GetForegroundWindow() == _focusWindow // TODO: disable this, _focusWindow is actually not correct in some cases, so input is always disabled then
 		) {
 		vector<Input::KeyEvent> events = _input.update();
@@ -232,30 +249,8 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 
 			if (evt.pressed) {
 				if (_input.isCtrlPressed()) {
-					switch (evt.key) {
-					case DIK_COMMA:
-						selectNextTexture();
-						break;
-					case DIK_PERIOD:
-						selectPrevTexture();
-						break;
-					case DIK_Z:
-					case DIK_A:
-						MM_LOG_INFO(format("Snap is requested"));
-						requestSnap();
-						break;
-					case DIK_T:
-						_currentTextureIdx = -1;
-						_currentTexturePtr = NULL;
-						_activeTextureList.clear();
-						_activeTextureLookup.clear();
-						break;
-					case DIK_SEMICOLON:
-						toggleShowModMesh();
-						break;
-					case DIK_SLASH:
-						loadMeshes();
-						break;
+					if (_pCurrentKeyMap->count(evt.key) > 0) {
+						(*_pCurrentKeyMap)[evt.key]();
 					}
 				}
 			}

@@ -3,6 +3,7 @@
 #include <d3d9.h>
 #include <vector>
 #include <map>
+#include <functional>
 
 #include "Log.h"
 #include "Input.h"
@@ -68,10 +69,15 @@ struct D3DRenderState {
 typedef map<UINT,ConstantData<float,4>> FloatConstantMap;
 typedef map<UINT,ConstantData<int,4>> IntConstantMap;
 typedef map<UINT,ConstantData<BOOL,1>> BoolConstantMap;
+typedef std::map<int, std::function<void()>> InputKeyMap;
 
 class RenderState : public ID3DResourceTracker, public IRenderState {
 	static RenderState* _sCurrentRenderState;
 	static const string LogCategory;
+
+	InputKeyMap _defaultKeyMap;
+	InputKeyMap _fKeyMap;
+	InputKeyMap* _pCurrentKeyMap;
 
 	std::vector<void*> _textureHandles;
 	std::map<void*,bool> _activeTextureLookup;
@@ -202,7 +208,15 @@ public:
 		return -1;
 	}
 
+	void clearTextureLists() {
+		_currentTextureIdx = -1;
+		_currentTexturePtr = NULL;
+		_activeTextureList.clear();
+		_activeTextureLookup.clear();
+	}
+
 	void requestSnap() {
+		MM_LOG_INFO(format("Snap is requested"));
 		_snapRequested = true;
 	}
 	bool isSnapRequested() {
