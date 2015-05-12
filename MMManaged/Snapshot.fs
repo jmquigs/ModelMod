@@ -35,16 +35,20 @@ module Extractors =
 module SnapshotTransforms = 
     let DefaultKey = "default"
 
+    let Profile1 = "profile1"
+
     let Position = 
         Map.ofList [ 
             // Transforms are specified as strings; this lets them be written out during the snapshot.  These transforms
             // need to be undone on model load; prior to establishing the mesh relation.  It is assumed that the .mmobj file will preserve this
             // list, which means the exporter/import needs to pass them through appropriately.
             DefaultKey, ["rot x 90"; "rot y 180"; "scale 0.1"] 
+            Profile1, ["rot x 90"; "rot z 180"; "scale 0.1"] 
         ]
     let UV =
         Map.ofList [
             DefaultKey, ["flip y"]
+            Profile1, ["flip y"]
         ]
 
 module private SSInterop =
@@ -283,8 +287,10 @@ module Snapshot =
 
             let lookupTransforms map =
                 if doTransforms then
-                    // TODO: support more than the default transform set; probably needs to be specified in mmobj
-                    let xforms = map |> Map.tryFind (SnapshotTransforms.DefaultKey)
+                    //let profileKey = SnapshotTransforms.DefaultKey
+                    let profileKey = SnapshotTransforms.Profile1 // TODO push to snapshot conf file 
+
+                    let xforms = map |> Map.tryFind profileKey
                     match xforms with 
                     | None -> []
                     | Some xforms -> 
