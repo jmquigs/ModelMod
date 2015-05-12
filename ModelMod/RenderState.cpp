@@ -222,7 +222,9 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 
 	// process input only when the d3d window is in the foreground.  this style of processing creates issues for keyup processing, 
 	// since we can lose events, but we don't do any of that currently.
-	if (_focusWindow != INVALID_HANDLE_VALUE && GetForegroundWindow() == _focusWindow) {
+	if (_focusWindow != INVALID_HANDLE_VALUE 
+		//&& GetForegroundWindow() == _focusWindow // TODO: disable this, _focusWindow is actually not correct in some cases, so input is always disabled then
+		) {
 		vector<Input::KeyEvent> events = _input.update();
 
 		for (Uint32 i = 0; i < events.size(); ++i) {
