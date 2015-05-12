@@ -175,6 +175,11 @@ module ModDBInterop =
         bw.Write(x)
         bw.Write(w)
 
+    let writeF3Vector (v:Vector3) (bw:BinaryWriter) =
+        bw.Write(v.X)
+        bw.Write(v.Y)
+        bw.Write(v.Z)        
+
     module DataWriters =
         let rbBlendIndex (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -182,14 +187,14 @@ module ModDBInterop =
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 let idx = br.ReadBytes(4)
                 bw.Write(idx) 
-            | _ -> failwithf "Unsupported type for blend index: %A" el.Type
+            | _ -> failwithf "Unsupported type for raw blend index: %A" el.Type
         let rbBlendWeight (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.UByte4N -> 
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))
-            | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
+            | _ -> failwithf "Unsupported type for raw blend weight: %A" el.Type
 
         let private writeMeshBI (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
             if (idx > mesh.BlendIndices.Length) then
@@ -205,30 +210,39 @@ module ModDBInterop =
             let wgt = mesh.BlendWeights.[idx]
 
             let buf = [| byte (round(wgt.X * 255.f)); byte (round (wgt.Y * 255.f)) ; byte (round (wgt.Z * 255.f)); byte (round (wgt.W * 255.f)) |]
-            
             // weights must sum to 255
 //            let sum = Array.sum buf
 //            if (sum <> (byte 255)) then
 //                log.Error "weights do not sum to 255 for idx %A: %A, %A; basevec: %A" idx buf sum wgt
             bw.Write(buf)
 
+        let private writeMeshBWF4 (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
+            if (idx > mesh.BlendWeights.Length) then
+                failwithf "oops: invalid blend-weight index: %A of %A" idx mesh.BlendWeights.Length
+            let wgt = mesh.BlendWeights.[idx]
+            bw.Write(wgt.X)
+            bw.Write(wgt.Y)
+            bw.Write(wgt.Z)
+            bw.Write(wgt.W)
+
         let modmBlendIndex (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Ubyte4 -> writeMeshBI modm modVertIndex bw
-            | _ -> failwithf "Unsupported type for blend index: %A" el.Type
+            | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
 
         let refmBlendIndex (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
+            | SDXVertexDeclType.Color 
             | SDXVertexDeclType.Ubyte4 ->
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBI refm refVertIndex bw
-            | _ -> failwithf "Unsupported type for blend index: %A" el.Type
+            | _ -> failwithf "Unsupported type for ref blend index: %A" el.Type
 
         let modmBlendWeight (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.UByte4N -> writeMeshBW modm modVertIndex bw
-            | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
+            | _ -> failwithf "Unsupported type for mod blend weight: %A" el.Type
 
         let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -236,7 +250,10 @@ module ModDBInterop =
             | SDXVertexDeclType.UByte4N -> 
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBW refm refVertIndex bw
-            | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
+            | SDXVertexDeclType.Float4 ->
+                let refVertIndex = vertRels.[modVertIndex].RefPointIdx
+                writeMeshBWF4 refm refVertIndex bw
+            | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
 
         let modmNormal (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -245,7 +262,10 @@ module ModDBInterop =
                 // convert normal to 4 byte rep
                 let srcNrm = modm.Normals.[modNrmIndex]
                 write4ByteVector srcNrm bw
-            | _ -> failwithf "Unsupported type for normal: %A" el.Type
+            | SDXVertexDeclType.Float3 ->
+                let srcNrm = modm.Normals.[modNrmIndex]
+                writeF3Vector srcNrm bw
+            | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
 
         let rbNormal (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -253,30 +273,32 @@ module ModDBInterop =
             | SDXVertexDeclType.Ubyte4 ->
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))                
-            | _ -> failwithf "Unsupported type for normal: %A" el.Type
+            | _ -> failwithf "Unsupported type for raw normal: %A" el.Type
 
         let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+            // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
+            // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point, 
+            // but this produces good enough results in most cases.
+            // see: http://www.geeks3d.com/20130122/normal-mapping-without-precomputed-tangent-space-vectors/
+            let srcNrm = modm.Normals.[modNrmIndex]
+            let v1 = Vector3.Cross(srcNrm, Vector3(0.f, 0.f, 1.f))
+            let v2 = Vector3.Cross(srcNrm, Vector3(0.f, 1.f, 0.f))
+            let t = if (v1.Length() > v2.Length()) then v1 else v2
+            t.Normalize()
+            let vec = 
+                if (el.Usage = SDXVertexDeclUsage.Binormal) then
+                    let b = Vector3.Cross(srcNrm,t)
+                    b.Normalize()
+                    b
+                else
+                    t
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.Ubyte4 ->
-                // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
-                // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point, 
-                // but this produces good enough results in most cases.
-                // see: http://www.geeks3d.com/20130122/normal-mapping-without-precomputed-tangent-space-vectors/
-                let srcNrm = modm.Normals.[modNrmIndex]
-                let v1 = Vector3.Cross(srcNrm, Vector3(0.f, 0.f, 1.f))
-                let v2 = Vector3.Cross(srcNrm, Vector3(0.f, 1.f, 0.f))
-                let t = if (v1.Length() > v2.Length()) then v1 else v2
-                t.Normalize()
-                let vec = 
-                    if (el.Usage = SDXVertexDeclUsage.Binormal) then
-                        let b = Vector3.Cross(srcNrm,t)
-                        b.Normalize()
-                        b
-                    else
-                        t
-                write4ByteVector vec bw                
-            | _ -> failwithf "Unsupported type for binormal/tangent: %A" el.Type
+                write4ByteVector vec bw  
+            | SDXVertexDeclType.Float3 ->
+                writeF3Vector vec bw
+            | _ -> failwithf "Unsupported type for mod binormal/tangent: %A" el.Type
 
         let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -284,7 +306,7 @@ module ModDBInterop =
             | SDXVertexDeclType.Ubyte4 ->             
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))                
-            | _ -> failwithf "Unsupported type for binormal/tangent: %A" el.Type
+            | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
 
     let private fillModDataInternalHelper 
         (modIndex:int) 
