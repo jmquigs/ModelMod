@@ -81,7 +81,7 @@ module Wizapp =
         | _ -> 
             None
 
-    let getOutputPath modName = Path.Combine(state.Value.ModRoot, modName)
+    let getOutputPath modName = Path.GetFullPath(Path.Combine(state.Value.ModRoot, modName))
 
     type YamlRef = {
         Type: string
