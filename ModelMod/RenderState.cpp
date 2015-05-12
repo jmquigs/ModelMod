@@ -417,7 +417,7 @@ void RenderState::textureDeleted() {
 
 void RenderState::setTextureStageState(DWORD Stage,D3DTEXTURESTAGESTATETYPE Type, DWORD Value) {
 	if (Stage >= MM_MAX_STAGE) {
-		MM_LOG_INFO(format("Error: big stage: {}, set to non null", Stage));
+		MM_LOG_INFO(format("Warning: big stage: {}, state set to some value: {}", Stage, Value));
 		return;
 	}
 
@@ -427,7 +427,7 @@ void RenderState::setTextureStageState(DWORD Stage,D3DTEXTURESTAGESTATETYPE Type
 void RenderState::setTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture) {
 	if (Stage >= MM_MAX_STAGE) {
 		if (pTexture) {
-			MM_LOG_INFO(format("Error: big stage: {}, set to non null", Stage));
+			MM_LOG_INFO(format("Warning: big stage: {}, texture set to non null: {:x}", Stage, (int)pTexture));
 		}
 		return;
 	}
