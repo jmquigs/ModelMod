@@ -11,7 +11,10 @@ module ModDBInterop =
     let log = Logging.GetLogger("ModDBInterop")
 
     let SetPaths (mmDllPath:string) (exeModule:string) =
-        let ret = InteropTypes.DefaultConf
+        let ret = {
+            InputProfile = Types.DefaultRunConfig.InputProfile
+            RunModeFull = Types.DefaultRunConfig.RunModeFull
+        }
         try
             // check for valid paths
             if mmDllPath.Contains("..") then failwith "Illegal dll path, contains '..' : %A" mmDllPath

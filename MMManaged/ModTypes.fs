@@ -89,11 +89,6 @@ module InteropTypes =
         InputProfile: string
     }
 
-    let DefaultConf = { 
-        ConfData.RunModeFull = true;
-        InputProfile = "";
-    }
-
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
     type ModData = {
         modType: int 
