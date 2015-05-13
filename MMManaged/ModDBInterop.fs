@@ -22,6 +22,7 @@ module ModDBInterop =
             State.ExeModule <- exeModule
 
             let conf = RegConfig.Load exeModule
+            let conf = State.ValidateAndSetConf conf 
 
             let ret = 
                 { ret with 

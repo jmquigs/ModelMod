@@ -9,7 +9,7 @@ open Types
 open ModTypes
 
 module MeshRelation =
-    let log = Logging.GetLogger("MeshRelation")
+    let private log = Logging.GetLogger("MeshRelation")
 
     type MVProjections = { x:float ; y:float ; z:float } 
 

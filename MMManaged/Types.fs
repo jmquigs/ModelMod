@@ -2,6 +2,12 @@
 namespace ModelMod
 #endif
 
+module SnapshotProfiles =
+    let Profile1 = "profile1"
+    let Profile2 = "profile2"
+
+    let ValidProfiles = [ Profile1; Profile2 ]
+
 module Types =
     type Vec2F = Microsoft.Xna.Framework.Vector2    
     type Vec3F = Microsoft.Xna.Framework.Vector3
@@ -18,4 +24,12 @@ module Types =
         InputProfile: string
         SnapshotProfile: string
         DocRoot: string
-    }    
+    }
+
+    let DefaultRunConfig = {
+        RunConfig.RunModeFull = true
+        InputProfile = ""
+        SnapshotProfile = ""
+        DocRoot = ""
+    }
+

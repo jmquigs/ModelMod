@@ -16,7 +16,7 @@ open ModTypes
 open InteropTypes
 
 module ModDB =
-    let log = Logging.GetLogger("ModDB")
+    let private log = Logging.GetLogger("ModDB")
 
     let strToLower (s:string option) =
         match s with
@@ -506,6 +506,8 @@ module ModDB =
 // This is needed for interop runs, where we need to keep the loaded ModDB state somewhere but we don't want
 // to pass it over the interop barrier directly.
 module State =
+    let private log = Logging.GetLogger("State")
+
     // The data directory contains all data for all games, as well as the selection texture.
     let private DefaultDataDir = "Data"
     // This is another name for the data directory.  If a directory exists with this name, it is used instead of the default.  If a file
@@ -516,8 +518,24 @@ module State =
     let mutable Moddb = new ModDB.ModDB([],[],[])
     let mutable RootDir = "."
     let mutable ExeModule = ""
-
+    let mutable Conf = Types.DefaultRunConfig
     let mutable realDataDir = ""
+
+    let ValidateAndSetConf (conf:Types.RunConfig): Types.RunConfig =
+        let snapProfile = 
+            match conf.SnapshotProfile with
+            | profile when (SnapshotProfiles.ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant() )) -> profile.ToLowerInvariant()
+            | _ ->
+                let def = SnapshotProfiles.Profile1
+                log.Info "Unrecognized snapshot profile: %A; using %A" conf.SnapshotProfile def
+                def.ToLowerInvariant()
+            
+        let conf = 
+            { conf with
+                SnapshotProfile = snapProfile
+            }
+        log.Info "Conf: %A" conf
+        conf
 
     let private initDataDir() =
         let dPath = Path.Combine(RootDir,SymlinkName)
