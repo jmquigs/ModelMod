@@ -22,6 +22,7 @@ int gInteropStatus = 0;
 WCHAR gMMPath[8192] = { 0 };
 IMMAppDomainMananger* gDomainManager = NULL;
 ManagedCallbacks gCurrentCallbacks;
+ConfData gCurrentConf;
 bool gCallbacksInitialized = false;
 
 // end global state
@@ -250,17 +251,30 @@ const ManagedCallbacks& Callbacks() {
 	return gCurrentCallbacks;
 }
 
+const ConfData& Conf() {
+	return gCurrentConf;
+}
 
 }; //namespace managed
 
-MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks, ManagedInitData* initData) {
+MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks) {
 	gCurrentCallbacks = *callbacks;
 	gCallbacksInitialized = true;
 
 	WCHAR wExeModule[8192];
 	GetModuleFileNameW(NULL, wExeModule, sizeof(wExeModule));
 
-	callbacks->SetPaths(gMMPath, wExeModule);
+	ConfData* conf = callbacks->SetPaths(gMMPath, wExeModule);
+	if (conf) {
+		gCurrentConf = *conf;
+	}
+	else {
+		MM_LOG_INFO("Error: no conf received from managed code");
+		gCurrentConf = ConfData();
+	}
+
+	MM_LOG_INFO(fmt::format("Full run mode: {}", gCurrentConf.RunModeFull));
+	MM_LOG_INFO(fmt::format("Input profile: {}", gCurrentConf.InputProfile));
 
 	return 0;
 }

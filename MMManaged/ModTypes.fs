@@ -79,6 +79,21 @@ module ModTypes =
 // ----------------------------------------------------------------------------
 // These are types that are passed back to native land  
 module InteropTypes =
+    // the use of multibyte could be a problem here if we need to marshal strings containing unicode characters (i18n paths for example),
+    // but currently the unmanaged code doesn't need to know about paths other than the MM install dir, which it already knows.
+    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Ansi)>] 
+    type ConfData = {
+        [<MarshalAs(UnmanagedType.I1)>]
+        RunModeFull: bool
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=512)>]
+        InputProfile: string
+    }
+
+    let DefaultConf = { 
+        ConfData.RunModeFull = true;
+        InputProfile = "";
+    }
+
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
     type ModData = {
         modType: int 

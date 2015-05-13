@@ -11,6 +11,7 @@ module ModDBInterop =
     let log = Logging.GetLogger("ModDBInterop")
 
     let SetPaths (mmDllPath:string) (exeModule:string) =
+        let ret = InteropTypes.DefaultConf
         try
             // check for valid paths
             if mmDllPath.Contains("..") then failwith "Illegal dll path, contains '..' : %A" mmDllPath
@@ -18,12 +19,18 @@ module ModDBInterop =
 
             // set the root path to the parent of the native ModelMod.dll.  
             State.RootDir <- Directory.GetParent(mmDllPath).ToString()
-            State.ExeModule <- exeModule            
-            0
+            State.ExeModule <- exeModule
+
+            let ret = 
+                { ret with 
+                    ConfData.InputProfile = "Hello world!"
+                }
+            //log.Info "Returning %A" ret
+            ret
         with 
         | e -> 
             log.Error "%A" e
-            47
+            ret
 
     let GetDataPath() = 
         try

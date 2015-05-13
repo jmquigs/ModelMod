@@ -10,21 +10,8 @@ open Microsoft.Xna.Framework
 
 #nowarn "9"
 module MMNative =
-    [<StructLayout(LayoutKind.Sequential, Pack=8)>]
-    type ManagedInitData =
-        val mutable v1: int
-        val mutable v2: int
-
-        new() = { v1 = 0; v2 = 0 }
-
-    [<StructLayout(LayoutKind.Sequential, Pack=8)>]
-    type UnmangedInitData =
-        val mutable v1: int
-        val mutable v2: int
-
-    type InitCallback = delegate of UnmangedInitData * int32 -> int
     type SetPathsCallback = 
-        delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> int
+        delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
 
     type GetDataPathCB = 
         delegate of unit -> [<MarshalAs(UnmanagedType.LPWStr)>] string
@@ -43,7 +30,7 @@ module MMNative =
     }
 
     [< DllImport("ModelMod.dll") >] 
-    extern int OnInitialized(ManagedCallbacks callback, ManagedInitData data)
+    extern int OnInitialized(ManagedCallbacks callback)
     
     [< DllImport("ModelMod.dll") >]
     extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
@@ -91,10 +78,6 @@ type Main() =
         let logOK = true // didn't throw an exception, at least!
 
         try
-            let mdata = new MMNative.ManagedInitData()
-            mdata.v1 <- 2
-            mdata.v2 <- 3
-            
             let (mCallbacks:MMNative.ManagedCallbacks) = {
                 SetPaths = allocPermaHandle (new MMNative.SetPathsCallback(ModDBInterop.SetPaths))
                 GetDataPath = allocPermaHandle (new MMNative.GetDataPathCB(ModDBInterop.GetDataPath))
@@ -105,7 +88,7 @@ type Main() =
                 TakeSnapshotCB = allocPermaHandle (new InteropTypes.TakeSnapshotCB(Snapshot.Take));
             }
 
-            let ret = MMNative.OnInitialized(mCallbacks, mdata)
+            let ret = MMNative.OnInitialized(mCallbacks)
 
             Interop.log.Info "Init complete, native code: %d " ret 
             ret

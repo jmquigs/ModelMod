@@ -18,20 +18,6 @@ struct IDirect3DVertexDeclaration9;
 struct IDirect3DIndexBuffer9;
 
 #pragma pack(push,8)
-typedef struct {
-	int v1;
-	int v2;
-} ManagedInitData;
-#pragma pack(pop)
-
-#pragma pack(push,8)
-typedef struct {
-	int v1;
-	int v2;
-} UnmangedInitData;
-#pragma pack(pop)
-
-#pragma pack(push,8)
 struct ModData {
 	int modType;
 	int primType;
@@ -64,8 +50,21 @@ struct SnapshotData {
 };
 #pragma pack(pop)
 
-typedef int (__stdcall *InitCallback) (UnmangedInitData*, int);
-typedef int (__stdcall *SetPathsCB) (WCHAR*, WCHAR*);
+#pragma pack(push,8)
+struct ConfData {
+	// Note: marshalling to bool requires [<MarshalAs(UnmanagedType.I1)>] on the field in managed code; otherwise it will try to marshall it as a 4 byte BOOL,
+	// which has a detrimental effect on subsequent string fields!
+	bool RunModeFull;
+	char InputProfile[512];
+
+	ConfData() {
+		memset(this, 0, sizeof(ConfData));
+	}
+};
+#pragma pack(pop)
+
+typedef int (__stdcall *InitCallback) (int);
+typedef ConfData* (__stdcall *SetPathsCB) (WCHAR*, WCHAR*);
 typedef WCHAR* (__stdcall *GetDataPathCB) ();
 typedef int (__stdcall *LoadModDBCB) ();
 typedef int (__stdcall *GetModCountCB) ();
@@ -85,7 +84,7 @@ typedef struct {
 } ManagedCallbacks;
 #pragma pack(pop)
 
-MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks, ManagedInitData* initData);
+MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
 MMINTEROP_API void LogInfo(char* category, char* message);
 MMINTEROP_API void LogWarn(char* category, char* message);
 MMINTEROP_API void LogError(char* category, char* message);
@@ -120,4 +119,5 @@ namespace Interop {
 	// If this returns false, calling a callback will explode in your face.
 	bool OK(); 
 	const ManagedCallbacks& Callbacks();
+	const ConfData& Conf();
 };
