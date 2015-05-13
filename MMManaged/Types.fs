@@ -1,4 +1,6 @@
-﻿namespace ModelMod
+﻿#if COMPILED
+namespace ModelMod
+#endif
 
 module Types =
     type Vec2F = Microsoft.Xna.Framework.Vector2    
@@ -11,4 +13,9 @@ module Types =
         member v.Z = z
         member v.W = w
     
-    
+    type RunConfig = {
+        RunModeFull: bool
+        InputProfile: string
+        SnapshotProfile: string
+        DocRoot: string
+    }    

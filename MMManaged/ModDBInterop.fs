@@ -21,9 +21,12 @@ module ModDBInterop =
             State.RootDir <- Directory.GetParent(mmDllPath).ToString()
             State.ExeModule <- exeModule
 
+            let conf = RegConfig.Load exeModule
+
             let ret = 
                 { ret with 
-                    ConfData.InputProfile = "Hello world!"
+                    InputProfile = conf.InputProfile
+                    RunModeFull = conf.RunModeFull
                 }
             //log.Info "Returning %A" ret
             ret
