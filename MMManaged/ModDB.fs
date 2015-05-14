@@ -54,17 +54,11 @@ module ModDB =
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))
             |> List.map (fun imod ->
                 imod.Attributes.DeletedGeometry |> List.map (fun delPair -> 
-                    { 
+                    { InteropTypes.EmptyModData with
                         InteropTypes.ModData.modType = 5
                         primType = 4
-                        vertCount = 0 
-                        primCount = 0
-                        indexCount = 0
                         refVertCount = delPair.VertCount
                         refPrimCount = delPair.PrimCount
-                        declSizeBytes = 0
-                        vertSizeBytes = 0
-                        indexElemSizeBytes = 0
                     }
                 )
             )
@@ -191,6 +185,32 @@ module ModDB =
                     let meshPath = Yaml.getRequiredValue node "meshPath" |> Yaml.getString
                     if meshPath = "" then failwithf "meshPath is empty"
                     Some (loadAndTransformMesh (Path.Combine(basePath, meshPath),meshType))
+
+            // fill in texture paths (if any) from yaml
+            let mesh = 
+                match mesh with 
+                | None -> None
+                | Some(m) -> 
+                    let useEmptyStringForMissing (x:string option) = 
+                        match x with 
+                        | None -> ""
+                        | Some s when s.Trim() = "" -> ""
+                        | Some s -> s
+                    let makeAbsolute (path:string) =
+                        match path with
+                        | "" -> ""
+                        | path when Path.IsPathRooted path -> path
+                        | _ -> Path.GetFullPath(Path.Combine(basePath,path))
+
+                    let unpack = Yaml.getOptionalString >> useEmptyStringForMissing >> makeAbsolute
+
+                    Some({ m with 
+                            Tex0Path = Yaml.getOptionalValue node "Tex0Path" |> unpack
+                            Tex1Path = Yaml.getOptionalValue node "Tex1Path" |> unpack
+                            Tex2Path = Yaml.getOptionalValue node "Tex2Path" |> unpack
+                            Tex3Path = Yaml.getOptionalValue node "Tex3Path" |> unpack
+                    })
+
             mesh,attrs
 
         new MMod(modName,mesh,refName,None,attrs) // defer ref resolution

@@ -45,7 +45,10 @@ module ModTypes =
         AnnotatedVertexGroups: string list []
         AppliedPositionTransforms: string []
         AppliedUVTransforms: string[]
-        TexturePath: string option
+        Tex0Path: string 
+        Tex1Path: string 
+        Tex2Path: string 
+        Tex3Path: string 
     }
 
     // ------------------------------------------------------------------------
@@ -89,7 +92,7 @@ module InteropTypes =
         InputProfile: string
     }
 
-    [<StructLayout(LayoutKind.Sequential, Pack=8)>]
+    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Unicode)>]
     type ModData = {
         modType: int 
         primType: int
@@ -101,6 +104,32 @@ module InteropTypes =
         declSizeBytes: int
         vertSizeBytes: int
         indexElemSizeBytes: int
+        // Size must match MaxModTexPathLen from native code
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        tex0Path: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        tex1Path: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        tex2Path: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        tex3Path: string
+    }
+
+    let EmptyModData = {
+        modType = -1
+        primType = 0
+        vertCount = 0
+        primCount = 0
+        indexCount = 0
+        refVertCount = 0
+        refPrimCount = 0
+        declSizeBytes = 0
+        vertSizeBytes = 0
+        indexElemSizeBytes = 0
+        tex0Path = ""
+        tex1Path = ""
+        tex2Path = ""
+        tex3Path = ""
     }
     
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]

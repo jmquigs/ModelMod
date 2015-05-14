@@ -75,6 +75,11 @@ void RenderState::loadMeshes() {
 			if (mod.decl) {
 				release(mod.decl);
 			}
+			for (Uint32 i = 0; i < MaxModTextures; ++i) {
+				if (mod.texture[i]) {
+					release(mod.texture[i]);
+				}
+			}
 	}
 	_managedMods.clear();
 
@@ -141,6 +146,8 @@ void RenderState::loadMeshes() {
 			}
 
 			if (ret == 0) {
+				// fill was ok
+
 				// create vertex declaration
 				_dev->CreateVertexDeclaration((D3DVERTEXELEMENT9*)declData, &nModData.decl);
 				if (nModData.decl) {
@@ -148,6 +155,26 @@ void RenderState::loadMeshes() {
 				}
 
 				int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
+
+				// create textures 
+				for (Uint32 i = 0; i < MaxModTextures; ++i) {
+					if (wcslen(nModData.modData.texPath[i]) > 0) {
+						IDirect3DTexture9 * tex = NULL;
+						HRESULT hr = D3DXCreateTextureFromFileW(_dev, nModData.modData.texPath[i], &tex);
+						if (FAILED(hr)) {
+							MM_LOG_INFO(fmt::format("Error: failed to create mod texture for stage {}", i));
+						}
+						else {
+							//char* mbName = Util::convertToMB(nModData.modData.texPath[i]);
+							//MM_LOG_INFO(fmt::format("Created texture for stage {} from path {}", i, mbName));
+							//delete[] mbName;
+							nModData.texture[i] = tex;
+							this->add(tex);
+						}
+					}
+				}
+
+				// store in mod DB
 				_managedMods[hashCode] = nModData; // structwise-copy is ok
 			}
 
@@ -363,8 +390,9 @@ void RenderState::saveRenderState(IDirect3DDevice9* dev) {
 	dev->GetTransform(D3DTS_WORLD, &_d3dRenderState.World0); // copy, no release
 	dev->GetRenderState(D3DRS_LIGHTING, &_d3dRenderState.LightingEnabled); // copy, no release
 	dev->GetRenderState(D3DRS_ALPHABLENDENABLE, &_d3dRenderState.AlphaBlendEnabled); // copy, no release
-	dev->GetTexture(0, &_d3dRenderState.texture0); // definitely release
-	dev->GetTexture(1, &_d3dRenderState.texture1); // definitely release
+	for (Uint32 i = 0; i < MaxModTextures; ++i) {
+		dev->GetTexture(i, &_d3dRenderState.texture[i]); // definitely release
+	}
 	dev->GetTextureStageState(1, D3DTSS_COLOROP, &_d3dRenderState.texture1ColoropState); // copy, no release
 	dev->GetVertexShader(&_d3dRenderState.vertexShader); // release not in docs?
 	dev->GetPixelShader(&_d3dRenderState.pixelShader); // release not in docs?
@@ -387,8 +415,9 @@ void RenderState::restoreRenderState(IDirect3DDevice9* dev) {
 	dev->SetTransform(D3DTS_WORLD, &_d3dRenderState.World0);
 	dev->SetRenderState(D3DRS_LIGHTING, _d3dRenderState.LightingEnabled);
 	dev->SetRenderState(D3DRS_ALPHABLENDENABLE, _d3dRenderState.AlphaBlendEnabled);
-	dev->SetTexture(0, _d3dRenderState.texture0);
-	dev->SetTexture(1, _d3dRenderState.texture1);
+	for (Uint32 i = 0; i < MaxModTextures; ++i) {
+		dev->SetTexture(i, _d3dRenderState.texture[i]); 
+	}
 	dev->SetTextureStageState(1, D3DTSS_COLOROP, _d3dRenderState.texture1ColoropState);
 	dev->SetVertexShader(_d3dRenderState.vertexShader);
 	dev->SetPixelShader(_d3dRenderState.pixelShader);

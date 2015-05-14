@@ -260,8 +260,13 @@ module MeshUtil =
             BinaryVertexData = None
             AppliedPositionTransforms = postransforms.ToArray()
             AppliedUVTransforms = uvtransforms.ToArray()
-            TexturePath = None // ignored on load
             AnnotatedVertexGroups = groupsForVertex
+            // When reading a mesh, we don't read a mtl file, so override texture paths must currently come from the yaml file.
+            // (by default we assume that a mod doesn't want to change the texture)
+            Tex0Path = ""
+            Tex1Path = ""
+            Tex2Path = ""
+            Tex3Path = ""
         }
 
         ret
@@ -276,15 +281,17 @@ map_Kd $$filename
         let writeln x =
             lines.Add x
     
-        match md.TexturePath with
-        | None -> ()
-        | Some p -> 
+        // currently we only write materials for texture 0
+        match md.Tex0Path.Trim() with
+        | "" -> ()
+        | p -> 
             let dir = Path.GetDirectoryName(outpath)
             let file = Path.GetFileNameWithoutExtension(outpath) + ".mtl"
             // omit dir to use same directory as obj for mlt and texture file (makes files easily movable)
             writeln ("mtllib " + file)
             let fileDat = MaterialFileTemplate.Replace("$$filename", p) 
             File.WriteAllText(Path.Combine(dir,file), fileDat)
+        
             
         writeln "o MMSnapshot"
 

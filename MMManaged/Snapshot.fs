@@ -299,7 +299,9 @@ module Snapshot =
 
                     let xforms = map |> Map.tryFind profileKey
                     match xforms with 
-                    | None -> []
+                    | None -> 
+                        log.Warn "No transforms found for profile: %A" profileKey
+                        []
                     | Some xforms -> 
                         log.Info "applying transforms: %A" xforms
                         xforms
@@ -312,8 +314,8 @@ module Snapshot =
             // use the first texture (if available) as the mesh material
             let matPath = 
                 match texturePaths with
-                | [] -> None
-                | (x::xs) -> Some(fst x)
+                | [] -> ""
+                | (x::xs) -> fst x
 
             let mesh = { 
                 Mesh.Type = Reference
@@ -327,7 +329,10 @@ module Snapshot =
                 BinaryVertexData = None
                 AppliedPositionTransforms = Array.ofList appliedPosTransforms
                 AppliedUVTransforms = Array.ofList appliedUVTransforms
-                TexturePath = matPath
+                Tex0Path = matPath
+                Tex1Path = ""
+                Tex2Path = ""
+                Tex3Path = ""
                 AnnotatedVertexGroups = [||]
             }
 

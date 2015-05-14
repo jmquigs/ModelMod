@@ -507,6 +507,11 @@ public:
 				_dev->SetVertexDeclaration(mod->decl);
 				_dev->SetStreamSource(0, mod->vb, 0, mod->modData.vertSizeBytes);
 				_dev->SetIndices(NULL);
+				for (Uint32 i = 0; i < MaxModTextures; ++i) {
+					if (mod->texture[i]) {
+						_dev->SetTexture(i, mod->texture[i]);
+					}
+				}
 				_dev->DrawPrimitive((D3DPRIMITIVETYPE)mod->modData.primType, 0, mod->modData.primCount);
 				_hookRenderState.restoreRenderState(this);
 			}

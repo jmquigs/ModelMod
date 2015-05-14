@@ -28,8 +28,7 @@ struct D3DRenderState {
 	StreamData Streams[1];
 	IDirect3DVertexDeclaration9* V_Decl;
 	IDirect3DIndexBuffer9* pIndexData;
-	IDirect3DBaseTexture9* texture0;
-	IDirect3DBaseTexture9* texture1;
+	IDirect3DBaseTexture9* texture[MaxModTextures];
 	IDirect3DVertexShader9* vertexShader;
 	IDirect3DPixelShader9* pixelShader;
 
@@ -45,8 +44,8 @@ struct D3DRenderState {
 	D3DRenderState() {
 		V_Decl = NULL;
 		pIndexData = NULL;
-		texture0 = NULL;
-		texture1 = NULL;
+		for (Uint32 i = 0; i < MaxModTextures; ++i)
+			texture[i] = NULL;
 		Streams[0].pStreamData = NULL;
 		vertexShader = NULL;
 		pixelShader = NULL;
@@ -57,8 +56,8 @@ struct D3DRenderState {
 	void reset() {
 		SAFE_RELEASE(V_Decl);
 		SAFE_RELEASE(pIndexData);
-		SAFE_RELEASE(texture0);
-		SAFE_RELEASE(texture1);
+		for (Uint32 i = 0; i < MaxModTextures; ++i)
+			SAFE_RELEASE(texture[i]);
 		SAFE_RELEASE(Streams[0].pStreamData);
 		SAFE_RELEASE(vertexShader);
 		SAFE_RELEASE(pixelShader);

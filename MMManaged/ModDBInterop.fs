@@ -117,23 +117,16 @@ module ModDBInterop =
             declSizeBytes = declSizeBytes
             vertSizeBytes = vertSizeBytes
             indexElemSizeBytes = indexElemSizeBytes
+            tex0Path = modm.Tex0Path
+            tex1Path = modm.Tex1Path
+            tex2Path = modm.Tex2Path
+            tex3Path = modm.Tex3Path
         }
        
     let GetModData(i) = 
         // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
         // which does not allow null.  Can't use option type here because native code calls this.
-        let emptyMod = {
-            InteropTypes.ModData.modType = -1
-            primType = 0
-            vertCount = 0
-            primCount = 0
-            indexCount = 0
-            refVertCount = 0
-            refPrimCount = 0
-            declSizeBytes = 0
-            vertSizeBytes = 0
-            indexElemSizeBytes = 0
-        }
+        let emptyMod = InteropTypes.EmptyModData
 
         try
             let moddb = State.Moddb
@@ -154,6 +147,8 @@ module ModDBInterop =
                     let delIdx = (n - moddb.MeshRelations.Length)
                     List.nth moddb.DeletionMods delIdx 
                 | n -> failwith "invalid mod index: %A" i
+
+            //log.Info "Returning mod %A for index %A" ret i
             ret
         with
             | e -> 
