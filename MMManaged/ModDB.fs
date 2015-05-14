@@ -535,6 +535,7 @@ module State =
                 SnapshotProfile = snapProfile
             }
         log.Info "Conf: %A" conf
+        Conf <- conf
         conf
 
     let private initDataDir() =
