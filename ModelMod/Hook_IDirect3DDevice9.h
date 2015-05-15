@@ -12,6 +12,11 @@ using namespace ModelMod;
 //#define D3D_CALL_LOG(s) MM_LOG_INFO(s)
 #define D3D_CALL_LOG(s)
 
+// Its a significant CPU hit to track shader constants, and snapshot doesn't even 
+// write them out at the moment, so its wasted effort.  
+// Can revisit this if and when I decide to implement shader modding.
+#define TRACK_SHADER_CONSTANTS 0
+
 #define MaxActiveStreams 32
 class Hook_IDirect3DDevice9 : public IDirect3DDevice9 {
 	static const string LogCategory;
@@ -599,6 +604,7 @@ public:
 	vector<UINT> _invalidConstants;
 		
 	void _checkShaderConstants(IDirect3DDevice9* dev, UINT StartRegister, FloatConstantMap& vsFloatConstants) {
+#if TRACK_SHADER_CONSTANTS
 		_invalidConstants.clear();
 
 		for (FloatConstantMap::iterator iter = vsFloatConstants.begin(); 
@@ -643,13 +649,14 @@ public:
 				vsFloatConstants[*iter].clear();
 				vsFloatConstants.erase(*iter);
 		}
+#endif
 	}
 
 	STDMETHOD(SetVertexShaderConstantF)(THIS_ UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount) {
 		D3D_CALL_LOG("d3d SetVertexShaderConstantF");
 
 		HRESULT hr = _dev->SetVertexShaderConstantF(StartRegister,pConstantData,Vector4fCount);
-
+#if TRACK_SHADER_CONSTANTS
 		if (SUCCEEDED(hr)) {
 			_hookRenderState.vsFloatConstants[StartRegister].set(pConstantData,Vector4fCount);
 			_checkShaderConstants(this,StartRegister,_hookRenderState.vsFloatConstants);
@@ -657,7 +664,7 @@ public:
 			_hookRenderState.vsFloatConstants[StartRegister].clear();
 			_hookRenderState.vsFloatConstants.erase(StartRegister);
 		}
-
+#endif
 		return hr;
 
 	}
@@ -667,8 +674,9 @@ public:
 	}
 	STDMETHOD(SetVertexShaderConstantI)(THIS_ UINT StartRegister,CONST int* pConstantData,UINT Vector4iCount) {
 		D3D_CALL_LOG("d3d SetVertexShaderConstantI");
+#if TRACK_SHADER_CONSTANTS
 		_hookRenderState.vsIntConstants[StartRegister].set(pConstantData,Vector4iCount);
-
+#endif
 		return _dev->SetVertexShaderConstantI(StartRegister,pConstantData,Vector4iCount);
 	}
 	STDMETHOD(GetVertexShaderConstantI)(THIS_ UINT StartRegister,int* pConstantData,UINT Vector4iCount) {
@@ -677,7 +685,9 @@ public:
 	}
 	STDMETHOD(SetVertexShaderConstantB)(THIS_ UINT StartRegister,CONST BOOL* pConstantData,UINT  BoolCount) {
 		D3D_CALL_LOG("d3d SetVertexShaderConstantB");
+#if TRACK_SHADER_CONSTANTS
 		_hookRenderState.vsBoolConstants[StartRegister].set(pConstantData,BoolCount);
+#endif
 
 		return _dev->SetVertexShaderConstantB(StartRegister,pConstantData,BoolCount);
 	}
@@ -747,6 +757,8 @@ public:
 		D3D_CALL_LOG("d3d SetPixelShaderConstantF");
 		
 		HRESULT hr = _dev->SetPixelShaderConstantF(StartRegister,pConstantData,Vector4fCount);
+
+#if TRACK_SHADER_CONSTANTS
 		if (SUCCEEDED(hr)) {
 			_hookRenderState.psFloatConstants[StartRegister].set(pConstantData,Vector4fCount);
 			_checkShaderConstants(this,StartRegister,_hookRenderState.psFloatConstants);
@@ -754,6 +766,7 @@ public:
 			_hookRenderState.psFloatConstants[StartRegister].clear();
 			_hookRenderState.psFloatConstants.erase(StartRegister);
 		}
+#endif
 		return hr;
 		
 	}
@@ -763,7 +776,9 @@ public:
 	}
 	STDMETHOD(SetPixelShaderConstantI)(THIS_ UINT StartRegister,CONST int* pConstantData,UINT Vector4iCount) {
 		D3D_CALL_LOG("d3d SetPixelShaderConstantI");
+#if TRACK_SHADER_CONSTANTS
 		_hookRenderState.psIntConstants[StartRegister].set(pConstantData,Vector4iCount);
+#endif
 
 		return _dev->SetPixelShaderConstantI(StartRegister,pConstantData,Vector4iCount);
 	}
@@ -773,8 +788,9 @@ public:
 	}
 	STDMETHOD(SetPixelShaderConstantB)(THIS_ UINT StartRegister,CONST BOOL* pConstantData,UINT  BoolCount) {
 		D3D_CALL_LOG("d3d SetPixelShaderConstantB");
+#if TRACK_SHADER_CONSTANTS
 		_hookRenderState.psBoolConstants[StartRegister].set(pConstantData,BoolCount);
-
+#endif
 		return _dev->SetPixelShaderConstantB(StartRegister,pConstantData,BoolCount);
 	}
 	STDMETHOD(GetPixelShaderConstantB)(THIS_ UINT StartRegister,BOOL* pConstantData,UINT BoolCount) {
