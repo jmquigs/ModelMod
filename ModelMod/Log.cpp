@@ -57,8 +57,8 @@ void Log::init(HMODULE callingDll) {
 	_logFilePath = sBaseDir + "\\modelmod." + sExeName + ".log";
 }
 
-void Log::info(string message, string category) {
-	_do_log(Log::LOG_INFO, message,category);
+void Log::info(string message, string category, int cap) {
+	_do_log(Log::LOG_INFO, message,category, cap);
 }
 
 void Log::setCategoryLevel(string category, int level) {
@@ -74,7 +74,25 @@ int Log::getCategoryLevel(string category) {
 		return -1;
 }
 
-void Log::_do_log(int level, string& message, string& category) {
+void Log::_do_log(int level, string& message, string& category, int limit) {
+	if (limit > 0) {
+		int currCount = _limitedMessages[message];
+		currCount++;
+		// lets handle (unlikely) rollover gracefully 
+		if (currCount < 0) {
+			currCount = limit+1;
+		}
+
+		_limitedMessages[message] = currCount;
+
+		if (currCount == limit) {
+			message = message + " (Final message; log limit hit)";
+		}
+		if (currCount > limit) {
+			return;
+		}
+	}
+
 	int catLevel = getCategoryLevel(category);
 	if (catLevel != -1 && level < catLevel)
 		return;

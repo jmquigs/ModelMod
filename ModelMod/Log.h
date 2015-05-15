@@ -21,6 +21,7 @@ class Log {
 
 	int _level;
 	map<string,int> _categoryLevel;
+	map<string, int> _limitedMessages;
 
 	bool _outputDebug;
 	bool _outputFile;
@@ -45,7 +46,7 @@ public:
 	static Log& get();
 
 	void init(HMODULE callingDll);
-	void info(string message, string category);
+	void info(string message, string category, int limit=0);
 
 	void setCategoryLevel(string category, int level);
 
@@ -53,7 +54,7 @@ public:
 
 private:
 	
-	void _do_log(int level, string& message, string& category);
+	void _do_log(int level, string& message, string& category, int limit);
 
 	void _output_debug_string(string& msg);
 	void _output_file_string(string& msg);
@@ -64,6 +65,7 @@ private:
 // since the code will be compiled-out if the macros are disabled.
 #define MODELMOD_ENABLE_LOGGING_MACROS
 #ifdef MODELMOD_ENABLE_LOGGING_MACROS
+#define MM_LOG_INFO_LIMIT(msg,n) ModelMod::Log::get().info(msg,LogCategory,n);
 #define MM_LOG_INFO(m) ModelMod::Log::get().info(m,LogCategory)
 #define MM_LOG_INFO_CAT(m,c) ModelMod::Log::get().info(m,c)
 #else
