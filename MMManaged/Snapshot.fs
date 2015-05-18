@@ -337,7 +337,7 @@ module Snapshot =
             }
 
             // apply tranforms
-            let mesh = ModDB.applyMeshTransforms appliedPosTransforms appliedUVTransforms mesh
+            let mesh = MeshTransform.applyMeshTransforms appliedPosTransforms appliedUVTransforms mesh
 
             // write mesh
             let meshfile = sprintf "%s.mmobj" sbasename 

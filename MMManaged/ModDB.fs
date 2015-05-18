@@ -75,57 +75,12 @@ module ModDB =
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.getRequiredString |> List.ofSeq
 
-    // Apply the list of named transforms to the specified mesh.  The invokeBuilder function allows you 
-    // to change the order in which they are applied.  
-    // NOTE: this implementation has some good points, but I'm sure it could be done more simply.
-    let private applyMeshTransformsInternal (xforms:string list) (invokeBuilder) (mesh:Mesh) =
-        if List.length xforms = 0 then
-            mesh
-        else
-            // helper function to allow the mesh to be passed to parseXformFunc
-            let getMeshXformFunc xname = MeshTransform.parseVec3XformFunc false mesh xname
-
-            // convert all the names (and arguments) into functions
-            let funcs = xforms |> List.map getMeshXformFunc
-            // reduce to apply the functions in order with a single function
-            let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
-
-            let mesh = MeshUtil.ApplyPositionTransformation compositeTransform mesh
-
-            // also need to do normals
-            let getMeshXformFunc xname = MeshTransform.parseVec3XformFunc true mesh xname
-            let funcs = xforms |> List.map getMeshXformFunc
-            let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
-            let mesh = MeshUtil.ApplyNormalTransformation compositeTransform mesh
-            mesh
-
-    let private applyUVTransformsInternal (uv_xforms:string list) (invokeBuilder) (mesh:Mesh) =
-        if List.length uv_xforms = 0 then
-            mesh
-        else
-            let getMeshXformFunc xname = MeshTransform.parseVec2XformFunc false mesh xname
-            let funcs = uv_xforms |> List.map getMeshXformFunc
-            let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
-
-            let mesh = MeshUtil.ApplyUVTransformation compositeTransform mesh
-            mesh
-
-    let applyMeshTransforms (xforms:string list) (uv_xforms:string list) (mesh:Mesh) = 
-        let mesh = applyMeshTransformsInternal xforms MeshTransform.buildInvocation mesh 
-        let mesh = applyUVTransformsInternal uv_xforms MeshTransform.buildInvocation mesh 
-        mesh
-
-    let reverseMeshTransforms (xforms:string list) (uv_xforms:string list) (mesh:Mesh) = 
-        let mesh = applyMeshTransformsInternal (List.rev xforms) MeshTransform.buildReverseInvocation mesh 
-        let mesh = applyUVTransformsInternal (List.rev uv_xforms) MeshTransform.buildReverseInvocation mesh 
-        mesh
-
     let loadUntransformedMesh(path,(meshType:MeshType)) = MeshUtil.ReadFrom(path, meshType)
 
     let loadAndTransformMesh(path,(meshType:MeshType)) = 
         let mesh = loadUntransformedMesh(path, meshType)
         if mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0 then
-            let mesh = reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh 
+            let mesh = MeshTransform.reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh 
             // clear out applied transforms, since they have been reversed.
             { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
         else
