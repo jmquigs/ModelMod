@@ -322,14 +322,19 @@ module Wizapp =
         ms.profBtnExeBrowse.Click.Add(fun (evArgs) ->
             if isProfileSelected() then
                 let oldLabel = profileLabelFromPath(ms.profTBExePath.Text)
+                let oldPathValid = File.Exists(ms.profTBExePath.Text)
+
                 let resExe = selectExecutableDialog(ms)
-                match resExe with
-                | Some exePath when File.Exists(exePath) -> 
+                match resExe,oldPathValid with
+                | Some exePath,_ when File.Exists(exePath) -> 
                     updateLabel(oldLabel,exePath)
                     // TODO: this shouldn't be a textbox; must always be a valid exe, therefore only settable via
                     // browse button
                     ms.profTBExePath.Text <- exePath 
-                | _ -> 
+                | _,true ->
+                    // no new selection, but old selection still valid, so don't change it
+                    () 
+                | _,false -> 
                     updateLabel(oldLabel,"")
                     ms.profTBExePath.Text <- ""
             else
