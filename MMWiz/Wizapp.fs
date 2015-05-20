@@ -12,15 +12,20 @@ type WizappState = {
     SnapshotRoot: string
     PreviewProcess: Process option
     SelectedSourceFile: string option
-    MainScreenForm: WizUI.MainScreen option
+    MainScreenForm: WizUI.MainScreen 
     CreateModForm:  WizUI.MakeModForm option
+}
+
+type Profile = {
+    ExePath: string
+    DataPath: string
 }
 
 module Wizapp =
     let private state = 
         ref 
             ({
-                MainScreenForm = None
+                MainScreenForm = new WizUI.MainScreen() //we'll replace this with the real thing later
                 CreateModForm = None
                 ModRoot = ""
                 SnapshotRoot = ""
@@ -46,6 +51,8 @@ module Wizapp =
     let errDialog (s:string) = MessageBox.Show(s, "ER-ROAR") |> ignore
 
     let okDialog (s:string) = MessageBox.Show(s, "Click OK") |> ignore
+
+    let uiFail(s:string) = MessageBox.Show("A UI failure has occurred, please report this bug: " + s, "Oops") |> ignore
 
     let terminatePreviewProcess() = 
         match state.Value.PreviewProcess with 
@@ -255,6 +262,36 @@ module Wizapp =
 
         frm
 
+    let selectExecutableDialog(form:Form) = 
+        let dlg = new OpenFileDialog()
+
+        //dlg.InitialDirectory <- state.Value.SnapshotRoot
+
+        dlg.Filter <- "Executable files (*.exe)|*.exe"
+        dlg.FilterIndex <- 0
+        dlg.RestoreDirectory <- true
+
+        let res = dlg.ShowDialog() 
+        match res with 
+        | DialogResult.OK ->
+            Some (dlg.FileName)
+        | _ -> 
+            None
+
+    let pendingProfileName = "New Profile"
+
+    let profileLabelFromPath (path:string) =
+        let path = path.Trim()
+        match path with 
+        | "" -> pendingProfileName
+        | p -> Path.GetFileNameWithoutExtension(p)
+        
+    let updateLabel (oldLabel,exePath) = 
+            let idx = state.Value.MainScreenForm.lbProfiles.Items.IndexOf(oldLabel)
+            state.Value.MainScreenForm.lbProfiles.Items.[idx] <- profileLabelFromPath(exePath)
+
+    let isProfileSelected() = state.Value.MainScreenForm.lbProfiles.SelectedItem <> null
+
     let initMainScreen() =
         let ms = new WizUI.MainScreen()
         ms.btnCreateMod.Click.Add(fun (evArgs) ->
@@ -266,9 +303,43 @@ module Wizapp =
             frm.Show(ms)
         )
 
+        ms.btnNewProfile.Click.Add(fun (evArgs) ->
+            // make sure current profile is valid before doing this
+            let exePath = ms.profTBExePath.Text.Trim()
+            let exeExists = File.Exists exePath
+
+            let hasProfiles = ms.lbProfiles.Items.Count > 0
+
+            if hasProfiles && (not exeExists) then
+                errDialog("Current profile has an invalid executable path; please fix or delete the profile")
+            else
+                let newLbl = ms.lbProfiles.Items.Add(pendingProfileName) 
+                ms.lbProfiles.SelectedIndex <- newLbl
+                ms.profTBExePath.Text <- ""
+                ms.probTBModsPath.Text <- "" //TODO build from global default and exe path
+        )
+
+        ms.profBtnExeBrowse.Click.Add(fun (evArgs) ->
+            if isProfileSelected() then
+                let oldLabel = profileLabelFromPath(ms.profTBExePath.Text)
+                let resExe = selectExecutableDialog(ms)
+                match resExe with
+                | Some exePath when File.Exists(exePath) -> 
+                    updateLabel(oldLabel,exePath)
+                    // TODO: this shouldn't be a textbox; must always be a valid exe, therefore only settable via
+                    // browse button
+                    ms.profTBExePath.Text <- exePath 
+                | _ -> 
+                    updateLabel(oldLabel,"")
+                    ms.profTBExePath.Text <- ""
+            else
+                errDialog("Please select a profile or create a new one")
+        )
+
         let updateSelectedProfile() = 
             // TODO: btn create mod should be here too; do this after I've added the profile logic
-            let requireActive = [ms.btnStartPlayback; ms.btnStartSnap; ms.btnDeleteProfile]
+            // TODO: ms.profBtnExeBrowse should only be enabled if at least one profile is present and selected
+            let requireActive = [ms.btnStartPlayback; ms.btnStartSnap; ms.btnDeleteProfile; ]
 
             match ms.lbProfiles.SelectedItem with 
             | null -> 
@@ -279,7 +350,7 @@ module Wizapp =
 
         updateSelectedProfile()
 
-        updateState { state.Value with MainScreenForm = Some ms }
+        updateState { state.Value with MainScreenForm = ms }
         ms
 
 //    let stuff() = 

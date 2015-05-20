@@ -34,14 +34,14 @@
             this.btnNewProfile = new System.Windows.Forms.Button();
             this.tabControl1 = new System.Windows.Forms.TabControl();
             this.tabSettings = new System.Windows.Forms.TabPage();
+            this.probTBModsPath = new System.Windows.Forms.TextBox();
+            this.label2 = new System.Windows.Forms.Label();
+            this.profBtnExeBrowse = new System.Windows.Forms.Button();
+            this.profTBExePath = new System.Windows.Forms.TextBox();
+            this.label1 = new System.Windows.Forms.Label();
             this.tabMods = new System.Windows.Forms.TabPage();
             this.tabLogs = new System.Windows.Forms.TabPage();
             this.btnDeleteProfile = new System.Windows.Forms.Button();
-            this.label1 = new System.Windows.Forms.Label();
-            this.profTBExePath = new System.Windows.Forms.TextBox();
-            this.profBtnBrowse = new System.Windows.Forms.Button();
-            this.label2 = new System.Windows.Forms.Label();
-            this.probTBModsPath = new System.Windows.Forms.TextBox();
             this.btnCreateMod = new System.Windows.Forms.Button();
             this.tabControl1.SuspendLayout();
             this.tabSettings.SuspendLayout();
@@ -98,7 +98,7 @@
             // 
             this.tabSettings.Controls.Add(this.probTBModsPath);
             this.tabSettings.Controls.Add(this.label2);
-            this.tabSettings.Controls.Add(this.profBtnBrowse);
+            this.tabSettings.Controls.Add(this.profBtnExeBrowse);
             this.tabSettings.Controls.Add(this.profTBExePath);
             this.tabSettings.Controls.Add(this.label1);
             this.tabSettings.Location = new System.Drawing.Point(4, 22);
@@ -108,6 +108,47 @@
             this.tabSettings.TabIndex = 0;
             this.tabSettings.Text = "Settings";
             this.tabSettings.UseVisualStyleBackColor = true;
+            // 
+            // probTBModsPath
+            // 
+            this.probTBModsPath.Location = new System.Drawing.Point(10, 67);
+            this.probTBModsPath.Name = "probTBModsPath";
+            this.probTBModsPath.Size = new System.Drawing.Size(461, 20);
+            this.probTBModsPath.TabIndex = 4;
+            // 
+            // label2
+            // 
+            this.label2.AutoSize = true;
+            this.label2.Location = new System.Drawing.Point(10, 50);
+            this.label2.Name = "label2";
+            this.label2.Size = new System.Drawing.Size(61, 13);
+            this.label2.TabIndex = 3;
+            this.label2.Text = "Mods Path:";
+            // 
+            // profBtnExeBrowse
+            // 
+            this.profBtnExeBrowse.Location = new System.Drawing.Point(477, 20);
+            this.profBtnExeBrowse.Name = "profBtnExeBrowse";
+            this.profBtnExeBrowse.Size = new System.Drawing.Size(120, 23);
+            this.profBtnExeBrowse.TabIndex = 2;
+            this.profBtnExeBrowse.Text = "Browse...";
+            this.profBtnExeBrowse.UseVisualStyleBackColor = true;
+            // 
+            // profTBExePath
+            // 
+            this.profTBExePath.Location = new System.Drawing.Point(10, 23);
+            this.profTBExePath.Name = "profTBExePath";
+            this.profTBExePath.Size = new System.Drawing.Size(461, 20);
+            this.profTBExePath.TabIndex = 1;
+            // 
+            // label1
+            // 
+            this.label1.AutoSize = true;
+            this.label1.Location = new System.Drawing.Point(7, 7);
+            this.label1.Name = "label1";
+            this.label1.Size = new System.Drawing.Size(88, 13);
+            this.label1.TabIndex = 0;
+            this.label1.Text = "Executable Path:";
             // 
             // tabMods
             // 
@@ -138,47 +179,6 @@
             this.btnDeleteProfile.TabIndex = 5;
             this.btnDeleteProfile.Text = "Delete Profile";
             this.btnDeleteProfile.UseVisualStyleBackColor = true;
-            // 
-            // label1
-            // 
-            this.label1.AutoSize = true;
-            this.label1.Location = new System.Drawing.Point(7, 7);
-            this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(88, 13);
-            this.label1.TabIndex = 0;
-            this.label1.Text = "Executable Path:";
-            // 
-            // profTBExePath
-            // 
-            this.profTBExePath.Location = new System.Drawing.Point(10, 23);
-            this.profTBExePath.Name = "profTBExePath";
-            this.profTBExePath.Size = new System.Drawing.Size(461, 20);
-            this.profTBExePath.TabIndex = 1;
-            // 
-            // profBtnBrowse
-            // 
-            this.profBtnBrowse.Location = new System.Drawing.Point(477, 20);
-            this.profBtnBrowse.Name = "profBtnBrowse";
-            this.profBtnBrowse.Size = new System.Drawing.Size(120, 23);
-            this.profBtnBrowse.TabIndex = 2;
-            this.profBtnBrowse.Text = "Browse...";
-            this.profBtnBrowse.UseVisualStyleBackColor = true;
-            // 
-            // label2
-            // 
-            this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(10, 50);
-            this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(61, 13);
-            this.label2.TabIndex = 3;
-            this.label2.Text = "Mods Path:";
-            // 
-            // probTBModsPath
-            // 
-            this.probTBModsPath.Location = new System.Drawing.Point(10, 67);
-            this.probTBModsPath.Name = "probTBModsPath";
-            this.probTBModsPath.Size = new System.Drawing.Size(461, 20);
-            this.probTBModsPath.TabIndex = 4;
             // 
             // btnCreateMod
             // 
@@ -215,15 +215,15 @@
         public System.Windows.Forms.ListBox lbProfiles;
         public System.Windows.Forms.Button btnStartSnap;
         public System.Windows.Forms.Button btnStartPlayback;
-        private System.Windows.Forms.Button btnNewProfile;
+        public System.Windows.Forms.Button btnNewProfile;
         private System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.TabPage tabSettings;
         private System.Windows.Forms.TabPage tabMods;
         private System.Windows.Forms.TabPage tabLogs;
-        private System.Windows.Forms.TextBox probTBModsPath;
+        public System.Windows.Forms.TextBox probTBModsPath;
         private System.Windows.Forms.Label label2;
-        private System.Windows.Forms.Button profBtnBrowse;
-        private System.Windows.Forms.TextBox profTBExePath;
+        public System.Windows.Forms.Button profBtnExeBrowse;
+        public System.Windows.Forms.TextBox profTBExePath;
         private System.Windows.Forms.Label label1;
         public System.Windows.Forms.Button btnDeleteProfile;
         public System.Windows.Forms.Button btnCreateMod;
