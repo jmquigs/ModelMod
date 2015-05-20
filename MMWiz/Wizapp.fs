@@ -12,6 +12,7 @@ type WizappState = {
     SnapshotRoot: string
     PreviewProcess: Process option
     SelectedSourceFile: string option
+    MainScreenForm: WizUI.MainScreen option
     CreateModForm:  WizUI.MakeModForm option
 }
 
@@ -19,6 +20,7 @@ module Wizapp =
     let private state = 
         ref 
             ({
+                MainScreenForm = None
                 CreateModForm = None
                 ModRoot = ""
                 SnapshotRoot = ""
@@ -263,6 +265,21 @@ module Wizapp =
             updateState { state.Value with CreateModForm = Some frm }
             frm.Show(ms)
         )
+
+        let updateSelectedProfile() = 
+            // TODO: btn create mod should be here too; do this after I've added the profile logic
+            let requireActive = [ms.btnStartPlayback; ms.btnStartSnap; ms.btnDeleteProfile]
+
+            match ms.lbProfiles.SelectedItem with 
+            | null -> 
+                requireActive |> List.iter (fun ctrl -> ctrl.Enabled <- false)
+            | profile -> 
+                requireActive |> List.iter (fun ctrl -> ctrl.Enabled <- true)
+            ()
+
+        updateSelectedProfile()
+
+        updateState { state.Value with MainScreenForm = Some ms }
         ms
 
 //    let stuff() = 

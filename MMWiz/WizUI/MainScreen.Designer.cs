@@ -212,9 +212,9 @@
 
         #endregion
 
-        private System.Windows.Forms.ListBox lbProfiles;
-        private System.Windows.Forms.Button btnStartSnap;
-        private System.Windows.Forms.Button btnStartPlayback;
+        public System.Windows.Forms.ListBox lbProfiles;
+        public System.Windows.Forms.Button btnStartSnap;
+        public System.Windows.Forms.Button btnStartPlayback;
         private System.Windows.Forms.Button btnNewProfile;
         private System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.TabPage tabSettings;
@@ -225,7 +225,7 @@
         private System.Windows.Forms.Button profBtnBrowse;
         private System.Windows.Forms.TextBox profTBExePath;
         private System.Windows.Forms.Label label1;
-        private System.Windows.Forms.Button btnDeleteProfile;
+        public System.Windows.Forms.Button btnDeleteProfile;
         public System.Windows.Forms.Button btnCreateMod;
     }
 }
