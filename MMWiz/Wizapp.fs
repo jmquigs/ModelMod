@@ -12,12 +12,14 @@ type WizappState = {
     SnapshotRoot: string
     PreviewProcess: Process option
     SelectedSourceFile: string option
+    CreateModForm:  WizUI.MakeModForm option
 }
 
 module Wizapp =
     let private state = 
         ref 
             ({
+                CreateModForm = None
                 ModRoot = ""
                 SnapshotRoot = ""
                 PreviewProcess = None
@@ -251,9 +253,17 @@ module Wizapp =
 
         frm
 
-    let showForm() = 
-        let frm = initMakeModForm()
-        frm
+    let initMainScreen() =
+        let ms = new WizUI.MainScreen()
+        ms.btnCreateMod.Click.Add(fun (evArgs) ->
+            match state.Value.CreateModForm with 
+            | None -> ()
+            | Some form -> form.Close()
+            let frm = initMakeModForm()
+            updateState { state.Value with CreateModForm = Some frm }
+            frm.Show(ms)
+        )
+        ms
 
 //    let stuff() = 
 //        let sr = new Serializer()

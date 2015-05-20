@@ -8,5 +8,5 @@ open System
 let main argv = 
     System.Windows.Forms.Application.ApplicationExit.Add (fun evArgs -> 
         MMWiz.Wizapp.terminatePreviewProcess())
-    System.Windows.Forms.Application.Run( MMWiz.Wizapp.showForm() )
+    System.Windows.Forms.Application.Run( MMWiz.Wizapp.initMainScreen() )
     0 // return an integer exit code
