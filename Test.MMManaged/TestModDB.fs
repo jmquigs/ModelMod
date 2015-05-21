@@ -30,8 +30,7 @@ let ``ModDB: load mod db``() =
     // check ref mesh, a few properties at least
     let refMesh = mref.Mesh
     Check.QuickThrowOnFailure (refMesh.Positions.Length = 8 |@ sprintf "wrong ref mesh vert count: %A" refMesh)
-    // TODO: Bug: this should be 12, but is empty...data or code problem?
-    //Check.QuickThrowOnFailure (refMesh.Triangles.Length = 12 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
+    Check.QuickThrowOnFailure (refMesh.Triangles.Length = 12 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
 
     // check mod
     let mmod = List.head mdb.Mods
@@ -43,6 +42,5 @@ let ``ModDB: load mod db``() =
     // check mod mesh
     let modMesh = Option.get mmod.Mesh
     Check.QuickThrowOnFailure (modMesh.Positions.Length = 24 |@ sprintf "wrong ref mesh vert count: %A" refMesh)
-    // TODO: same bug as above
-    //Check.QuickThrowOnFailure (modMesh.Triangles.Length = 36 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
+    Check.QuickThrowOnFailure (modMesh.Triangles.Length = 36 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
 
