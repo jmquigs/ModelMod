@@ -228,6 +228,9 @@ module MeshUtil =
         ] 
         let triangles = List.toArray triangles
 
+        if triangles.Length = 0 then
+            failwithf "Error load meshing file %s: no faces found; check that normals and texture coordinates are present" filename
+
         // dereference the vertex group annotations for each vertex.  Filter out any empty annotations, so that each vert that has no annotations
         // has an empty list element in the resulting array.
         let groupsForVertex = 
