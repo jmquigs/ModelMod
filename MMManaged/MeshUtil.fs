@@ -10,8 +10,7 @@ open System.Reflection
 open Microsoft.Xna.Framework
 open Microsoft.Xna.Framework.Graphics
 
-open Types
-open ModTypes
+open CoreTypes
 
 type SDXDT = SharpDX.Direct3D9.DeclarationType
 
@@ -63,7 +62,7 @@ module MeshUtil =
         ) face
         sb.ToString()
 
-    let ReadObj(filename,meshType): Mesh =
+    let ReadObj(filename,modType): Mesh =
         //use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
@@ -249,7 +248,7 @@ module MeshUtil =
         log.Info "  %d named vertex groups; %d vertex/group associations " vgnames.Count groupsForVertex.Length
     
         let ret = { 
-            Mesh.Type = meshType
+            Mesh.Type = modType
             Triangles = triangles
             Positions = positions.ToArray()
             UVs = uvs.ToArray()
@@ -383,14 +382,14 @@ map_Kd $$filename
         )
         found <> None
 
-    let ReadFrom(filename,meshType) =
+    let ReadFrom(filename,modType) =
         let ext = Path.GetExtension(filename).ToLower()
         let readFn = 
             match ext with 
             | ".obj" -> ReadObj
             | ".mmobj" -> ReadObj
             | _ -> failwithf "Don't know how to read file type: %s" ext
-        let md = readFn(filename,meshType)
+        let md = readFn(filename,modType)
         md
 
     let WriteTo(filename,mesh:Mesh) = 

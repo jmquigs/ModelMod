@@ -4,7 +4,7 @@ open System.IO
 
 open YamlDotNet.RepresentationModel
 
-open Types
+open CoreTypes
 
 module MMView =
     type WinSettings = {

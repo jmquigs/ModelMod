@@ -54,10 +54,10 @@
     </PostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Types.fs" />
     <Compile Include="Logging.fs" />
     <Compile Include="Util.fs" />
-    <Compile Include="ModTypes.fs" />
+    <Compile Include="CoreTypes.fs" />
+    <Compile Include="InteropTypes.fs" />
     <Compile Include="RegConfig.fs" />
     <Compile Include="MeshUtil.fs" />
     <Compile Include="MeshTransform.fs" />

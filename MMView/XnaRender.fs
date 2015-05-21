@@ -4,7 +4,7 @@ open Microsoft.Xna.Framework
 open Microsoft.Xna.Framework.Graphics
 
 open ModelMod
-open ModelMod.ModTypes
+open ModelMod.CoreTypes
 
 type ObjectRenderData = {
     Effect: BasicEffect;

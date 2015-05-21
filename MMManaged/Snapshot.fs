@@ -5,8 +5,7 @@ open System.Runtime.InteropServices
 
 open SharpDX.Direct3D9 
 
-open Types
-open ModTypes
+open CoreTypes
      
 module Extractors = 
     type SourceReader = BinaryReader

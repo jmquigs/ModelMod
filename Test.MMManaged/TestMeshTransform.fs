@@ -4,22 +4,16 @@ open FsUnit
 open FsCheck
 open NUnit.Framework
 open System.IO
-open System.Reflection
+
 
 open ModelMod
-open ModelMod.Types
+open ModelMod.CoreTypes
 
 let vecEq = Util.veqEqEpsilon 0.000001f
 
-// dig up the monolith
-let tdata = 
-    let asmPath = Assembly.GetExecutingAssembly().CodeBase.Replace("file:///","")
-    let tdata = Path.GetFullPath(Path.Combine(asmPath,@"..\..\..\..\TestData"))
-    tdata
-
 let monolith = 
-    let mpath = Path.Combine(tdata,"monolith.mmobj")
-    MeshUtil.ReadFrom(mpath,ModTypes.GPUReplacement)
+    let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
+    MeshUtil.ReadFrom(mpath,CoreTypes.GPUReplacement)
 
 [<Test>]
 let ``MeshTransform: rotX``() =

@@ -1,0 +1,5 @@
+Type: Reference
+MeshPath: MonolithRef.mmobj
+VertDeclPath: MonolithRef_VBDecl.dat
+ExpectedPrimCount: 12
+ExpectedVertCount: 8

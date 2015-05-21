@@ -9,8 +9,7 @@ open Microsoft.Xna.Framework.Graphics
 
 open ModelMod
 open ModelMod.MMView
-open ModelMod.ModTypes
-open ModelMod.Types
+open ModelMod.CoreTypes
 
 // TODO:
 // Camera
@@ -105,7 +104,6 @@ type MeshViewApp(conf) as self =
         setModDB moddb
 
         for ref in moddb.References do
-            let ref = ref :> IReference
             addToWorld(XnaRender.MakeMesh(self.GraphicsDevice, ref.Mesh))
             
     override m.UnloadContent() =

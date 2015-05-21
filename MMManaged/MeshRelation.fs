@@ -5,8 +5,7 @@ open System.IO
 
 open Microsoft.Xna.Framework
 
-open Types
-open ModTypes
+open CoreTypes
 
 module MeshRelation =
     let private log = Logging.GetLogger("MeshRelation")
@@ -29,7 +28,7 @@ module MeshRelation =
         CpuSkinningData: CPUSkinningData option
     }
 
-    type MeshRelation(md:IMod, ref:IReference) =
+    type MeshRelation(md:DBMod, ref:DBReference) =
         let sw = new Util.StopwatchTracker("MeshRel:" + md.Name + "/" + ref.Name)
         let modMesh = 
             match md.Mesh with 

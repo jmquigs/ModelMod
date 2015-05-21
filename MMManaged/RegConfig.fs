@@ -4,8 +4,6 @@ namespace ModelMod
 
 open Microsoft.Win32
 
-open Types
-
 module RegKeys = 
     let DocRoot = "DocRoot"
     let ProfRunModeFull = "RunModeFull"
@@ -26,7 +24,7 @@ module RegConfig =
     let GetExeHash (exePath:string):string =
         string (exePath.ToUpperInvariant().GetHashCode())
 
-    let Load (exePath:string):Types.RunConfig = 
+    let Load (exePath:string):CoreTypes.RunConfig = 
         let exehash = GetExeHash exePath
         let profRoot = mmRoot + "\\Profiles\\" + exehash
 
@@ -36,7 +34,7 @@ module RegConfig =
         log.Info "Searching for configuration data under key %A for executable %A" profRoot exePath
 
         { 
-            RunConfig.DocRoot = Regget(mmRoot,RegKeys.DocRoot,"") :?> string
+            CoreTypes.RunConfig.DocRoot = Regget(mmRoot,RegKeys.DocRoot,"") :?> string
             RunModeFull = dwordAsBool ( Regget(profRoot,RegKeys.ProfRunModeFull, 1) :?> int )
             InputProfile = Regget(profRoot,RegKeys.ProfInputProfile, "") :?> string
             SnapshotProfile = Regget(profRoot,RegKeys.ProfSnapshotProfile, "") :?> string

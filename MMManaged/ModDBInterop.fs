@@ -4,7 +4,7 @@ open System.IO
 
 open Microsoft.Xna.Framework
 
-open ModTypes
+open CoreTypes
 open InteropTypes
 
 module ModDBInterop =
@@ -12,8 +12,8 @@ module ModDBInterop =
 
     let SetPaths (mmDllPath:string) (exeModule:string) =
         let ret = {
-            InputProfile = Types.DefaultRunConfig.InputProfile
-            RunModeFull = Types.DefaultRunConfig.RunModeFull
+            InputProfile = CoreTypes.DefaultRunConfig.InputProfile
+            RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
         }
         try
             // check for valid paths

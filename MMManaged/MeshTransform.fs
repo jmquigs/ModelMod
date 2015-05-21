@@ -4,7 +4,7 @@ open System
 
 open Microsoft.Xna.Framework
 
-open ModTypes
+open CoreTypes
 
 module MeshTransform = 
     let log = Logging.GetLogger("MeshTransform")
