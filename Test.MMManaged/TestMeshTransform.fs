@@ -16,14 +16,14 @@ let monolith =
     MeshUtil.ReadFrom(mpath,CoreTypes.GPUReplacement)
 
 [<Test>]
-let ``MeshTransform: rotX``() =
+let ``MeshTransform: basic rotation``() =
     let v = new Vec3F(0.f,1.f,0.f)
     let res = MeshTransform.rotX false 90.f v
     let ex = Vec3F(0.f, 0.f, 1.f)
     Check.QuickThrowOnFailure (vecEq res ex |@ sprintf "rotX: %A %A" res ex)
 
 [<Test>]
-let ``MeshTransform: Go ape with the monolith``() =
+let ``MeshTransform: go ape with the monolith``() =
     // this test is too big, but it does exercise the majority of the transforming code, at least
     let nm = monolith |> MeshTransform.applyMeshTransforms ["rot x 90"; "rot z 45"; "scale 0.5"] [] 
 
