@@ -37,8 +37,13 @@ let ``ModDB: load mod db``() =
     Check.QuickThrowOnFailure (mmod.Name = "MonolithMod" |@ sprintf "wrong mod name: %A" mmod)
     Check.QuickThrowOnFailure (mmod.RefName = Some("MonolithRef") |@ sprintf "wrong mod ref name: %A" mmod)
     Check.QuickThrowOnFailure (mmod.Ref = Some(mref) |@ sprintf "wrong mod ref: %A" mmod)
-    Check.QuickThrowOnFailure (mmod.Attributes = EmptyModAttributes |@ sprintf "wrong mod attributes: %A" mmod)
     Check.QuickThrowOnFailure (mmod.Mesh <> None |@ sprintf "wrong mod mesh: %A" mmod)
+    let delGeometry = [ { PrimCount = 123; VertCount = 456 }; { PrimCount = 867; VertCount = 5309 }; ]
+    let attributes = {
+        DeletedGeometry = delGeometry
+    }
+    Check.QuickThrowOnFailure (mmod.Attributes = attributes |@ sprintf "wrong mod attributes: expected %A, got %A" attributes mmod.Attributes)
+    
     // check mod mesh
     let modMesh = Option.get mmod.Mesh
     Check.QuickThrowOnFailure (modMesh.Positions.Length = 24 |@ sprintf "wrong ref mesh vert count: %A" refMesh)

@@ -23,8 +23,7 @@ module ModDB =
         | Some s -> Some (s.ToLower())
         | _ -> None
 
-    let (|StringValue|_|) node = Yaml.getScalar node
-    let (|StringValueLower|_|) node = Yaml.getScalar node |> strToLower
+    let (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
     let loadMesh(path,(modType:ModType)) = MeshUtil.ReadFrom(path, modType)       
 
@@ -52,10 +51,10 @@ module ModDB =
         member x.DeletionMods = deletionMods
 
     let getMeshTransforms (node:YamlMappingNode) =
-        let transforms = Yaml.getOptionalValue node "transforms" |> Yaml.getSequence
+        let transforms = node |> Yaml.getOptionalValue "transforms" |> Yaml.toOptionalSequence
         match transforms with
         | None -> []
-        | Some xforms -> xforms |> Seq.map Yaml.getRequiredString |> List.ofSeq
+        | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
     let loadUntransformedMesh(path,(modType:ModType)) = MeshUtil.ReadFrom(path, modType)
 
@@ -79,11 +78,11 @@ module ModDB =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
-        let refName = Yaml.getOptionalValue node "ref" |> Yaml.getOptionalString
+        let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
 
         let mesh,attrs =
             // TODO: should also support "modtype" here
-            let sType = (Yaml.getRequiredValue node "meshtype" |> Yaml.getString).ToLower().Trim()
+            let sType = (node |> Yaml.getValue "meshtype" |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
             match modType with
             | ModType.Reference -> failwithf "Illegal mod mesh: type is set to reference: %A" node
@@ -100,16 +99,17 @@ module ModDB =
             | (ModType.CPUReplacement, _) 
             | (ModType.GPUReplacement, _) -> ()
 
-            let delGeometry = Yaml.getOptionalValue node "delGeometry" |> Yaml.getSequence
+            let delGeometry = node |> Yaml.getOptionalValue "delGeometry" |> Yaml.toOptionalSequence
             let delGeometry = 
                 match delGeometry with
                 | None -> []
                 | Some delSeq -> 
                     [ for c in delSeq.Children do
+                        let node = Yaml.toMapping "expected an object for delGeometry element" c
+
                         yield { 
-                            // TODO: omg the yaml interface is so bad
-                            GeomDeletion.PrimCount = Yaml.getRequiredValue (Yaml.getRequiredMapping "expected an object for field type 'pc'" (Some c)) "pc" |> Option.get |> Yaml.getRequiredInt
-                            GeomDeletion.VertCount = Yaml.getRequiredValue (Yaml.getRequiredMapping "expected an object for field type 'vc'" (Some c)) "vc" |> Option.get |> Yaml.getRequiredInt
+                            GeomDeletion.PrimCount = node |> Yaml.getValue "pc" |> Yaml.toInt
+                            GeomDeletion.VertCount = node |> Yaml.getValue "vc" |> Yaml.toInt
                         }
                     ]
 
@@ -120,7 +120,7 @@ module ModDB =
                 | ModType.Reference 
                 | ModType.CPUReplacement
                 | ModType.GPUReplacement ->     
-                    let meshPath = Yaml.getRequiredValue node "meshPath" |> Yaml.getString
+                    let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
                     Some (loadAndTransformMesh (Path.Combine(basePath, meshPath),modType))
 
@@ -140,13 +140,13 @@ module ModDB =
                         | path when Path.IsPathRooted path -> path
                         | _ -> Path.GetFullPath(Path.Combine(basePath,path))
 
-                    let unpack = Yaml.getOptionalString >> useEmptyStringForMissing >> makeAbsolute
+                    let unpack = Yaml.toOptionalString >> useEmptyStringForMissing >> makeAbsolute
 
                     Some({ m with 
-                            Tex0Path = Yaml.getOptionalValue node "Tex0Path" |> unpack
-                            Tex1Path = Yaml.getOptionalValue node "Tex1Path" |> unpack
-                            Tex2Path = Yaml.getOptionalValue node "Tex2Path" |> unpack
-                            Tex3Path = Yaml.getOptionalValue node "Tex3Path" |> unpack
+                            Tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpack
+                            Tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpack
+                            Tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpack
+                            Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpack
                     })
 
             mesh,attrs
@@ -227,16 +227,16 @@ module ModDB =
         let basePath = Path.GetDirectoryName filename
         let refName = Path.GetFileNameWithoutExtension filename
 
-        let meshPath = Yaml.getRequiredValue node "meshpath" |> Yaml.getString
+        let meshPath = node |> Yaml.getValue "meshpath" |> Yaml.toString
         let mesh = loadAndTransformMesh (Path.Combine(basePath, meshPath),ModType.Reference)
 
         // load vertex elements (binary)
         let binVertDeclPath = 
-            let nval = Yaml.getOptionalValue node "VertDeclPath" 
+            let nval = node |> Yaml.getOptionalValue "VertDeclPath" 
             match nval with 
             // try alternate name if not found
-            | None -> Yaml.getOptionalValue node "rawMeshVertDeclPath" |> Yaml.getOptionalString
-            | _ -> nval |> Yaml.getOptionalString
+            | None -> node |> Yaml.getOptionalValue "rawMeshVertDeclPath" |> Yaml.toOptionalString
+            | _ -> nval |> Yaml.toOptionalString
 
         let declData = 
             match binVertDeclPath with
@@ -247,7 +247,7 @@ module ModDB =
                 Some (bytes,elements)
                 
         // load vertex data (binary)
-        let binVertDataPath = Yaml.getOptionalValue node "rawMeshVBPath" |> Yaml.getOptionalString
+        let binVertDataPath = node |> Yaml.getOptionalValue "rawMeshVBPath" |> Yaml.toOptionalString
         let binVertData = 
             match binVertDataPath with
             | None -> None
@@ -273,21 +273,18 @@ module ModDB =
 
         match ext with 
         | ".yaml" ->
-            use input = new StringReader(File.ReadAllText(filename))
-            let yamlStream = new YamlStream()
-            yamlStream.Load(input)
-            let mapping = yamlStream.Documents.Count
+            let docs = Yaml.load filename
             let (objects:ModElement list) = [
-                for d in yamlStream.Documents do
-                    let mapNode = Yaml.getMapping (Some(d.RootNode))
+                for d in docs do
+                    let mapNode = Yaml.toOptionalMapping (Some(d.RootNode))
                     match mapNode with 
                     | Some mapNode -> 
                         // locate type field
-                        let nType = Yaml.getRequiredValue mapNode "type"
-                        match nType.Value with 
-                        | StringValueLower "reference" ->
+                        let nType = mapNode |> Yaml.getValue "type"
+                        match nType with 
+                        | StringValueIgnoreCase "reference" ->
                             yield buildReference mapNode filename 
-                        | StringValueLower "mod" ->
+                        | StringValueIgnoreCase "mod" ->
                             yield buildMod mapNode filename 
                         | _ -> failwithf "Illegal 'type' field in yaml file: %s" filename
             
@@ -315,23 +312,23 @@ module ModDB =
         yamlStream.Load(input)
         let docCount = yamlStream.Documents.Count
         if (docCount <> 1) then failwithf "Too many documents in index file: %A: %d" filename docCount
-        let mapNode = Yaml.getMapping (Some(yamlStream.Documents.[0].RootNode)) |> Option.get
+        let mapNode = Yaml.toOptionalMapping (Some(yamlStream.Documents.[0].RootNode)) |> Option.get
         // type should be "index"
-        let nType = Yaml.getRequiredValue mapNode "type"
+        let nType = mapNode |> Yaml.getValue "type"
 
         let modsToLoad = 
-            match nType.Value with
-            | StringValueLower "index" -> 
+            match nType with
+            | StringValueIgnoreCase "index" -> 
                 // get the mod list
-                let mods = Yaml.getRequiredValue mapNode "mods" |> Yaml.getRequiredSequence "'mods' sequence not found"
+                let mods = mapNode |> Yaml.getValue "mods" |> Yaml.toSequence "'mods' sequence not found"
                 let mods = 
                     mods 
-                    |> Seq.map (fun modnode -> Yaml.getMapping(Some modnode) |> Option.get )
+                    |> Seq.map (fun modnode -> Yaml.toMapping "expected an object for 'mods' element" modnode )
                     |> Seq.filter (fun modMapping ->
-                        let active = Yaml.getOptionalValue modMapping "active" |> Yaml.getOptionalBool true
+                        let active = modMapping |> Yaml.getOptionalValue "active" |> Yaml.toBool true
                         (not activeOnly) || active)
                     |> Seq.map (fun (modMapping) ->
-                        Yaml.getRequiredValue modMapping "name" |> Yaml.getString)
+                        modMapping |> Yaml.getValue "name" |> Yaml.toString)
                     |> List.ofSeq
                 mods
             | _ -> failwith "Expected data with 'type: \"Index\"' in %s"  filename

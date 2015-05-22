@@ -1,45 +1,40 @@
 ﻿namespace ModelMod
 
 open System
+open System.IO
 
 open YamlDotNet.RepresentationModel
 
 module Yaml =
-    let getScalar (node:YamlNode) = 
-        match node with 
-        | :? YamlScalarNode as nodeType -> 
-            Some (nodeType.Value)
-        | _ -> None
+    let load (filename:string) = 
+        use input = new StringReader(File.ReadAllText(filename))
+        let yamlStream = new YamlStream()
+        yamlStream.Load(input)
+        yamlStream.Documents
 
-    let getRequiredString (node:YamlNode) =
+    let toString (node:YamlNode) =
         match node with 
         | :? YamlScalarNode as scalar -> 
             scalar.Value
-        | _ -> failwithf "Cannot extract string from node %A" node; ""
+        | _ -> failwithf "Cannot extract string from node %A" node
 
-    let getRequiredInt (node:YamlNode) =
+    let toOptionalString (node:YamlNode option) =
+        match node with 
+        | None -> None
+        | Some n -> Some (toString(n))
+
+    let toInt (node:YamlNode) =
         match node with 
         | :? YamlScalarNode as scalar -> 
             Convert.ToInt32 scalar.Value
         | _ -> failwithf "Cannot extract string from node %A" node
         
-    let getString (node:YamlNode option) =
-        match node with 
-        | None -> failwithf "Cannot extract string from empty node"
-        | Some n -> 
-            getRequiredString(n)
-
-    let getOptionalString (node:YamlNode option) =
-        match node with 
-        | None -> None
-        | Some n -> Some (getRequiredString(n))
-        
-    let getOptionalBool (defval:bool) (node:YamlNode option) =
+    let toBool (defval:bool) (node:YamlNode option) =
         match node with
         | None -> defval
-        | Some x -> Convert.ToBoolean(getRequiredString(x))
+        | Some x -> Convert.ToBoolean(toString(x))
 
-    let getOptionalValue (mapNode:YamlMappingNode) (key:string) = 
+    let getOptionalValue (key:string) (mapNode:YamlMappingNode) = 
         let key = key.ToLowerInvariant()
 
         let nValue = mapNode.Children |> Seq.tryFind (fun (pair) -> pair.Key.ToString().ToLower() = key ) 
@@ -47,15 +42,14 @@ module Yaml =
             | None -> None
             | Some(s) -> Some (s.Value)
 
-    let getRequiredValue (mapNode:YamlMappingNode) (key:string) = 
+    let getValue (key:string) (mapNode:YamlMappingNode) = 
         let key = key.ToLower()
-        let nValue = getOptionalValue mapNode key
+        let nValue = getOptionalValue key mapNode
         match nValue with 
             | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
-            | _ -> ()
-        nValue
+            | Some v -> v
     
-    let getSequence (node:YamlNode option) =
+    let toOptionalSequence (node:YamlNode option) =
         match node with
         | None -> None
         | Some thing ->
@@ -63,13 +57,13 @@ module Yaml =
             | :? YamlSequenceNode as ySeq -> Some ySeq
             | _ -> failwithf "Expected sequence type, but got %A" thing
 
-    let getRequiredSequence failMsg (node:YamlNode option) =
-        let s = getSequence(node)
+    let toSequence (failMsg:string) (node:YamlNode) =
+        let s = toOptionalSequence(Some(node))
         match s with
         | None -> failwith failMsg
         | Some s -> s
 
-    let getMapping (node:YamlNode option) =
+    let toOptionalMapping (node:YamlNode option) =
         match node with
         | None -> None
         | Some thing -> 
@@ -79,8 +73,8 @@ module Yaml =
                 Some yml
             | _ -> failwithf "Expected mapping node type, but got %A" thing
 
-    let getRequiredMapping (failMsg: string) (node:YamlNode option) =
-        let mapping = getMapping(node)
+    let toMapping (failMsg:string) (node:YamlNode) =
+        let mapping = toOptionalMapping(Some(node))
         match mapping with
         | None -> failwith failMsg
         | Some m -> m

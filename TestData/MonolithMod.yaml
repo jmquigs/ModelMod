@@ -2,3 +2,5 @@ Type: Mod
 Ref: MonolithRef
 MeshType: GPUReplacement
 MeshPath: MonolithMod.mmobj
+# this is not really valid, but the unit test can check to make sure the values are parsed
+delGeometry: [ {pc: 123, vc: 456}, { pc: 867, vc: 5309} ]

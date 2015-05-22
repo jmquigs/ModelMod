@@ -71,6 +71,9 @@
       <HintPath>..\packages\Unquote.3.0.0\lib\net45\Unquote.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="YamlDotNet">
+      <HintPath>..\packages\YamlDotNet.3.5.1\lib\portable-net45+netcore45+wpa81+wp8+MonoAndroid1+MonoTouch1\YamlDotNet.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.fs" />
@@ -79,6 +82,7 @@
     <Compile Include="Util.fs" />
     <Compile Include="TestMeshTransform.fs" />
     <Compile Include="TestModDB.fs" />
+    <Compile Include="TestYaml.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MMManaged\MMManaged.fsproj">

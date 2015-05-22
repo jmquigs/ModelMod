@@ -1,0 +1,8 @@
+Something: "Somewhere"
+Int: 47
+Mapping: {
+    a: 1,
+    b: 2
+}
+Sequence: [1,2,3,4,5]
+Bool: true

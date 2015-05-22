@@ -33,11 +33,11 @@ module MMView =
         let docCount = yamlStream.Documents.Count
         if (docCount <> 1) then
             failwithf "Expected 1 document, got %d" docCount
-        let mapNode = Yaml.getRequiredMapping "No root node found" (Some(yamlStream.Documents.[0].RootNode)) 
+        let mapNode = Yaml.toMapping "No root node found" (yamlStream.Documents.[0].RootNode) 
 
-        let modIndexFile = Yaml.getOptionalValue mapNode "modIndex" |> Yaml.getOptionalString
+        let modIndexFile = mapNode |> Yaml.getOptionalValue "modIndex" |> Yaml.toOptionalString
 
-        let files = Yaml.getOptionalValue mapNode "files" |> Yaml.getSequence // Yaml "'Files' must be a list of files to load" |> Seq.map string |> List.ofSeq
+        let files = mapNode |> Yaml.getOptionalValue "files" |> Yaml.toOptionalSequence // Yaml "'Files' must be a list of files to load" |> Seq.map string |> List.ofSeq
         let files = 
             match files with
             | None -> []
