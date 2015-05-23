@@ -47,7 +47,7 @@ module MeshUtil =
     type Tri = {
         // three elements each
         Position: Vec3F[];
-        TC: Vec2F[];
+        TexCoord: Vec2F[];
         Normal: Vec3F[];
     }
 

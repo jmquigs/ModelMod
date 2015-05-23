@@ -46,7 +46,7 @@ module MeshRelation =
                             (pos,tc,nrm)
                         )
                     let pos,tc,nrm = derefed |> Array.unzip3
-                    { MeshUtil.Tri.Position = pos; MeshUtil.Tri.TC = tc; MeshUtil.Tri.Normal = nrm }
+                    { MeshUtil.Tri.Position = pos; MeshUtil.Tri.TexCoord = tc; MeshUtil.Tri.Normal = nrm }
                 )
             tris
 
