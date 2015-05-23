@@ -43,7 +43,7 @@ module MeshTransform =
     let private recenterHelper (normal:bool) (mesh:Mesh) (unused:float32) =
         if normal then failwith "recenter a normal? you crazy?"
 
-        let lowerL,upperR,center = MeshUtil.FindBox(mesh)
+        let lowerL,upperR,center = MeshUtil.GetBoundingBox(mesh)
 
         let center = Vector3.Multiply(center,-1.f)
         let recenterAtZero pos =

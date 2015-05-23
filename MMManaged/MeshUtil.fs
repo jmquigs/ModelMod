@@ -15,8 +15,8 @@ open CoreTypes
 type SDXDT = SharpDX.Direct3D9.DeclarationType
 
 module MonoGameHelpers =
-    // "import" some private methods from monogame for working with half-precision floats.  This is the second-worst way to do this (worst being
-    // copy paste).  
+    // "import" some private methods from monogame for working with half-precision floats.  
+    // This is the second-worst way to do this (worst being copy paste).  
     let halfTypeHelper = typeof<Microsoft.Xna.Framework.Vector2>.Assembly.GetType("Microsoft.Xna.Framework.Graphics.PackedVector.HalfTypeHelper")
 
     let private mgHalfUint16ToFloat = halfTypeHelper.GetMethod("Convert", BindingFlags.Static ||| BindingFlags.NonPublic, null, [| typeof<uint16> |], null)
@@ -30,6 +30,7 @@ module MonoGameHelpers =
         if mgfloatToHalfUint16 = null then failwith "mgfloatToHalfUint16 is null; failed to import private method from monogame?"
         mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
 
+    // TODO: move this to unit test, duh
     let test() =
         floatToHalfUint16(halfUint16ToFloat(500us))
 #if INTERACTIVE
@@ -82,7 +83,7 @@ module MeshUtil =
             | Some v when v.Length = 3 -> Some (Vec3F(v.[0], v.[1], v.[2])) 
             | _ -> None
 
-        let make3VTNIndex (components:int32[] option) =
+        let make3PTNIndex (components:int32[] option) =
             match components with
             | Some v when v.Length = 9 -> 
                 Some( [| {Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]}; {Pos=v.[3]; Tex=v.[4]; Nrm=v.[5]}; {Pos=v.[6]; Tex=v.[7]; Nrm=v.[8]} |] ) 
@@ -94,7 +95,8 @@ module MeshUtil =
                 let indices = new Vec4X(fst v.[0], fst v.[1], fst v.[2], fst v.[3])
                 let weights = new Vec4F(snd v.[0], snd v.[1], snd v.[2], snd v.[3])
 
-                // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.  I think I have some bad rounding going on somewhere
+                // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.  
+                // I think I have some bad rounding going on somewhere
                 // in the conversion/capture of these; either in snapshotting, or in blender 
                 let sum = weights.X + weights.Y + weights.Z + weights.W 
                 let weights = 
@@ -142,7 +144,7 @@ module MeshUtil =
         let (|BlendPairs|_|) pattern str = REUtil.CheckGroupMatch pattern 5 str |> REUtil.Extract 1 extractBlendPair |> makeBlendVectors
         let (|VertexGroupName|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 (fun s -> s) |> makeVGroupName
         let (|TransformFunctionList|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 extractTransform |> makeTransform
-        let (|VTNIndex3|_|) pattern str = REUtil.CheckGroupMatch pattern 10 str |> REUtil.Extract 1 int32 |> sub1 |> make3VTNIndex
+        let (|PTNIndex3|_|) pattern str = REUtil.CheckGroupMatch pattern 10 str |> REUtil.Extract 1 int32 |> sub1 |> make3PTNIndex
         let (|VertexGroupList|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 extractVGroups |> makeVGroupList
 
         let stringStartsWithAny (prefixes:string list) (s:string) =
@@ -222,7 +224,7 @@ module MeshUtil =
                         xforms |> List.iter (fun xf -> if not (postransforms.Contains(xf)) then  postransforms.Add(xf))
                     | TransformFunctionList @"#uv_xforms\s+(.*)$" (xforms) ->
                         xforms |> List.iter (fun xf -> if not (uvtransforms.Contains(xf)) then uvtransforms.Add(xf))
-                    | VTNIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
+                    | PTNIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
                         yield {Verts=v}
                     | _ -> () //printfn "unknown line: %s" line
         ] 
@@ -280,8 +282,6 @@ map_Kd $$filename
 
     let WriteObj (md:Mesh) outpath =
         let lines = new ResizeArray<string>()
-        let writeln x =
-            lines.Add x
     
         // currently we only write materials for texture 0
         match md.Tex0Path.Trim() with
@@ -290,14 +290,14 @@ map_Kd $$filename
             let dir = Path.GetDirectoryName(outpath)
             let file = Path.GetFileNameWithoutExtension(outpath) + ".mtl"
             // omit dir to use same directory as obj for mlt and texture file (makes files easily movable)
-            writeln ("mtllib " + file)
+            lines.Add ("mtllib " + file)
             let fileDat = MaterialFileTemplate.Replace("$$filename", p) 
             File.WriteAllText(Path.Combine(dir,file), fileDat)
         
-            
-        writeln "o MMSnapshot"
+        lines.Add("o MMSnapshot")
 
-        if (md.BlendIndices.Length <> md.BlendWeights.Length) then failwithf "blend data length array mismatch: indices: %A, weights: %A" md.BlendIndices.Length md.BlendWeights.Length
+        if (md.BlendIndices.Length <> md.BlendWeights.Length) 
+            then failwithf "blend data length array mismatch: indices: %A, weights: %A" md.BlendIndices.Length md.BlendWeights.Length
 
         md.Positions |> Array.iteri (fun i pos ->
             let line = sprintf "v %f %f %f" pos.X pos.Y pos.Z 
@@ -321,21 +321,28 @@ map_Kd $$filename
         )
 
         Array.iter2 (fun (indices:Vec4X) (weights:Vec4F) ->
-            let line = sprintf "#vbld %A/%2.6f %A/%2.6f %A/%2.6f %A/%2.6f" indices.X weights.X indices.Y weights.Y indices.Z weights.Z indices.W weights.W
+            let line = 
+                sprintf "#vbld %A/%2.6f %A/%2.6f %A/%2.6f %A/%2.6f" 
+                    indices.X weights.X 
+                    indices.Y weights.Y 
+                    indices.Z weights.Z 
+                    indices.W weights.W
             lines.Add(line)
         ) md.BlendIndices md.BlendWeights
             
+        let objTransformList x = String.concat " " (Array.map Util.replaceSpaceWithUnderscore x)
+
         if not (Array.isEmpty md.AppliedPositionTransforms) then
-            let line = "#pos_xforms " + String.concat " " (Array.map Util.replaceSpaceWithUnderscore md.AppliedPositionTransforms)
+            let line = "#pos_xforms " + (objTransformList md.AppliedPositionTransforms)
             lines.Add(line)
            
         if not (Array.isEmpty md.AppliedUVTransforms) then
-            let line = "#uv_xforms " + String.concat " " (Array.map Util.replaceSpaceWithUnderscore md.AppliedUVTransforms)
+            let line = "#uv_xforms " + (objTransformList md.AppliedUVTransforms)
             lines.Add(line)
 
         File.WriteAllLines(outpath, lines.ToArray())
 
-    let FindBox(mesh:Mesh) =
+    let GetBoundingBox(mesh:Mesh) =
         let maxFloat = System.Single.MaxValue
 
         let lowerL = new Vector3(System.Single.MaxValue,System.Single.MaxValue,System.Single.MaxValue)
@@ -403,8 +410,9 @@ map_Kd $$filename
             | _ -> failwithf "Don't know how to write file type: %s" ext
         writeFn mesh filename
     
-    // Note: these Apply functions do not add the name of the applied function to the list in the IMesh, because the name is not available here;
-    // higher level code should do that.
+    // Note: these Apply functions do not add the name of the applied function
+    // to the list in the IMesh, because the name is not available here; higher
+    // level code should do that.
     let ApplyPositionTransformation func (mesh:Mesh) =
         let newPositions = mesh.Positions |> Array.map func
         { mesh with Positions = newPositions }
