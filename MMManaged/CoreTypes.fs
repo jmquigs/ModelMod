@@ -46,10 +46,10 @@ module CoreTypes =
 
     type ModType = GPUReplacement | CPUReplacement | Deletion | Reference 
 
-    type VTNIndex = { V: int; T: int; N: int }
+    type PTNIndex = { Pos: int; Tex: int; Nrm: int }
 
     type IndexedTri = {
-        Verts: VTNIndex[] // 3 elements long, where each element contains int indexes into position, texture, etc.
+        Verts: PTNIndex[] // 3 elements long, where each element contains int indexes into position, texture, etc.
     }
 
     // A vertex declaration may not be present.  If present, both the raw bytes 

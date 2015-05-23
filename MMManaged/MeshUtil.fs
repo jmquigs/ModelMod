@@ -52,13 +52,13 @@ module MeshUtil =
     }
 
     /// Returns a string representation of a face in obj format (PNT; indices are 1-based)
-    let FaceToString(face: VTNIndex[]) =
+    let FaceToString(face: PTNIndex[]) =
         let inc x = x + 1
 
         let sb = new StringBuilder()
-        Array.iter (fun (v: VTNIndex) ->
+        Array.iter (fun (v: PTNIndex) ->
             if sb.Length <> 0 then ignore(sb.Append(" "))
-            ignore(sb.Append(sprintf "%d/%d/%d" (inc v.V) (inc v.T) (inc v.N)))
+            ignore(sb.Append(sprintf "%d/%d/%d" (inc v.Pos) (inc v.Tex) (inc v.Nrm)))
         ) face
         sb.ToString()
 
@@ -85,7 +85,7 @@ module MeshUtil =
         let make3VTNIndex (components:int32[] option) =
             match components with
             | Some v when v.Length = 9 -> 
-                Some( [| {V=v.[0]; T=v.[1]; N=v.[2]}; {V=v.[3]; T=v.[4]; N=v.[5]}; {V=v.[6]; T=v.[7]; N=v.[8]} |] ) 
+                Some( [| {Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]}; {Pos=v.[3]; Tex=v.[4]; Nrm=v.[5]}; {Pos=v.[6]; Tex=v.[7]; Nrm=v.[8]} |] ) 
             | _ -> None
 
         let makeBlendVectors (components:(int32 * float32)[] option) =

@@ -39,7 +39,7 @@ module MeshRelation =
         let buildTris (mesh:Mesh) =
             let tris = mesh.Triangles |> Array.map (fun iTri -> 
                     let derefed = iTri.Verts |> Array.map (fun vtn ->
-                            let pos = refMesh.Positions.[vtn.V]
+                            let pos = refMesh.Positions.[vtn.Pos]
                             let tc = Vector2(0.f,0.f) // refMesh.UVs.[vtn.T]
                             let nrm = Vector3(1.f,0.f,0.f) //refMesh.Normals.[vtn.N]
 

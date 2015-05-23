@@ -62,7 +62,7 @@ let makeVBIB device (mesh:Mesh) =
 
     let indices = [
         for tri in mesh.Triangles do
-            yield! [| int16 tri.Verts.[0].V; int16 tri.Verts.[1].V; int16 tri.Verts.[2].V;  |]
+            yield! [| int16 tri.Verts.[0].Pos; int16 tri.Verts.[1].Pos; int16 tri.Verts.[2].Pos;  |]
     ]
     let ib = new IndexBuffer(device, IndexElementSize.SixteenBits, 16 * indices.Length, BufferUsage.None)
     ib.SetData (List.toArray indices)
@@ -82,7 +82,7 @@ let MakeMesh(device, mesh:Mesh) =
 
     let indices = [
         for tri in mesh.Triangles do
-            yield! [| int16 tri.Verts.[0].V; int16 tri.Verts.[1].V; int16 tri.Verts.[2].V;  |]
+            yield! [| int16 tri.Verts.[0].Pos; int16 tri.Verts.[1].Pos; int16 tri.Verts.[2].Pos;  |]
     ]
     let ib = new IndexBuffer(device, IndexElementSize.SixteenBits, 16 * indices.Length, BufferUsage.None)
     ib.SetData (List.toArray indices)

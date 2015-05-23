@@ -453,9 +453,9 @@ module ModDBInterop =
                             | Some bvd -> bvd
                         DataWriters.rbBinormalTangent binDataLookup vertRels                    
 
-                let writeElement (v:VTNIndex) (el:SDXVertexElement) =
-                    let modVertIndex = v.V
-                    let modNrmIndex = v.N
+                let writeElement (v:PTNIndex) (el:SDXVertexElement) =
+                    let modVertIndex = v.Pos
+                    let modNrmIndex = v.Nrm
 
                     match el.Usage with
                         | SDXVertexDeclUsage.Position ->
@@ -470,11 +470,11 @@ module ModDBInterop =
                         | SDXVertexDeclUsage.TextureCoordinate ->
                             match el.Type with
                             | SDXVertexDeclType.Float2 -> 
-                                let srcTC = srcTex.[v.T]
+                                let srcTC = srcTex.[v.Tex]
                                 bw.Write(srcTC.X)
                                 bw.Write(srcTC.Y)
                             | SDXVertexDeclType.HalfTwo ->
-                                let srcTC = srcTex.[v.T]
+                                let srcTC = srcTex.[v.Tex]
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
                             | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
@@ -494,7 +494,7 @@ module ModDBInterop =
                             | _ -> failwith "Unsupported type for Color: %A" el.Type
                         | _ -> failwithf "Unsupported usage: %A" el.Usage
 
-                let writeVertex (v:VTNIndex) = 
+                let writeVertex (v:PTNIndex) = 
                     let writeToVert = writeElement v
                     declElements |> List.iter writeToVert
                     if (bw.BaseStream.Position % (int64 md.vertSizeBytes) <> 0L) then
