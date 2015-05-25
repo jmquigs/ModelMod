@@ -20,3 +20,5 @@ MMWiz/MMWiz.v12.suo
 ModelMod.opensdf
 MMData
 TestData/monolith.OUT.mmobj
+TestData/monolith.TestWrite.mmobj
+TestData/monolith.TestWrite.mtl
