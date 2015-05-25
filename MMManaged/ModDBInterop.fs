@@ -357,8 +357,27 @@ module ModDBInterop =
                 // we aren't using an index list, so we'll fill the buffer with vertices represnting all the primitives.
 
                 // walk the mod triangle list: for each point on each triangle, write a unique entry into the vb.
-                // positions and uv coordinates come from the mod data.  everything else is copied from the nearest 
-                // ref vert in the binary data
+                // these bools control where data comes from (normally we don't want to change these except
+                // when debugging something)
+
+                // true: obtain blend indices and weights from the ref
+                // false: obtain it from the mod.  mod author must ensure that all verts are propertly 
+                // weighted in the 3d tool (PITA, usually; esp with symmetric stuff).
+                let useRefBlendData = true 
+                // true: obtain the blend data from the raw binary ref data.  usually don't do this, because
+                // it prevents use of the annotation groups feature.
+                // false: obtain the blend data from the ref mmobj.
+                let rawBinaryRefMesh = false 
+
+                // true: use normals from the mod
+                // false: copy normals from nearest ref vert in raw binary data.  possibly useful for debugging but
+                // will otherwise produces screwy results if the mod mesh is different enough.
+                let useModNormals = true
+
+                // true: compute the binormal and tangent from the mod normal
+                // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
+                let computeBinormalTangent = true
+                                                
                 let srcVbSize = md.primCount * 3 * md.vertSizeBytes
                 if (destVbSize <> srcVbSize) then
                     failwith "Decl src/dest mismatch: src: %d, dest: %d" srcVbSize destVbSize
@@ -380,12 +399,6 @@ module ModDBInterop =
 //                let debugLog (s:string) = 
 //                    log.Info "%A" s
 //                    incr loggedVectorsCount
-
-
-                let useRefBlendData = true
-                let rawBinaryRefMesh = false
-                let useModNormals = true
-                let computeBinormalTangent = true
 
                 let useRefBlendData,rawBinaryRefMesh = 
                     let needsBlend = MeshUtil.HasBlendElements declElements
