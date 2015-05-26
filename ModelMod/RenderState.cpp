@@ -22,7 +22,7 @@ RenderState::RenderState(void) :
 		_showModMesh(false),
 		_dipActive(false),
 		_dev(NULL),
-		_focusWindow(INVALID_HANDLE_VALUE),
+		_focusWindow(NULL),
 		_selectionTexture(NULL),
 		_currHookVB0(NULL),
 		_pCurrentKeyMap(NULL)
@@ -264,11 +264,29 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 	if (!_initted)
 		init(dev);
 
+	if (dev != _dev) {
+		MM_LOG_INFO("Warning: device changed in beginScene");
+	}
+
 	// process input only when the d3d window is in the foreground.  this style of processing creates issues for keyup processing, 
 	// since we can lose events, but we don't do any of that currently.
-	if (_pCurrentKeyMap && _focusWindow != INVALID_HANDLE_VALUE 
-		//&& GetForegroundWindow() == _focusWindow // TODO: disable this, _focusWindow is actually not correct in some cases, so input is always disabled then
-		) {
+	bool inputOk = false;
+	if (_pCurrentKeyMap && _focusWindow != NULL) {
+		HWND focused = GetForegroundWindow();
+		inputOk = focused == _focusWindow;
+		if (!inputOk) {
+			// check parent
+			HWND par = GetParent(_focusWindow);
+			inputOk = par == focused;
+		}
+		if (!inputOk) {
+			// check root owner
+			HWND own = GetAncestor(_focusWindow, GA_ROOTOWNER);
+			inputOk = own == focused;
+		}
+	}
+
+	if (inputOk) {
 		vector<Input::KeyEvent> events = _input.update();
 
 		for (Uint32 i = 0; i < events.size(); ++i) {

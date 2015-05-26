@@ -104,7 +104,7 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	typedef std::map<int,NativeModData> ManagedModMap;
 	ManagedModMap _managedMods;
 
-	HANDLE _focusWindow;
+	HWND _focusWindow;
 	IDirect3DDevice9* _dev;
 	IDirect3DTexture9* _selectionTexture;
 public:
