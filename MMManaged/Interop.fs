@@ -98,4 +98,4 @@ type Main() =
                 File.WriteAllText(failLogPath, e.ToString())  
                 // try to log to native code
                 if (logOK) then Interop.log.Error "%A" e
-                47
+                InteropTypes.GenericFailureCode

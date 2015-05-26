@@ -86,4 +86,5 @@ module InteropTypes =
             device: nativeint *
             snapData: SnapshotData -> int
 
+    let GenericFailureCode = 47
 

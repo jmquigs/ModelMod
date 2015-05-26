@@ -393,4 +393,4 @@ module Snapshot =
         with 
             e -> 
                 log.Error "%A" e
-                47
+                InteropTypes.GenericFailureCode

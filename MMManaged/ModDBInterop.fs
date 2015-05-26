@@ -73,7 +73,7 @@ module ModDBInterop =
         with
         | e -> 
             log.Error "%A" e
-            47
+            InteropTypes.GenericFailureCode
 
     let GetModCount() = State.Moddb.MeshRelations.Length + State.Moddb.DeletionMods.Length
 
@@ -521,7 +521,7 @@ module ModDBInterop =
             | e -> 
                 log.Error "%s" e.Message
                 log.Error "%s" e.StackTrace
-                47
+                InteropTypes.GenericFailureCode
 
     let FillModData 
         (modIndex:int) 
