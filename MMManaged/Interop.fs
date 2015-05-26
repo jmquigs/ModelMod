@@ -10,23 +10,23 @@ open Microsoft.Xna.Framework
 
 #nowarn "9"
 module MMNative =
-    type SetPathsCallback = 
+    type SetPathsCB = 
         delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
 
     type GetDataPathCB = 
         delegate of unit -> [<MarshalAs(UnmanagedType.LPWStr)>] string
 
-    type LoadModDBCallback = delegate of unit -> int
+    type LoadModDBCB = delegate of unit -> int
 
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
     type ManagedCallbacks = {
-        SetPaths: SetPathsCallback
+        SetPaths: SetPathsCB
         GetDataPath: GetDataPathCB
-        LoadModDB: LoadModDBCallback
-        GetModCountCB: InteropTypes.GetModCountCB
-        GetModDataCB: InteropTypes.GetModDataCB
-        FillModDataCB: InteropTypes.FillModDataCB
-        TakeSnapshotCB: InteropTypes.TakeSnapshotCB
+        LoadModDB: LoadModDBCB
+        GetModCount: InteropTypes.GetModCountCB
+        GetModData: InteropTypes.GetModDataCB
+        FillModData: InteropTypes.FillModDataCB
+        TakeSnapshot: InteropTypes.TakeSnapshotCB
     }
 
     [< DllImport("ModelMod.dll") >] 
@@ -60,32 +60,47 @@ module Interop =
 type Main() = 
     static member PermaHandles = new System.Collections.Generic.List<GCHandle>()
 
-    static member Main(ignoredArgument:string) = 
+    static member AllocPermaHandle thing =
+        // NOTE: these are unpinned.  For delegates, trying to use GCHandleType.Pinned throws an exception.
+        // according to this, pin is not needed:
+        // https://msdn.microsoft.com/en-us/library/367eeye0%28VS.80%29.aspx
+        Main.PermaHandles.Add(GCHandle.Alloc(thing))
+        thing
+
+    // Write specified object to alternate fail log.  Haven't needed this in a while.  It replaces the file
+    // (doesn't append), so just call it once.  
+    static member WriteToFailLog x = 
         let ad = AppDomain.CurrentDomain
-        let location = ad.BaseDirectory
+        let location = ad.BaseDirectory      
         let failLogPath = Path.Combine(location, "MMManaged.error.log")
+        File.WriteAllText(failLogPath, x.ToString())          
 
-        let allocPermaHandle thing =
-            // NOTE: these are unpinned.  For delegates, trying to use GCHandleType.Pinned throws an exception.
-            // according to this, pin is not needed:
-            // https://msdn.microsoft.com/en-us/library/367eeye0%28VS.80%29.aspx
-            Main.PermaHandles.Add(GCHandle.Alloc(thing))
-            thing
-
-
-        Interop.setupLogging()
-        Interop.log.Info "Initializing; if there is a problem, will write information here if possible, otherwise to %s" failLogPath
-        let logOK = true // didn't throw an exception, at least!
-
+    static member InitLogging() =
+        // try to set up logging and log a test message.  if we can't do that at least, we're gonna have a bad time.
+        // return a code to indicate log failure.
         try
+            Interop.setupLogging()
+            Interop.log.Info "Initializing managed code"
+            0
+        with 
+            e -> 
+                InteropTypes.LogInitFailed
+
+    static member InitCallbacks() = 
+        // set up delegates for all the managed callbacks and call OnInitialized in native code.  It will 
+        // likely call back immediately via one of the delegates on the same thread (before OnInitialized returns 
+        // here).
+        try
+            let phandle = Main.AllocPermaHandle
+
             let (mCallbacks:MMNative.ManagedCallbacks) = {
-                SetPaths = allocPermaHandle (new MMNative.SetPathsCallback(ModDBInterop.SetPaths))
-                GetDataPath = allocPermaHandle (new MMNative.GetDataPathCB(ModDBInterop.GetDataPath))
-                LoadModDB = allocPermaHandle (new MMNative.LoadModDBCallback(ModDBInterop.LoadFromDataPath));
-                GetModCountCB = allocPermaHandle (new InteropTypes.GetModCountCB(ModDBInterop.GetModCount));
-                GetModDataCB = allocPermaHandle (new InteropTypes.GetModDataCB(ModDBInterop.GetModData));
-                FillModDataCB = allocPermaHandle (new InteropTypes.FillModDataCB(ModDBInterop.FillModData));
-                TakeSnapshotCB = allocPermaHandle (new InteropTypes.TakeSnapshotCB(Snapshot.Take));
+                SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.SetPaths))
+                GetDataPath = phandle (new MMNative.GetDataPathCB(ModDBInterop.GetDataPath))
+                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.LoadFromDataPath));
+                GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.GetModCount));
+                GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.GetModData));
+                FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.FillModData));
+                TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.Take));
             }
 
             let ret = MMNative.OnInitialized(mCallbacks)
@@ -94,8 +109,14 @@ type Main() =
             ret
         with 
             e ->
-                // write to separate log file 
-                File.WriteAllText(failLogPath, e.ToString())  
-                // try to log to native code
-                if (logOK) then Interop.log.Error "%A" e
-                InteropTypes.GenericFailureCode
+                //Main.WriteToFailLog e
+                
+                Interop.log.Error "%A" e
+                InteropTypes.GenericFailureCode        
+
+    static member Main(ignoredArgument:string) = 
+        let ret = Main.InitLogging()
+        if ret <> 0 then
+            ret
+        else
+            Main.InitCallbacks()

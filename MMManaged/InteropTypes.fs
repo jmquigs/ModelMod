@@ -87,4 +87,5 @@ module InteropTypes =
             snapData: SnapshotData -> int
 
     let GenericFailureCode = 47
+    let LogInitFailed = 50
 
