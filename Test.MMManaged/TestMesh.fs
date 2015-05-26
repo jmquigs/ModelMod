@@ -12,6 +12,14 @@ let monolith =
     let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
     MeshUtil.ReadFrom(mpath,CoreTypes.GPUReplacement)
 
+let check = Check.QuickThrowOnFailure
+
+open MonoGameHelpers
+
+[<Test>]
+let ``Mesh: mono game helpers``() =
+    check (500us = floatToHalfUint16(halfUint16ToFloat(500us)) |@ "float conversion failed")
+
 [<Test>]
 let ``Mesh: write``() =
     let objPath = Path.Combine(Util.TestDataDir, "monolith.TestWrite.mmobj")

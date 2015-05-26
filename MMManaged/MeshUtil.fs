@@ -30,13 +30,6 @@ module MonoGameHelpers =
         if mgfloatToHalfUint16 = null then failwith "mgfloatToHalfUint16 is null; failed to import private method from monogame?"
         mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
 
-    // TODO: move this to unit test, duh
-    let test() =
-        floatToHalfUint16(halfUint16ToFloat(500us))
-#if INTERACTIVE
-    MonoGameHelpers.test()
-#endif
-
 module MeshUtil =
     let log = Logging.GetLogger("Mesh")
 
