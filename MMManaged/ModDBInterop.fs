@@ -8,7 +8,7 @@ open CoreTypes
 open InteropTypes
 
 module ModDBInterop =
-    let log = Logging.GetLogger("ModDBInterop")
+    let private log = Logging.GetLogger("ModDBInterop")
 
     let SetPaths (mmDllPath:string) (exeModule:string) =
         let ret = {

@@ -7,7 +7,7 @@ open Microsoft.Xna.Framework
 open CoreTypes
 
 module MeshTransform = 
-    let log = Logging.GetLogger("MeshTransform")
+    let private log = Logging.GetLogger("MeshTransform")
 
     let rotX (isNormal:bool) (angleDeg) =
         let mat = Matrix.CreateRotationX(MathHelper.ToRadians angleDeg)

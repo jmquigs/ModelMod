@@ -31,7 +31,7 @@ module MonoGameHelpers =
         mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
 
 module MeshUtil =
-    let log = Logging.GetLogger("Mesh")
+    let private log = Logging.GetLogger("Mesh")
 
     let MakeVec2 x y = 
         Vec2F(x,y)
