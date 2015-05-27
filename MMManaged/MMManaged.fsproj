@@ -69,6 +69,8 @@
     <Compile Include="Snapshot.fs" />
     <Compile Include="Interop.fs" />
     <Content Include="packages.config" />
+    <None Include="LoadInFSI.fsx" />
+    <None Include="TestFSI.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="MonoGame.Framework">
