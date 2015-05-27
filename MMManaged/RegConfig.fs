@@ -53,7 +53,7 @@ module RegConfig =
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
             let targetProfile = 
-                let profiles = GetProfiles()
+                let profiles = GetProfiles() |> List.sort
                 profiles |> List.tryPick (fun pName -> 
                                 let profRoot = mmProfHiveRoot @@ pName
                                 let pExePath = Regget(profRoot, RegKeys.ProfExePath, "") :?> string |> (fun s -> s.Trim())
