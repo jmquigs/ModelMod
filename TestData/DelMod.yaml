@@ -1,0 +1,6 @@
+type: "Mod"
+meshtype: Deletion
+delGeometry: [
+    { pc: 100, vc: 200 },
+    { pc: 150, vc: 300 }
+]

@@ -77,6 +77,13 @@ module ModDBInterop =
 
     let GetModCount() = State.Moddb.MeshRelations.Length + State.Moddb.DeletionMods.Length
 
+    let ModTypeToInt modType = 
+        match modType with
+        | CPUReplacement -> 2
+        | GPUReplacement -> 3
+        | Deletion -> 5
+        | Reference -> failwith "A mod has type set to reference"
+
     let private getMeshRelationMod i = 
         let moddb = State.Moddb
         let meshrel = List.nth (moddb.MeshRelations) i
@@ -90,12 +97,8 @@ module ModDBInterop =
 
         let vertSize = MeshUtil.GetVertSize declElements
                 
-        let modType =
-            match modm.Type with
-            | CPUReplacement -> 2
-            | GPUReplacement -> 3
-            | Deletion -> 5
-            | Reference -> failwith "A mod has type set to reference"
+        let modType = ModTypeToInt modm.Type
+
         let primType = 4 //D3DPT_TRIANGLELIST
         let vertCount = modm.Positions.Length
         let primCount = modm.Triangles.Length

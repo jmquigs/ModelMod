@@ -1,3 +1,4 @@
 type: "Index"
 mods:
 - {name: "MonolithMod" }
+- {name: "DelMod" }

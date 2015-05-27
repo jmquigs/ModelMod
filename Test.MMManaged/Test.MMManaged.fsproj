@@ -79,6 +79,7 @@
     <Compile Include="TestModDB.fs" />
     <Compile Include="TestYaml.fs" />
     <Compile Include="TestMesh.fs" />
+    <Compile Include="TestModDBInterop.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MMManaged\MMManaged.fsproj">
