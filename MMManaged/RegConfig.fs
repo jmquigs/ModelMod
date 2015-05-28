@@ -72,15 +72,15 @@ module RegConfig =
     let GetProfiles() = 
         let profKey = regLoc.Hive.OpenSubKey(regLoc.ProfRoot)
         match profKey with 
-        | null -> []
+        | null -> [||]
         | _ -> 
             let profiles = profKey.GetSubKeyNames()
-            List.ofArray profiles |> List.sort
+            Array.sort profiles
 
     let FindProfile (exePath:string) = 
         let exePath = exePath.Trim()
         let profiles = GetProfiles() 
-        profiles |> List.tryPick (fun pName -> 
+        profiles |> Array.tryPick (fun pName -> 
             let pBase = regLoc.ProfRoot @@ pName
             let profRoot = regLoc.Hive.Name @@ pBase
             let pExePath = Regget(profRoot, RegKeys.ProfExePath, "") :?> string |> (fun s -> s.Trim())
@@ -114,7 +114,7 @@ module RegConfig =
         value
 
     let CreateNewProfile() = 
-        let profiles = GetProfiles() |> Array.ofList
+        let profiles = GetProfiles() 
       
         let pName = seq { 0..9999 } |> Seq.tryPick (fun i -> 
             let pname = "Profile" + zeroPad 4 (i.ToString())
