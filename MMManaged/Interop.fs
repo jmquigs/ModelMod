@@ -91,6 +91,8 @@ type Main() =
         // likely call back immediately via one of the delegates on the same thread (before OnInitialized returns 
         // here).
         try
+            RegConfig.Init()
+
             let phandle = Main.AllocPermaHandle
 
             let (mCallbacks:MMNative.ManagedCallbacks) = {

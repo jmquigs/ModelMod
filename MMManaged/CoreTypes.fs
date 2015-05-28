@@ -28,6 +28,7 @@ module CoreTypes =
     // ------------------------------------------------------------------------
     // Configuration types
     type RunConfig = {
+        ExePath: string
         RunModeFull: bool
         InputProfile: string
         SnapshotProfile: string
@@ -35,6 +36,7 @@ module CoreTypes =
     }
 
     let DefaultRunConfig = {
+        ExePath = ""
         RunConfig.RunModeFull = true
         InputProfile = ""
         SnapshotProfile = ""
