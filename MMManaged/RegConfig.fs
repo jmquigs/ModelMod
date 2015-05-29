@@ -173,7 +173,7 @@ module RegConfig =
                     log.Info "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
                     // if this defaults key is missing, then we just use the hardcoded defaults below
                     pRoot @@ regLoc.ProfileDefaultsKey
-                | Some profPath -> profPath
+                | Some profPath -> regLoc.Hive.Name @@ profPath
 
             let mmHiveRoot = regLoc.HiveRoot
 
