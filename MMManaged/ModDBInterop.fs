@@ -239,6 +239,7 @@ module ModDBInterop =
 
         let modmBlendIndex (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
+            | SDXVertexDeclType.Color 
             | SDXVertexDeclType.Ubyte4 -> writeMeshBI modm modVertIndex bw
             | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
 
@@ -254,6 +255,8 @@ module ModDBInterop =
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.UByte4N -> writeMeshBW modm modVertIndex bw
+            | SDXVertexDeclType.Float4 ->
+                writeMeshBWF4 modm modVertIndex bw
             | _ -> failwithf "Unsupported type for mod blend weight: %A" el.Type
 
         let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
