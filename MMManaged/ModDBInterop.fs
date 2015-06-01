@@ -366,15 +366,6 @@ module ModDBInterop =
                 // these bools control where data comes from (normally we don't want to change these except
                 // when debugging something)
 
-                // true: obtain blend indices and weights from the ref
-                // false: obtain it from the mod.  mod author must ensure that all verts are propertly 
-                // weighted in the 3d tool (PITA, usually; esp with symmetric stuff).
-                let useRefBlendData = true 
-                // true: obtain the blend data from the raw binary ref data.  usually don't do this, because
-                // it prevents use of the annotation groups feature.
-                // false: obtain the blend data from the ref mmobj.
-                let rawBinaryRefMesh = false 
-
                 // true: use normals from the mod
                 // false: copy normals from nearest ref vert in raw binary data.  possibly useful for debugging but
                 // will otherwise produces screwy results if the mod mesh is different enough.
@@ -406,23 +397,32 @@ module ModDBInterop =
 //                    log.Info "%A" s
 //                    incr loggedVectorsCount
 
-                let useRefBlendData,rawBinaryRefMesh = 
+                let useRefBlendData,useRefBinaryData = 
+                    // if blending is required, fail unless specified weight source has the data.
+                    // otherwise return the bool configuration tuple
                     let needsBlend = MeshUtil.HasBlendElements declElements
-                    match needsBlend,useRefBlendData,rawBinaryRefMesh with
-                    | true,false,_ -> // using mod data, component data must be present
-                        if (modm.BlendIndices.Length = 0 || modm.BlendWeights.Length = 0) then
-                            log.Warn "Mod mesh does not have blend indices and/or blend weights, must use ref for blend data"
-                            true,true
-                        else
-                            useRefBlendData,rawBinaryRefMesh
-                    | true,true,false -> // using component data from ref
-                        if (refm.BlendIndices.Length = 0 || refm.BlendWeights.Length = 0) then
-                            log.Warn "Ref mesh does not have blend indices and/or blend weights, must use binary ref data"
-                            true,true
-                        else
-                            useRefBlendData,rawBinaryRefMesh
-                    | _,_,_ -> useRefBlendData,rawBinaryRefMesh
+                    let wm = meshrel.DBMod.WeightMode 
 
+                    // user friendly error message
+                    let failMsg = sprintf "mod named %A specifies %A weight mode, but no blend index/weight data found; add the data or use a different weight mode" meshrel.DBMod.Name wm
+
+                    match needsBlend, wm with 
+                    | true,BinaryRef ->
+                        match refm.BinaryVertexData with
+                        | None -> failwith failMsg
+                        | _ -> true,true
+                    | true,WeightMode.Mod -> 
+                        match modm.BlendIndices,modm.BlendWeights with
+                        | _,[||] 
+                        | [||],_ -> failwith failMsg
+                        | _ -> false,false
+                    | true,WeightMode.Ref -> 
+                        match refm.BlendIndices,refm.BlendWeights with
+                        | _,[||] 
+                        | [||],_ -> failwith failMsg
+                        | _ -> true,false
+                    | false,_ -> false,false
+                    
                 let refBinDataLookup = 
                     match refm.BinaryVertexData with
                     | None -> None
@@ -430,7 +430,7 @@ module ModDBInterop =
                     
                 let blendIndexWriter,blendWeightWriter = 
                     if useRefBlendData then
-                        if rawBinaryRefMesh then 
+                        if useRefBinaryData then 
                             let binDataLookup = 
                                 match refBinDataLookup with
                                 | None -> failwith "Binary vertex data is required to write blend index,blend weight" 

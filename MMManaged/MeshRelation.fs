@@ -180,7 +180,9 @@ module MeshRelation =
         do 
             log.Info "built mesh relation from mod '%s' to ref '%s'" md.Name ref.Name
             sw.StopAndPrint()
-                   
+    
+        member x.DBMod = md               
+        member x.DBRef = ref
         member x.VertRelations = vertRels
         member x.ModMesh = modMesh
         member x.RefMesh = refMesh

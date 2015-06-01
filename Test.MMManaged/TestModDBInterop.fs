@@ -15,6 +15,7 @@ let check = Check.QuickThrowOnFailure
 // I'm ambivalent about this test.  It would be better to rig up a native test framework and test it from there, to exercise all the 
 // interop/marshalling gunk on both sides.
 let ``ModDBInterop: module functions``() =
+    RegConfig.InitForTest()
     // have to trick SetPaths because we're running without modelmod.dll
     let fakeRoot = Path.Combine(Util.TestDataDir, "dummymodelmod.dll")
     ModDBInterop.SetPaths fakeRoot "" |> ignore

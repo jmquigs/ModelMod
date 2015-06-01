@@ -72,7 +72,13 @@ module ModDB =
         | "gpureplacement" -> ModType.GPUReplacement        
         | "reference" -> ModType.Reference
         | "deletion" -> ModType.Deletion
-        | _ -> failwith "unsupported mod type"
+        | x -> failwithf "unsupported mod type: %A" x
+
+    let getWeightMode = function
+        | "mod" -> WeightMode.Mod
+        | "ref" -> WeightMode.Ref
+        | "binaryref" -> WeightMode.BinaryRef
+        | x -> failwithf "unsupported weight mode: %A" x
         
     let buildMod (node:YamlMappingNode) filename =
         let basePath = Path.GetDirectoryName filename
@@ -80,7 +86,7 @@ module ModDB =
 
         let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
 
-        let mesh,attrs =
+        let mesh,weightMode,attrs =
             // TODO: should also support "modtype" here
             let sType = (node |> Yaml.getValue "meshtype" |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
@@ -89,6 +95,13 @@ module ModDB =
             | ModType.Deletion
             | ModType.CPUReplacement
             | ModType.GPUReplacement -> ()
+
+            // weight mode
+            let weightMode = 
+                let wstr = (node |> Yaml.getOptionalValue "weightmode" |> Yaml.toOptionalString)
+                match wstr with
+                | None -> WeightMode.Ref
+                | Some s -> getWeightMode s
 
             // non-deletion and non-reference types require some refnames
             match (modType,refName) with
@@ -149,13 +162,14 @@ module ModDB =
                             Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpack
                     })
 
-            mesh,attrs
+            mesh,weightMode,attrs
 
         let md = { 
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
             Name = modName
             Mesh = mesh
+            WeightMode = weightMode
             Attributes = attrs
         }
         Mod(md)

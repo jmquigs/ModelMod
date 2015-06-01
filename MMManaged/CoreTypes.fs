@@ -48,6 +48,19 @@ module CoreTypes =
 
     type ModType = GPUReplacement | CPUReplacement | Deletion | Reference 
 
+    // These types control how weighting is done in MeshRelation, in particular where the 
+    // blend indices and blend weights are expected to be found.
+    type WeightMode = 
+        // Get blend data from mod mesh.  Mod author must ensure that all verts are propertly 
+        // weighted in the 3d tool.  This can be tedious, especially with symmetric parts, so this 
+        // mode is primarily here for advanced users and control freaks.
+        Mod 
+        // Get blend data from the ref.  This is the default and easiest mode to use.
+        | Ref 
+        // Get blend data from the binary ref data.  This is mostly a developer debug mode - it doesn't 
+        // support vertex annotation group filtering, amongst other limitations.
+        | BinaryRef
+
     type PTNIndex = { Pos: int; Tex: int; Nrm: int }
 
     type IndexedTri = {
@@ -103,6 +116,7 @@ module CoreTypes =
         Ref: DBReference option
         Name: string
         Mesh: Mesh option
+        WeightMode: WeightMode
         Attributes: ModAttributes
     }
 
