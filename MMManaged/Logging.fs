@@ -25,18 +25,18 @@ module Logging =
             member x.Error format = Printf.ksprintf (formatError) format
         }
 
-    let mutable private _loggerFactory = ConsoleLoggerFactory
+    let mutable private loggerFactory = ConsoleLoggerFactory
 
-    let private _loggers = new Dictionary<string, ILog>()   
+    let private loggers = new Dictionary<string, ILog>()   
 
     let setLoggerFactory(f:LoggerFactory) =
-        _loggers.Clear()
-        _loggerFactory <- f
+        loggers.Clear()
+        loggerFactory <- f
 
-    let makeLogger x = _loggerFactory x
+    let makeLogger x = loggerFactory x
     
     let getLogger(category) = 
-        let ok, logger = _loggers.TryGetValue(category)
+        let ok, logger = loggers.TryGetValue(category)
         let logger = 
             if ok then logger 
             else
