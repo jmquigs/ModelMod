@@ -124,8 +124,8 @@ module Wizapp =
 
             // make sure filename conforms to expected format
             let (|SnapshotFilename|_|) pattern str = 
-                ModelMod.REUtil.CheckGroupMatch pattern 4 str 
-                |> ModelMod.REUtil.Extract 1 int32 
+                ModelMod.REUtil.checkGroupMatch pattern 4 str 
+                |> ModelMod.REUtil.extract 1 int32 
                 |> (fun (intParts: int [] option) ->
                         match intParts with
                         | None -> None
