@@ -54,6 +54,7 @@
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
+    <Compile Include="ModUtil.fs" />
     <Compile Include="Wizapp.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
