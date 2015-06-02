@@ -15,15 +15,11 @@ type WizappState = {
     CreateModForm:  WizUI.MakeModForm option
 }
 
-type Profile = {
-    ExePath: string
-    DataPath: string
-}
-
 type UIProfile =
     { 
         DisplayName: string
         RegProfileName: string 
+        RunConfig: CoreTypes.RunConfig
     }
     override x.ToString() = x.DisplayName
 
@@ -31,6 +27,7 @@ module Wizapp =
     let private EmptyProfile = {
         DisplayName = "<EMPTY>"
         RegProfileName = ""
+        RunConfig = CoreTypes.DefaultRunConfig
     }
 
     let private state = 
@@ -163,23 +160,34 @@ module Wizapp =
         | "" -> pendingProfileName
         | p -> Path.GetFileNameWithoutExtension(p)
         
-    let findLbProfile displayName = 
+    let findLbProfile exePath = 
         // not using IndexOf from the collection here because we don't want an equality check on the full 
         // profile object.  Just want display name.
         let idx = 
             state.Value.MainScreenForm.lbProfiles.Items 
             |> Seq.cast<UIProfile>
-            |> Seq.findIndex (fun p -> p.DisplayName = displayName)
+            |> Seq.findIndex (fun p -> p.RunConfig.ExePath = exePath)
         idx
 
-    let updateLabel (oldLabel,exePath) = 
-            let idx = findLbProfile oldLabel
+    let updateUiProfile (profile:UIProfile,newExePath) = 
+            let idx = findLbProfile profile.RunConfig.ExePath
             let uiProfile = state.Value.MainScreenForm.lbProfiles.Items.[idx] :?> UIProfile
-            let newLabel = profileLabelFromPath(exePath)
+            let newLabel = profileLabelFromPath(newExePath)
 
-            state.Value.MainScreenForm.lbProfiles.Items.[idx] <- { uiProfile with DisplayName = newLabel }
+            let runConfig = {
+                profile.RunConfig with
+                    ExePath = newExePath
+            }
+            let profile = 
+                { profile with
+                    DisplayName = newLabel
+                    RunConfig = runConfig
+                }
 
-    let isProfileSelected() = state.Value.MainScreenForm.lbProfiles.SelectedItem <> null
+            state.Value.MainScreenForm.lbProfiles.Items.[idx] <- profile
+
+    //let isProfileSelected() = state.Value.MainScreenForm.lbProfiles.SelectedItem <> null
+    let getSelectedProfile() = state.Value.MainScreenForm.lbProfiles.SelectedItem 
 
     let initMainScreen() =
         let ms = new WizUI.MainScreen()
@@ -205,15 +213,16 @@ module Wizapp =
                 let newLbl = ms.lbProfiles.Items.Add({ EmptyProfile with DisplayName = pendingProfileName}) 
                 ms.lbProfiles.SelectedIndex <- newLbl
                 ms.profTBExePath.Text <- ""
-                ms.probTBModsPath.Text <- "" //TODO build from global default and exe path
-        )
+                ms.probTBModsPath.Text <- "") //TODO build from global default and exe path
 
         ms.profBtnExeBrowse.Click.Add(fun (evArgs) ->
             let checkForExistingProfile exePath = RegConfig.findProfile exePath
             let createProfile exePath = RegConfig.saveProfile({CoreTypes.DefaultRunConfig with ExePath = exePath})
 
-            if isProfileSelected() then
-                let oldLabel = profileLabelFromPath(ms.profTBExePath.Text)
+            match getSelectedProfile() with
+            | :? UIProfile as uiProfile -> 
+                // TODO: bah, naming here sucks - need better distinction between the registy profile
+                // and the ui profile stored in the list box.
                 let oldPathValid = File.Exists(ms.profTBExePath.Text)
 
                 let resExe = selectExecutableDialog(ms)
@@ -225,7 +234,7 @@ module Wizapp =
                     | None -> 
                         // create a new profile and save
                         createProfile exePath
-                        updateLabel(oldLabel,exePath)
+                        updateUiProfile(uiProfile,exePath)
                         // TODO: this shouldn't be a textbox; must always be a valid exe, therefore only settable via
                         // browse button
                         ms.profTBExePath.Text <- exePath 
@@ -233,11 +242,9 @@ module Wizapp =
                     // no new selection, but old selection still valid, so don't change it
                     () 
                 | _,false -> 
-                    updateLabel(oldLabel,"")
+                    updateUiProfile(uiProfile,"")
                     ms.profTBExePath.Text <- ""
-            else
-                errDialog("Please select a profile or create a new one")
-        )
+            | _ -> errDialog("Please select a profile or create a new one"))
 
         let updateSelectedProfile() = 
             // TODO: btn create mod should be here too; do this after I've added the profile logic
