@@ -52,9 +52,9 @@ module private SSInterop =
 
 module Snapshot =
 
-    let log = Logging.GetLogger("Snapshot")
+    let private log = Logging.getLogger("Snapshot")
 
-    let snapshotNum = ref 0
+    let private snapshotNum = ref 0
 
     // for use with Snapshot.readElement
     type ReadOutputFunctions = {
@@ -67,7 +67,7 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
-    let readElement (fns:ReadOutputFunctions) reader (el:SDXVertexElement) =
+    let private readElement (fns:ReadOutputFunctions) reader (el:SDXVertexElement) =
         let handleVector name outputFn = 
             match el.Type with
             | SDXVertexDeclType.Float3 -> 
@@ -122,10 +122,10 @@ module Snapshot =
                 ()
             | _ -> failwithf "Unsupported usage: %A" el.Usage
 
-    let makeLoggedDisposable (disp:System.IDisposable) (message:string) = 
+    let private makeLoggedDisposable (disp:System.IDisposable) (message:string) = 
         { new System.IDisposable with member x.Dispose() = log.Info "%s" message; disp.Dispose() }
 
-    let Take (device: nativeint) (sd:InteropTypes.SnapshotData) =
+    let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
         try 
             incr snapshotNum
 
@@ -341,7 +341,7 @@ module Snapshot =
             // write mesh
             let meshfile = sprintf "%s.mmobj" sbasename 
             let meshfile = Path.Combine(baseDir,meshfile)
-            MeshUtil.WriteObj mesh meshfile
+            MeshUtil.writeObj mesh meshfile
 
             // write vert decl
             let declfile = Path.Combine(baseDir, (sprintf "%s_VBDecl.dat" sbasename))

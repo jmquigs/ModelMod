@@ -25,7 +25,7 @@ open ModelMod.CoreTypes
 // IMeshRenderer
 //  XNAMeshRenderer
 
-let log = Logging.GetLogger("MMViewMain")
+let log = Logging.getLogger("MMViewMain")
 
 type World = { 
     RenderObjects: XnaRender.IXnaRenderable list 
@@ -100,7 +100,7 @@ type MeshViewApp(conf) as self =
             | Some position -> 
                 resetCamera(self.GraphicsDevice.Viewport) position
 
-        let moddb = ModDB.LoadModDB(_conf)
+        let moddb = ModDB.loadModDB(_conf)
         setModDB moddb
 
         for ref in moddb.References do

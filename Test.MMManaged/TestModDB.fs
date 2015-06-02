@@ -13,7 +13,7 @@ open ModelMod.CoreTypes
 let ``ModDB: load mod db``() =
     let mpath = Path.Combine(Util.TestDataDir, "ModIndex.yaml")
     let mdb = 
-        ModDB.LoadModDB
+        ModDB.loadModDB
             ({ 
                 MMView.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []

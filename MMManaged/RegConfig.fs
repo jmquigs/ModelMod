@@ -41,7 +41,7 @@ module RegUtil =
             sw.ToString()
         
 module RegConfig =
-    let private log = Logging.GetLogger("RegConfig")
+    let private log = Logging.getLogger("RegConfig")
 
     open RegUtil
 
@@ -60,16 +60,16 @@ module RegConfig =
     // mutable so that unit test can change it, via Init functions below
     let mutable private regLoc = RegLocTypes.FailsauceRegLoc
 
-    let Init() = regLoc <- RegLocTypes.NormalRegLoc
-    let InitForTest() = regLoc <- RegLocTypes.TestRegLoc
+    let init() = regLoc <- RegLocTypes.NormalRegLoc
+    let initForTest() = regLoc <- RegLocTypes.TestRegLoc
 
-    let private Regget(key,value,def) =
+    let private regget(key,value,def) =
         let res = Registry.GetValue(key, value, def)
         match res with
         | null -> def
         | _ -> res
 
-    let GetProfiles() = 
+    let getProfiles() = 
         let profKey = regLoc.Hive.OpenSubKey(regLoc.ProfRoot)
         match profKey with 
         | null -> [||]
@@ -77,13 +77,13 @@ module RegConfig =
             let profiles = profKey.GetSubKeyNames()
             Array.sort profiles
 
-    let FindProfile (exePath:string) = 
+    let findProfile (exePath:string) = 
         let exePath = exePath.Trim()
-        let profiles = GetProfiles() 
+        let profiles = getProfiles() 
         profiles |> Array.tryPick (fun pName -> 
             let pBase = regLoc.ProfRoot @@ pName
             let profRoot = regLoc.Hive.Name @@ pBase
-            let pExePath = Regget(profRoot, RegKeys.ProfExePath, "") :?> string |> (fun s -> s.Trim())
+            let pExePath = regget(profRoot, RegKeys.ProfExePath, "") :?> string |> (fun s -> s.Trim())
             if pExePath <> "" && pExePath.Equals(exePath, StringComparison.InvariantCultureIgnoreCase) then 
                 Some(pBase) // exclude hive
             else None)
@@ -94,7 +94,7 @@ module RegConfig =
         if not ((key.StartsWith(@"Software\ModelMod")) && (key.StartsWith(regLoc.Root))) then
             failwith failMsg
 
-    let DeleteProfileValue (pKey:string) (valName:string) =
+    let deleteProfileValue (pKey:string) (valName:string) =
         checkRoot pKey (sprintf "Refusing to delete value from unauth key: %A" pKey)
         
         let key = regLoc.Hive.OpenSubKey(pKey,RegistryKeyPermissionCheck.ReadWriteSubTree)
@@ -102,19 +102,19 @@ module RegConfig =
         | null -> ()
         | _ -> key.DeleteValue(valName,false)
 
-    let DeleteProfileKey (pKey:string) = 
+    let deleteProfileKey (pKey:string) = 
         checkRoot pKey (sprintf "Refusing to delete unauth key: %A" pKey)
 
         regLoc.Hive.DeleteSubKey pKey
 
-    let SetProfileValue (pKey:string) valName value =
+    let setProfileValue (pKey:string) valName value =
         checkRoot pKey (sprintf "Refusing to set unauth key value: %A" pKey)
 
         Registry.SetValue(regLoc.Hive.Name @@ pKey, valName, value);
         value
 
-    let CreateNewProfile() = 
-        let profiles = GetProfiles() 
+    let createNewProfile() = 
+        let profiles = getProfiles() 
       
         let pName = seq { 0..9999 } |> Seq.tryPick (fun i -> 
             let pname = "Profile" + zeroPad 4 (i.ToString())
@@ -135,18 +135,18 @@ module RegConfig =
         
         pName
 
-    let SaveProfile (conf:RunConfig) =
+    let saveProfile (conf:RunConfig) =
         if not (File.Exists conf.ExePath) then
             failwithf "Exe path does not exist, cannot save profile: %A" conf.ExePath
 
         // already exist?
-        let profKey = FindProfile conf.ExePath
+        let profKey = findProfile conf.ExePath
         let profKey = 
             match profKey with 
             | Some key -> key
-            | None -> CreateNewProfile()
+            | None -> createNewProfile()
 
-        let profSave k v = SetProfileValue profKey k v
+        let profSave k v = setProfileValue profKey k v
 
         // this is a syntactic trick to make sure I get a compiler error if I forget to save a field
         let _ = {
@@ -159,12 +159,12 @@ module RegConfig =
 
         ()                
                     
-    let Load (exePath:string):RunConfig = 
+    let load (exePath:string):RunConfig = 
         let exePath = exePath.Trim()
 
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = FindProfile exePath
+            let targetProfile = findProfile exePath
 
             let profPath = 
                 match targetProfile with
@@ -179,10 +179,10 @@ module RegConfig =
 
             { 
                 CoreTypes.RunConfig.ExePath = exePath
-                DocRoot = Regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
-                RunModeFull = dwordAsBool ( Regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
-                InputProfile = Regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
-                SnapshotProfile = Regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
+                DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
+                RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
+                InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
+                SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
             }
 
         conf        

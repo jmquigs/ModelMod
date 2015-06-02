@@ -15,24 +15,24 @@ let check = Check.QuickThrowOnFailure
 // I'm ambivalent about this test.  It would be better to rig up a native test framework and test it from there, to exercise all the 
 // interop/marshalling gunk on both sides.
 let ``ModDBInterop: module functions``() =
-    RegConfig.InitForTest()
+    RegConfig.initForTest()
     // have to trick SetPaths because we're running without modelmod.dll
     let fakeRoot = Path.Combine(Util.TestDataDir, "dummymodelmod.dll")
-    ModDBInterop.SetPaths fakeRoot "" |> ignore
-    let datapath = ModDBInterop.GetDataPath()
+    ModDBInterop.setPaths fakeRoot "" |> ignore
+    let datapath = ModDBInterop.getDataPath()
     check (datapath <> null |@ "null data path")
     check (Path.GetFullPath(datapath) = Path.GetFullPath(Util.TestDataDir) |@ "incorrect data path")
 
     let () = 
-        let ret = ModDBInterop.LoadFromDataPath()
+        let ret = ModDBInterop.loadFromDataPath()
         check (ret = 0 |@ "load failure")
 
-    let mcount = ModDBInterop.GetModCount()
+    let mcount = ModDBInterop.getModCount()
     check (mcount = 3 |@ "incorrect mod count")
 
     let () = 
-        let mmod = ModDBInterop.GetModData(0) // monolith
-        check (mmod.modType = (ModDBInterop.ModTypeToInt GPUReplacement) |@ sprintf "incorrect mod type: %A" mmod)
+        let mmod = ModDBInterop.getModData(0) // monolith
+        check (mmod.modType = (ModDBInterop.modTypeToInt GPUReplacement) |@ sprintf "incorrect mod type: %A" mmod)
         check (mmod.primType = 4 |@ sprintf "incorrect prim type: %A" mmod)
         check (mmod.primCount = 36 |@ sprintf "incorrect prim count: %A" mmod)
         check (mmod.vertCount = 24 |@ sprintf "incorrect vert count: %A" mmod)
@@ -48,8 +48,8 @@ let ``ModDBInterop: module functions``() =
         check (mmod.tex3Path = "" |@ sprintf "incorrect tex3 path: %A" mmod)
 
     let checkDelMod index pCount vCount = 
-        let mmod = ModDBInterop.GetModData(index) 
-        check (mmod.modType = (ModDBInterop.ModTypeToInt Deletion) |@ sprintf "incorrect mod type: %A" mmod)
+        let mmod = ModDBInterop.getModData(index) 
+        check (mmod.modType = (ModDBInterop.modTypeToInt Deletion) |@ sprintf "incorrect mod type: %A" mmod)
         check (mmod.primType = 4 |@ sprintf "incorrect prim type: %A" mmod)
         check (mmod.primCount = 0 |@ sprintf "incorrect prim count: %A" mmod)
         check (mmod.vertCount = 0 |@ sprintf "incorrect vert count: %A" mmod)
@@ -70,7 +70,7 @@ let ``ModDBInterop: module functions``() =
 
     // out of range mod
     let () = 
-        let mmod = ModDBInterop.GetModData(100)
+        let mmod = ModDBInterop.getModData(100)
         check (mmod = InteropTypes.EmptyModData |@ "expected empty mod")
 
     ()

@@ -8,7 +8,7 @@ open Microsoft.Xna.Framework
 open CoreTypes
 
 module MeshRelation =
-    let private log = Logging.GetLogger("MeshRelation")
+    let private log = Logging.getLogger("MeshRelation")
 
     type MVProjections = { x:float ; y:float ; z:float } 
 

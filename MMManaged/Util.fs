@@ -5,16 +5,16 @@ open System.Diagnostics
 open System
 
 module REUtil =
-    let reLog = Logging.GetLogger("Regex")
+    let private reLog = Logging.getLogger("Regex")
 
-    let CheckGroupMatch pattern count str  = 
+    let checkGroupMatch pattern count str  = 
         let m = Regex.Match(str,pattern)
         if m.Success && m.Groups.Count = count then
             Some(m.Groups)
         else
             None
 
-    let Extract start xFn (groups:GroupCollection option)  =
+    let extract start xFn (groups:GroupCollection option)  =
         match groups with 
             | None -> None
             | Some groups -> 
@@ -55,7 +55,7 @@ module Util =
         let sw = new Stopwatch()
         do sw.Start()
 
-        let log = Logging.GetLogger("SW:" + name)
+        let log = Logging.getLogger("SW:" + name)
 
         member x.SW = sw
         member x.Name = name
@@ -69,7 +69,7 @@ module Util =
 
     let reportMemoryUsage() =
         // log memory statistics
-        let log = Logging.GetLogger("Util")
+        let log = Logging.getLogger("Util")
         let manangedMemory = float32 (GC.GetTotalMemory(true)) / 1024.f / 1024.f
         let proc = Process.GetCurrentProcess();
         let procMemMB = float32 proc.PrivateMemorySize64 / 1024.f / 1024.f

@@ -53,7 +53,7 @@ module Interop =
             member x.Error format = Printf.ksprintf (formatError) format
         }
     
-    let setupLogging() = Logging.SetLoggerFactory NativeLogFactory    
+    let setupLogging() = Logging.setLoggerFactory NativeLogFactory    
 
     let _,log = NativeLogFactory "Interop"
     
@@ -91,18 +91,18 @@ type Main() =
         // likely call back immediately via one of the delegates on the same thread (before OnInitialized returns 
         // here).
         try
-            RegConfig.Init()
+            RegConfig.init()
 
             let phandle = Main.AllocPermaHandle
 
             let (mCallbacks:MMNative.ManagedCallbacks) = {
-                SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.SetPaths))
-                GetDataPath = phandle (new MMNative.GetDataPathCB(ModDBInterop.GetDataPath))
-                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.LoadFromDataPath));
-                GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.GetModCount));
-                GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.GetModData));
-                FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.FillModData));
-                TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.Take));
+                SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.setPaths))
+                GetDataPath = phandle (new MMNative.GetDataPathCB(ModDBInterop.getDataPath))
+                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.loadFromDataPath));
+                GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.getModCount));
+                GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.getModData));
+                FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.fillModData));
+                TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.take));
             }
 
             let ret = MMNative.OnInitialized(mCallbacks)

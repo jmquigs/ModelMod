@@ -13,7 +13,7 @@ let vecEq = Util.veqEqEpsilon 0.000001f
 
 let monolith = 
     let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
-    MeshUtil.ReadFrom(mpath,CoreTypes.GPUReplacement)
+    MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement)
 
 [<Test>]
 let ``MeshTransform: basic rotation``() =

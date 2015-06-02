@@ -8,9 +8,9 @@ open CoreTypes
 open InteropTypes
 
 module ModDBInterop =
-    let private log = Logging.GetLogger("ModDBInterop")
+    let private log = Logging.getLogger("ModDBInterop")
 
-    let SetPaths (mmDllPath:string) (exeModule:string) =
+    let setPaths (mmDllPath:string) (exeModule:string) =
         let ret = {
             InputProfile = CoreTypes.DefaultRunConfig.InputProfile
             RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
@@ -24,8 +24,8 @@ module ModDBInterop =
             State.RootDir <- Directory.GetParent(mmDllPath).ToString()
             State.ExeModule <- exeModule
 
-            let conf = RegConfig.Load exeModule
-            let conf = State.ValidateAndSetConf conf 
+            let conf = RegConfig.load exeModule
+            let conf = State.validateAndSetConf conf 
 
             let ret = 
                 { ret with 
@@ -39,7 +39,7 @@ module ModDBInterop =
             log.Error "%A" e
             ret
 
-    let GetDataPath() = 
+    let getDataPath() = 
         try
             State.getBaseDataDir()
         with 
@@ -47,7 +47,7 @@ module ModDBInterop =
             log.Error "%A" e
             null
 
-    let LoadFromDataPath () =
+    let loadFromDataPath() =
         try
             let exeDataDir = State.getExeDataDir()
             log.Info "Loading from path: %A" exeDataDir
@@ -66,7 +66,7 @@ module ModDBInterop =
                 MMView.Conf.AppSettings = None
             }
 
-            State.Moddb <- ModDB.LoadModDB conf
+            State.Moddb <- ModDB.loadModDB conf
 
             Util.reportMemoryUsage()
             0
@@ -75,9 +75,9 @@ module ModDBInterop =
             log.Error "%A" e
             InteropTypes.GenericFailureCode
 
-    let GetModCount() = State.Moddb.MeshRelations.Length + State.Moddb.DeletionMods.Length
+    let getModCount() = State.Moddb.MeshRelations.Length + State.Moddb.DeletionMods.Length
 
-    let ModTypeToInt modType = 
+    let modTypeToInt modType = 
         match modType with
         | CPUReplacement -> 2
         | GPUReplacement -> 3
@@ -95,9 +95,9 @@ module ModDBInterop =
             | None -> failwith "A vertex declaration must be set here, native code requires it."
             | Some (data,elements) -> elements,data.Length
 
-        let vertSize = MeshUtil.GetVertSize declElements
+        let vertSize = MeshUtil.getVertSize declElements
                 
-        let modType = ModTypeToInt modm.Type
+        let modType = modTypeToInt modm.Type
 
         let primType = 4 //D3DPT_TRIANGLELIST
         let vertCount = modm.Positions.Length
@@ -126,7 +126,7 @@ module ModDBInterop =
             tex3Path = modm.Tex3Path
         }
        
-    let GetModData(i) = 
+    let getModData(i) = 
         // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
         // which does not allow null.  Can't use option type here because native code calls this.
         let emptyMod = InteropTypes.EmptyModData
@@ -134,7 +134,7 @@ module ModDBInterop =
         try
             let moddb = State.Moddb
 
-            let maxMods = GetModCount()
+            let maxMods = getModCount()
 
             let ret = 
                 match i with 
@@ -331,7 +331,7 @@ module ModDBInterop =
         try
             let moddb = State.Moddb
 
-            let md = GetModData modIndex
+            let md = getModData modIndex
             if md.modType <> 3 then // TODO: maybe mod type should be an enum after all
                 failwithf "unsupported mod type: %d" md.modType
 
@@ -400,7 +400,7 @@ module ModDBInterop =
                 let useRefBlendData,useRefBinaryData = 
                     // if blending is required, fail unless specified weight source has the data.
                     // otherwise return the bool configuration tuple
-                    let needsBlend = MeshUtil.HasBlendElements declElements
+                    let needsBlend = MeshUtil.hasBlendElements declElements
                     let wm = meshrel.DBMod.WeightMode 
 
                     // user friendly error message
@@ -529,7 +529,7 @@ module ModDBInterop =
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
 
-    let FillModData 
+    let fillModData 
         (modIndex:int) 
         (destDeclData:nativeptr<byte>) (destDeclSize:int) 
         (destVbData:nativeptr<byte>) (destVbSize:int) 
@@ -540,7 +540,8 @@ module ModDBInterop =
                 (getBinaryWriter destVbData destVbSize) destVbSize
                 (getBinaryWriter destIbData destIbSize) destIbSize
 
-    let TestFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
+    // For FSI testing...
+    let private testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
         fillModDataInternalHelper 
             modIndex
             (new BinaryWriter(new MemoryStream(destDecl))) destDecl.Length

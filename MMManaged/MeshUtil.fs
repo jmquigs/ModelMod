@@ -31,11 +31,11 @@ module MonoGameHelpers =
         mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
 
 module MeshUtil =
-    let private log = Logging.GetLogger("Mesh")
+    let private log = Logging.getLogger("Mesh")
 
-    let MakeVec2 x y = 
+    let makeVec2 x y = 
         Vec2F(x,y)
-    let MakeVec3 x y z = 
+    let makeVec3 x y z = 
         Vec3F(x,y,z)
 
     type Tri = {
@@ -46,7 +46,7 @@ module MeshUtil =
     }
 
     /// Returns a string representation of a face in obj format (PNT; indices are 1-based)
-    let FaceToString(face: PTNIndex[]) =
+    let faceToString(face: PTNIndex[]) =
         let inc x = x + 1
 
         let sb = new StringBuilder()
@@ -56,7 +56,7 @@ module MeshUtil =
         ) face
         sb.ToString()
 
-    let ReadObj(filename,modType): Mesh =
+    let readObj(filename,modType): Mesh =
         //use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
@@ -132,13 +132,13 @@ module MeshUtil =
             | None -> None
             | Some n -> Some (n.[0])
             
-        let (|Vec2f|_|) pattern str = REUtil.CheckGroupMatch pattern 3 str |> REUtil.Extract 1 float32 |> makeVec2f
-        let (|Vec3f|_|) pattern str = REUtil.CheckGroupMatch pattern 4 str |> REUtil.Extract 1 float32 |> makeVec3f
-        let (|BlendPairs|_|) pattern str = REUtil.CheckGroupMatch pattern 5 str |> REUtil.Extract 1 extractBlendPair |> makeBlendVectors
-        let (|VertexGroupName|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 (fun s -> s) |> makeVGroupName
-        let (|TransformFunctionList|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 extractTransform |> makeTransform
-        let (|PTNIndex3|_|) pattern str = REUtil.CheckGroupMatch pattern 10 str |> REUtil.Extract 1 int32 |> sub1 |> make3PTNIndex
-        let (|VertexGroupList|_|) pattern str = REUtil.CheckGroupMatch pattern 2 str |> REUtil.Extract 1 extractVGroups |> makeVGroupList
+        let (|Vec2f|_|) pattern str = REUtil.checkGroupMatch pattern 3 str |> REUtil.extract 1 float32 |> makeVec2f
+        let (|Vec3f|_|) pattern str = REUtil.checkGroupMatch pattern 4 str |> REUtil.extract 1 float32 |> makeVec3f
+        let (|BlendPairs|_|) pattern str = REUtil.checkGroupMatch pattern 5 str |> REUtil.extract 1 extractBlendPair |> makeBlendVectors
+        let (|VertexGroupName|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeVGroupName
+        let (|TransformFunctionList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractTransform |> makeTransform
+        let (|PTNIndex3|_|) pattern str = REUtil.checkGroupMatch pattern 10 str |> REUtil.extract 1 int32 |> sub1 |> make3PTNIndex
+        let (|VertexGroupList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractVGroups |> makeVGroupList
 
         let stringStartsWithAny (prefixes:string list) (s:string) =
             let found = 
@@ -273,7 +273,7 @@ newmtl (null)
 map_Kd $$filename
 """
 
-    let WriteObj (md:Mesh) outpath =
+    let writeObj (md:Mesh) outpath =
         let lines = new ResizeArray<string>()
     
         // currently we only write materials for texture 0
@@ -310,7 +310,7 @@ map_Kd $$filename
         lines.Add("s off")
 
         md.Triangles |> Array.iter (fun tri ->
-            lines.Add("f " + (FaceToString tri.Verts))
+            lines.Add("f " + (faceToString tri.Verts))
         )
 
         Array.iter2 (fun (indices:Vec4X) (weights:Vec4F) ->
@@ -335,7 +335,7 @@ map_Kd $$filename
 
         File.WriteAllLines(outpath, lines.ToArray())
 
-    let GetBoundingBox(mesh:Mesh) =
+    let getBoundingBox(mesh:Mesh) =
         let maxFloat = System.Single.MaxValue
 
         let lowerL = new Vector3(System.Single.MaxValue,System.Single.MaxValue,System.Single.MaxValue)
@@ -357,8 +357,8 @@ map_Kd $$filename
         let center = Vector3.Multiply(Vector3.Add(lowerL,upperR), 0.5f)
         lowerL,upperR,center
 
-    let GetVertSize (elements:SDXVertexElement list) =
-            // find the element with the highest offset
+    let getVertSize (elements:SDXVertexElement list) =
+        // find the element with the highest offset
         let hElement = elements |> List.maxBy (fun el -> el.Offset)
         // figure out how big its field is 
         let sizeBytes = 
@@ -376,7 +376,7 @@ map_Kd $$filename
             | _ -> failwithf "Some lazy person didn't fill in the size of type %A" hElement.Type
         int hElement.Offset + sizeBytes
 
-    let HasBlendElements (elements:SDXVertexElement list) =
+    let hasBlendElements (elements:SDXVertexElement list) =
         let found = elements |> List.tryFind (fun el -> 
             match el.Usage with 
             | SDXVertexDeclUsage.BlendIndices 
@@ -385,35 +385,35 @@ map_Kd $$filename
         )
         found <> None
 
-    let ReadFrom(filename,modType) =
+    let readFrom(filename,modType) =
         let ext = Path.GetExtension(filename).ToLower()
         let readFn = 
             match ext with 
-            | ".obj" -> ReadObj
-            | ".mmobj" -> ReadObj
+            | ".obj" -> readObj
+            | ".mmobj" -> readObj
             | _ -> failwithf "Don't know how to read file type: %s" ext
         let md = readFn(filename,modType)
         md
 
-    let WriteTo(filename,mesh:Mesh) = 
+    let writeTo(filename,mesh:Mesh) = 
         let ext = Path.GetExtension(filename).ToLower()
         let writeFn = 
             match ext with
-            | ".obj" -> WriteObj
+            | ".obj" -> writeObj
             | _ -> failwithf "Don't know how to write file type: %s" ext
         writeFn mesh filename
     
     // Note: these Apply functions do not add the name of the applied function
     // to the list in the IMesh, because the name is not available here; higher
     // level code should do that.
-    let ApplyPositionTransformation func (mesh:Mesh) =
+    let applyPositionTransformation func (mesh:Mesh) =
         let newPositions = mesh.Positions |> Array.map func
         { mesh with Positions = newPositions }
 
-    let ApplyNormalTransformation func (mesh:Mesh) =
+    let applyNormalTransformation func (mesh:Mesh) =
         let newNormals = mesh.Normals |> Array.map func
         { mesh with Normals = newNormals }
 
-    let ApplyUVTransformation func (mesh:Mesh) = 
+    let applyUVTransformation func (mesh:Mesh) = 
         let newUVs = mesh.UVs |> Array.map func
         { mesh with UVs = newUVs }

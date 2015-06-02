@@ -29,18 +29,18 @@ module Logging =
 
     let private _loggers = new Dictionary<string, ILog>()   
 
-    let SetLoggerFactory(f:LoggerFactory) =
+    let setLoggerFactory(f:LoggerFactory) =
         _loggers.Clear()
         _loggerFactory <- f
 
-    let MakeLogger x = _loggerFactory x
+    let makeLogger x = _loggerFactory x
     
-    let GetLogger(category) = 
+    let getLogger(category) = 
         let ok, logger = _loggers.TryGetValue(category)
         let logger = 
             if ok then logger 
             else
-                let category,logger = MakeLogger(category)
+                let category,logger = makeLogger(category)
                 // TODO: why do I keep getting "key already exists", app domain issue?
                 //_loggers.Add(category,logger) 
                 logger

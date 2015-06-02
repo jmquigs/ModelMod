@@ -7,7 +7,7 @@ open Microsoft.Xna.Framework
 open CoreTypes
 
 module MeshTransform = 
-    let private log = Logging.GetLogger("MeshTransform")
+    let private log = Logging.getLogger("MeshTransform")
 
     let rotX (isNormal:bool) (angleDeg) =
         let mat = Matrix.CreateRotationX(MathHelper.ToRadians angleDeg)
@@ -43,7 +43,7 @@ module MeshTransform =
     let private recenterHelper (normal:bool) (mesh:Mesh) (unused:float32) =
         if normal then failwith "recenter a normal? you crazy?"
 
-        let lowerL,upperR,center = MeshUtil.GetBoundingBox(mesh)
+        let lowerL,upperR,center = MeshUtil.getBoundingBox(mesh)
 
         let center = Vector3.Multiply(center,-1.f)
         let recenterAtZero pos =
@@ -147,13 +147,13 @@ module MeshTransform =
             // reduce to apply the functions in order with a single function
             let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
 
-            let mesh = MeshUtil.ApplyPositionTransformation compositeTransform mesh
+            let mesh = MeshUtil.applyPositionTransformation compositeTransform mesh
 
             // also need to do normals
             let getMeshXformFunc xname = parseVec3XformFunc true mesh xname
             let funcs = xforms |> List.map getMeshXformFunc
             let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
-            let mesh = MeshUtil.ApplyNormalTransformation compositeTransform mesh
+            let mesh = MeshUtil.applyNormalTransformation compositeTransform mesh
             mesh
 
     let private applyUVTransformsInternal (uv_xforms:string list) (invokeBuilder) (mesh:Mesh) =
@@ -164,7 +164,7 @@ module MeshTransform =
             let funcs = uv_xforms |> List.map getMeshXformFunc
             let compositeTransform = funcs |> Seq.map invokeBuilder |> Seq.reduce (fun f1 f2 -> f1 >> f2)
 
-            let mesh = MeshUtil.ApplyUVTransformation compositeTransform mesh
+            let mesh = MeshUtil.applyUVTransformation compositeTransform mesh
             mesh
 
     let applyMeshTransforms (xforms:string list) (uv_xforms:string list) (mesh:Mesh) = 

@@ -16,16 +16,14 @@ open CoreTypes
 open InteropTypes
 
 module ModDB =
-    let private log = Logging.GetLogger("ModDB")
+    let private log = Logging.getLogger("ModDB")
 
-    let strToLower (s:string option) =
+    let private strToLower (s:string option) =
         match s with
         | Some s -> Some (s.ToLower())
         | _ -> None
 
-    let (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
-
-    let loadMesh(path,(modType:ModType)) = MeshUtil.ReadFrom(path, modType)       
+    let private (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
     type ModDB(refObjects,modObjects,meshRels) =
         // explode deletion mods into interop representation now.  TODO: this violates abstraction since it makes moddb use interop types.
@@ -56,7 +54,7 @@ module ModDB =
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
-    let loadUntransformedMesh(path,(modType:ModType)) = MeshUtil.ReadFrom(path, modType)
+    let loadUntransformedMesh(path,(modType:ModType)) = MeshUtil.readFrom(path, modType)
 
     let loadAndTransformMesh(path,(modType:ModType)) = 
         let mesh = loadUntransformedMesh(path, modType)
@@ -234,7 +232,6 @@ module ModDB =
             Data = vData
         }
 
-
     let buildReference (node:YamlMappingNode) filename =
         //log.Info "Building reference from %A" node
 
@@ -319,7 +316,7 @@ module ModDB =
                   Mesh = mesh})]
         | _ -> failwithf "Don't know how to load: %s" filename
 
-    let LoadIndexObjects (filename:string) (activeOnly:bool) conf =
+    let loadIndexObjects (filename:string) (activeOnly:bool) conf =
         // load the index, find all the mods that we are interested in.
         use input = new StringReader(File.ReadAllText(filename))
         let yamlStream = new YamlStream()
@@ -396,14 +393,14 @@ module ModDB =
         // return a list of the refs and objects
         modObjects @ refObjects
 
-    let LoadModDB(conf:MMView.Conf) = 
+    let loadModDB(conf:MMView.Conf) = 
         use sw = new Util.StopwatchTracker("LoadModDB")
 
         // read index if available, loading active mods (only) from index
         let indexObjects = 
             match conf.ModIndexFile with
             | None -> []
-            | Some path -> LoadIndexObjects path true conf
+            | Some path -> loadIndexObjects path true conf
 
         let extraObjects = [ 
             for file in conf.FilesToLoad do
@@ -489,7 +486,7 @@ module ModDB =
 // This is needed for interop runs, where we need to keep the loaded ModDB state somewhere but we don't want
 // to pass it over the interop barrier directly.
 module State =
-    let private log = Logging.GetLogger("State")
+    let private log = Logging.getLogger("State")
 
     // The data directory contains all data for all games, as well as the selection texture.
     let private DefaultDataDir = "Data"
@@ -504,7 +501,7 @@ module State =
     let mutable Conf = CoreTypes.DefaultRunConfig
     let mutable realDataDir = ""
 
-    let ValidateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
+    let validateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
         let snapProfile = 
             match conf.SnapshotProfile with
             | profile when (SnapshotProfiles.ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant() )) -> profile.ToLowerInvariant()
