@@ -4,6 +4,8 @@ open System.IO
 open System.Windows.Forms
 open System.Diagnostics
 
+open ModelMod
+
 type WizappState = {
     ModRoot: string
     SnapshotRoot: string
@@ -18,7 +20,19 @@ type Profile = {
     DataPath: string
 }
 
+type UIProfile =
+    { 
+        DisplayName: string
+        RegProfileName: string 
+    }
+    override x.ToString() = x.DisplayName
+
 module Wizapp =
+    let private EmptyProfile = {
+        DisplayName = "<EMPTY>"
+        RegProfileName = ""
+    }
+
     let private state = 
         ref 
             ({
@@ -149,9 +163,21 @@ module Wizapp =
         | "" -> pendingProfileName
         | p -> Path.GetFileNameWithoutExtension(p)
         
+    let findLbProfile displayName = 
+        // not using IndexOf from the collection here because we don't want an equality check on the full 
+        // profile object.  Just want display name.
+        let idx = 
+            state.Value.MainScreenForm.lbProfiles.Items 
+            |> Seq.cast<UIProfile>
+            |> Seq.findIndex (fun p -> p.DisplayName = displayName)
+        idx
+
     let updateLabel (oldLabel,exePath) = 
-            let idx = state.Value.MainScreenForm.lbProfiles.Items.IndexOf(oldLabel)
-            state.Value.MainScreenForm.lbProfiles.Items.[idx] <- profileLabelFromPath(exePath)
+            let idx = findLbProfile oldLabel
+            let uiProfile = state.Value.MainScreenForm.lbProfiles.Items.[idx] :?> UIProfile
+            let newLabel = profileLabelFromPath(exePath)
+
+            state.Value.MainScreenForm.lbProfiles.Items.[idx] <- { uiProfile with DisplayName = newLabel }
 
     let isProfileSelected() = state.Value.MainScreenForm.lbProfiles.SelectedItem <> null
 
@@ -176,13 +202,16 @@ module Wizapp =
             if hasProfiles && (not exeExists) then
                 errDialog("Current profile has an invalid executable path; please fix or delete the profile")
             else
-                let newLbl = ms.lbProfiles.Items.Add(pendingProfileName) 
+                let newLbl = ms.lbProfiles.Items.Add({ EmptyProfile with DisplayName = pendingProfileName}) 
                 ms.lbProfiles.SelectedIndex <- newLbl
                 ms.profTBExePath.Text <- ""
                 ms.probTBModsPath.Text <- "" //TODO build from global default and exe path
         )
 
         ms.profBtnExeBrowse.Click.Add(fun (evArgs) ->
+            let checkForExistingProfile exePath = RegConfig.findProfile exePath
+            let createProfile exePath = RegConfig.saveProfile({CoreTypes.DefaultRunConfig with ExePath = exePath})
+
             if isProfileSelected() then
                 let oldLabel = profileLabelFromPath(ms.profTBExePath.Text)
                 let oldPathValid = File.Exists(ms.profTBExePath.Text)
@@ -190,10 +219,16 @@ module Wizapp =
                 let resExe = selectExecutableDialog(ms)
                 match resExe,oldPathValid with
                 | Some exePath,_ when File.Exists(exePath) -> 
-                    updateLabel(oldLabel,exePath)
-                    // TODO: this shouldn't be a textbox; must always be a valid exe, therefore only settable via
-                    // browse button
-                    ms.profTBExePath.Text <- exePath 
+                    // make sure no other profile exists with same path
+                    match checkForExistingProfile exePath with
+                    | Some profile -> errDialog("A profile already exists for this executable")
+                    | None -> 
+                        // create a new profile and save
+                        createProfile exePath
+                        updateLabel(oldLabel,exePath)
+                        // TODO: this shouldn't be a textbox; must always be a valid exe, therefore only settable via
+                        // browse button
+                        ms.profTBExePath.Text <- exePath 
                 | _,true ->
                     // no new selection, but old selection still valid, so don't change it
                     () 

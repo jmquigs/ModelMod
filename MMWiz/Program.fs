@@ -6,6 +6,8 @@ open System
 [<EntryPoint>]
 [<STAThread>]
 let main argv = 
+    ModelMod.RegConfig.init()
+
     System.Windows.Forms.Application.ApplicationExit.Add (fun evArgs -> 
         MMWiz.Wizapp.terminatePreviewProcess())
     System.Windows.Forms.Application.Run( MMWiz.Wizapp.initMainScreen() )
