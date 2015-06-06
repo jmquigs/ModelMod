@@ -99,7 +99,7 @@ module ModDB =
                 let wstr = (node |> Yaml.getOptionalValue "weightmode" |> Yaml.toOptionalString)
                 match wstr with
                 | None -> WeightMode.Ref
-                | Some s -> getWeightMode s
+                | Some s -> getWeightMode (s.ToLowerInvariant().Trim())
 
             // non-deletion and non-reference types require some refnames
             match (modType,refName) with
