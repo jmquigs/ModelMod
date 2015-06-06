@@ -84,7 +84,7 @@ module ModDB =
 
         let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
 
-        let mesh,weightMode,attrs =
+        let mesh,modType,weightMode,attrs =
             // TODO: should also support "modtype" here
             let sType = (node |> Yaml.getValue "meshtype" |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
@@ -160,7 +160,7 @@ module ModDB =
                             Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpack
                     })
 
-            mesh,weightMode,attrs
+            mesh,modType,weightMode,attrs
 
         let md = { 
             DBMod.RefName = refName
@@ -170,6 +170,15 @@ module ModDB =
             WeightMode = weightMode
             Attributes = attrs
         }
+
+        let numOverrideTextures = 
+            match mesh with
+            | None -> 0
+            | Some mesh ->
+                let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
+                oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path 
+
+        log.Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
         Mod(md)
 
     let readVertexElement (reader:BinaryReader) =
@@ -272,6 +281,8 @@ module ModDB =
 //        sw.StopAndPrint()
 
         let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
+
+        log.Info "Ref: %s: binary vertex data: %A" refName (if binVertData = None then false else true)
 
         MReference(
             { DBReference.Name = refName
