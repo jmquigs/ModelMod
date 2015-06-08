@@ -22,7 +22,8 @@ Log::~Log(void) {
 }
 
 Log& Log::get() {
-	// Note, we don't have the critical section yet, so we can't protect the lazy initialization from multiple threads.  However, this is
+	// Note, we don't have the critical section yet, so we can't protect the lazy 
+	// initialization from multiple threads.  However, this is
 	// called very early from a single thread (dllmain Init(); aka the hook thread).  
 	// Game threads can't even get in here until the hook thread completes at least part of its work, 
 	// and that happens after log init.  So, this should be ok.
