@@ -14,18 +14,39 @@ Log::Log(void) :
 	_fileReopen(true),
 	_firstOpen(true),
 	_fout(NULL) {
+	memset(&_critSection, 0, sizeof(_critSection));
+	InitializeCriticalSection(&_critSection);
 }
 
 Log::~Log(void) {
 }
 
 Log& Log::get() {
+	// Note, we don't have the critical section yet, so we can't protect the lazy initialization from multiple threads.  However, this is
+	// called very early from a single thread (dllmain Init(); aka the hook thread).  
+	// Game threads can't even get in here until the hook thread completes at least part of its work, 
+	// and that happens after log init.  So, this should be ok.
 	if (_sInstance == NULL)
 		_sInstance = new Log();
 	return *_sInstance;
 }
 
+class CriticalSectionHandler {
+	LPCRITICAL_SECTION _section;
+
+public:
+	CriticalSectionHandler(LPCRITICAL_SECTION section) {
+		_section = section;
+		EnterCriticalSection(_section);
+	}
+	virtual ~CriticalSectionHandler() {
+		LeaveCriticalSection(_section);
+	}
+};
+
 void Log::init(HMODULE callingDll) {
+	CriticalSectionHandler cSect(&_critSection);
+
 	// TODO: wide char support; ugh, also need it for fopen...
 
 	// init log file in module directory
@@ -62,10 +83,14 @@ void Log::info(string message, string category, int cap) {
 }
 
 void Log::setCategoryLevel(string category, int level) {
+	CriticalSectionHandler cSect(&_critSection);
+
 	_categoryLevel[category] = level;
 }
 
 int Log::getCategoryLevel(string category) {
+	CriticalSectionHandler cSect(&_critSection); // this function is read-only, but map not guaranteed to be thread-safe
+
 	map<string,int>::iterator iter = _categoryLevel.find(category);
 
 	if (iter != _categoryLevel.end())
@@ -74,7 +99,10 @@ int Log::getCategoryLevel(string category) {
 		return -1;
 }
 
-void Log::_do_log(int level, string& message, string& category, int limit) {
+void Log::_do_log(int level, const string& message, const string& category, int limit) {
+	CriticalSectionHandler cSect(&_critSection);
+
+	string messageSuffix = "";
 	if (limit > 0) {
 		int currCount = _limitedMessages[message];
 		currCount++;
@@ -86,7 +114,7 @@ void Log::_do_log(int level, string& message, string& category, int limit) {
 		_limitedMessages[message] = currCount;
 
 		if (currCount == limit) {
-			message = message + " (Final message; log limit hit)";
+			messageSuffix = message + " (Final message; log limit hit)";
 		}
 		if (currCount > limit) {
 			return;
@@ -94,31 +122,35 @@ void Log::_do_log(int level, string& message, string& category, int limit) {
 	}
 
 	int catLevel = getCategoryLevel(category);
-	if (catLevel != -1 && level < catLevel)
+	if (catLevel != -1 && level < catLevel) 
 		return;
 
-	if (level < _level)
+	if (level < _level) 
 		return;
 
-	string lMsg = "[" + category + "]: " + message;
+	string lMsg = "[" + category + "]: " + message + messageSuffix;
 	if (_outputDebug)
 		_output_debug_string(lMsg);
 	if (_outputFile)
 		_output_file_string(lMsg);
 }
 	
-void Log::_output_debug_string(string& msg) {
+void Log::_output_debug_string(const string& msg) {
 	OutputDebugStringA(msg.c_str());
 	OutputDebugStringA("\r\n");
 }
 
-void Log::_output_file_string(string& msg) {
+void Log::_output_file_string(const string& msg) {
+	CriticalSectionHandler cSect(&_critSection);
+
 	if (_logFilePath.empty()) {
 		// init with default settings
 		init(NULL);
 	}
 	if (!_fout || _fileReopen) {
-		assert(!_fout);
+		// about to (re)open, handle should be null
+		assert(_fout == NULL);
+
 		if (_firstOpen)
 			fopen_s(&_fout, _logFilePath.c_str(), "w");
 		else
@@ -129,12 +161,13 @@ void Log::_output_file_string(string& msg) {
 	if (_fout) {
 		fputs(msg.c_str(), _fout);
 		fputs("\n", _fout);
-		if (!_fileReopen) {
-			//fflush(_fout);
-		}
-		else {
+		if (_fileReopen) {
 			fclose(_fout);
 			_fout = NULL;
+		}
+		else {
+			// leave file open
+			//fflush(_fout); // SLOWWWW
 		}
 	}
 }

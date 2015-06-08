@@ -30,6 +30,8 @@ class Log {
 
 	string _logFilePath;
 
+	CRITICAL_SECTION _critSection;
+
 	FILE* _fout;
 
 public:
@@ -54,10 +56,10 @@ public:
 
 private:
 	
-	void _do_log(int level, string& message, string& category, int limit);
+	void _do_log(int level, const string& message, const string& category, int limit);
 
-	void _output_debug_string(string& msg);
-	void _output_file_string(string& msg);
+	void _output_debug_string(const string& msg);
+	void _output_file_string(const string& msg);
 };
 
 // The logging macros allow logging to be completely disabled (including overhead of processing arguments).
