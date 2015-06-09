@@ -4,7 +4,7 @@ using namespace ModelMod;
 #include <d3dx9tex.h>
 #include "Util.h"
 
-#include "MMInterop.h"
+#include "Interop.h"
 
 RenderState* RenderState::_sCurrentRenderState = NULL;
 const string RenderState::LogCategory = "RenderState";

@@ -10,7 +10,7 @@
 #include "Log.h"
 #include "ImportHooker.h"
 
-#include "MMInterop.h"
+#include "Interop.h"
 #include "Util.h"
 
 #include <string>

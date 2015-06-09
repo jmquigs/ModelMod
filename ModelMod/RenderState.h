@@ -7,7 +7,7 @@
 
 #include "Log.h"
 #include "Input.h"
-#include "MMInterop.h"
+#include "Interop.h"
 
 class Hook_IDirect3DVertexBuffer9;
 

@@ -5,12 +5,6 @@
 struct IUnknown;
 struct IDirect3DDevice9;
 
-#ifdef MODELMOD_DO_EXPORT
-#  define MODELMOD_EXPORT __declspec(dllexport)
-#else
-#  define MODELMOD_EXPORT __declspec(dllimport)
-#endif
-
 #ifndef SAFE_RELEASE
 #define SAFE_RELEASE(s) {if (s) { s->Release(); s = NULL; }}
 #endif

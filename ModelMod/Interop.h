@@ -1,12 +1,12 @@
 #pragma once
 
-#ifdef MMINTEROP_EXPORTS
-#define MMINTEROP_API __declspec(dllexport)
+#ifdef INTEROP_EXPORTS
+#define INTEROP_API __declspec(dllexport)
 #else
-#define MMINTEROP_API __declspec(dllimport)
+#define INTEROP_API __declspec(dllimport)
 #endif
 
-MMINTEROP_API int GetMMVersion();
+INTEROP_API int GetMMVersion();
 
 extern "C" {
 
@@ -94,11 +94,11 @@ typedef struct {
 } ManagedCallbacks;
 #pragma pack(pop)
 
-MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
-MMINTEROP_API void LogInfo(char* category, char* message);
-MMINTEROP_API void LogWarn(char* category, char* message);
-MMINTEROP_API void LogError(char* category, char* message);
-MMINTEROP_API void SaveTexture(int index, WCHAR* path);
+INTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
+INTEROP_API void LogInfo(char* category, char* message);
+INTEROP_API void LogWarn(char* category, char* message);
+INTEROP_API void LogError(char* category, char* message);
+INTEROP_API void SaveTexture(int index, WCHAR* path);
 
 };
 

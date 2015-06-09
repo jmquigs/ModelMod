@@ -1,8 +1,8 @@
-// MMInterop.cpp : Defines the exported functions for the DLL application.
+// Interop.cpp : Defines the exported functions for the DLL application.
 //
 
 #include "stdafx.h"
-#include "MMInterop.h"
+#include "Interop.h"
 #include <metahost.h>
 #include "HostControl.h"
 #include <comutil.h>
@@ -27,7 +27,7 @@ bool gCallbacksInitialized = false;
 
 // end global state
 
-MMINTEROP_API int GetMMVersion() {
+INTEROP_API int GetMMVersion() {
 	return 0;
 }
 
@@ -257,7 +257,7 @@ const ConfData& Conf() {
 
 }; //namespace managed
 
-MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks) {
+INTEROP_API int OnInitialized(ManagedCallbacks* callbacks) {
 	gCurrentCallbacks = *callbacks;
 	gCallbacksInitialized = true;
 
@@ -279,22 +279,22 @@ MMINTEROP_API int OnInitialized(ManagedCallbacks* callbacks) {
 	return 0;
 }
 
-MMINTEROP_API void LogInfo(char* category, char* message) {
+INTEROP_API void LogInfo(char* category, char* message) {
 	ModelMod::Log::get().info(message,category);
 }
-MMINTEROP_API void LogWarn(char* category, char* message) {
+INTEROP_API void LogWarn(char* category, char* message) {
 	// only info() is available right now, so hack category name
 	char newcat[1024];
 	sprintf_s(newcat,sizeof(newcat), "WARN-%s", category);
 	ModelMod::Log::get().info(message,newcat);
 }
-MMINTEROP_API void LogError(char* category, char* message) {
+INTEROP_API void LogError(char* category, char* message) {
 	// only info() is available right now, so hack category name
 	char newcat[1024];
 	sprintf_s(newcat,sizeof(newcat), "ERROR-%s", category);
 	ModelMod::Log::get().info(message,newcat);
 }
 
-MMINTEROP_API void SaveTexture(int index, WCHAR* path) {
+INTEROP_API void SaveTexture(int index, WCHAR* path) {
 	RenderState::get().saveTexture(index,path);
 }
