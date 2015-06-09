@@ -28,7 +28,7 @@ class Log {
 	bool _fileReopen;
 	bool _firstOpen;
 
-	string _logFilePath;
+	wstring _logFilePath;
 
 	CRITICAL_SECTION _critSection;
 

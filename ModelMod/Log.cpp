@@ -48,14 +48,12 @@ public:
 void Log::init(HMODULE callingDll) {
 	CriticalSectionHandler cSect(&_critSection);
 
-	// TODO: wide char support; ugh, also need it for fopen...
-
 	// init log file in module directory
-	string sBaseDir = "";
+	wstring sBaseDir = L"";
 	{
-		char baseModDirectory[8192];
-		GetModuleFileName(callingDll, baseModDirectory, sizeof(baseModDirectory));
-		char* lastBS = strrchr(baseModDirectory, '\\');
+		wchar_t baseModDirectory[8192];
+		GetModuleFileNameW(callingDll, baseModDirectory, sizeof(baseModDirectory));
+		wchar_t* lastBS = wcsrchr(baseModDirectory, '\\');
 		if (lastBS != NULL) {
 			*lastBS = 0;
 		}
@@ -63,20 +61,20 @@ void Log::init(HMODULE callingDll) {
 	}
 
 	// include the name of the executable in the log file name
-	string sExeName = "unknownexe";
+	wstring sExeName = L"unknownexe";
 	{
-		char exeName[8192];
-		GetModuleFileName(NULL, exeName, sizeof(exeName));
-		char* lastBS = strrchr(exeName, '\\');
+		wchar_t exeName[8192];
+		GetModuleFileNameW(NULL, exeName, sizeof(exeName));
+		wchar_t* lastBS = wcsrchr(exeName, '\\');
 		if (lastBS != NULL) {
 			lastBS = lastBS++;
 			if (*lastBS != NULL) {
-				sExeName = string(lastBS);
+				sExeName = wstring(lastBS);
 			}
 		}
 	}
 	
-	_logFilePath = sBaseDir + "\\modelmod." + sExeName + ".log";
+	_logFilePath = sBaseDir + L"\\modelmod." + sExeName + L".log";
 }
 
 void Log::info(string message, string category, int cap) {
@@ -153,9 +151,9 @@ void Log::_output_file_string(const string& msg) {
 		assert(_fout == NULL);
 
 		if (_firstOpen)
-			fopen_s(&_fout, _logFilePath.c_str(), "w");
+			_wfopen_s(&_fout, _logFilePath.c_str(), L"w");
 		else
-			fopen_s(&_fout, _logFilePath.c_str(), "a");
+			_wfopen_s(&_fout, _logFilePath.c_str(), L"a");
 		_firstOpen = false;
 	}
 
