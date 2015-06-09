@@ -123,7 +123,12 @@ module Snapshot =
             | _ -> failwithf "Unsupported usage: %A" el.Usage
 
     let private makeLoggedDisposable (disp:System.IDisposable) (message:string) = 
-        { new System.IDisposable with member x.Dispose() = log.Info "%s" message; disp.Dispose() }
+        { new System.IDisposable with 
+            member x.Dispose() = 
+                if disp <> null then
+                    log.Info "%s" message
+                    disp.Dispose()
+        }
 
     let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
         try 
@@ -282,7 +287,13 @@ module Snapshot =
                 [0..maxStage] 
                 |> List.filter (fun i -> 
                     let state = device.GetTextureStageState(i, TextureStage.ColorOperation)
-                    state <> 1) // 1 = D3DTOP_DISABLE
+                    if state <> 1 then // 1 = D3DTOP_DISABLE
+                        true
+                    else
+                        // some games disable the stage but put textures on it anyway.
+                        let stageTex = device.GetTexture(i)
+                        use disp = makeLoggedDisposable stageTex (sprintf "disposing snapshot texture %d" i)
+                        stageTex <> null) 
                 |> List.map (fun i ->
                     let texName = sprintf "%s_texture%d.dds" sbasename i
                     let texPath = Path.Combine(baseDir, texName)
