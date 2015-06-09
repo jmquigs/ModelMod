@@ -73,8 +73,15 @@ void Log::init(HMODULE callingDll) {
 			}
 		}
 	}
+
+	// setup log directory: we hardcode it to be <dllpath>\..\Logs
+	wstring sLogDir = sBaseDir + L"\\..\\Logs";
+	DWORD dirAttr = GetFileAttributesW(sLogDir.c_str());
+	if (dirAttr == INVALID_FILE_ATTRIBUTES) {
+		_wmkdir(sLogDir.c_str());
+	}
 	
-	_logFilePath = sBaseDir + L"\\modelmod." + sExeName + L".log";
+	_logFilePath = sLogDir + L"\\modelmod." + sExeName + L".log";
 }
 
 void Log::info(string message, string category, int cap) {
