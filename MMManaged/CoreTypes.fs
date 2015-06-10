@@ -90,6 +90,7 @@ module CoreTypes =
         AnnotatedVertexGroups: string list []
         AppliedPositionTransforms: string []
         AppliedUVTransforms: string[]
+        // TODO: could use array here for textures
         Tex0Path: string 
         Tex1Path: string 
         Tex2Path: string 
