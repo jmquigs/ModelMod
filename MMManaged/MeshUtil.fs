@@ -289,8 +289,24 @@ map_Kd $$filename
         
         lines.Add("o MMSnapshot")
 
-        if (md.BlendIndices.Length <> md.BlendWeights.Length) 
-            then failwithf "blend data length array mismatch: indices: %A, weights: %A" md.BlendIndices.Length md.BlendWeights.Length
+        // game may have indices but no weights; warn in this case, but 
+        // write out the indices anyway with zero weights.
+        let blendindices,blendweights = 
+            match (md.BlendIndices.Length > 0, md.BlendWeights.Length > 0) with
+                | true,true -> 
+                    // should be same length
+                    if md.BlendIndices.Length <> md.BlendWeights.Length
+                        then failwithf "blend data length array mismatch: indices: %A, weights: %A" md.BlendIndices.Length md.BlendWeights.Length
+                    md.BlendIndices,md.BlendWeights
+                | true,false -> 
+                    log.Warn "Mesh has blend indices but no weights, using zero weights"
+                    md.BlendIndices, Array.zeroCreate md.BlendIndices.Length
+                | false,true ->
+                    // this is weird
+                    failwithf "Mesh has blend weights but no indices"
+                | false,false ->
+                    log.Warn "No blend data detected"
+                    [||],[||]                
 
         md.Positions |> Array.iteri (fun i pos ->
             let line = sprintf "v %f %f %f" pos.X pos.Y pos.Z 
@@ -321,7 +337,7 @@ map_Kd $$filename
                     indices.Z weights.Z 
                     indices.W weights.W
             lines.Add(line)
-        ) md.BlendIndices md.BlendWeights
+        ) blendindices blendweights
             
         let objTransformList x = String.concat " " (Array.map Util.replaceSpaceWithUnderscore x)
 
