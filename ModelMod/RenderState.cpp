@@ -292,6 +292,12 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 		for (Uint32 i = 0; i < events.size(); ++i) {
 			Input::KeyEvent& evt = events[i];
 
+			//MM_LOG_INFO(format("event: key: {}; pressed: {}; mapped: {}; modctrl: {}", 
+			//	evt.key, 
+			//	evt.pressed, 
+			//	(_pCurrentKeyMap->count(evt.key) > 0),
+			//	_input.isCtrlPressed()));
+
 			if (evt.pressed) {
 				if (_input.isCtrlPressed()) {
 					if (_pCurrentKeyMap->count(evt.key) > 0) {
