@@ -157,8 +157,32 @@ module RegConfig =
             DocRoot = "" // custom doc root not yet supported
         }
 
-        ()                
+        ()
+
+    let loadFromFullProfileKey(profPath:string):RunConfig = 
+        let mmHiveRoot = regLoc.HiveRoot
+
+        { 
+            // eventually this may come from the profile as well, right now it is global
+            DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
+
+            CoreTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
+            RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
+            InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
+            SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
+        }
+
+    let loadDefaultProfile():RunConfig =
+        let profPath = regLoc.Hive.Name @@ regLoc.ProfileDefaultsKey
+        loadFromFullProfileKey profPath
+
+    let loadFromProfileKey(profileKey:string):RunConfig =
+        let profPath = regLoc.Hive.Name @@ regLoc.ProfRoot @@ profileKey
+        loadFromFullProfileKey profPath
                     
+    let loadAll (): RunConfig[] =
+        getProfileKeyNames() |> Array.map loadFromProfileKey
+
     let load (exePath:string):RunConfig = 
         let exePath = exePath.Trim()
 
@@ -166,23 +190,20 @@ module RegConfig =
             // Search all profiles for a subkey that has the exe as its ExePath
             let targetProfile = findProfileKeyName exePath
 
-            let profPath = 
+            let runConfig = 
                 match targetProfile with
                 | None -> 
                     let pRoot = regLoc.Hive.Name @@ regLoc.ProfRoot
                     log.Info "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
                     // if this defaults key is missing, then we just use the hardcoded defaults below
-                    pRoot @@ regLoc.ProfileDefaultsKey
-                | Some profPath -> regLoc.Hive.Name @@ profPath
+                    let prof = loadDefaultProfile()
+                    // the default profile won't have an exe path, so set it
+                    { prof with ExePath = exePath }
+                | Some profName -> 
+                    loadFromProfileKey profName
 
-            let mmHiveRoot = regLoc.HiveRoot
-
-            { 
-                CoreTypes.RunConfig.ExePath = exePath
-                DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
-                RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
-                InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
-                SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
-            }
+            if runConfig.ExePath <> exePath then
+                failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
+            runConfig
 
         conf        
