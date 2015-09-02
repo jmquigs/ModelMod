@@ -69,7 +69,7 @@ module RegConfig =
         | null -> def
         | _ -> res
 
-    let getProfiles() = 
+    let getProfileKeyNames() = 
         let profKey = regLoc.Hive.OpenSubKey(regLoc.ProfRoot)
         match profKey with 
         | null -> [||]
@@ -77,9 +77,9 @@ module RegConfig =
             let profiles = profKey.GetSubKeyNames()
             Array.sort profiles
 
-    let findProfile (exePath:string) = 
+    let findProfileKeyName (exePath:string) = 
         let exePath = exePath.Trim()
-        let profiles = getProfiles() 
+        let profiles = getProfileKeyNames() 
         profiles |> Array.tryPick (fun pName -> 
             let pBase = regLoc.ProfRoot @@ pName
             let profRoot = regLoc.Hive.Name @@ pBase
@@ -114,7 +114,7 @@ module RegConfig =
         value
 
     let createNewProfile() = 
-        let profiles = getProfiles() 
+        let profiles = getProfileKeyNames() 
       
         let pName = seq { 0..9999 } |> Seq.tryPick (fun i -> 
             let pname = "Profile" + zeroPad 4 (i.ToString())
@@ -140,7 +140,7 @@ module RegConfig =
             failwithf "Exe path does not exist, cannot save profile: %A" conf.ExePath
 
         // already exist?
-        let profKey = findProfile conf.ExePath
+        let profKey = findProfileKeyName conf.ExePath
         let profKey = 
             match profKey with 
             | Some key -> key
@@ -164,7 +164,7 @@ module RegConfig =
 
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = findProfile exePath
+            let targetProfile = findProfileKeyName exePath
 
             let profPath = 
                 match targetProfile with
