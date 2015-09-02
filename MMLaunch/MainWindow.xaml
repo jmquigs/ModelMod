@@ -8,8 +8,16 @@
         <local:MainViewModel/>
     </Window.DataContext>
     <Grid HorizontalAlignment="Left" Height="145" Margin="136,10,0,0" VerticalAlignment="Top" Width="226">
+        <Grid.Resources>
+            <DataTemplate x:Key="profileNameTemplate">
+                <Label Content="{Binding Path=ExePath}"/>
+            </DataTemplate>
+        </Grid.Resources>
         <Grid HorizontalAlignment="Left" Height="143" Margin="-124,1,0,0" VerticalAlignment="Top" Width="113">
-            <ListBox HorizontalAlignment="Left" Height="123" Margin="10,10,0,0" VerticalAlignment="Top" Width="100"/>
+            <ListBox 
+                HorizontalAlignment="Left" Height="123" Margin="10,10,0,0" VerticalAlignment="Top" Width="100"
+                ItemsSource="{Binding Path=Profiles}"
+                ItemTemplate="{StaticResource profileNameTemplate}"/>
         </Grid>
         <Grid Margin="42,10,38,10">
             <Button Command="{Binding BtnCommand}" Content="Button" HorizontalAlignment="Left" Margin="25,68,0,0" VerticalAlignment="Top" Width="75"/>

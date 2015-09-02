@@ -80,6 +80,13 @@
     <Reference Include="UIAutomationTypes" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MMManaged\MMManaged.fsproj">
+      <Name>MMManaged</Name>
+      <Project>{e87272e6-ce49-4d85-9e55-eac6117d419a}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
   </PropertyGroup>
