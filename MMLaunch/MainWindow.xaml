@@ -17,11 +17,18 @@
             <ListBox 
                 HorizontalAlignment="Left" Height="123" Margin="10,10,0,0" VerticalAlignment="Top" Width="100"
                 ItemsSource="{Binding Path=Profiles}"
+                SelectedItem="{Binding Path=SelectedProfile,Mode=TwoWay}"
                 ItemTemplate="{StaticResource profileNameTemplate}"/>
         </Grid>
-        <Grid Margin="42,10,38,10">
-            <Button Command="{Binding BtnCommand}" Content="Button" HorizontalAlignment="Left" Margin="25,68,0,0" VerticalAlignment="Top" Width="75"/>
-            <TextBox Text="{Binding ClickCount, Mode=TwoWay}" HorizontalAlignment="Left" Height="23" Margin="4,21,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <Grid Margin="42,10,-196,10" Visibility="{Binding Path=ProfileAreaVisibility}">
+            <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
+            <Label Content="Label" HorizontalAlignment="Left" Margin="108,31,-41,0" VerticalAlignment="Top" Width="313"/>
+            <Label Content="Profile Name" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+            <TextBox HorizontalAlignment="Left" Height="23" Margin="108,3,0,0" TextWrapping="Wrap" Text="TextBox" VerticalAlignment="Top" Width="120"/>
+            <Label Content="Input Profile" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
+            <Label Content="Snapshot Profile" HorizontalAlignment="Left" Margin="0,93,0,0" VerticalAlignment="Top"/>
+            <ComboBox HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Width="120"/>
+            <ComboBox HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
         </Grid>
     </Grid>
 </Window>
