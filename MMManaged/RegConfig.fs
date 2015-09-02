@@ -9,6 +9,7 @@ open CoreTypes
 module RegKeys = 
     let DocRoot = "DocRoot"
     let ProfExePath = "ExePath"
+    let ProfName = "ProfileName"
     let ProfRunModeFull = "RunModeFull"
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
@@ -150,6 +151,7 @@ module RegConfig =
 
         // this is a syntactic trick to make sure I get a compiler error if I forget to save a field
         let _ = {
+            ProfileName = profSave RegKeys.ProfName conf.ProfileName
             CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath 
             RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
             InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
@@ -159,18 +161,28 @@ module RegConfig =
 
         ()
 
+    let setProfileName (rc:RunConfig):RunConfig = 
+        if rc.ProfileName = "" then
+            let exeBase = Path.GetFileNameWithoutExtension(rc.ExePath)
+            { rc with ProfileName = exeBase }
+        else 
+            rc
+        
     let loadFromFullProfileKey(profPath:string):RunConfig = 
         let mmHiveRoot = regLoc.HiveRoot
 
-        { 
+        let mutable rc = { 
             // eventually this may come from the profile as well, right now it is global
             DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
 
+            ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string
             CoreTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
             RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
         }
+
+        setProfileName rc 
 
     let loadDefaultProfile():RunConfig =
         let profPath = regLoc.Hive.Name @@ regLoc.ProfileDefaultsKey
@@ -198,7 +210,7 @@ module RegConfig =
                     // if this defaults key is missing, then we just use the hardcoded defaults below
                     let prof = loadDefaultProfile()
                     // the default profile won't have an exe path, so set it
-                    { prof with ExePath = exePath }
+                    setProfileName { prof with ExePath = exePath }
                 | Some profName -> 
                     loadFromProfileKey profName
 

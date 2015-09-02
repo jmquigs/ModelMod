@@ -10,7 +10,7 @@
     <Grid HorizontalAlignment="Left" Height="145" Margin="136,10,0,0" VerticalAlignment="Top" Width="226">
         <Grid.Resources>
             <DataTemplate x:Key="profileNameTemplate">
-                <Label Content="{Binding Path=ExePath}"/>
+                <Label Content="{Binding Path=ProfileName}"/>
             </DataTemplate>
         </Grid.Resources>
         <Grid HorizontalAlignment="Left" Height="143" Margin="-124,1,0,0" VerticalAlignment="Top" Width="113">
