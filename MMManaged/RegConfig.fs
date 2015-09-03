@@ -141,7 +141,12 @@ module RegConfig =
             failwithf "Exe path does not exist, cannot save profile: %A" conf.ExePath
 
         // already exist?
-        let profKey = findProfileKeyName conf.ExePath
+        let profKey = 
+            if conf.ProfileKeyName <> "" then
+                Some (regLoc.ProfRoot @@ conf.ProfileKeyName)
+            else
+                findProfileKeyName conf.ExePath
+
         let profKey = 
             match profKey with 
             | Some key -> key
@@ -151,6 +156,7 @@ module RegConfig =
 
         // this is a syntactic trick to make sure I get a compiler error if I forget to save a field
         let _ = {
+            ProfileKeyName = profKey
             ProfileName = profSave RegKeys.ProfName conf.ProfileName
             CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath 
             RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
@@ -168,13 +174,14 @@ module RegConfig =
         else 
             rc
         
-    let loadFromFullProfileKey(profPath:string):RunConfig = 
+    let loadFromFullProfileKey(profPath:string) (profileKeyName:string):RunConfig = 
         let mmHiveRoot = regLoc.HiveRoot
 
         let mutable rc = { 
             // eventually this may come from the profile as well, right now it is global
             DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
 
+            ProfileKeyName = profileKeyName
             ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string
             CoreTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
             RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
@@ -186,11 +193,11 @@ module RegConfig =
 
     let loadDefaultProfile():RunConfig =
         let profPath = regLoc.Hive.Name @@ regLoc.ProfileDefaultsKey
-        loadFromFullProfileKey profPath
+        loadFromFullProfileKey profPath "" // use empty string for key name when loading from default profile
 
     let loadFromProfileKey(profileKey:string):RunConfig =
         let profPath = regLoc.Hive.Name @@ regLoc.ProfRoot @@ profileKey
-        loadFromFullProfileKey profPath
+        loadFromFullProfileKey profPath profileKey
                     
     let loadAll (): RunConfig[] =
         getProfileKeyNames() |> Array.map loadFromProfileKey

@@ -7,11 +7,28 @@ open FSharp.ViewModule.Validation
 open System.Windows.Input
 open System.ComponentModel
 open System.Collections.ObjectModel
+open Microsoft.Win32
 
 open FsXaml
 
 open ViewModelUtils
 open ModelMod
+
+module MainViewUtils = 
+    let selectExecutableDialog() = 
+        let dlg = new OpenFileDialog()
+
+        //dlg.InitialDirectory <- state.Value.SnapshotRoot
+
+        dlg.Filter <- "Executable files (*.exe)|*.exe"
+        dlg.FilterIndex <- 0
+        dlg.RestoreDirectory <- true
+
+        let res = dlg.ShowDialog() 
+        if res.HasValue && res.Value then
+            Some (dlg.FileName)
+        else
+            None
 
 type MainView = XAML<"MainWindow.xaml", true>
 
@@ -23,6 +40,9 @@ type ProfileModel(config:CoreTypes.RunConfig) =
     let mutable config = config
 
     let save() = RegConfig.saveProfile config
+
+    member x.ProfileKeyName 
+        with get() = config.ProfileKeyName
 
     member x.Name 
         with get() = config.ProfileName
@@ -61,8 +81,11 @@ type MainViewModel() =
         RegConfig.init() // reg config requires init to set hive root
 
     member x.Profiles = 
-        new ObservableCollection<ProfileModel>
-            (RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc)))
+        if DesignMode then
+            new ObservableCollection<ProfileModel>([||])
+        else
+            new ObservableCollection<ProfileModel>
+                (RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc)))
     
     member x.SelectedProfile 
         with get () = selectedProfile
@@ -77,3 +100,22 @@ type MainViewModel() =
             Visibility.Visible
         else
             Visibility.Hidden
+
+    member x.BrowseExe = alwaysExecutable (fun action ->
+        match MainViewUtils.selectExecutableDialog() with
+        | None -> ()
+        | Some (exePath) -> 
+            // verify that the chosen path is not already claimed by another profile
+            let existingProfileKey = RegConfig.findProfileKeyName exePath
+            let ok = 
+                match existingProfileKey with
+                | None -> true
+                | Some (key) ->
+                    key.EndsWith(x.SelectedProfile.ProfileKeyName)
+
+            if ok then
+                x.SelectedProfile.ExePath <- exePath
+                x.RaisePropertyChanged("SelectedProfile") 
+            else
+                MessageBox.Show("Cannot set exe path; it is already used by another profile") |> ignore
+    )

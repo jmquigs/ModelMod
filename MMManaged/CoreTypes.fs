@@ -28,15 +28,24 @@ module CoreTypes =
     // ------------------------------------------------------------------------
     // Configuration types
     type RunConfig = {
-        ProfileName: string
-        ExePath: string
-        RunModeFull: bool
-        InputProfile: string
-        SnapshotProfile: string
-        DocRoot: string
+        /// Reg key that this profile is stored under, e.g "Profile0000"
+        ProfileKeyName: string 
+        /// Friendly name for profile (if missing, defaults to exe base name)
+        ProfileName: string 
+        /// Path to exe
+        ExePath: string 
+        /// Whether the current/next run is in full (snapshot) mode or playback only
+        RunModeFull: bool 
+        /// Input profile to use
+        InputProfile: string 
+        /// Snapshot profile to use (i.e.: model transforms for snapshot) 
+        SnapshotProfile: string 
+        /// Doc root for this profile.  Currently ignored.
+        DocRoot: string 
     } 
 
     let DefaultRunConfig = {
+        ProfileKeyName = ""
         ProfileName = ""
         ExePath = ""
         RunConfig.RunModeFull = true
