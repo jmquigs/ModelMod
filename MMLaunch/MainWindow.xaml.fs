@@ -1,6 +1,8 @@
 ﻿namespace MMLaunch
 
 open System
+open System.Diagnostics
+open System.Threading
 open System.Windows
 open System.IO
 open FSharp.ViewModule
@@ -39,6 +41,64 @@ module MainViewUtils =
 
     let failValidation (msg:string) = 
         MessageBox.Show(msg) |> ignore
+
+    let launchWithLoader (exePath:string) =
+        try 
+            if not (File.Exists(exePath)) then
+                failwithf "Exe does not exist: %s" exePath    
+            // crude, but if it isn't an exe, we probably can't inject it because the loader won't find 
+            // it.  and .com files aren't supported, ha ha
+            if not (Path.GetExtension(exePath).ToLowerInvariant() = ".exe") then
+                failwithf "Exe does not appear to be an exe: %s" exePath
+            // find loader
+            let loaderPath = 
+                let lname = "MMLoader.exe"
+                let devTreePath = Path.Combine("../../../Release", lname) // always use release version if running in a dev environment
+                if File.Exists(lname) then Path.GetFullPath(lname)
+                else if File.Exists(devTreePath) then Path.GetFullPath(devTreePath)
+                else // dunno where it is
+                    ""
+            if not (File.Exists(loaderPath))
+                then failwithf "Can't find %s" loaderPath
+
+            let proc = new Process()
+            proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
+            proc.StartInfo.UseShellExecute <- true // also required for elevation
+            proc.StartInfo.FileName <- loaderPath
+            proc.StartInfo.Arguments <- sprintf "\"%s\"" exePath
+            let res = proc.Start()
+            if not res then 
+                failwith "Failed to start loader process"
+
+            let loaderProc = proc
+
+            // pause for a second to avoid loader's "found on first launch" heuristic;
+            // this could fail if the system is really slow, though, and can't get loader up in a second.
+            // this is one of several race conditions here...
+            Thread.Sleep(1000)
+
+            // ok, loader is fired up, and by the time we get here the user has already accepted the elevation
+            // dialog...so launch the target exe; loader will find it and inject.  this also should handle the
+            // case where the exe restarts itself because it needs to be launched from some parent process
+            // (e.g. Steam)
+            // in theory loader could start the game too, but then it would start as admin, which we don't want.
+            
+            let proc = new Process()
+            proc.StartInfo.UseShellExecute <- false
+            proc.StartInfo.FileName <- exePath
+            let res = proc.Start()
+            if not res then 
+                // bummer, kill the loader
+                loaderProc.Kill()
+                loaderProc.WaitForExit()
+                failwith "Failed to start game process"
+            // we don't store a reference to the game process because we don't do anything with it at this point
+
+            Some(loaderProc)
+        with 
+            | e -> 
+                failValidation(e.Message)
+                None
 
 type MainView = XAML<"MainWindow.xaml", true>
 
@@ -104,6 +164,8 @@ type MainViewModel() =
 
     let mutable selectedProfile = EmptyProfile
 
+    let currentLaunchedProcess:Process option ref = ref None
+
     do
         RegConfig.init() // reg config requires init to set hive root
 
@@ -128,6 +190,7 @@ type MainViewModel() =
             selectedProfile <- value
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
+            x.RaisePropertyChanged("StartSnapshot") 
 
     member x.ProfileAreaVisibility = 
         if  DesignMode || 
@@ -154,3 +217,18 @@ type MainViewModel() =
             else
                 MainViewUtils.failValidation "Cannot set exe path; it is already used by another profile"
     )
+
+    member x.StartSnapshot = 
+        new RelayCommand (
+            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible), 
+            (fun action -> 
+                match currentLaunchedProcess.Value with 
+                | Some (proc) ->
+                    if not proc.HasExited then
+                        proc.Kill()
+                        proc.WaitForExit()
+                | None -> ()
+
+                currentLaunchedProcess.Value <- MainViewUtils.launchWithLoader x.SelectedProfile.ExePath
+            ))
+
