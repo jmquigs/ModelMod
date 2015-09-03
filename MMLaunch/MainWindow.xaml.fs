@@ -65,17 +65,19 @@ module MainViewUtils =
             proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
             proc.StartInfo.UseShellExecute <- true // also required for elevation
             proc.StartInfo.FileName <- loaderPath
-            proc.StartInfo.Arguments <- sprintf "\"%s\"" exePath
+            // tell loader to exit if it hasn't attached in 15 seconds
+            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15" exePath
             let res = proc.Start()
             if not res then 
                 failwith "Failed to start loader process"
 
             let loaderProc = proc
 
-            // pause for a second to avoid loader's "found on first launch" heuristic;
-            // this could fail if the system is really slow, though, and can't get loader up in a second.
-            // this is one of several race conditions here...
-            Thread.Sleep(1000)
+            // pause for a bit to avoid loader's "found on first launch" heuristic;
+            // this could fail if the system is really slow, though, and can't get loader up in time.
+            // this is one of several race conditions here...this one still occasionally hits a CreateRemoteThread
+            // problem.
+            Thread.Sleep(2000)
 
             // ok, loader is fired up, and by the time we get here the user has already accepted the elevation
             // dialog...so launch the target exe; loader will find it and inject.  this also should handle the

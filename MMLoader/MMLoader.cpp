@@ -196,7 +196,7 @@ void ShowError(const string& doh) {
 	DisplayMessageBox(doh.c_str(), "Crap");
 }
 
-int StartInjection(bool launch, string processName, string dllPath) {
+int StartInjection(bool launch, string processName, string dllPath, int waitPeriod) {
 	DWORD targetProcessId = 0;
 
 	// Launch target EXE
@@ -241,6 +241,12 @@ int StartInjection(bool launch, string processName, string dllPath) {
 		// how long its been running, so it isn't safe to inject (it may have already created its d3d device, etc).
 		
 		printf("Waiting for process: %s\n", processName.c_str());
+		if (waitPeriod != -1) {
+			printf("Wait period: %d seconds\n", waitPeriod);
+		}
+		else {
+			printf("Waiting indefinitely\n");
+		}
 
 		// already running?
 		LONGLONG foundID = FindProcess(processName);
@@ -257,6 +263,8 @@ int StartInjection(bool launch, string processName, string dllPath) {
 		}
 		isFirstSearch = FALSE;
 		
+		DWORD startTime = GetTickCount();
+
 		// enter find and suspend loop
 		do {
 			Sleep(1);
@@ -266,6 +274,16 @@ int StartInjection(bool launch, string processName, string dllPath) {
 				return -1;
 			}
 			targetProcessId = (DWORD)foundID;
+
+			if (waitPeriod != -1 && targetProcessId == 0) {
+				// check for timed exit
+				DWORD elapsed = GetTickCount() - startTime;
+				unsigned int waitMax = waitPeriod * 1000;
+				if (elapsed >= waitMax) {
+					printf("Wait period expired, exiting\n");
+					return -1;
+				}
+			}
 		} while(targetProcessId == 0);
 	}
 
@@ -344,8 +362,23 @@ int _tmain(int argc, const char* argv[])
 {
 	string targetExe = "";
 #endif
+	int waitPeriod = -1;
 
-	if (argc != 2) {
+	for (int i = 0; i < argc; ++i) {
+		//printf("%s\n", argv[i]);
+
+		string arg = string(argv[i]);
+		if (arg == "-waitperiod") {
+			if (i + 1 < argc) {
+				sscanf_s(argv[i + 1], "%d", &waitPeriod);
+			}
+		}
+		
+		if (targetExe.empty() && arg[0] != '-') {
+			targetExe = arg;
+		}
+	}
+	if (targetExe.empty()) {
 		DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
 		return -1;
 	}
@@ -385,7 +418,7 @@ int _tmain(int argc, const char* argv[])
 
 	int ret = 0;
 	if (launch) {
-		ret = StartInjection(launch, targetExe, dllPath);
+		ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
 	} else {
 		// poll mode.
 		// in this mode, only one instance of loader must be running for the target process name
@@ -405,7 +438,7 @@ int _tmain(int argc, const char* argv[])
 		else {
 			// poll forever
 			do {
-				ret = StartInjection(launch, targetExe, dllPath);
+				ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
 			} while (ret == 0);
 		}
 		CloseHandle(mutie);
