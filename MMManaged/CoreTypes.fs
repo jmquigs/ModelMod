@@ -7,12 +7,23 @@ type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage
 type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
 
 module SnapshotProfiles =
-    let Profile1 = "profile1"
-    let Profile2 = "profile2"
+    let Profile1 = "Profile1"
+    let Profile2 = "Profile2"
 
     let ValidProfiles = [ Profile1; Profile2 ]
 
     let DefaultProfile = Profile1
+
+    let isValid (profile:string) =
+        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
+
+module InputProfiles = 
+    let PunctRock = "PunctuationKeys"
+    let FItUp = "FKeys"
+    
+    let ValidProfiles = [ PunctRock; FItUp ]
+
+    let DefaultProfile = FItUp
 
     let isValid (profile:string) =
         ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())

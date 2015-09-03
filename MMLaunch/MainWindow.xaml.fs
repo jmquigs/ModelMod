@@ -51,7 +51,11 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
     // set defaults for empty profile values
     let mutable config = 
-        if config.SnapshotProfile.Trim() = "" then { config with SnapshotProfile = SnapshotProfiles.DefaultProfile} else config
+        if config.SnapshotProfile.Trim() = "" || not (SnapshotProfiles.isValid config.SnapshotProfile)
+            then { config with SnapshotProfile = SnapshotProfiles.DefaultProfile} else config
+    let mutable config = 
+        if config.InputProfile.Trim() = "" || not (InputProfiles.isValid config.InputProfile)
+            then { config with InputProfile = InputProfiles.DefaultProfile} else config
 
     let save() = RegConfig.saveProfile config
 
@@ -86,7 +90,9 @@ type ProfileModel(config:CoreTypes.RunConfig) =
             config <- { config with SnapshotProfile = value }
             save()
 
-type SnapshotProfileModel(name:string) =
+/// Used for Snapshot and Input profiles, since they both basically just have a name 
+/// and description as far as the UI is concerned.
+type SubProfileModel(name:string) =
     member x.Name with get() = name
     
 type MainViewModel() = 
@@ -109,8 +115,12 @@ type MainViewModel() =
                 (RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc)))
 
     member x.SnapshotProfiles = 
-        new ObservableCollection<SnapshotProfileModel>
-            (SnapshotProfiles.ValidProfiles |> List.map (fun p -> SnapshotProfileModel(p)))
+        new ObservableCollection<SubProfileModel>
+            (SnapshotProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
+
+    member x.InputProfiles = 
+        new ObservableCollection<SubProfileModel>
+            (InputProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
     
     member x.SelectedProfile 
         with get () = selectedProfile

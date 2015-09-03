@@ -27,7 +27,11 @@
             <TextBox Text="{Binding Path=SelectedProfile.Name, Mode=TwoWay}"  HorizontalAlignment="Left" Height="23" Margin="108,3,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
             <Label Content="Input Profile" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
             <Label Content="Snapshot Profile" HorizontalAlignment="Left" Margin="0,93,0,0" VerticalAlignment="Top"/>
-            <ComboBox HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Width="120"/>
+            <ComboBox ItemsSource="{Binding Path=InputProfiles}" 
+                DisplayMemberPath="Name"
+                SelectedValuePath="Name"
+                SelectedValue="{Binding Path=SelectedProfile.InputProfile}"
+                HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Width="120"/>
             <ComboBox ItemsSource="{Binding Path=SnapshotProfiles}" 
                       DisplayMemberPath="Name"
                       SelectedValuePath="Name"
