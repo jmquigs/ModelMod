@@ -3,14 +3,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="MVVM and XAML Type provider" Height="394" Width="618">
+    Title="ModelMod Launcher" Height="394" Width="618">
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
     <Grid HorizontalAlignment="Left" Height="145" Margin="136,10,0,0" VerticalAlignment="Top" Width="226">
         <Grid.Resources>
             <DataTemplate x:Key="profileNameTemplate">
-                <Label Content="{Binding Path=ProfileName}"/>
+                <Label Content="{Binding Path=Name}"/>
             </DataTemplate>
         </Grid.Resources>
         <Grid HorizontalAlignment="Left" Height="143" Margin="-124,1,0,0" VerticalAlignment="Top" Width="113">
@@ -22,9 +22,9 @@
         </Grid>
         <Grid Margin="42,10,-196,10" Visibility="{Binding Path=ProfileAreaVisibility}">
             <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
-            <Label Content="Label" HorizontalAlignment="Left" Margin="108,31,-41,0" VerticalAlignment="Top" Width="313"/>
+            <Label Content="{Binding Path=SelectedProfile.ExePath}" HorizontalAlignment="Left" Margin="108,31,-41,0" VerticalAlignment="Top" Width="313"/>
             <Label Content="Profile Name" HorizontalAlignment="Left" VerticalAlignment="Top"/>
-            <TextBox HorizontalAlignment="Left" Height="23" Margin="108,3,0,0" TextWrapping="Wrap" Text="TextBox" VerticalAlignment="Top" Width="120"/>
+            <TextBox Text="{Binding Path=SelectedProfile.Name, Mode=TwoWay}"  HorizontalAlignment="Left" Height="23" Margin="108,3,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
             <Label Content="Input Profile" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
             <Label Content="Snapshot Profile" HorizontalAlignment="Left" Margin="0,93,0,0" VerticalAlignment="Top"/>
             <ComboBox HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Width="120"/>
