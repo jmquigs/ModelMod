@@ -12,6 +12,11 @@ module SnapshotProfiles =
 
     let ValidProfiles = [ Profile1; Profile2 ]
 
+    let DefaultProfile = Profile1
+
+    let isValid (profile:string) =
+        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
+
 module CoreTypes =
     // ------------------------------------------------------------------------
     // Some monogame helper types

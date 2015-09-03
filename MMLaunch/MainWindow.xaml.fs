@@ -49,6 +49,10 @@ type MainView = XAML<"MainWindow.xaml", true>
 type ProfileModel(config:CoreTypes.RunConfig) = 
     let mutable config = config
 
+    // set defaults for empty profile values
+    let mutable config = 
+        if config.SnapshotProfile.Trim() = "" then { config with SnapshotProfile = SnapshotProfiles.DefaultProfile} else config
+
     let save() = RegConfig.saveProfile config
 
     member x.ProfileKeyName 
@@ -82,6 +86,9 @@ type ProfileModel(config:CoreTypes.RunConfig) =
             config <- { config with SnapshotProfile = value }
             save()
 
+type SnapshotProfileModel(name:string) =
+    member x.Name with get() = name
+    
 type MainViewModel() = 
     inherit ViewModelBase()
 
@@ -100,6 +107,10 @@ type MainViewModel() =
         else
             new ObservableCollection<ProfileModel>
                 (RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc)))
+
+    member x.SnapshotProfiles = 
+        new ObservableCollection<SnapshotProfileModel>
+            (SnapshotProfiles.ValidProfiles |> List.map (fun p -> SnapshotProfileModel(p)))
     
     member x.SelectedProfile 
         with get () = selectedProfile

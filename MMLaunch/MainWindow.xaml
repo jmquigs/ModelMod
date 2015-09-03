@@ -28,7 +28,11 @@
             <Label Content="Input Profile" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
             <Label Content="Snapshot Profile" HorizontalAlignment="Left" Margin="0,93,0,0" VerticalAlignment="Top"/>
             <ComboBox HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Width="120"/>
-            <ComboBox HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
+            <ComboBox ItemsSource="{Binding Path=SnapshotProfiles}" 
+                      DisplayMemberPath="Name"
+                      SelectedValuePath="Name"
+                      SelectedValue="{Binding Path=SelectedProfile.SnapshotProfile}"
+                      HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
             <Button Command="{Binding Path=BrowseExe}" Content="Browse" HorizontalAlignment="Left" Margin="295,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
         </Grid>
     </Grid>

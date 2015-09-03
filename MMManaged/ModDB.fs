@@ -514,12 +514,12 @@ module State =
 
     let validateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
         let snapProfile = 
-            match conf.SnapshotProfile with
-            | profile when (SnapshotProfiles.ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant() )) -> profile.ToLowerInvariant()
+            (match conf.SnapshotProfile with
+            | profile when SnapshotProfiles.isValid(profile) -> profile
             | _ ->
-                let def = SnapshotProfiles.Profile1
+                let def = SnapshotProfiles.DefaultProfile
                 log.Info "Unrecognized snapshot profile: %A; using %A" conf.SnapshotProfile def
-                def.ToLowerInvariant()
+                def).ToLowerInvariant()
             
         let conf = 
             { conf with
