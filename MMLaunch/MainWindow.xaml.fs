@@ -2,6 +2,7 @@
 
 open System
 open System.Windows
+open System.IO
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
 open System.Windows.Input
@@ -15,8 +16,14 @@ open ViewModelUtils
 open ModelMod
 
 module MainViewUtils = 
-    let selectExecutableDialog() = 
+    let selectExecutableDialog(currentExe:string option) = 
         let dlg = new OpenFileDialog()
+
+        match currentExe with
+        | None -> ()
+        | Some exe ->
+            if File.Exists(exe) then
+                dlg.InitialDirectory <- Directory.GetParent(exe).ToString()
 
         //dlg.InitialDirectory <- state.Value.SnapshotRoot
 
@@ -29,6 +36,9 @@ module MainViewUtils =
             Some (dlg.FileName)
         else
             None
+
+    let failValidation (msg:string) = 
+        MessageBox.Show(msg) |> ignore
 
 type MainView = XAML<"MainWindow.xaml", true>
 
@@ -46,9 +56,13 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
     member x.Name 
         with get() = config.ProfileName
-        and set value = 
-            config <- {config with ProfileName = value } 
-            save()
+        and set (value:string) = 
+            let value = value.Trim()
+            if value = "" then
+                MainViewUtils.failValidation "Profile name may not be empty"
+            else
+                config <- {config with ProfileName = value } 
+                save()
 
     member x.ExePath 
         with get() = config.ExePath
@@ -102,7 +116,7 @@ type MainViewModel() =
             Visibility.Hidden
 
     member x.BrowseExe = alwaysExecutable (fun action ->
-        match MainViewUtils.selectExecutableDialog() with
+        match MainViewUtils.selectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
         | None -> ()
         | Some (exePath) -> 
             // verify that the chosen path is not already claimed by another profile
@@ -117,5 +131,5 @@ type MainViewModel() =
                 x.SelectedProfile.ExePath <- exePath
                 x.RaisePropertyChanged("SelectedProfile") 
             else
-                MessageBox.Show("Cannot set exe path; it is already used by another profile") |> ignore
+                MainViewUtils.failValidation "Cannot set exe path; it is already used by another profile"
     )
