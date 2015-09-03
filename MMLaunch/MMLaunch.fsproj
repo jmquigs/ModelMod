@@ -10,7 +10,7 @@
     <RootNamespace>MMLaunch</RootNamespace>
     <AssemblyName>MMLaunch</AssemblyName>
     <targetframeworkversion>v4.5</targetframeworkversion>
-    <TargetFSharpCoreVersion>4.3.0.0</TargetFSharpCoreVersion>
+    <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
     <Name>MMLaunch</Name>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
