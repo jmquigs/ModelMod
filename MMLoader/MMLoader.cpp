@@ -14,13 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <algorithm>
-#include <string>
-using namespace std;
-
-#define MAX_LOADSTRING 100
-
-#define strlower(s) std::transform(s.begin(), s.end(), s.begin(), ::tolower)
+#include "Util.h"
 
 // Global Variables:
 HINSTANCE hInst;								// current instance
@@ -28,57 +22,6 @@ BOOL isFirstSearch = TRUE;
 
 BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
-
-int DisplayMessageBox(const char* text, const char* caption = "Caption", UINT type = MB_OK) {
-#ifdef UNICODE
-	const size_t tLen = strlen(text);
-	const size_t cLen = strlen(caption);
-	WCHAR* wText = new WCHAR[tLen+1];
-	WCHAR* wCaption = new WCHAR[cLen+1];
-	MultiByteToWideChar(CP_OEMCP,0,text,-1,wText,tLen+1);
-	MultiByteToWideChar(CP_OEMCP,0,caption,-1,wCaption,cLen+1);
-
-	int res = MessageBox(NULL,
-		wText,
-		wCaption,
-		type);
-
-	delete [] wText;
-	delete [] wCaption;
-#else
-	int res = MessageBox(NULL,
-		text,
-		caption,
-		type);
-#endif
-	return res;
-};
-
-string _basename(string pathName) {
-	string basename;
-	const char* lastSlash = strrchr(pathName.c_str(), '\\');
-	if (!lastSlash) {
-		lastSlash = strrchr(pathName.c_str(), '/');
-	}
-	if (lastSlash) {
-		basename = string(++lastSlash);
-	} else {
-		basename = string(pathName);
-	}
-	return basename;
-}
-
-// behold the power of c++!
-// http://stackoverflow.com/questions/4643512/replace-substring-with-another-substring-c
-std::string _replaceString(std::string subject, const std::string& search,
-	const std::string& replace) {
-	size_t pos = 0;
-	while ((pos = subject.find(search, pos)) != std::string::npos) {
-		subject.replace(pos, search.length(), replace);
-		pos += replace.length();
-	}
-	return subject;
-}
 
 BOOL IterateProcessThreads( DWORD dwOwnerPID, bool suspend ) 
 { 
@@ -157,15 +100,15 @@ LONGLONG FindProcess(string processName) {
 	}
 
 
-	strlower(processName);
-	processName = _basename(processName);
+	Util::StrLower(processName);
+	processName = Util::Basename(processName);
 
 	DWORD foundID = 0;
 	do
 	{
-		string spName = _basename(pe32.szExeFile);
+		string spName = Util::Basename(pe32.szExeFile);
 
-		strlower(spName);
+		Util::StrLower(spName);
 
 		if (processName != spName) {
 			continue;
@@ -193,7 +136,7 @@ LONGLONG FindAndSuspend(string processName) {
 
 void ShowError(const string& doh) {
 	printf("%s\n", doh.c_str());
-	DisplayMessageBox(doh.c_str(), "Crap");
+	Util::DisplayMessageBox(doh.c_str(), "Crap");
 }
 
 int StartInjection(bool launch, string processName, string dllPath, int waitPeriod) {
@@ -220,7 +163,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		// check for Vista failing to create the process due to elevation requirements
 		if(!result && (GetLastError() == ERROR_ELEVATION_REQUIRED))
 		{
-			DisplayMessageBox("Elevation required, run as administrator",
+			Util::DisplayMessageBox("Elevation required, run as administrator",
 				"Fail",
 				MB_OK);
 			return -1;
@@ -229,7 +172,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		if (!result) {
 			char err[65536];
 			sprintf_s(err,sizeof(err), "Failed to Launch: %08X", GetLastError());
-			DisplayMessageBox(err,"Fail");
+			Util::DisplayMessageBox(err,"Fail");
 			return -1;
 		}
 
@@ -305,7 +248,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		IterateProcessThreads(targetProcessId, false);
 		//TerminateThread(procInfo.hThread, 666);
 
-		DisplayMessageBox("Failed to inject DLL", "Crap");
+		Util::DisplayMessageBox("Failed to inject DLL", "Crap");
 		return -1;
 	} else {
 	}
@@ -379,7 +322,7 @@ int _tmain(int argc, const char* argv[])
 		}
 	}
 	if (targetExe.empty()) {
-		DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
+		Util::DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
 		return -1;
 	}
 	else {
@@ -401,7 +344,7 @@ int _tmain(int argc, const char* argv[])
 	FILE* fp = NULL;
 	fopen_s(&fp, dllPath, "r");
 	if (!fp) {
-		DisplayMessageBox("dll cannot be opened");
+		Util::DisplayMessageBox("dll cannot be opened");
 	} 
 	if (fp) {
 		fclose(fp);
@@ -410,7 +353,7 @@ int _tmain(int argc, const char* argv[])
 	fp = NULL;
 	fopen_s(&fp, targetExe.c_str(), "r");
 	if (!fp) {
-		DisplayMessageBox("exe cannot be opened");
+		Util::DisplayMessageBox("exe cannot be opened");
 	} 
 	if (fp) {
 		fclose(fp);
@@ -423,9 +366,9 @@ int _tmain(int argc, const char* argv[])
 		// poll mode.
 		// in this mode, only one instance of loader must be running for the target process name
 		string lpName(targetExe);
-		lpName = _replaceString(lpName, " ", "_");
-		lpName = _replaceString(lpName, "\\", "_");
-		lpName = _replaceString(lpName, ":", "_");
+		lpName = Util::ReplaceString(lpName, " ", "_");
+		lpName = Util::ReplaceString(lpName, "\\", "_");
+		lpName = Util::ReplaceString(lpName, ":", "_");
 
 		string mutieName = string("MMLoader_For_") + string(lpName);
 		SetLastError(ERROR_SUCCESS);
@@ -433,7 +376,7 @@ int _tmain(int argc, const char* argv[])
 		DWORD err = GetLastError();
 		if (!mutie || err != ERROR_SUCCESS) {
 			string err = "Unable to create new mutex: " + string(mutieName) + "; another MMLoader may already be running for the process";
-			DisplayMessageBox(err.c_str());
+			Util::DisplayMessageBox(err.c_str());
 		}
 		else {
 			// poll forever
