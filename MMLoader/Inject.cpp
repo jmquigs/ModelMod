@@ -1,37 +1,11 @@
 #include "StdAfx.h"
 #include "Inject.h"
 
+#include "Util.h"
+
 // Ripped from Oblivion Script Extender 
 // http://obse.silverlock.org/
 // The sordid thread-suspending logic in DoInjectDLL is my own dismal contribution
-
-inline void _ERROR(const char * fmt, ...)
-{
-	//va_list args;
-
-	//va_start(args, fmt);
-	//gLog.Log(IDebugLog::kLevel_Error, fmt, args);
-	//va_end(args);
-}
-
-inline void _WARNING(const char * fmt, ...)
-{
-	//va_list args;
-
-	//va_start(args, fmt);
-	//gLog.Log(IDebugLog::kLevel_Warning, fmt, args);
-	//va_end(args);
-}
-
-inline void _MESSAGE(const char * fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	printf(fmt,args);
-	//gLog.Log(IDebugLog::kLevel_Message, fmt, args);
-	va_end(args);
-}
 
 extern BOOL ToggleProcessThreads(DWORD dwOwnerPID, bool suspend);
 
@@ -128,7 +102,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 						switch(WaitForSingleObject(hookThread, waitTimeout))  // g_options.m_threadTimeout
 						{
 							case WAIT_OBJECT_0:
-								_MESSAGE("Hook Thread complete\n");
+								Util::Log("Hook Thread complete\n");
 								result = true;
 								break;
 
@@ -138,7 +112,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 
 							case WAIT_TIMEOUT:
 								// Resume all threads, sleep for a bit, then suspend them all again.  Then resume hook thread and retry.
-								_MESSAGE("timeout, retrying\n");
+								Util::Log("timeout, retrying\n");
 								ToggleProcessThreads(processId,false);
 								Sleep(0);
 								ToggleProcessThreads(processId,true);

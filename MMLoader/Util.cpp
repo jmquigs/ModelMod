@@ -58,4 +58,39 @@ namespace Util {
 		return subject;
 	}
 
+	// http://stackoverflow.com/questions/874134/find-if-string-endswith-another-string-in-c
+	bool HasEnding(string& fullString, string& ending) {
+		if (fullString.length() >= ending.length()) {
+			return (0 == fullString.compare(fullString.length() - ending.length(), ending.length(), ending));
+		}
+		else {
+			return false;
+		}
+	}
+
+	FILE* log_handle = stdout;
+
+	void SetLogFile(FILE* fp) {
+		if (fp != NULL) {
+			log_handle = fp;
+		}
+	}
+
+	void Log(const char * fmt, ...)
+	{
+		if (log_handle) {
+			va_list args;
+
+			va_start(args, fmt);
+			vfprintf(log_handle, fmt, args);
+			// this doesn't seem to flush the buffer if its a file, even though I specified "c" to fopen.
+			// don't want to close/reopen the file here because that could slow things down, 
+			// and the injection is definitely timing sensitive,
+			// so just avoid flush altogether.
+			//fflush(log_handle);
+			//_flushall();
+			va_end(args);
+		}
+	}
+
 };

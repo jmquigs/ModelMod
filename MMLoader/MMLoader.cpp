@@ -36,7 +36,7 @@ BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend )
 
    if( !Thread32First( hThreadSnap, &te32 ) ) 
    {
-      printf("Failed to open first thread\n");
+      Util::Log("Failed to open first thread\n");
       CloseHandle( hThreadSnap );
       return( FALSE );
    }
@@ -56,11 +56,11 @@ BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend )
 			  int suspendCount = -1;
 			  if (suspend) {
 				  suspendCount = SuspendThread(tHandle);
-				  printf("Suspend thread: %d\n", suspendCount);
+				  Util::Log("Suspend thread: %d\n", suspendCount);
 			  }
 			  else {
 				  suspendCount = ResumeThread(tHandle);
-				  printf("Resume thread: %d\n", suspendCount);
+				  Util::Log("Resume thread: %d\n", suspendCount);
 			  }
 
 			  CloseHandle(tHandle);
@@ -88,13 +88,13 @@ LONGLONG FindProcess(string processName) {
 	hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 	if (hSnapshot == INVALID_HANDLE_VALUE)
 	{
-		printf("Failed to snapshot processes\n");
+		Util::Log("Failed to snapshot processes\n");
 		return -1;
 	}
 
 	if (!Process32First(hSnapshot, &pe32))
 	{
-		printf("Failed to get information about first process\n");
+		Util::Log("Failed to get information about first process\n");
 		CloseHandle(hSnapshot);
 		return -1;
 	}
@@ -114,7 +114,7 @@ LONGLONG FindProcess(string processName) {
 			continue;
 		}
 
-		printf("Found %s\n", processName.c_str());
+		Util::Log("Found %s\n", processName.c_str());
 		foundID = pe32.th32ProcessID;
 		break;
 	} while (Process32Next(hSnapshot, &pe32));
@@ -135,7 +135,7 @@ LONGLONG FindAndSuspend(string processName) {
 }
 
 void ShowError(const string& doh) {
-	printf("%s\n", doh.c_str());
+	Util::Log("%s\n", doh.c_str());
 	Util::DisplayMessageBox(doh.c_str(), "Crap");
 }
 
@@ -147,7 +147,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	PROCESS_INFORMATION	procInfo = { 0 };
 
 	if (launch) {
-		printf("Launching %s\n", processName.c_str());
+		Util::Log("Launching %s\n", processName.c_str());
 
 		bool result = CreateProcess(
 			processName.c_str(),
@@ -183,12 +183,13 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		// requirement: target process must be started AFTER this process.  otherwise, we don't know 
 		// how long its been running, so it isn't safe to inject (it may have already created its d3d device, etc).
 		
-		printf("Waiting for process: %s\n", processName.c_str());
+		const char* cname = processName.c_str();
+		Util::Log("Waiting for process: %s\n", cname);
 		if (waitPeriod != -1) {
-			printf("Wait period: %d seconds\n", waitPeriod);
+			Util::Log("Wait period: %d seconds\n", waitPeriod);
 		}
 		else {
-			printf("Waiting indefinitely\n");
+			Util::Log("Waiting indefinitely\n");
 		}
 
 		// already running?
@@ -223,7 +224,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 				DWORD elapsed = GetTickCount() - startTime;
 				unsigned int waitMax = waitPeriod * 1000;
 				if (elapsed >= waitMax) {
-					printf("Wait period expired, exiting\n");
+					Util::Log("Wait period expired, exiting\n");
 					return -1;
 				}
 			}
@@ -231,19 +232,19 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	}
 
 	if (targetProcessId == 0) {
-		printf("No target process, unable to load\n");
+		Util::Log("No target process, unable to load\n");
 		return -1;
 	}
 
 	Inject i;
-	printf("Injecting %s\n", dllPath.c_str());
+	Util::Log("Injecting %s\n", dllPath.c_str());
 
 	if (!i.InjectDLL(targetProcessId,dllPath.c_str(), launch)) {
-		printf("Inject error: %s\n", i.GetError().c_str());
+		Util::Log("Inject error: %s\n", i.GetError().c_str());
 
 		// could terminate, but we don't want to leave it in a bad state, so 
 		// let it go, let it gooooooo
-		printf("Resuming target process due to injection failure; restart target process manually to try again\n");
+		Util::Log("Resuming target process due to injection failure; restart target process manually to try again\n");
 		
 		ToggleProcessThreads(targetProcessId, false);
 
@@ -257,7 +258,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	}
 
 	// Resume and Wait
-	printf("Waiting for exit\n");
+	Util::Log("Waiting for exit\n");
 	ToggleProcessThreads(targetProcessId, false);
 	
 	int ret = 0;
@@ -276,7 +277,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 	case WAIT_FAILED:
 		waitRet = GetLastError();
-		printf("Failed to wait for process to exit\n");
+		Util::Log("Failed to wait for process to exit\n");
 		ret = -1;
 		break;
 	default:
@@ -307,10 +308,11 @@ int _tmain(int argc, const char* argv[])
 #endif
 	string targetExe = "";
 	int waitPeriod = -1;
+	string logFile = "";
 
 	// process command line
 	for (int i = 0; i < argc; ++i) {
-		//printf("%s\n", argv[i]);
+		//Util::Log("%s\n", argv[i]);
 
 		string arg = string(argv[i]);
 		if (arg == "-waitperiod") {
@@ -318,7 +320,11 @@ int _tmain(int argc, const char* argv[])
 				sscanf_s(argv[i + 1], "%d", &waitPeriod);
 			}
 		}
-		
+		if (arg == "-logfile") {
+			if (i + 1 < argc) {
+				logFile = string(argv[i + 1]);
+			}
+		}
 		if (targetExe.empty() && arg[0] != '-') {
 			targetExe = arg;
 		}
@@ -330,6 +336,25 @@ int _tmain(int argc, const char* argv[])
 	}
 	else {
 		targetExe = argv[1];
+	}
+
+	if (!logFile.empty()) {
+		// fail if we can't open it; we're too stupid to try to create directories and stuff.
+		// but make sure they didn't screw up the parameters
+		string loglwr(logFile);
+		Util::StrLower(loglwr);
+		if (Util::HasEnding(loglwr, string(".exe"))) {
+			Util::DisplayMessageBox("Yo! An exe is specified as the log file, yo.", "Crap");
+			return -1;
+		}
+		FILE* lfp = NULL;
+		DeleteFile(logFile.c_str());
+		fopen_s(&lfp, logFile.c_str(), "wc");
+		if (lfp == NULL) {
+			Util::DisplayMessageBox("Failed to open output log file; does directory exist?", "Crap");
+			return -1;
+		}
+		Util::SetLogFile(lfp);
 	}
 
 	char thisFilePath[8192];
