@@ -72,68 +72,75 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 
 			WriteProcessMemory(process, (LPVOID)(hookBase), hookCode, sizeof(hookCode), &bytesWritten);
 
-			HANDLE hookThread = CreateRemoteThread(process, NULL, 0, (LPTHREAD_START_ROUTINE)hookBase, (void *)(hookBase + 5), 0, NULL);
-			if (hookThread && hookThread != INVALID_HANDLE_VALUE)
+			// yet another race...creating this thread sometimes fails, usually when loader is "cold" and hasn't been started
+			// recently. not sure a retry loop will help (and may need to sleep here)
+			int hook_thread_attempts = 3;
+			HANDLE hookThread = NULL;
+			bool hookThreadValid = false;
+			while (!hookThreadValid && hook_thread_attempts > 0) {
+				hook_thread_attempts--;
+				hookThread = CreateRemoteThread(process, NULL, 0, (LPTHREAD_START_ROUTINE)hookBase, (void *)(hookBase + 5), 0, NULL);
+				hookThreadValid = hookThread && hookThread != INVALID_HANDLE_VALUE;
+				if (!hookThreadValid) {
+					Util::Log("Failed hook thread (%d more attempts)", hook_thread_attempts);
+				}
+			}
+			if (hookThreadValid)
 			{
 				ResumeThread(hookThread);
-				if(true) // always wait
-				{
-					// So, if we are attaching to an existing process, all of its threads should have already been suspended by the loader.
-					// however, its quite possible that we suspended the threads inside a critical section and now our hook thread will deadlock.
-					// so what we'll do is wait for a bit on the hook thread, and if we timeout, resume all threads in the target process for a brief period,
-					// then resuspend them.  Then resume our hook thread and try again.  Do this some number of times and hopefully we'll be successful.  
-					// Its basically a jackhammer, and it can fail (especially if our hook thread does a bunch of slow initialization stuff), but it
-					// usually succeeds.
+				// So, if we are attaching to an existing process, all of its threads should have already been suspended by the loader.
+				// however, its quite possible that we suspended the threads inside a critical section and now our hook thread will deadlock.
+				// so what we'll do is wait for a bit on the hook thread, and if we timeout, resume all threads in the target process for a brief period,
+				// then resuspend them.  Then resume our hook thread and try again.  Do this some number of times and hopefully we'll be successful.  
+				// Its basically a jackhammer, and it can fail (especially if our hook thread does a bunch of slow initialization stuff), but it
+				// usually succeeds.
 
-					DWORD waitTimeout;
-					int MaxHookAttempts;
-					if (processWasLaunched) {
-						waitTimeout = INFINITE;
-						MaxHookAttempts = 1;
-					}
-					else {
-						waitTimeout = 500;
-						MaxHookAttempts = 25;
-					}
+				DWORD waitTimeout;
+				int MaxHookAttempts;
+				if (processWasLaunched) {
+					waitTimeout = INFINITE;
+					MaxHookAttempts = 1;
+				}
+				else {
+					waitTimeout = 500;
+					MaxHookAttempts = 25;
+				}
 					 
-					int attempt = 0;
+				int attempt = 0;
 
-					for (attempt = 0; !result && attempt < MaxHookAttempts; ++attempt) {
-						switch(WaitForSingleObject(hookThread, waitTimeout))  // g_options.m_threadTimeout
-						{
-							case WAIT_OBJECT_0:
-								Util::Log("Hook Thread complete\n");
-								result = true;
-								break;
+				for (attempt = 0; !result && attempt < MaxHookAttempts; ++attempt) {
+					switch(WaitForSingleObject(hookThread, waitTimeout))  // g_options.m_threadTimeout
+					{
+						case WAIT_OBJECT_0:
+							Util::Log("Hook Thread complete\n");
+							result = true;
+							break;
 
-							case WAIT_ABANDONED:
-								_injectError = "Hook Thread WAIT_ABANDONED";
-								break;
+						case WAIT_ABANDONED:
+							_injectError = "Hook Thread WAIT_ABANDONED";
+							break;
 
-							case WAIT_TIMEOUT:
-								// Resume all threads, sleep for a bit, then suspend them all again.  Then resume hook thread and retry.
-								Util::Log("timeout, retrying\n");
-								ToggleProcessThreads(processId,false);
-								Sleep(0);
-								ToggleProcessThreads(processId,true);
-								ResumeThread(hookThread);
-								break;
+						case WAIT_TIMEOUT:
+							// Resume all threads, sleep for a bit, then suspend them all again.  Then resume hook thread and retry.
+							Util::Log("timeout, retrying\n");
+							ToggleProcessThreads(processId,false);
+							Sleep(0);
+							ToggleProcessThreads(processId,true);
+							ResumeThread(hookThread);
+							break;
 
-							case WAIT_FAILED:
-								_injectError = "Hook Thread WAIT_FAILED";
-								break;
-							default:
-								_injectError = "Hook Thread Unknown wait state";
+						case WAIT_FAILED:
+							_injectError = "Hook Thread WAIT_FAILED";
+							break;
+						default:
+							_injectError = "Hook Thread Unknown wait state";
 
-						}
-					}
-
-					if (!result) {
-						_injectError = "Unable to complete hook thread after several attempts";
 					}
 				}
-				else
-					result = true;
+
+				if (!result) {
+					_injectError = "Unable to complete hook thread after several attempts";
+				}
 
 				CloseHandle(hookThread);
 			}
