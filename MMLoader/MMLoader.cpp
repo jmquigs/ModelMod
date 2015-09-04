@@ -23,7 +23,7 @@ BOOL isFirstSearch = TRUE;
 BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 
-BOOL IterateProcessThreads( DWORD dwOwnerPID, bool suspend ) 
+BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend ) 
 { 
    HANDLE hThreadSnap = INVALID_HANDLE_VALUE; 
    THREADENTRY32 te32; 
@@ -72,8 +72,8 @@ BOOL IterateProcessThreads( DWORD dwOwnerPID, bool suspend )
    return( TRUE );
 }
 
-// Look for a process, then return the process ID (to be later used with IterateProcessThreads).
-// If multiple processes match the name, the first match is used (i.e. this doesn't work well with multiprocess programs).
+// Look for a process by name, then return the process ID (to be later used with ToggleProcessThreads).
+// If multiple processes match the name, the first match is used (i.e. this doesn't work with multiprocess programs).
 // Use a LONGLONG so that we can indicate a find error with -1.
 LONGLONG FindProcess(string processName) {
 	if (processName.empty()) {
@@ -128,7 +128,7 @@ LONGLONG FindAndSuspend(string processName) {
 	LONGLONG foundID = FindProcess(processName);
 	if (foundID > 0) {
 		// suspend
-		IterateProcessThreads((DWORD)foundID, true);
+		ToggleProcessThreads((DWORD)foundID, true);
 	}
 
 	return foundID;
@@ -235,23 +235,21 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		return -1;
 	}
 
-	// Inject
 	Inject i;
-
 	printf("Injecting %s\n", dllPath.c_str());
 
 	if (!i.InjectDLL(targetProcessId,dllPath.c_str(), launch)) {
 		printf("Inject error: %s\n", i.GetError().c_str());
 
-		printf("Resuming target process due to injection failure; restart target process manually to try again\n");
+		// could terminate, but we don't want to leave it in a bad state, so 
 		// let it go, let it gooooooo
-		IterateProcessThreads(targetProcessId, false);
-		//TerminateThread(procInfo.hThread, 666);
+		printf("Resuming target process due to injection failure; restart target process manually to try again\n");
+		
+		ToggleProcessThreads(targetProcessId, false);
 
 		Util::DisplayMessageBox("Failed to inject DLL", "Crap");
 		return -1;
-	} else {
-	}
+	} 
 
 	// if we did not launch, need to open target process Id and wait for it to exit
 	if (!launch) {
@@ -260,7 +258,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 	// Resume and Wait
 	printf("Waiting for exit\n");
-	IterateProcessThreads(targetProcessId, false);
+	ToggleProcessThreads(targetProcessId, false);
 	
 	int ret = 0;
 
@@ -292,7 +290,10 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	return ret;
 }
 
-#if 0
+// toggle this to building as a windows or console app (to see printf, etc)
+#define BUILD_CONSOLE
+
+#ifndef BUILD_CONSOLE
 int APIENTRY _tWinMain(HINSTANCE hInstance,
                      HINSTANCE hPrevInstance,
                      LPTSTR    lpCmdLine,
@@ -303,10 +304,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 #else
 int _tmain(int argc, const char* argv[])
 {
-	string targetExe = "";
 #endif
+	string targetExe = "";
 	int waitPeriod = -1;
 
+	// process command line
 	for (int i = 0; i < argc; ++i) {
 		//printf("%s\n", argv[i]);
 
@@ -321,6 +323,7 @@ int _tmain(int argc, const char* argv[])
 			targetExe = arg;
 		}
 	}
+
 	if (targetExe.empty()) {
 		Util::DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
 		return -1;
@@ -345,6 +348,7 @@ int _tmain(int argc, const char* argv[])
 	fopen_s(&fp, dllPath, "r");
 	if (!fp) {
 		Util::DisplayMessageBox("dll cannot be opened");
+		return -1;
 	} 
 	if (fp) {
 		fclose(fp);
@@ -354,6 +358,7 @@ int _tmain(int argc, const char* argv[])
 	fopen_s(&fp, targetExe.c_str(), "r");
 	if (!fp) {
 		Util::DisplayMessageBox("exe cannot be opened");
+		return -1;
 	} 
 	if (fp) {
 		fclose(fp);
@@ -363,8 +368,16 @@ int _tmain(int argc, const char* argv[])
 	if (launch) {
 		ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
 	} else {
+#ifndef BUILD_CONSOLE
+		// need to pump message loop as windows app so that we are not "Not Responding"
+		MSG msg;
+		HACCEL hAccelTable;
+
+		hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MMLOADER));
+#endif
 		// poll mode.
-		// in this mode, only one instance of loader must be running for the target process name
+		// in this mode, only one instance of loader must be running for the target process name.
+		// create a mutex to enforce this.
 		string lpName(targetExe);
 		lpName = Util::ReplaceString(lpName, " ", "_");
 		lpName = Util::ReplaceString(lpName, "\\", "_");
@@ -379,35 +392,29 @@ int _tmain(int argc, const char* argv[])
 			Util::DisplayMessageBox(err.c_str());
 		}
 		else {
-			// poll forever
+			// poll forever or until the wait period expires (StartInjection will return nonzero)
 			do {
+#ifndef BUILD_CONSOLE
+				// TODO: need to verify that this works
+				while (PeerMessage(&msg, NULL, 0, 0))
+				{
+					if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+					{
+						TranslateMessage(&msg);
+						DispatchMessage(&msg);
+					}
+				}
+#endif
 				ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
 			} while (ret == 0);
 		}
 		CloseHandle(mutie);
 	}
 
-
 	return ret;
-
-	//MSG msg;
-	//HACCEL hAccelTable;
-
-	//hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MMLOADER));
-
-	//// Main message loop:
-	//while (GetMessage(&msg, NULL, 0, 0))
-	//{
-	//	if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-	//	{
-	//		TranslateMessage(&msg);
-	//		DispatchMessage(&msg);
-	//	}
-	//}
-
-	//return (int) msg.wParam;
 }
 
+#ifndef BUILD_CONSOLE
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -451,3 +458,4 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	}
 	return 0;
 }
+#endif

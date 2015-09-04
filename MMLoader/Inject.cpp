@@ -33,7 +33,7 @@ inline void _MESSAGE(const char * fmt, ...)
 	va_end(args);
 }
 
-extern BOOL IterateProcessThreads(DWORD dwOwnerPID, bool suspend);
+extern BOOL ToggleProcessThreads(DWORD dwOwnerPID, bool suspend);
 
 Inject::Inject(void)
 {
@@ -139,9 +139,9 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 							case WAIT_TIMEOUT:
 								// Resume all threads, sleep for a bit, then suspend them all again.  Then resume hook thread and retry.
 								_MESSAGE("timeout, retrying\n");
-								IterateProcessThreads(processId,false);
+								ToggleProcessThreads(processId,false);
 								Sleep(0);
-								IterateProcessThreads(processId,true);
+								ToggleProcessThreads(processId,true);
 								ResumeThread(hookThread);
 								break;
 
