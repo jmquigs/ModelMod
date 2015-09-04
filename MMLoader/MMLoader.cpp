@@ -10,6 +10,7 @@
 
 #include <tlhelp32.h>
 #include <shlwapi.h>
+#include <shellapi.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -291,8 +292,21 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	return ret;
 }
 
+class LogExitTime {
+public:
+	LogExitTime() {
+
+	}
+
+	virtual ~LogExitTime() {
+		SYSTEMTIME lt;
+		GetLocalTime(&lt);
+		Util::Log("Loader exiting at: %d/%d/%d %02d:%02d:%02d\n", lt.wMonth, lt.wDay, lt.wYear, lt.wHour, lt.wMinute, lt.wSecond);
+	}
+};
+
 // toggle this to building as a windows or console app (to see printf, etc)
-#define BUILD_CONSOLE
+//#define BUILD_CONSOLE
 
 #ifndef BUILD_CONSOLE
 int APIENTRY _tWinMain(HINSTANCE hInstance,
@@ -302,6 +316,25 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 
+	LPWSTR* uArgv;
+	int argc;
+
+	uArgv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	if (uArgv == NULL) {
+		Util::DisplayMessageBox("Failed to parse command line args", "Crap");
+		return -1;
+	}
+
+	// convert to multi-byte until I do the real fix and convert the rest of this program to wide.
+	// the memory associated with these args is leaked...ZOMG
+	char* mb_args = (char*)malloc(argc * sizeof(char*));
+
+	char** argv = &mb_args;
+	if (argc > 0) {
+		for (int i = 0; i < argc; ++i) {
+			argv[i] = Util::ConvertToMB(uArgv[i]);
+		}
+	}
 #else
 int _tmain(int argc, const char* argv[])
 {
@@ -311,9 +344,9 @@ int _tmain(int argc, const char* argv[])
 	string logFile = "";
 
 	// process command line
+	//Util::Log("Args:\n");
 	for (int i = 0; i < argc; ++i) {
-		//Util::Log("%s\n", argv[i]);
-
+		//Util::Log("  %s\n", argv[i]);
 		string arg = string(argv[i]);
 		if (arg == "-waitperiod") {
 			if (i + 1 < argc) {
@@ -338,6 +371,30 @@ int _tmain(int argc, const char* argv[])
 		targetExe = argv[1];
 	}
 
+	// we always use poll mode rather than launch, this is just here for debug launches
+	bool launch = false;
+
+	// if in poll mode, check mutex
+	HANDLE mutie = NULL;
+	if (!launch) {
+		// in this mode, only one instance of loader must be running for the target process name.
+		// create a mutex to enforce this.
+		string lpName(targetExe);
+		lpName = Util::ReplaceString(lpName, " ", "_");
+		lpName = Util::ReplaceString(lpName, "\\", "_");
+		lpName = Util::ReplaceString(lpName, ":", "_");
+
+		string mutieName = string("MMLoader_For_") + string(lpName);
+		SetLastError(ERROR_SUCCESS);
+		mutie = CreateMutex(NULL, TRUE, mutieName.c_str()); 
+		DWORD err = GetLastError();
+		if (!mutie || err != ERROR_SUCCESS) {
+			string err = "Unable to create new mutex: " + string(mutieName) + "; another MMLoader may already be running for the process";
+			Util::DisplayMessageBox(err.c_str());
+			return -1;
+		}
+	}
+
 	if (!logFile.empty()) {
 		// fail if we can't open it; we're too stupid to try to create directories and stuff.
 		// but make sure they didn't screw up the parameters
@@ -357,6 +414,11 @@ int _tmain(int argc, const char* argv[])
 		Util::SetLogFile(lfp);
 	}
 
+	SYSTEMTIME lt;
+	GetLocalTime(&lt);
+	Util::Log("Loader launched at: %d/%d/%d %02d:%02d:%02d\n", lt.wMonth, lt.wDay, lt.wYear, lt.wHour, lt.wMinute, lt.wSecond);
+	LogExitTime foo;
+
 	char thisFilePath[8192];
 	GetModuleFileName(NULL, thisFilePath, sizeof(thisFilePath));
 	char* lastBS = strrchr(thisFilePath, '\\');
@@ -366,8 +428,6 @@ int _tmain(int argc, const char* argv[])
 
 	char dllPath[8192];
 	sprintf_s(dllPath, sizeof(dllPath), "%s\\%s", thisFilePath, "ModelMod.dll");
-
-	bool launch = false;
 
 	FILE* fp = NULL;
 	fopen_s(&fp, dllPath, "r");
@@ -401,38 +461,23 @@ int _tmain(int argc, const char* argv[])
 		hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MMLOADER));
 #endif
 		// poll mode.
-		// in this mode, only one instance of loader must be running for the target process name.
-		// create a mutex to enforce this.
-		string lpName(targetExe);
-		lpName = Util::ReplaceString(lpName, " ", "_");
-		lpName = Util::ReplaceString(lpName, "\\", "_");
-		lpName = Util::ReplaceString(lpName, ":", "_");
-
-		string mutieName = string("MMLoader_For_") + string(lpName);
-		SetLastError(ERROR_SUCCESS);
-		HANDLE mutie = CreateMutex(NULL, TRUE, mutieName.c_str());
-		DWORD err = GetLastError();
-		if (!mutie || err != ERROR_SUCCESS) {
-			string err = "Unable to create new mutex: " + string(mutieName) + "; another MMLoader may already be running for the process";
-			Util::DisplayMessageBox(err.c_str());
-		}
-		else {
 			// poll forever or until the wait period expires (StartInjection will return nonzero)
-			do {
+		do {
 #ifndef BUILD_CONSOLE
-				// TODO: need to verify that this works
-				while (PeerMessage(&msg, NULL, 0, 0))
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
 				{
-					if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-					{
-						TranslateMessage(&msg);
-						DispatchMessage(&msg);
-					}
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
 				}
+			}
 #endif
-				ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
-			} while (ret == 0);
-		}
+			ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
+		} while (ret == 0);
+	}
+
+	if (mutie != NULL) {
 		CloseHandle(mutie);
 	}
 

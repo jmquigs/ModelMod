@@ -12,6 +12,7 @@ namespace Util {
 	string ReplaceString(std::string subject, const std::string& search,
 		const std::string& replace);
 	bool HasEnding(string& fullString, string& ending);
+	char* ConvertToMB(wchar_t* src);
 
 	void SetLogFile(FILE* fp);
 	void Log(const char * fmt, ...);

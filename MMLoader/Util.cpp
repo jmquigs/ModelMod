@@ -93,4 +93,17 @@ namespace Util {
 		}
 	}
 
+	// Duplicated from modelmod's Util, because MMLoader doesn't directly include ModelMod code
+	char* Util::ConvertToMB(wchar_t* src) {
+		if (!src) {
+			return NULL;
+		}
+
+		const size_t maxSize = 16384;
+		char* out = new char[16384];
+		out[0] = 0;
+		size_t numConverted;
+		wcstombs_s(&numConverted, out, maxSize, src, maxSize);
+		return out;
+	}
 };
