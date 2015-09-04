@@ -66,7 +66,9 @@ module MainViewUtils =
             proc.StartInfo.UseShellExecute <- true // also required for elevation
             proc.StartInfo.FileName <- loaderPath
             // tell loader to exit if it hasn't attached in 15 seconds
-            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15" exePath
+            
+            let logfile = Path.Combine(System.IO.Path.GetTempPath(),  @"mmloader.test.log")
+            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15 -logfile \"%s\"" exePath logfile
             let res = proc.Start()
             if not res then 
                 failwith "Failed to start loader process"
