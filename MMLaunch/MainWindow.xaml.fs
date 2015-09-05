@@ -67,9 +67,20 @@ module MainViewUtils =
             proc.StartInfo.FileName <- loaderPath
             // tell loader to exit if it hasn't attached in 15 seconds
             
-            let logfile = Path.Combine(System.IO.Path.GetTempPath(),  @"mmloader.test.log")
+            // hardcode log path to the same hardcoded path that ModelMod will use (which is relative 
+            // to the MMLoader.exe dir)
+            let logfile = 
+                let loaderPar = Directory.GetParent(loaderPath);
+                let logExeName = Path.GetFileName(exePath)
+                let logDir = Path.Combine(loaderPar.FullName, "..", "Logs")
+                if not (Directory.Exists logDir) then
+                    Directory.CreateDirectory(logDir) |> ignore
+                if not (Directory.Exists logDir) then
+                    failwithf "Failed to create output log directory: %s" logDir
+                Path.Combine(logDir , (sprintf "mmloader.%s.log" logExeName))
+
             proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15 -logfile \"%s\"" exePath logfile
-            let res = proc.Start()
+            let res = proc.Start ()
             if not res then 
                 failwith "Failed to start loader process"
 
