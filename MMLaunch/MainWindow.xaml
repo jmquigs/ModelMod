@@ -39,7 +39,8 @@
                       HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
             <Button Command="{Binding Path=BrowseExe}" Content="Browse" HorizontalAlignment="Left" Margin="295,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
         </Grid>
-        <Button Command="{Binding Path=StartSnapshot}"
+        <Button Command="{Binding Path=StartInSnapshotMode}"
             Content="Start (Snapshot)" HorizontalAlignment="Left" Height="30" Margin="-113,285,0,-170" VerticalAlignment="Top" Width="102"/>
+        <Label Content="{Binding Path=LoaderStateText}" HorizontalAlignment="Left" Height="30" Margin="42,285,-196,-170" VerticalAlignment="Top" Width="380"/>
     </Grid>
 </Window>

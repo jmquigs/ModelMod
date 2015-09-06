@@ -14,7 +14,7 @@ open Microsoft.Win32
 
 open FsXaml
 
-open ViewModelUtils
+open ViewModelUtil
 open ModelMod
 
 module MainViewUtils = 
@@ -41,79 +41,6 @@ module MainViewUtils =
 
     let failValidation (msg:string) = 
         MessageBox.Show(msg) |> ignore
-
-    let launchWithLoader (exePath:string) =
-        try 
-            if not (File.Exists(exePath)) then
-                failwithf "Exe does not exist: %s" exePath    
-            // crude, but if it isn't an exe, we probably can't inject it because the loader won't find 
-            // it.  and .com files aren't supported, ha ha
-            if not (Path.GetExtension(exePath).ToLowerInvariant() = ".exe") then
-                failwithf "Exe does not appear to be an exe: %s" exePath
-            // find loader
-            let loaderPath = 
-                let lname = "MMLoader.exe"
-                let devTreePath = Path.Combine("../../../Release", lname) // always use release version if running in a dev environment
-                if File.Exists(lname) then Path.GetFullPath(lname)
-                else if File.Exists(devTreePath) then Path.GetFullPath(devTreePath)
-                else // dunno where it is
-                    ""
-            if not (File.Exists(loaderPath))
-                then failwithf "Can't find %s" loaderPath
-
-            let proc = new Process()
-            proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
-            proc.StartInfo.UseShellExecute <- true // also required for elevation
-            proc.StartInfo.FileName <- loaderPath
-            // tell loader to exit if it hasn't attached in 15 seconds
-            
-            // hardcode log path to the same hardcoded path that ModelMod will use (which is relative 
-            // to the MMLoader.exe dir)
-            let logfile = 
-                let loaderPar = Directory.GetParent(loaderPath);
-                let logExeName = Path.GetFileName(exePath)
-                let logDir = Path.Combine(loaderPar.FullName, "..", "Logs")
-                if not (Directory.Exists logDir) then
-                    Directory.CreateDirectory(logDir) |> ignore
-                if not (Directory.Exists logDir) then
-                    failwithf "Failed to create output log directory: %s" logDir
-                Path.Combine(logDir , (sprintf "mmloader.%s.log" logExeName))
-
-            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15 -logfile \"%s\"" exePath logfile
-            let res = proc.Start ()
-            if not res then 
-                failwith "Failed to start loader process"
-
-            let loaderProc = proc
-
-            // pause for a bit to avoid loader's "found on first launch" heuristic;
-            // this could fail if the system is really slow, though, and can't get loader up in time.
-            // this is one of several race conditions here...this one still occasionally hits a CreateRemoteThread
-            // problem.
-            Thread.Sleep(2000)
-
-            // ok, loader is fired up, and by the time we get here the user has already accepted the elevation
-            // dialog...so launch the target exe; loader will find it and inject.  this also should handle the
-            // case where the exe restarts itself because it needs to be launched from some parent process
-            // (e.g. Steam)
-            // in theory loader could start the game too, but then it would start as admin, which we don't want.
-            
-            let proc = new Process()
-            proc.StartInfo.UseShellExecute <- false
-            proc.StartInfo.FileName <- exePath
-            let res = proc.Start()
-            if not res then 
-                // bummer, kill the loader
-                loaderProc.Kill()
-                loaderProc.WaitForExit()
-                failwith "Failed to start game process"
-            // we don't store a reference to the game process because we don't do anything with it at this point
-
-            Some(loaderProc)
-        with 
-            | e -> 
-                failValidation(e.Message)
-                None
 
 type MainView = XAML<"MainWindow.xaml", true>
 
@@ -169,8 +96,17 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 /// and description as far as the UI is concerned.
 type SubProfileModel(name:string) =
     member x.Name with get() = name
+
+type ViewModelMessage = Tick
+
+type GameExePath = string
+type LoaderState = 
+    NotStarted
+    | StartFailed of (Exception * GameExePath)
+    | Started of (Process * GameExePath)
+    | Stopped of (Process * GameExePath)
     
-type MainViewModel() = 
+type MainViewModel() as self = 
     inherit ViewModelBase()
 
     let EmptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
@@ -179,10 +115,41 @@ type MainViewModel() =
 
     let mutable selectedProfile = EmptyProfile
 
-    let currentLaunchedProcess:Process option ref = ref None
+    let mutable loaderState = NotStarted
+
+    // From: http://fsharpforfunandprofit.com/posts/concurrency-actor-model/
+    let rec agent = MailboxProcessor.Start(fun inbox -> 
+        let rec messageLoop() = async{
+            let! msg = inbox.TryReceive(0)
+
+            match msg with
+            | None -> ()
+            | Some (vmm) -> 
+                match vmm with
+                | Tick -> 
+                    self.PeriodicUpdate()
+
+            do! Async.Sleep(1000)
+            agent.Post(Tick)
+            
+            return! messageLoop ()
+        }
+
+        messageLoop ())
 
     do
         RegConfig.init() // reg config requires init to set hive root
+
+    member x.PeriodicUpdate() = 
+        x.UpdateLoaderState <|     
+            match loaderState with
+            | NotStarted -> loaderState
+            | StartFailed (_) -> loaderState
+            | Stopped (proc,exe) -> loaderState
+            | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
+
+    member x.LoaderStateText
+        with get() = (sprintf "%A" loaderState)
 
     member x.Profiles = 
         if DesignMode then
@@ -205,7 +172,7 @@ type MainViewModel() =
             selectedProfile <- value
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
-            x.RaisePropertyChanged("StartSnapshot") 
+            x.RaisePropertyChanged("StartInSnapshotMode") 
 
     member x.ProfileAreaVisibility = 
         if  DesignMode || 
@@ -230,20 +197,31 @@ type MainViewModel() =
                 x.SelectedProfile.ExePath <- exePath
                 x.RaisePropertyChanged("SelectedProfile") 
             else
-                MainViewUtils.failValidation "Cannot set exe path; it is already used by another profile"
-    )
+                MainViewUtils.failValidation "Cannot set exe path; it is already used by another profile")
 
-    member x.StartSnapshot = 
+    member x.UpdateLoaderState(newState) =
+        if newState <> loaderState then
+            loaderState <- newState
+            x.RaisePropertyChanged("LoaderStateText") 
+
+    member x.StartInSnapshotMode = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible), 
             (fun action -> 
-                match currentLaunchedProcess.Value with 
-                | Some (proc) ->
-                    if not proc.HasExited then
+                x.UpdateLoaderState <|
+                    match loaderState with 
+                    | Started (proc,exe) -> 
+                        // kill even in stopped case in case poll didn't catch exit
                         proc.Kill()
                         proc.WaitForExit()
-                | None -> ()
+                        Stopped(proc,exe)
+                    | Stopped (proc,exe) -> loaderState
+                    | StartFailed (_) -> loaderState
+                    | NotStarted -> loaderState
 
-                currentLaunchedProcess.Value <- MainViewUtils.launchWithLoader x.SelectedProfile.ExePath
-            ))
-
+                x.UpdateLoaderState <|
+                    match (ProcessUtil.launchWithLoader x.SelectedProfile.ExePath) with 
+                    | Ok(p) -> Started(p,x.SelectedProfile.ExePath)
+                    | Err(e) -> 
+                        MainViewUtils.failValidation e.Message
+                        StartFailed(e,x.SelectedProfile.ExePath)))

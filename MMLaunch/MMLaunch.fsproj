@@ -35,7 +35,8 @@
     <DocumentationFile>bin\Release\MMLaunch.XML</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ViewModelUtils.fs" />
+    <Compile Include="ViewModelUtil.fs" />
+    <Compile Include="ProcessUtil.fs" />
     <Resource Include="MainWindow.xaml" />
     <Compile Include="MainWindow.xaml.fs" />
     <Resource Include="App.xaml" />
