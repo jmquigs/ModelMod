@@ -102,6 +102,7 @@ type ViewModelMessage = Tick
 type GameExePath = string
 type LoaderState = 
     NotStarted
+    | StartPending
     | StartFailed of (Exception * GameExePath)
     | Started of (Process * GameExePath)
     | Stopped of (Process * GameExePath)
@@ -144,12 +145,19 @@ type MainViewModel() as self =
         x.UpdateLoaderState <|     
             match loaderState with
             | NotStarted -> loaderState
+            | StartPending -> loaderState
             | StartFailed (_) -> loaderState
             | Stopped (proc,exe) -> loaderState
             | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
 
-    member x.LoaderStateText
-        with get() = (sprintf "%A" loaderState)
+    member x.LoaderStateText 
+        with get() = 
+            match loaderState with
+            | NotStarted -> "Not Started"
+            | StartPending -> "Start Pending..."
+            | StartFailed (e,exe) -> (sprintf "Start Failed: %s (target: %s)" e.Message exe)
+            | Stopped (proc,exe) -> (sprintf "Exited with code %d (target: %s)" proc.ExitCode exe)
+            | Started (_,exe) -> (sprintf "Started; waiting for exit (target: %s)" exe)
 
     member x.Profiles = 
         if DesignMode then
@@ -203,10 +211,21 @@ type MainViewModel() as self =
         if newState <> loaderState then
             loaderState <- newState
             x.RaisePropertyChanged("LoaderStateText") 
+            x.RaisePropertyChanged("LoaderIsStartable") 
+            x.RaisePropertyChanged("StartInSnapshotMode") 
+
+    member x.LoaderIsStartable
+        with get() = 
+            match loaderState with
+            StartPending 
+            | Started (_,_) -> false
+            | StartFailed (_,_) 
+            | Stopped (_,_) 
+            | NotStarted -> true
 
     member x.StartInSnapshotMode = 
         new RelayCommand (
-            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible), 
+            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable), 
             (fun action -> 
                 x.UpdateLoaderState <|
                     match loaderState with 
@@ -215,10 +234,12 @@ type MainViewModel() as self =
                         proc.Kill()
                         proc.WaitForExit()
                         Stopped(proc,exe)
+                    | StartPending -> loaderState
                     | Stopped (proc,exe) -> loaderState
                     | StartFailed (_) -> loaderState
                     | NotStarted -> loaderState
 
+                x.UpdateLoaderState StartPending
                 x.UpdateLoaderState <|
                     match (ProcessUtil.launchWithLoader x.SelectedProfile.ExePath) with 
                     | Ok(p) -> Started(p,x.SelectedProfile.ExePath)

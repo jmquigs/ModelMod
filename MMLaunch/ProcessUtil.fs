@@ -28,7 +28,6 @@ module ProcessUtil =
             proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
             proc.StartInfo.UseShellExecute <- true // also required for elevation
             proc.StartInfo.FileName <- loaderPath
-            // tell loader to exit if it hasn't attached in 15 seconds
             
             // hardcode log path to the same hardcoded path that ModelMod will use (which is relative 
             // to the MMLoader.exe dir)
@@ -42,7 +41,9 @@ module ProcessUtil =
                     failwithf "Failed to create output log directory: %s" logDir
                 Path.Combine(logDir , (sprintf "mmloader.%s.log" logExeName))
 
-            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod 15 -logfile \"%s\"" exePath logfile
+            // tell loader to exit if it hasn't attached in n seconds
+            let waitperiod = 5
+            proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod %d -logfile \"%s\"" exePath waitperiod logfile
             let res = proc.Start ()
             if not res then 
                 failwith "Failed to start loader process"
