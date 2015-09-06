@@ -73,7 +73,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 			WriteProcessMemory(process, (LPVOID)(hookBase), hookCode, sizeof(hookCode), &bytesWritten);
 
 			// yet another race...creating this thread sometimes fails, usually when loader is "cold" and hasn't been started
-			// recently. not sure a retry loop will help (and may need to sleep here)
+			// recently. use the resume/suspend trick (described below) to increase the odds that it will work.
 			int hook_thread_attempts = 3;
 			HANDLE hookThread = NULL;
 			bool hookThreadValid = false;
@@ -82,7 +82,10 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 				hookThread = CreateRemoteThread(process, NULL, 0, (LPTHREAD_START_ROUTINE)hookBase, (void *)(hookBase + 5), 0, NULL);
 				hookThreadValid = hookThread && hookThread != INVALID_HANDLE_VALUE;
 				if (!hookThreadValid) {
-					Util::Log("Failed hook thread (%d more attempts)", hook_thread_attempts);
+					Util::Log("Failed to create hook thread (%d more attempts)\n", hook_thread_attempts);
+					ToggleProcessThreads(processId, false);
+					Sleep(0);
+					ToggleProcessThreads(processId, true);
 				}
 			}
 			if (hookThreadValid)
