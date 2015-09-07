@@ -74,7 +74,7 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	static RenderState* _sCurrentRenderState;
 	static const string LogCategory;
 
-	InputKeyMap _defaultKeyMap;
+	InputKeyMap _punctKeyMap;
 	InputKeyMap _fKeyMap;
 	InputKeyMap* _pCurrentKeyMap;
 
@@ -147,7 +147,14 @@ public:
 	TextureInfoMap texInfo;
 	void shutdown();
 
-	void loadMeshes();
+	// Load (or reload) the managed code and MM registry configuration.  This also clears
+	// the loaded mods, but doesn't reload them.
+	void loadManagedAssembly();
+	// load the mods 
+	void loadMods(); 
+	void loadEverything(); 
+
+	void clearLoadedMods();
 
 	NativeModData* findMod(int vertCount, int primCount);
 
@@ -184,6 +191,8 @@ public:
 
 	void selectNextTexture();
 	void selectPrevTexture();
+
+	void setKeyMap();
 
 	int currentTextureIdx() {
 		return _currentTextureIdx;

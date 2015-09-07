@@ -166,15 +166,15 @@ type MainViewModel() as self =
             match loaderState with
             | NotStarted -> "Not Started"
             | StartPending -> "Start Pending..."
-            | StartFailed (e,exe) -> (sprintf "Start Failed: %s (target: %s)" e.Message exe)
+            | StartFailed (e,exe) -> sprintf "Start Failed: %s (target: %s)" e.Message exe
             | Stopped (proc,exe) -> 
                 let exitReason = 
                     match ProcessUtil.LoaderExitReasons |> Map.tryFind proc.ExitCode with
                     | None -> sprintf "Unknown (code: %d)" proc.ExitCode
                     | Some (reason) -> reason
                     
-                (sprintf "Exited with status: %s (target: %s)" exitReason exe)
-            | Started (_,exe) -> (sprintf "Started; waiting for exit (target: %s)" exe)
+                sprintf "Exited with status: %s (target: %s)" exitReason exe
+            | Started (_,exe) -> sprintf "Started; waiting for exit (target: %s)" exe
 
     member x.Profiles = 
         if DesignMode then

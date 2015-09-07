@@ -61,29 +61,40 @@ static size_t findLastSlash(string str) {
 	return slashIdx;
 }
 
-void RenderState::loadMeshes() {
+void RenderState::clearLoadedMods() {
 	for (ManagedModMap::iterator iter = _managedMods.begin();
 		iter != _managedMods.end();
 		++iter) {
-			NativeModData& mod = iter->second;
-			if (mod.vb) {
-				release(mod.vb);
+		NativeModData& mod = iter->second;
+		if (mod.vb) {
+			release(mod.vb);
+		}
+		if (mod.ib) {
+			release(mod.ib);
+		}
+		if (mod.decl) {
+			release(mod.decl);
+		}
+		for (Uint32 i = 0; i < MaxModTextures; ++i) {
+			if (mod.texture[i]) {
+				release(mod.texture[i]);
 			}
-			if (mod.ib) {
-				release(mod.ib);
-			}
-			if (mod.decl) {
-				release(mod.decl);
-			}
-			for (Uint32 i = 0; i < MaxModTextures; ++i) {
-				if (mod.texture[i]) {
-					release(mod.texture[i]);
-				}
-			}
+		}
 	}
 	_managedMods.clear();
 
+}
+void RenderState::loadManagedAssembly() {
+	clearLoadedMods();
+
 	Interop::ReloadAssembly();
+	if (Interop::OK()) {
+		setKeyMap();
+	}
+}
+
+void RenderState::loadMods() {
+	clearLoadedMods();
 
 	DWORD start,elapsed;
 	start = GetTickCount();
@@ -181,8 +192,14 @@ void RenderState::loadMeshes() {
 			delete [] declData; // TODO: ok to delete this, or does d3d decl reference it?
 		}
 	}
+
 	elapsed = GetTickCount() - start;
-	MM_LOG_INFO(format("Measured managed load time: {}", elapsed));
+	MM_LOG_INFO(format("Mod Load time (Native+Managed): {}", elapsed));
+}
+
+void RenderState::loadEverything() {
+	loadManagedAssembly();
+	loadMods();
 }
 
 NativeModData* RenderState::findMod(int vertCount, int primCount) {
@@ -225,15 +242,15 @@ void RenderState::init(IDirect3DDevice9* dev) {
 		}
 	}
 
-	// TODO: should push this out to a conf file eventually
-	_defaultKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
-	_defaultKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
-	_defaultKeyMap[DIK_Z] = [&]() { this->requestSnap(); };
-	_defaultKeyMap[DIK_T] = [&]() { this->clearTextureLists(); };
-	_defaultKeyMap[DIK_SEMICOLON] = [&]() { this->toggleShowModMesh(); };
-	_defaultKeyMap[DIK_SLASH] = [&]() { this->loadMeshes(); };
+	// TODO: should push this out to conf file eventually so that they can be customized without rebuild
+	_punctKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
+	_punctKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
+	_punctKeyMap[DIK_SLASH] = [&]() { this->requestSnap(); };
+	_punctKeyMap[DIK_SEMICOLON] = [&]() { this->clearTextureLists(); };
+	_punctKeyMap[DIK_RBRACKET] = [&]() { this->toggleShowModMesh(); };
+	_punctKeyMap[DIK_BACKSLASH] = [&]() { this->loadEverything(); };
 
-	_fKeyMap[DIK_F1] = [&]() { this->loadMeshes(); };
+	_fKeyMap[DIK_F1] = [&]() { this->loadEverything(); };
 	_fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
 	_fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
 	_fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
@@ -241,8 +258,22 @@ void RenderState::init(IDirect3DDevice9* dev) {
 	_fKeyMap[DIK_F7] = [&]() { this->clearTextureLists(); };
 
 	_pCurrentKeyMap = &_fKeyMap;
+	
+	loadManagedAssembly();
 
 	_initted = true;
+}
+
+void RenderState::setKeyMap() {
+	if (Interop::OK()) {
+		string iprofile = Util::toLowerCase(Interop::Conf().InputProfile);
+		if (Util::startsWith(iprofile, "punct")) {
+			_pCurrentKeyMap = &_punctKeyMap;
+		}
+		else if (Util::startsWith(iprofile, "fk")) {
+			_pCurrentKeyMap = &_fKeyMap;
+		}
+	}
 }
 
 void RenderState::addSceneNotify(ISceneNotify* notify) {
