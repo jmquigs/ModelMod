@@ -17,8 +17,8 @@ open FsXaml
 open ViewModelUtil
 open ModelMod
 
-module MainViewUtils = 
-    let selectExecutableDialog(currentExe:string option) = 
+module MainViewUtil = 
+    let popSelectExecutableDialog(currentExe:string option) = 
         let dlg = new OpenFileDialog()
 
         match currentExe with
@@ -26,8 +26,6 @@ module MainViewUtils =
         | Some exe ->
             if File.Exists(exe) then
                 dlg.InitialDirectory <- Directory.GetParent(exe).ToString()
-
-        //dlg.InitialDirectory <- state.Value.SnapshotRoot
 
         dlg.Filter <- "Executable files (*.exe)|*.exe"
         dlg.FilterIndex <- 0
@@ -83,7 +81,7 @@ type ProfileModel(config:CoreTypes.RunConfig) =
         and set (value:string) = 
             let value = value.Trim()
             if value = "" then
-                MainViewUtils.failValidation "Profile name may not be empty"
+                MainViewUtil.failValidation "Profile name may not be empty"
             else
                 config <- {config with ProfileName = value } 
                 save()
@@ -205,7 +203,7 @@ type MainViewModel() as self =
             Visibility.Hidden
 
     member x.BrowseExe = alwaysExecutable (fun action ->
-        match MainViewUtils.selectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
+        match MainViewUtil.popSelectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
         | None -> ()
         | Some (exePath) -> 
             // verify that the chosen path is not already claimed by another profile
@@ -220,7 +218,7 @@ type MainViewModel() as self =
                 x.SelectedProfile.ExePath <- exePath
                 x.RaisePropertyChanged("SelectedProfile") 
             else
-                MainViewUtils.failValidation "Cannot set exe path; it is already used by another profile")
+                MainViewUtil.failValidation "Cannot set exe path; it is already used by another profile")
 
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then
@@ -259,5 +257,5 @@ type MainViewModel() as self =
                     match (ProcessUtil.launchWithLoader x.SelectedProfile.ExePath) with 
                     | Ok(p) -> Started(p,x.SelectedProfile.ExePath)
                     | Err(e) -> 
-                        MainViewUtils.failValidation e.Message
+                        MainViewUtil.failValidation e.Message
                         StartFailed(e,x.SelectedProfile.ExePath)))
