@@ -43,8 +43,7 @@ module MainViewUtil =
 type MainView = XAML<"MainWindow.xaml", true>
 
 // Mutable wrapper around an immutable RunConfig; there are ways we could use RunConfig
-// directly, but they use obtuse meta-wrappers; this is clearer at the expense of 
-// some boilerplate.  We can also use this to store things that the run config won't 
+// directly, but we can also use this to store things that the run config won't 
 // have, like logs and lists of mods.
 type ProfileModel(config:CoreTypes.RunConfig) = 
     let mutable config = config
@@ -168,7 +167,13 @@ type MainViewModel() as self =
             | NotStarted -> "Not Started"
             | StartPending -> "Start Pending..."
             | StartFailed (e,exe) -> (sprintf "Start Failed: %s (target: %s)" e.Message exe)
-            | Stopped (proc,exe) -> (sprintf "Exited with code %d (target: %s)" proc.ExitCode exe)
+            | Stopped (proc,exe) -> 
+                let exitReason = 
+                    match ProcessUtil.LoaderExitReasons |> Map.tryFind proc.ExitCode with
+                    | None -> sprintf "Unknown (code: %d)" proc.ExitCode
+                    | Some (reason) -> reason
+                    
+                (sprintf "Exited with status: %s (target: %s)" exitReason exe)
             | Started (_,exe) -> (sprintf "Started; waiting for exit (target: %s)" exe)
 
     member x.Profiles = 

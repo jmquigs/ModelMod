@@ -5,6 +5,15 @@ open System.Diagnostics
 open System.Threading
 
 module ProcessUtil =
+    let LoaderExitReasons = 
+        Map.ofList
+            [( 0, "Success");
+             (-1, "Injection error");
+             (-2, "Wait period expired"); // shouldn't see this; should be translated into a more specific code
+             (-3, "Target process not found");
+             (-4, "Some injection attempts failed")
+            ]
+
     let launchWithLoader (exePath:string):Result<Process> =
         try 
             if not (File.Exists(exePath)) then

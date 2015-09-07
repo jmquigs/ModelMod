@@ -193,7 +193,8 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 			Util::Log("Waiting indefinitely\n");
 		}
 
-		// already running?
+		// check to see if already running
+
 		LONGLONG foundID = FindProcess(processName);
 		string findProcessErrorMessage = "Error attempting to find processes for name: " + string(processName);
 
@@ -226,7 +227,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 				unsigned int waitMax = waitPeriod * 1000;
 				if (elapsed >= waitMax) {
 					Util::Log("Wait period expired, exiting\n");
-					return -1;
+					return -2;
 				}
 			}
 		} while(targetProcessId == 0);
@@ -265,7 +266,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	int ret = 0;
 
 	DWORD waitRet = WaitForSingleObject(procInfo.hProcess, INFINITE);
-	switch(waitRet)  // g_options.m_threadTimeout
+	switch(waitRet)  
 	{
 	case WAIT_OBJECT_0:
 		break;
@@ -450,6 +451,10 @@ int _tmain(int argc, const char* argv[])
 	}
 
 	int ret = 0;
+
+	int attemptedInjections = 0;
+	int successfulInjections = 0;
+
 	if (launch) {
 		ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
 	} else {
@@ -474,6 +479,34 @@ int _tmain(int argc, const char* argv[])
 			}
 #endif
 			ret = StartInjection(launch, targetExe, dllPath, waitPeriod);
+
+			if (ret == 0) {
+				attemptedInjections++;
+				successfulInjections++;
+			}
+			else if (ret == -1) {
+				attemptedInjections++;
+			}
+
+			if (ret == -2) {
+				// wait period expired; rewrite return code so that it indicates whether we successfully 
+				// injected on each attempt, or there were some failures
+
+				if (attemptedInjections == 0) {
+					// did not attempt anything
+					ret = -3;
+				}
+				else if (attemptedInjections == successfulInjections) {
+					// all attempts were successful
+					ret = 0;
+					break; // bust out of loop
+				}
+				else {
+					// some errors
+					ret = -4;
+				}
+
+			}
 		} while (ret == 0);
 	}
 
