@@ -61,6 +61,20 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
     let save() = RegConfig.saveProfile config
 
+    let mutable iconSource = null
+
+    do
+        if File.Exists (config.ExePath) then
+            use icon = System.Drawing.Icon.ExtractAssociatedIcon(config.ExePath)
+            iconSource <-
+                System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                    icon.Handle,
+                    System.Windows.Int32Rect.Empty,
+                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions())
+
+    member x.Icon 
+        with get() = iconSource
+
     member x.ProfileKeyName 
         with get() = config.ProfileKeyName
 
@@ -178,6 +192,7 @@ type MainViewModel() as self =
         with get () = selectedProfile
         and set value = 
             selectedProfile <- value
+   
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
             x.RaisePropertyChanged("StartInSnapshotMode") 

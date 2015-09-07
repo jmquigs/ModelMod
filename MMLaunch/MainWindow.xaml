@@ -42,5 +42,6 @@
         <Button Command="{Binding Path=StartInSnapshotMode}"
             Content="Start (Snapshot)" HorizontalAlignment="Left" Height="30" Margin="-113,285,0,-170" VerticalAlignment="Top" Width="102"/>
         <Label Content="{Binding Path=LoaderStateText}" HorizontalAlignment="Left" Height="30" Margin="42,285,-196,-170" VerticalAlignment="Top" Width="380"/>
+        <Image Source="{Binding Path=SelectedProfile.Icon}"  HorizontalAlignment="Left" Height="32" Margin="5,283,0,-170" VerticalAlignment="Top" Width="32" RenderTransformOrigin="1.031,0.812"/>
     </Grid>
 </Window>
