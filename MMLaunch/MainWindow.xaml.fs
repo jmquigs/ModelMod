@@ -119,7 +119,7 @@ type ViewModelMessage = Tick
 type GameExePath = string
 type LoaderState = 
     NotStarted
-    | StartPending
+    | StartPending of (GameExePath)
     | StartFailed of (Exception * GameExePath)
     | Started of (Process * GameExePath)
     | Stopped of (Process * GameExePath)
@@ -158,11 +158,13 @@ type MainViewModel() as self =
     do
         RegConfig.init() // reg config requires init to set hive root
 
+    let profiles = RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc))
+
     member x.PeriodicUpdate() = 
         x.UpdateLoaderState <|     
             match loaderState with
             | NotStarted -> loaderState
-            | StartPending -> loaderState
+            | StartPending(_) -> loaderState
             | StartFailed (_) -> loaderState
             | Stopped (proc,exe) -> loaderState
             | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
@@ -171,7 +173,7 @@ type MainViewModel() as self =
         with get() = 
             match loaderState with
             | NotStarted -> "Not Started"
-            | StartPending -> "Start Pending..."
+            | StartPending(_) -> "Start Pending..."
             | StartFailed (e,exe) -> sprintf "Start Failed: %s (target: %s)" e.Message exe
             | Stopped (proc,exe) -> 
                 let exitReason = 
@@ -186,8 +188,7 @@ type MainViewModel() as self =
         if DesignMode then
             new ObservableCollection<ProfileModel>([||])
         else
-            new ObservableCollection<ProfileModel>
-                (RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc)))
+            new ObservableCollection<ProfileModel>(profiles)
 
     member x.SnapshotProfiles = 
         new ObservableCollection<SubProfileModel>
@@ -205,6 +206,20 @@ type MainViewModel() as self =
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
             x.RaisePropertyChanged("StartInSnapshotMode") 
+            x.RaisePropertyChanged("LauncherProfileIcon")
+
+    member x.LauncherProfileIcon 
+        with get() = 
+            match loaderState with 
+            | Started (_,exe) 
+            | StartPending (exe) -> 
+                let profile = profiles |> Array.tryFind (fun p -> p.ExePath = exe)
+                match profile with
+                | None -> null
+                | Some(p) -> p.Icon
+            | NotStarted
+            | StartFailed (_,_)
+            | Stopped (_,_) -> x.SelectedProfile.Icon
 
     member x.ProfileAreaVisibility = 
         if  DesignMode || 
@@ -237,11 +252,12 @@ type MainViewModel() as self =
             x.RaisePropertyChanged("LoaderStateText") 
             x.RaisePropertyChanged("LoaderIsStartable") 
             x.RaisePropertyChanged("StartInSnapshotMode") 
+            x.RaisePropertyChanged("LauncherProfileIcon")
 
     member x.LoaderIsStartable
         with get() = 
             match loaderState with
-            StartPending 
+            StartPending(_)
             | Started (_,_) -> false
             | StartFailed (_,_) 
             | Stopped (_,_) 
@@ -258,12 +274,12 @@ type MainViewModel() as self =
                         proc.Kill()
                         proc.WaitForExit()
                         Stopped(proc,exe)
-                    | StartPending -> loaderState
+                    | StartPending(_) -> loaderState
                     | Stopped (proc,exe) -> loaderState
                     | StartFailed (_) -> loaderState
                     | NotStarted -> loaderState
 
-                x.UpdateLoaderState StartPending
+                x.UpdateLoaderState <| StartPending(x.SelectedProfile.ExePath)
                 x.UpdateLoaderState <|
                     match (ProcessUtil.launchWithLoader x.SelectedProfile.ExePath) with 
                     | Ok(p) -> Started(p,x.SelectedProfile.ExePath)
