@@ -212,7 +212,7 @@ type MainViewModel() as self =
         | None -> ()
         | Some (exePath) -> 
             // verify that the chosen path is not already claimed by another profile
-            let existingProfileKey = RegConfig.findProfileKeyName exePath
+            let existingProfileKey = RegConfig.findProfilePath exePath
             let ok = 
                 match existingProfileKey with
                 | None -> true

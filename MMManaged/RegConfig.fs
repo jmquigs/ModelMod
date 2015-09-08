@@ -78,7 +78,7 @@ module RegConfig =
             let profiles = profKey.GetSubKeyNames()
             Array.sort profiles
 
-    let findProfileKeyName (exePath:string) = 
+    let findProfilePath (exePath:string) = 
         let exePath = exePath.Trim()
         let profiles = getProfileKeyNames() 
         profiles |> Array.tryPick (fun pName -> 
@@ -145,7 +145,7 @@ module RegConfig =
             if conf.ProfileKeyName <> "" then
                 Some (regLoc.ProfRoot @@ conf.ProfileKeyName)
             else
-                findProfileKeyName conf.ExePath
+                findProfilePath conf.ExePath
 
         let profKey = 
             match profKey with 
@@ -208,7 +208,7 @@ module RegConfig =
 
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = findProfileKeyName exePath
+            let targetProfile = findProfilePath exePath
 
             let runConfig = 
                 match targetProfile with
