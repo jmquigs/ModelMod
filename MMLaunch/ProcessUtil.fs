@@ -25,13 +25,23 @@ module ProcessUtil =
             // find loader
             let loaderPath = 
                 let lname = "MMLoader.exe"
-                let devTreePath = Path.Combine("../../../Release", lname) // always use release version if running in a dev environment
-                if File.Exists(lname) then Path.GetFullPath(lname)
-                else if File.Exists(devTreePath) then Path.GetFullPath(devTreePath)
-                else // dunno where it is
-                    ""
-            if not (File.Exists(loaderPath))
-                then failwithf "Can't find %s" loaderPath
+                // Make a dev tree path in case it isn't found in current directory.
+                // I used to have this always use Release in the dev build, but then I got bitten in the ass by the fact
+                // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.  
+                // so now it uses release or debug as specified by config
+#if DEBUG
+                let devTreePath = Path.Combine("../../../Debug", lname) 
+#else
+                let devTreePath = Path.Combine("../../../Release", lname) 
+#endif
+                let lp = 
+                    if File.Exists(lname) then Path.GetFullPath(lname)
+                    else if File.Exists(devTreePath) then Path.GetFullPath(devTreePath)
+                    else // dunno where it is
+                        ""
+                if not (File.Exists(lp))
+                    then failwithf "Can't find Loader; searched in %s,%s" (Directory.GetCurrentDirectory()) (Path.Combine(Directory.GetCurrentDirectory(), devTreePath))
+                lp
 
             let proc = new Process()
             proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
