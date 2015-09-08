@@ -259,7 +259,15 @@ void RenderState::init(IDirect3DDevice9* dev) {
 
 	_pCurrentKeyMap = &_fKeyMap;
 	
-	loadManagedAssembly();
+	if (Interop::OK()) {
+		if (Interop::Conf().LoadModsOnStart) {
+			loadEverything();
+			toggleShowModMesh();
+		}
+		else {
+			loadManagedAssembly();
+		}
+	}
 
 	_initted = true;
 }

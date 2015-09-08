@@ -11,10 +11,6 @@ module ModDBInterop =
     let private log = Logging.getLogger("ModDBInterop")
 
     let setPaths (mmDllPath:string) (exeModule:string) =
-        let ret = {
-            InputProfile = CoreTypes.DefaultRunConfig.InputProfile
-            RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
-        }
         try
             // check for valid paths
             if mmDllPath.Contains("..") then failwith "Illegal dll path, contains '..' : %A" mmDllPath
@@ -27,17 +23,21 @@ module ModDBInterop =
             let conf = RegConfig.load exeModule
             let conf = State.validateAndSetConf conf 
 
-            let ret = 
-                { ret with 
-                    InputProfile = conf.InputProfile
-                    RunModeFull = conf.RunModeFull
-                }
+            let ret = {    
+                RunModeFull = conf.RunModeFull
+                LoadModsOnStart = conf.LoadModsOnStart
+                InputProfile = conf.InputProfile
+            }
             //log.Info "Returning %A" ret
             ret
         with 
         | e -> 
             log.Error "%A" e
-            ret
+            {
+                RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
+                LoadModsOnStart = CoreTypes.DefaultRunConfig.LoadModsOnStart
+                InputProfile = CoreTypes.DefaultRunConfig.InputProfile
+            }
 
     let getDataPath() = 
         try

@@ -20,7 +20,7 @@
                 SelectedItem="{Binding Path=SelectedProfile,Mode=TwoWay}"
                 ItemTemplate="{StaticResource profileNameTemplate}"/>
         </Grid>
-        <Grid Margin="42,10,-196,10" Visibility="{Binding Path=ProfileAreaVisibility}">
+        <Grid Margin="42,10,-184,-135" Visibility="{Binding Path=ProfileAreaVisibility}">
             <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
             <Label Content="{Binding Path=SelectedProfile.ExePath}"  HorizontalAlignment="Left" Margin="108,31,0,0" VerticalAlignment="Top" Width="147" Height="26"/>
             <Label Content="Profile Name" HorizontalAlignment="Left" VerticalAlignment="Top"/>
@@ -38,6 +38,7 @@
                       SelectedValue="{Binding Path=SelectedProfile.SnapshotProfile}"
                       HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
             <Button Command="{Binding Path=BrowseExe}" Content="Browse" HorizontalAlignment="Left" Margin="295,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
+            <CheckBox IsChecked="{Binding Path=SelectedProfile.LoadModsOnStart}" Content="Load Mods On Start" HorizontalAlignment="Left" Margin="7,124,0,0" VerticalAlignment="Top"/>
         </Grid>
         <Button Command="{Binding Path=StartInSnapshotMode}"
             Content="Start (Snapshot)" HorizontalAlignment="Left" Height="30" Margin="-113,285,0,-170" VerticalAlignment="Top" Width="102"/>

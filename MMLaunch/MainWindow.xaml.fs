@@ -103,6 +103,12 @@ type ProfileModel(config:CoreTypes.RunConfig) =
             config <- { config with SnapshotProfile = value }
             save()
 
+    member x.LoadModsOnStart
+        with get() = config.LoadModsOnStart
+        and set value = 
+            config <- { config with LoadModsOnStart = value }
+            save()
+
 /// Used for Snapshot and Input profiles, since they both basically just have a name 
 /// and description as far as the UI is concerned.
 type SubProfileModel(name:string) =

@@ -11,6 +11,7 @@ module RegKeys =
     let ProfExePath = "ExePath"
     let ProfName = "ProfileName"
     let ProfRunModeFull = "RunModeFull"
+    let ProfLoadModsOnStart = "LoadModsOnStart"
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
       
@@ -160,6 +161,7 @@ module RegConfig =
             ProfileName = profSave RegKeys.ProfName conf.ProfileName
             CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath 
             RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
+            LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
             InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
             SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
             DocRoot = "" // custom doc root not yet supported
@@ -185,6 +187,7 @@ module RegConfig =
             ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string
             CoreTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
             RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
+            LoadModsOnStart = dwordAsBool ( regget(profPath,RegKeys.ProfLoadModsOnStart, (boolAsDword DefaultRunConfig.LoadModsOnStart)) :?> int)
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
         }

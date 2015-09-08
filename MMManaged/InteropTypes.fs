@@ -8,10 +8,12 @@ open System.Runtime.InteropServices
 module InteropTypes =
     // the use of multibyte could be a problem here if we need to marshal strings containing unicode characters (i18n paths for example),
     // but currently the unmanaged code doesn't need to know about paths other than the MM install dir, which it already knows.
-    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Ansi)>] 
+    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Ansi  )>] 
     type ConfData = {
-        [<MarshalAs(UnmanagedType.I1)>]
+        [<MarshalAs(UnmanagedType.U1)>]
         RunModeFull: bool
+        [<MarshalAs(UnmanagedType.U1)>]
+        LoadModsOnStart: bool
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=512)>]
         InputProfile: string
     }

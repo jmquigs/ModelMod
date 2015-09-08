@@ -50,6 +50,9 @@ module CoreTypes =
         ProfileName: string 
         /// Path to exe
         ExePath: string 
+        /// If true, mods will be load and displayed on startup; otherwise they must be loaded
+        /// and displayed manually with keyboard commands
+        LoadModsOnStart: bool
         /// Whether the current/next run is in full (snapshot) mode or playback only
         RunModeFull: bool 
         /// Input profile to use
@@ -65,6 +68,7 @@ module CoreTypes =
         ProfileName = ""
         ExePath = ""
         RunConfig.RunModeFull = true
+        LoadModsOnStart = true
         InputProfile = ""
         SnapshotProfile = ""
         DocRoot = ""

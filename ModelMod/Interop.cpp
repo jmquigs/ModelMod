@@ -274,6 +274,7 @@ INTEROP_API int OnInitialized(ManagedCallbacks* callbacks) {
 	}
 
 	MM_LOG_INFO(fmt::format("Full run mode: {}", gCurrentConf.RunModeFull));
+	MM_LOG_INFO(fmt::format("Load mods on start: {}", gCurrentConf.LoadModsOnStart));
 	MM_LOG_INFO(fmt::format("Input profile: {}", gCurrentConf.InputProfile));
 
 	return 0;

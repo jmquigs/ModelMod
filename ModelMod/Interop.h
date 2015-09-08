@@ -65,6 +65,7 @@ struct ConfData {
 	// Note: marshalling to bool requires [<MarshalAs(UnmanagedType.I1)>] on the field in managed code; otherwise it will try to marshall it as a 4 byte BOOL,
 	// which has a detrimental effect on subsequent string fields!
 	bool RunModeFull;
+	bool LoadModsOnStart;
 	char InputProfile[512];
 
 	ConfData() {
