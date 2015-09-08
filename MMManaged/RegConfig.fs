@@ -196,7 +196,8 @@ module RegConfig =
         loadFromFullProfileKey profPath "" // use empty string for key name when loading from default profile
 
     let loadFromProfileKey(profileKey:string):RunConfig =
-        let profPath = regLoc.Hive.Name @@ regLoc.ProfRoot @@ profileKey
+        let profPath = if not (profileKey.StartsWith(regLoc.ProfRoot)) then regLoc.ProfRoot @@ profileKey else profileKey
+        let profPath = regLoc.Hive.Name @@ profPath
         loadFromFullProfileKey profPath profileKey
                     
     let loadAll (): RunConfig[] =
