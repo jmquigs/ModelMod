@@ -17,6 +17,47 @@ open FsXaml
 open ViewModelUtil
 open ModelMod
 
+module LocStrings = 
+    module Input =
+        let Header = "Input:"
+        let Desc1 = "Press CONTROL followed by the following keys."
+        let Desc2 = "There is no in-game UI that displays these, so try alt-tab if you forget them."
+        let Reload = "Load (or reload) modelmod managed code, configuration, and mods"
+        let Toggle = "Toggle mod display"
+        let ClearTex = "Clear the active texture list (will be rebuilt from scene textures)"
+        let SelectNextTex = "Select Previous Texture"
+        let SelectPrevTex = "Select Next Texture"
+        let DoSnapshot = "Take snapshot of current selection"
+
+    module Snapshot = 
+        let Header = "Snapshot Transforms:"
+        let Desc1 = "The following transforms will be applied"
+        let PosLabel = "Position: "
+        let UVLabel = "UV: "
+
+module ProfileText = 
+//    module Snapshot = 
+    module Input = 
+        let CommandOrder = [
+            LocStrings.Input.Reload; LocStrings.Input.Toggle;
+            LocStrings.Input.ClearTex; 
+            LocStrings.Input.SelectNextTex; LocStrings.Input.SelectPrevTex; LocStrings.Input.DoSnapshot]
+        let PunctKeys = [@"\"; "]"; 
+            ";"; 
+            ","; "."; "/"]
+        let FKeys = ["F1"; "F2";
+            "F7";
+            "F3"; "F4"; "F6"]
+    
+        let Descriptions =
+            let makeInputDesc keys = 
+                List.fold2 (fun acc key text -> 
+                    acc + (sprintf "%s\t%s\n" key text)
+                ) "" keys CommandOrder
+
+            Map.ofList [ (InputProfiles.PunctRock, (makeInputDesc PunctKeys)); 
+                (InputProfiles.FItUp, (makeInputDesc FKeys)); ]
+
 module MainViewUtil = 
     let popSelectExecutableDialog(currentExe:string option) = 
         let dlg = new OpenFileDialog()
@@ -197,16 +238,54 @@ type MainViewModel() as self =
     member x.InputProfiles = 
         new ObservableCollection<SubProfileModel>
             (InputProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
-    
+
     member x.SelectedProfile 
         with get () = selectedProfile
         and set value = 
             selectedProfile <- value
    
             x.RaisePropertyChanged("SelectedProfile") 
+            x.RaisePropertyChanged("SelectedInputProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
             x.RaisePropertyChanged("StartInSnapshotMode") 
             x.RaisePropertyChanged("LauncherProfileIcon")
+            x.RaisePropertyChanged("ProfileDescription")
+
+    member x.SelectedInputProfile 
+        with get () = x.SelectedProfile.InputProfile
+        and set (value:string) = 
+            x.SelectedProfile.InputProfile <- value
+            x.RaisePropertyChanged("ProfileDescription")
+
+    member x.SelectedSnapshotProfile
+        with get () = x.SelectedProfile.SnapshotProfile
+        and set (value:string) = 
+            x.SelectedProfile.SnapshotProfile <- value
+            x.RaisePropertyChanged("ProfileDescription")
+
+    member x.ProfileDescription
+        with get () =
+            let inputText = 
+                match (ProfileText.Input.Descriptions |> Map.tryFind x.SelectedProfile.InputProfile) with 
+                | None -> "No Input description available"
+                | Some (text) ->
+                    LocStrings.Input.Header + "\n" + LocStrings.Input.Desc1 + "\n" + LocStrings.Input.Desc2 + "\n" + text
+            let snapshotText = 
+                let makeStringList (xforms:string list) =  String.Join(", ", xforms)
+
+                let pxforms = 
+                    match (SnapshotTransforms.Position |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
+                    | None -> "No Snapshot description available"
+                    | Some (xforms) -> makeStringList xforms
+
+                let uvxforms = 
+                    match (SnapshotTransforms.UV |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
+                    | None -> "No Input description available"
+                    | Some (xforms) -> makeStringList xforms
+                LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
+                + LocStrings.Snapshot.UVLabel + uvxforms
+            inputText + "\n" + snapshotText
+             
 
     member x.LauncherProfileIcon 
         with get() = 
