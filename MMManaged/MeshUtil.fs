@@ -245,6 +245,12 @@ module MeshUtil =
         log.Info "  %d position transforms; %d uv transforms" postransforms.Count uvtransforms.Count
         log.Info "  %d named vertex groups; %d vertex/group associations " vgnames.Count groupsForVertex.Length
     
+        if groupsForVertex.Length > 0 && positions.Count > groupsForVertex.Length then
+            // this may be an art bug
+            let diff = positions.Count - groupsForVertex.Length
+            log.Warn "Found %d vertices that are not assigned to any group; these verts will not participate in exclusion checking.  \
+                To avoid this message, make sure that all verts are assigned to a named group" diff
+    
         let ret = { 
             Mesh.Type = modType
             Triangles = triangles

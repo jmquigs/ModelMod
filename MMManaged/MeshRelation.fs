@@ -93,18 +93,24 @@ module MeshRelation =
             if refMesh.AnnotatedVertexGroups.Length = 0 || modMesh.AnnotatedVertexGroups.Length = 0 then
                 false
             else
-                let refAnnotations = refMesh.AnnotatedVertexGroups.[refIdx]
-                let modAnnotations = modMesh.AnnotatedVertexGroups.[modIdx]
+                // should have warned about non-grouped verts on load; now just assume they are not excluded
+                if refIdx >= refMesh.AnnotatedVertexGroups.Length then
+                    false
+                elif modIdx >= modMesh.AnnotatedVertexGroups.Length then
+                    false
+                else
+                    let refAnnotations = refMesh.AnnotatedVertexGroups.[refIdx]
+                    let modAnnotations = modMesh.AnnotatedVertexGroups.[modIdx]
 
-                match refAnnotations,modAnnotations with
-                | [],[] -> false
-                | UnconditionalExclude groupName ->                    
-                    true
-                | ModExcludesRef groupName -> 
-                    true
-                | ModIncludeNotFoundInRef groupName -> 
-                    true
-                | _,_ -> false
+                    match refAnnotations,modAnnotations with
+                    | [],[] -> false
+                    | UnconditionalExclude groupName ->                    
+                        true
+                    | ModExcludesRef groupName -> 
+                        true
+                    | ModIncludeNotFoundInRef groupName -> 
+                        true
+                    | _,_ -> false
 
         let buildVertRels():VertRel[] = 
             //  CPU-only: build triangles for ref and mod
