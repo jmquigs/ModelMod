@@ -244,7 +244,7 @@ module MeshUtil =
         log.Info "  %d blend indices, %d blend weights" blendindices.Count blendweights.Count
         log.Info "  %d position transforms; %d uv transforms" postransforms.Count uvtransforms.Count
         log.Info "  %d named vertex groups; %d vertex/group associations " vgnames.Count groupsForVertex.Length
-    
+
         if groupsForVertex.Length > 0 && positions.Count > groupsForVertex.Length then
             // this may be an art bug
             let diff = positions.Count - groupsForVertex.Length
@@ -305,8 +305,17 @@ map_Kd $$filename
                         then failwithf "blend data length array mismatch: indices: %A, weights: %A" md.BlendIndices.Length md.BlendWeights.Length
                     md.BlendIndices,md.BlendWeights
                 | true,false -> 
-                    log.Warn "Mesh has blend indices but no weights, using zero weights"
-                    md.BlendIndices, Array.zeroCreate md.BlendIndices.Length
+                    log.Warn "Mesh has blend indices but no weights, using fixed weights"
+                    let blendweights = md.BlendIndices |> Array.map (fun idx ->
+                        // Assign fake weights for each index.  Right now we assume that the first component of the index (X) is the only 
+                        // valid one.  We could look for non-zero indicies and only assign weights to them, but we have no way to differentiate
+                        // index 0 (a valid index which would either be completely excluded or assigned to everything).
+                        // Assigning a fake weight allows at least allows the weighted verts to be viewed in the 3d tool.
+                        // TODO: really we should try to find where the weights are stashed in this case during snapshot; they are probably in a
+                        // vertex shader constant.
+                        Vec4F(1.f,0.f,0.f,0.f)
+                    )
+                    md.BlendIndices, blendweights
                 | false,true ->
                     // this is weird
                     failwithf "Mesh has blend weights but no indices"
