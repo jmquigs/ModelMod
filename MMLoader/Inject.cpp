@@ -80,7 +80,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 			// Its basically a jackhammer, and it can fail (especially if our hook thread does a bunch of slow initialization stuff), but it
 			// usually succeeds.
 
-			const int SuspendSleepTime = 0;
+			const int SuspendSleepTime = 1;
 
 			int hook_thread_attempts = 3;
 			HANDLE hookThread = NULL;
