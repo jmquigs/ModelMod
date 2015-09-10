@@ -7,7 +7,7 @@
 // http://obse.silverlock.org/
 // The sordid thread-suspending logic in DoInjectDLL is my own dismal contribution
 
-extern BOOL ToggleProcessThreads(DWORD dwOwnerPID, bool suspend);
+extern BOOL SuspendProcessThreads(DWORD dwOwnerPID, bool suspend);
 
 Inject::Inject(void)
 {
@@ -72,8 +72,16 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 
 			WriteProcessMemory(process, (LPVOID)(hookBase), hookCode, sizeof(hookCode), &bytesWritten);
 
-			// yet another race...creating this thread sometimes fails, usually when loader is "cold" and hasn't been started
-			// recently. use the resume/suspend trick (described below) to increase the odds that it will work.
+			// So, if we are attaching to an existing process, all of its threads should have already been suspended by the loader.
+			// however, its quite possible that we suspended the threads inside a critical section, and we'll have problems either
+			// creating the hook thread or waiting for it to exit.
+			// So what we'll do is wait for a bit on the hook thread, and if we timeout, resume all threads in the target process for a brief period,
+			// then resuspend them.  Then resume our hook thread and try again.  Do this some number of times and hopefully we'll be successful.  
+			// Its basically a jackhammer, and it can fail (especially if our hook thread does a bunch of slow initialization stuff), but it
+			// usually succeeds.
+
+			const int SuspendSleepTime = 0;
+
 			int hook_thread_attempts = 3;
 			HANDLE hookThread = NULL;
 			bool hookThreadValid = false;
@@ -83,20 +91,14 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 				hookThreadValid = hookThread && hookThread != INVALID_HANDLE_VALUE;
 				if (!hookThreadValid) {
 					Util::Log("Failed to create hook thread (%d more attempts)\n", hook_thread_attempts);
-					ToggleProcessThreads(processId, false);
-					Sleep(0);
-					ToggleProcessThreads(processId, true);
+					SuspendProcessThreads(processId, false);
+					Sleep(SuspendSleepTime);
+					SuspendProcessThreads(processId, true);
 				}
 			}
 			if (hookThreadValid)
 			{
 				ResumeThread(hookThread);
-				// So, if we are attaching to an existing process, all of its threads should have already been suspended by the loader.
-				// however, its quite possible that we suspended the threads inside a critical section and now our hook thread will deadlock.
-				// so what we'll do is wait for a bit on the hook thread, and if we timeout, resume all threads in the target process for a brief period,
-				// then resuspend them.  Then resume our hook thread and try again.  Do this some number of times and hopefully we'll be successful.  
-				// Its basically a jackhammer, and it can fail (especially if our hook thread does a bunch of slow initialization stuff), but it
-				// usually succeeds.
 
 				DWORD waitTimeout;
 				int MaxHookAttempts;
@@ -112,6 +114,8 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 				int attempt = 0;
 
 				for (attempt = 0; !result && attempt < MaxHookAttempts; ++attempt) {
+					Util::Log("Waiting for hook thread: attempt %d; timeout: %d\n", attempt, waitTimeout);
+
 					switch(WaitForSingleObject(hookThread, waitTimeout))  // g_options.m_threadTimeout
 					{
 						case WAIT_OBJECT_0:
@@ -124,11 +128,12 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 							break;
 
 						case WAIT_TIMEOUT:
-							// Resume all threads, sleep for a bit, then suspend them all again.  Then resume hook thread and retry.
-							Util::Log("timeout, retrying\n");
-							ToggleProcessThreads(processId,false);
-							Sleep(0);
-							ToggleProcessThreads(processId,true);
+							// Possible lock contention.
+							// Resume all threads, sleep for a bit then suspend them all again.  Then resume hook thread and retry.
+							Util::Log("Timeout\n");
+							SuspendProcessThreads(processId,false);
+							Sleep(SuspendSleepTime);
+							SuspendProcessThreads(processId,true);
 							ResumeThread(hookThread);
 							break;
 

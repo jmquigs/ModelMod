@@ -24,7 +24,7 @@ BOOL isFirstSearch = TRUE;
 BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 
-BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend ) 
+BOOL SuspendProcessThreads( DWORD dwOwnerPID, bool suspend ) 
 { 
    HANDLE hThreadSnap = INVALID_HANDLE_VALUE; 
    THREADENTRY32 te32; 
@@ -44,10 +44,12 @@ BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend )
 
    // Walk the threads and suspend or resume as indicated; filter out threads
    // not belonging to target process.
+   int numThreads = 0;
    do 
    { 
       if( te32.th32OwnerProcessID == dwOwnerPID )
       {
+		  numThreads++;
 		  HANDLE tHandle = OpenThread(THREAD_SUSPEND_RESUME,
 			  FALSE,
 			  te32.th32ThreadID);
@@ -57,11 +59,11 @@ BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend )
 			  int suspendCount = -1;
 			  if (suspend) {
 				  suspendCount = SuspendThread(tHandle);
-				  Util::Log("Suspend thread: %d\n", suspendCount);
+				  Util::Log("Suspend thread %08X: %d\n", te32.th32ThreadID, suspendCount);
 			  }
 			  else {
 				  suspendCount = ResumeThread(tHandle);
-				  Util::Log("Resume thread: %d\n", suspendCount);
+				  Util::Log("Resume thread %08X: %d\n", te32.th32ThreadID, suspendCount);
 			  }
 
 			  CloseHandle(tHandle);
@@ -69,11 +71,12 @@ BOOL ToggleProcessThreads( DWORD dwOwnerPID, bool suspend )
       }
    } while( Thread32Next(hThreadSnap, &te32 ) ); 
 
+   Util::Log("Processed %d threads\n", numThreads);
    CloseHandle( hThreadSnap );
    return( TRUE );
 }
 
-// Look for a process by name, then return the process ID (to be later used with ToggleProcessThreads).
+// Look for a process by name, then return the process ID (to be later used with SuspendProcessThreads).
 // If multiple processes match the name, the first match is used (i.e. this doesn't work with multiprocess programs).
 // Use a LONGLONG so that we can indicate a find error with -1.
 LONGLONG FindProcess(string processName) {
@@ -129,7 +132,7 @@ LONGLONG FindAndSuspend(string processName) {
 	LONGLONG foundID = FindProcess(processName);
 	if (foundID > 0) {
 		// suspend
-		ToggleProcessThreads((DWORD)foundID, true);
+		SuspendProcessThreads((DWORD)foundID, true);
 	}
 
 	return foundID;
@@ -248,7 +251,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		// let it go, let it gooooooo
 		Util::Log("Resuming target process due to injection failure; restart target process manually to try again\n");
 		
-		ToggleProcessThreads(targetProcessId, false);
+		SuspendProcessThreads(targetProcessId, false);
 
 		Util::DisplayMessageBox("Failed to inject DLL", "Crap");
 		return -1;
@@ -261,7 +264,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 	// Resume and Wait
 	Util::Log("Waiting for exit\n");
-	ToggleProcessThreads(targetProcessId, false);
+	SuspendProcessThreads(targetProcessId, false);
 	
 	int ret = 0;
 
