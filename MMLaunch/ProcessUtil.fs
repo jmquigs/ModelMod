@@ -14,6 +14,54 @@ module ProcessUtil =
              (-4, "Some injection attempts failed")
             ]
 
+    let private LoaderSearchPath = ["."; 
+        // Make a dev tree path in case it isn't found in current directory.
+        // I used to have this always use Release in the dev build, but then I got bitten in the ass by the fact
+        // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.  
+        // so now it uses release or debug as specified by config
+#if DEBUG
+        "../../../Debug" ;
+#else
+        "../../../Release" ;
+#endif
+    ]
+    let private LoaderName = "MMLoader.exe"
+
+    let private getLoaderPath() =
+        let lp = 
+            LoaderSearchPath 
+            |> List.map (fun path -> Path.Combine(path, LoaderName))
+            |> List.tryFind File.Exists
+        match lp with 
+        | None -> ""
+        | Some (path) -> path
+                
+    // Returns the log directory
+    let private getLogPath() =
+        let lp = getLoaderPath()
+        match lp with 
+        | "" -> ""
+        | path ->
+            let loaderPar = Directory.GetParent(path);
+            let logDir = Path.Combine(loaderPar.FullName, "..", "Logs")
+            logDir
+
+    let private getInjectionLog (exePath:string) =
+        let lp = getLogPath()
+        match lp with 
+        | "" -> ""
+        | path ->
+            let logExeName = Path.GetFileName(exePath)
+            Path.Combine(path, (sprintf "mmloader.%s.log" logExeName))
+
+    let private getModelModLog (exePath:string) =
+        let lp = getLogPath()
+        match lp with 
+        | "" -> ""
+        | path ->
+            let logExeName = Path.GetFileName(exePath)
+            Path.Combine(path, (sprintf "modelmod.%s.log" logExeName))
+                    
     let launchWithLoader (exePath:string):Result<Process> =
         try 
             if not (File.Exists(exePath)) then
@@ -24,23 +72,9 @@ module ProcessUtil =
                 failwithf "Exe does not appear to be an exe: %s" exePath
             // find loader
             let loaderPath = 
-                let lname = "MMLoader.exe"
-                // Make a dev tree path in case it isn't found in current directory.
-                // I used to have this always use Release in the dev build, but then I got bitten in the ass by the fact
-                // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.  
-                // so now it uses release or debug as specified by config
-#if DEBUG
-                let devTreePath = Path.Combine("../../../Debug", lname) 
-#else
-                let devTreePath = Path.Combine("../../../Release", lname) 
-#endif
-                let lp = 
-                    if File.Exists(lname) then Path.GetFullPath(lname)
-                    else if File.Exists(devTreePath) then Path.GetFullPath(devTreePath)
-                    else // dunno where it is
-                        ""
+                let lp = getLoaderPath()
                 if not (File.Exists(lp))
-                    then failwithf "Can't find Loader; searched in %s,%s" (Directory.GetCurrentDirectory()) (Path.Combine(Directory.GetCurrentDirectory(), devTreePath))
+                    then failwithf "Can't find %s; searched in %A" LoaderName LoaderSearchPath
                 lp
 
             let proc = new Process()
@@ -51,14 +85,13 @@ module ProcessUtil =
             // hardcode log path to the same hardcoded path that ModelMod will use (which is relative 
             // to the MMLoader.exe dir)
             let logfile = 
-                let loaderPar = Directory.GetParent(loaderPath);
-                let logExeName = Path.GetFileName(exePath)
-                let logDir = Path.Combine(loaderPar.FullName, "..", "Logs")
+                let logDir = getLogPath() 
+                
                 if not (Directory.Exists logDir) then
                     Directory.CreateDirectory(logDir) |> ignore
                 if not (Directory.Exists logDir) then
                     failwithf "Failed to create output log directory: %s" logDir
-                Path.Combine(logDir , (sprintf "mmloader.%s.log" logExeName))
+                getInjectionLog exePath
 
             // tell loader to exit if it hasn't attached in n seconds
             let waitperiod = 5
@@ -99,3 +132,25 @@ module ProcessUtil =
         with 
             | e -> 
                 Err(e)
+
+    let openTextFile (filepath:string): Result<unit> =
+        try
+            if not (File.Exists(filepath)) then
+                failwithf "Injection log not found: %s" filepath
+
+            let proc = new Process()
+            proc.StartInfo.UseShellExecute <- true
+            proc.StartInfo.FileName <- filepath
+            let res = proc.Start()
+            if not res then 
+                failwith "Failed to open log file"
+            Ok(())
+        with
+            | e -> 
+                Err(e)        
+
+    let openInjectionLog (exePath:string): Result<unit> =
+        getInjectionLog exePath |> openTextFile
+
+    let openModelModLog (exePath:string): Result<unit> =
+        getModelModLog exePath |> openTextFile

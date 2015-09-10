@@ -36,7 +36,6 @@ module LocStrings =
         let UVLabel = "UV: "
 
 module ProfileText = 
-//    module Snapshot = 
     module Input = 
         let CommandOrder = [
             LocStrings.Input.Reload; LocStrings.Input.Toggle;
@@ -247,9 +246,8 @@ type MainViewModel() as self =
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("SelectedInputProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
-            x.RaisePropertyChanged("StartInSnapshotMode") 
-            x.RaisePropertyChanged("LauncherProfileIcon")
             x.RaisePropertyChanged("ProfileDescription")
+            x.UpdateLaunchUI()
 
     member x.SelectedInputProfile 
         with get () = x.SelectedProfile.InputProfile
@@ -328,10 +326,15 @@ type MainViewModel() as self =
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then
             loaderState <- newState
-            x.RaisePropertyChanged("LoaderStateText") 
-            x.RaisePropertyChanged("LoaderIsStartable") 
-            x.RaisePropertyChanged("StartInSnapshotMode") 
-            x.RaisePropertyChanged("LauncherProfileIcon")
+            x.UpdateLaunchUI()
+
+    member x.UpdateLaunchUI() =
+        x.RaisePropertyChanged("LoaderStateText") 
+        x.RaisePropertyChanged("LoaderIsStartable") 
+        x.RaisePropertyChanged("StartInSnapshotMode") 
+        x.RaisePropertyChanged("LauncherProfileIcon")
+        x.RaisePropertyChanged("ViewInjectionLog")
+        x.RaisePropertyChanged("ViewModelModLog")
 
     member x.LoaderIsStartable
         with get() = 
@@ -365,3 +368,19 @@ type MainViewModel() as self =
                     | Err(e) -> 
                         MainViewUtil.failValidation e.Message
                         StartFailed(e,x.SelectedProfile.ExePath)))
+    member x.ViewInjectionLog = 
+        new RelayCommand (
+            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable),
+            (fun action ->
+                match ProcessUtil.openInjectionLog x.SelectedProfile.ExePath with
+                | Ok(_) -> ()
+                | Err(e) -> MainViewUtil.failValidation e.Message
+            ))
+    member x.ViewModelModLog = 
+        new RelayCommand (
+            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible),
+            (fun action ->
+                match ProcessUtil.openModelModLog x.SelectedProfile.ExePath with
+                | Ok(_) -> ()
+                | Err(e) -> MainViewUtil.failValidation e.Message
+            ))
