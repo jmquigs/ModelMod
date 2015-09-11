@@ -166,7 +166,8 @@ type LoaderState =
     | StartFailed of (Exception * GameExePath)
     | Started of (Process * GameExePath)
     | Stopped of (Process * GameExePath)
-    
+
+#nowarn "40"
 type MainViewModel() as self = 
     inherit ViewModelBase()
 
