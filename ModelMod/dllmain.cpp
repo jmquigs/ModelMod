@@ -45,7 +45,7 @@ void SpinWhileFileExists(HMODULE dllModule) {
 
 DInputProc Real_DirectInput8Create = NULL;
 HRESULT WINAPI Hook_DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter) {
-	MM_LOG_INFO("Dinput 8 called");
+	MM_LOG_INFO("DirectInput8Create called");
 	if (Real_DirectInput8Create) {
 		return Real_DirectInput8Create(hinst,dwVersion,riidltf,ppvOut,punkOuter);
 	}
@@ -56,7 +56,7 @@ typedef HMODULE (WINAPI *LoadLibraryAProc)(__in LPCSTR lpLibFileName);
 
 LoadLibraryAProc Real_LoadLibraryA = NULL;
 HMODULE WINAPI Hook_LoadLibraryA(__in LPCSTR lpLibFileName) {
-	MM_LOG_INFO("LoadLibraryA called");
+	MM_LOG_INFO(format("LoadLibraryA called: {}", lpLibFileName));
 	if (Real_LoadLibraryA) {
 		return Real_LoadLibraryA(lpLibFileName);
 	}
