@@ -200,7 +200,6 @@ public:
 
 	IDirect3DBaseTexture9* currentTexture() {
 		return (IDirect3DBaseTexture9*)_currentTexturePtr;
-		//return (IDirect3DBaseTexture9*)_textureHandles[_currentTexture];
 	}
 
 	long selectedTextureStage() {

@@ -170,15 +170,20 @@ public:
 	}
 	STDMETHOD(CreateTexture)(THIS_ UINT Width,UINT Height,UINT Levels,DWORD Usage,D3DFORMAT Format,D3DPOOL Pool,IDirect3DTexture9** ppTexture,HANDLE* pSharedHandle) {
 		D3D_CALL_LOG("d3d CreateTexture");
-		// TODO (hook): will need to hook IDirect3DTexture9, otherwise we won't be able to tell when the texture is deleted.
 		HRESULT hr = _dev->CreateTexture(Width,Height,Levels,Usage,Format,Pool,ppTexture,pSharedHandle);
-		if (SUCCEEDED(hr) && Levels >= 7) {
-			string texInfoStr = fmt::format("Texture {:x} for tex {}x{}, {} levels, {} format", (int)*ppTexture, Width, Height, Levels, Format);
-			
-			MM_LOG_INFO("Creating: " + texInfoStr);
-			_hookRenderState.textureCreated(*ppTexture);
-			_hookRenderState.texInfo[(DWORD)*ppTexture] = texInfoStr;
-		}
+
+		// technically, to track these properly I should hook IDirect3DTexture9, 
+		// otherwise we won't be able to tell when the texture is deleted.  However, if I'm just using 
+		// them for pointer comparisons, maybe its ok to let them go stale; depends on the usage.
+		// Anyway, I don't use this right now and its spammy in the logs, so I'm disabling it.
+		//if (SUCCEEDED(hr) && Levels >= 7) {
+		//	 
+		//	string texInfoStr = fmt::format("Texture {:x} for tex {}x{}, {} levels, {} format", (int)*ppTexture, Width, Height, Levels, Format);
+		//	
+		//	MM_LOG_INFO("Creating: " + texInfoStr);
+		//	_hookRenderState.textureCreated(*ppTexture);
+		//	_hookRenderState.texInfo[(DWORD)*ppTexture] = texInfoStr;
+		//}
 
 		return hr;
 	}
