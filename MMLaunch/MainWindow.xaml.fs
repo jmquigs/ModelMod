@@ -17,6 +17,8 @@ open FsXaml
 open ViewModelUtil
 open ModelMod
 
+type MainView = XAML<"MainWindow.xaml", true>
+
 module LocStrings = 
     module Input =
         let Header = "Input:"
@@ -57,31 +59,6 @@ module ProfileText =
             Map.ofList [ (InputProfiles.PunctRock, (makeInputDesc PunctKeys)); 
                 (InputProfiles.FItUp, (makeInputDesc FKeys)); ]
 
-module MainViewUtil = 
-    let popSelectExecutableDialog(currentExe:string option) = 
-        let dlg = new OpenFileDialog()
-
-        match currentExe with
-        | None -> ()
-        | Some exe ->
-            if File.Exists(exe) then
-                dlg.InitialDirectory <- Directory.GetParent(exe).ToString()
-
-        dlg.Filter <- "Executable files (*.exe)|*.exe"
-        dlg.FilterIndex <- 0
-        dlg.RestoreDirectory <- true
-
-        let res = dlg.ShowDialog() 
-        if res.HasValue && res.Value then
-            Some (dlg.FileName)
-        else
-            None
-
-    let failValidation (msg:string) = 
-        MessageBox.Show(msg) |> ignore
-
-type MainView = XAML<"MainWindow.xaml", true>
-
 // Mutable wrapper around an immutable RunConfig; there are ways we could use RunConfig
 // directly, but we can also use this to store things that the run config won't 
 // have, like logs and lists of mods.
@@ -120,7 +97,7 @@ type ProfileModel(config:CoreTypes.RunConfig) =
         and set (value:string) = 
             let value = value.Trim()
             if value = "" then
-                MainViewUtil.failValidation "Profile name may not be empty"
+                ViewModelUtil.pushDialog "Profile name may not be empty"
             else
                 config <- {config with ProfileName = value } 
                 save()
@@ -148,6 +125,32 @@ type ProfileModel(config:CoreTypes.RunConfig) =
         and set value = 
             config <- { config with LoadModsOnStart = value }
             save()
+
+module MainViewUtil = 
+    let pushSelectExecutableDialog(currentExe:string option) = 
+        let dlg = new OpenFileDialog()
+
+        match currentExe with
+        | None -> ()
+        | Some exe ->
+            if File.Exists(exe) then
+                dlg.InitialDirectory <- Directory.GetParent(exe).ToString()
+
+        dlg.Filter <- "Executable files (*.exe)|*.exe"
+        dlg.FilterIndex <- 0
+        dlg.RestoreDirectory <- true
+
+        let res = dlg.ShowDialog() 
+        if res.HasValue && res.Value then
+            Some (dlg.FileName)
+        else
+            None
+
+    let pushRemoveSnapshotsDialog (profile:ProfileModel) =
+        ViewModelUtil.pushDialog "stoppit"
+        ()
+
+    let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 
 /// Used for Snapshot and Input profiles, since they both basically just have a name 
 /// and description as far as the UI is concerned.
@@ -306,7 +309,7 @@ type MainViewModel() as self =
             Visibility.Hidden
 
     member x.BrowseExe = alwaysExecutable (fun action ->
-        match MainViewUtil.popSelectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
+        match MainViewUtil.pushSelectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
         | None -> ()
         | Some (exePath) -> 
             // verify that the chosen path is not already claimed by another profile
@@ -322,6 +325,9 @@ type MainViewModel() as self =
                 x.RaisePropertyChanged("SelectedProfile") 
             else
                 MainViewUtil.failValidation "Cannot set exe path; it is already used by another profile")
+
+    member x.RemoveSnapshots = alwaysExecutable (fun action ->
+        MainViewUtil.pushRemoveSnapshotsDialog x.SelectedProfile)
 
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then

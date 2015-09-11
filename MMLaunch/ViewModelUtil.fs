@@ -24,3 +24,6 @@ module ViewModelUtil =
     let alwaysExecutable (action:(obj -> unit)) = 
         new RelayCommand ((fun canExecute -> true), action)
 
+    let pushDialog(msg:string) =
+        MessageBox.Show(msg) |> ignore
+
