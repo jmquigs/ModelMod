@@ -501,16 +501,11 @@ module State =
 
     // The data directory contains all data for all games, as well as the selection texture.
     let private DefaultDataDir = "Data"
-    // This is another name for the data directory.  If a directory exists with this name, it is used instead of the default.  If a file
-    // exists and it contains a single line that is an absolute path to another directory that exists, that directory is used instead 
-    // (i.e., it acts like a symlink.)
-    let private SymlinkName = "MMData" 
 
     let mutable Moddb = new ModDB.ModDB([],[],[])
     let mutable RootDir = "."
     let mutable ExeModule = ""
     let mutable Conf = CoreTypes.DefaultRunConfig
-    let mutable realDataDir = ""
 
     let validateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
         let snapProfile = 
@@ -525,39 +520,23 @@ module State =
             { conf with
                 SnapshotProfile = snapProfile
             }
+        log.Info "Root dir: %A" (Path.GetFullPath(RootDir))
         log.Info "Conf: %A" conf
+            
         Conf <- conf
         conf
-
-    let private initDataDir() =
-        let dPath = Path.Combine(RootDir,SymlinkName)
-        let dPath = 
-            if Directory.Exists(dPath) then dPath 
-            else
-                if File.Exists(dPath) then
-                    let symLink = File.ReadAllText(dPath).Trim()
-                    if Directory.Exists(symLink) then
-                        symLink
-                    else
-                        failwithf "Sym link found in '%s' but the target directory '%s' does not exist" dPath symLink
-                else
-                    // symlink not found, use the default dir
-                    let dPath = Path.Combine(RootDir,DefaultDataDir)
-                    if not (Directory.Exists(dPath)) then
-                        failwithf "Cannot initialize data directory: %s" dPath
-                    else 
-                        dPath
-                    
-        realDataDir <- dPath
-                  
+         
     let getBaseDataDir() = 
-        if realDataDir = "" then
-            initDataDir()
-        if realDataDir = "" then
-            failwith "Unable to init data dir"
+        // this is set from registry; if not set, use RootDir + DefaultDataDir
+        let dataDir = 
+            if Conf.DocRoot <> "" then
+                Conf.DocRoot
+            else
+                Path.Combine(RootDir, DefaultDataDir)
+        if not (Directory.Exists dataDir) then
+            failwithf "Data directory does not exist: %s" dataDir
 
-        let exeDataDir = Path.Combine(RootDir,realDataDir)
-        exeDataDir
+        dataDir
 
     let getExeBaseName() = 
         let exeBase = Path.GetFileNameWithoutExtension(ExeModule.ToLowerInvariant())
