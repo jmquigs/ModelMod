@@ -502,10 +502,33 @@ module State =
     // The data directory contains all data for all games, as well as the selection texture.
     let private DefaultDataDir = "Data"
 
+    // Helper type for finding various directories
+    type DirLocator(rootDir:string, conf:RunConfig) = 
+        member x.BaseDataDir 
+            with get() = 
+                // this is set from registry; if not set, use RootDir + DefaultDataDir
+                let dataDir = 
+                    if conf.DocRoot <> "" then
+                        conf.DocRoot
+                    else
+                        Path.Combine(rootDir, DefaultDataDir)
+                if not (Directory.Exists dataDir) then
+                    failwithf "Data directory does not exist: %s" dataDir
+
+                dataDir
+        member x.ExeBaseName 
+            with get() = Path.GetFileNameWithoutExtension(conf.ExePath.ToLowerInvariant())
+        member x.ExeDataDir
+            with get() = Path.Combine(x.BaseDataDir,x.ExeBaseName)
+        member x.ExeSnapshotDir
+            with get() = Path.Combine(x.BaseDataDir,"snapshots")
+
+    // various muties
+
     let mutable Moddb = new ModDB.ModDB([],[],[])
     let mutable RootDir = "."
-    let mutable ExeModule = ""
     let mutable Conf = CoreTypes.DefaultRunConfig
+    let mutable Locator = DirLocator(RootDir,Conf)
 
     let validateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
         let snapProfile = 
@@ -524,29 +547,12 @@ module State =
         log.Info "Conf: %A" conf
             
         Conf <- conf
+        Locator <- DirLocator(RootDir,Conf)
         conf
          
-    let getBaseDataDir() = 
-        // this is set from registry; if not set, use RootDir + DefaultDataDir
-        let dataDir = 
-            if Conf.DocRoot <> "" then
-                Conf.DocRoot
-            else
-                Path.Combine(RootDir, DefaultDataDir)
-        if not (Directory.Exists dataDir) then
-            failwithf "Data directory does not exist: %s" dataDir
+    let getBaseDataDir() = Locator.BaseDataDir
+    let getExeBaseName() = Locator.ExeBaseName
+    let getExeDataDir() = Locator.ExeDataDir
+    let getExeSnapshotDir() = Locator.ExeSnapshotDir
 
-        dataDir
-
-    let getExeBaseName() = 
-        let exeBase = Path.GetFileNameWithoutExtension(ExeModule.ToLowerInvariant())
-        exeBase
-
-    let getExeDataDir() = 
-        let exeDataDir = Path.Combine(getBaseDataDir(),getExeBaseName())
-        exeDataDir
-
-    let getExeSnapshotDir() =
-        let dataDir = getExeDataDir();
-        Path.Combine(dataDir,"snapshots")
               

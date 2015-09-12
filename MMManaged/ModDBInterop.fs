@@ -18,7 +18,6 @@ module ModDBInterop =
 
             // set the root path to the parent of the native ModelMod.dll.  
             State.RootDir <- Directory.GetParent(mmDllPath).ToString()
-            State.ExeModule <- exeModule
 
             let conf = RegConfig.load exeModule
             let conf = State.validateAndSetConf conf 
