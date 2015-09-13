@@ -180,6 +180,10 @@ module MainViewUtil =
                 for f in files do
                     FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
 
+    let pushCreateModDialog (profile:ProfileModel) =
+        let cw = new CreateModView()
+        cw.Root.ShowDialog() |> ignore
+        
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 
 /// Used for Snapshot and Input profiles, since they both basically just have a name 
@@ -359,6 +363,9 @@ type MainViewModel() as self =
 
     member x.RemoveSnapshots = alwaysExecutable (fun action ->
         MainViewUtil.pushRemoveSnapshotsDialog x.SelectedProfile)
+
+    member x.CreateMod = alwaysExecutable (fun action ->
+        MainViewUtil.pushCreateModDialog x.SelectedProfile)
 
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then

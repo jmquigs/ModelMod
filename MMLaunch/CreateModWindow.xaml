@@ -1,0 +1,13 @@
+﻿<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
+    xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
+    Title="Create Mod" Height="300" Width="300">
+    <Window.DataContext>
+        <local:CreateModViewModel/>
+    </Window.DataContext>
+    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="250" Width="266">
+        <Button Content="Button" HorizontalAlignment="Left" Margin="62,112,0,0" VerticalAlignment="Top" Width="137"/>
+    </Grid>
+</Window>
