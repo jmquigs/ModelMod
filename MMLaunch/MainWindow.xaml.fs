@@ -150,12 +150,16 @@ module MainViewUtil =
         else
             None
 
-    let pushRemoveSnapshotsDialog (profile:ProfileModel) =
+    let getSnapshotDir (profile:ProfileModel) =
         let root = Directory.GetParent(ProcessUtil.getLoaderPath()).FullName
         let root = Path.Combine(root, "..")
         let dl = State.DirLocator(root, profile.Config)
 
         let snapdir = Path.GetFullPath(dl.ExeSnapshotDir)
+        snapdir
+
+    let pushRemoveSnapshotsDialog (profile:ProfileModel) =
+        let snapdir = getSnapshotDir profile
         if not (Directory.Exists snapdir) then
             ViewModelUtil.pushDialog (sprintf "Snapshot directory does not exist: %s" snapdir)
         else
@@ -247,6 +251,8 @@ type MainViewModel() as self =
             | Stopped (proc,exe) -> loaderState
             | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
 
+        x.UpdateProfileButtons()
+
     member x.LoaderStateText 
         with get() = 
             match loaderState with
@@ -286,6 +292,7 @@ type MainViewModel() as self =
             x.RaisePropertyChanged("ProfileAreaVisibility") 
             x.RaisePropertyChanged("ProfileDescription")
             x.UpdateLaunchUI()
+            x.UpdateProfileButtons()
 
     member x.SelectedInputProfile 
         with get () = x.SelectedProfile.InputProfile
@@ -320,8 +327,7 @@ type MainViewModel() as self =
                     | Some (xforms) -> makeStringList xforms
                 LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
                 + LocStrings.Snapshot.UVLabel + uvxforms
-            inputText + "\n" + snapshotText
-             
+            inputText + "\n" + snapshotText     
 
     member x.LauncherProfileIcon 
         with get() = 
@@ -361,12 +367,6 @@ type MainViewModel() as self =
             else
                 MainViewUtil.failValidation "Cannot set exe path; it is already used by another profile")
 
-    member x.RemoveSnapshots = alwaysExecutable (fun action ->
-        MainViewUtil.pushRemoveSnapshotsDialog x.SelectedProfile)
-
-    member x.CreateMod = alwaysExecutable (fun action ->
-        MainViewUtil.pushCreateModDialog x.SelectedProfile)
-
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then
             loaderState <- newState
@@ -380,6 +380,20 @@ type MainViewModel() as self =
         x.RaisePropertyChanged("ViewInjectionLog")
         x.RaisePropertyChanged("ViewModelModLog")
 
+    member x.UpdateProfileButtons() =
+        x.RaisePropertyChanged("RemoveSnapshots")
+        x.RaisePropertyChanged("CreateMod")
+
+    member x.HasSnapshots 
+        with get() = 
+            if x.SelectedProfile.ExePath = "" 
+            then false
+            else
+                let sd = MainViewUtil.getSnapshotDir x.SelectedProfile
+                if not (Directory.Exists sd) 
+                then false
+                else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+
     member x.LoaderIsStartable
         with get() = 
             match loaderState with
@@ -388,6 +402,18 @@ type MainViewModel() as self =
             | StartFailed (_,_) 
             | Stopped (_,_) 
             | NotStarted -> true
+
+    member x.RemoveSnapshots =  
+        new RelayCommand (
+            (fun canExecute -> x.HasSnapshots), 
+            (fun action ->
+                MainViewUtil.pushRemoveSnapshotsDialog x.SelectedProfile))
+
+    member x.CreateMod = 
+        new RelayCommand (
+            (fun canExecute -> x.HasSnapshots), 
+            (fun action ->
+                MainViewUtil.pushCreateModDialog x.SelectedProfile))
 
     member x.StartInSnapshotMode = 
         new RelayCommand (

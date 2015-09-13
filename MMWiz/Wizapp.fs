@@ -216,7 +216,7 @@ module Wizapp =
                 ms.probTBModsPath.Text <- "") //TODO build from global default and exe path
 
         ms.profBtnExeBrowse.Click.Add(fun (evArgs) ->
-            let checkForExistingProfile exePath = RegConfig.findProfile exePath
+            let checkForExistingProfile exePath = RegConfig.findProfilePath exePath
             let createProfile exePath = RegConfig.saveProfile({CoreTypes.DefaultRunConfig with ExePath = exePath})
 
             match getSelectedProfile() with
