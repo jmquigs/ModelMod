@@ -12,6 +12,8 @@ open System.ComponentModel
 open System.Collections.ObjectModel
 open Microsoft.Win32
 
+open Microsoft.VisualBasic.FileIO // for recycling bin thing
+
 open FsXaml
 
 open ViewModelUtil
@@ -86,6 +88,8 @@ type ProfileModel(config:CoreTypes.RunConfig) =
                     System.Windows.Int32Rect.Empty,
                     System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions())
 
+    member x.Config = config
+
     member x.Icon 
         with get() = iconSource
 
@@ -147,8 +151,34 @@ module MainViewUtil =
             None
 
     let pushRemoveSnapshotsDialog (profile:ProfileModel) =
-        ViewModelUtil.pushDialog "stoppit"
-        ()
+        let root = Directory.GetParent(ProcessUtil.getLoaderPath()).FullName
+        let root = Path.Combine(root, "..")
+        let dl = State.DirLocator(root, profile.Config)
+
+        let snapdir = Path.GetFullPath(dl.ExeSnapshotDir)
+        if not (Directory.Exists snapdir) then
+            ViewModelUtil.pushDialog (sprintf "Snapshot directory does not exist: %s" snapdir)
+        else
+            let files = Directory.GetFiles(snapdir);
+
+            let ok = 
+                let display = 5
+                let take = Math.Min(files.Length,display)
+                let moar = files.Length - take
+
+                if files.Length > 0 then
+                    let files = files |> Seq.take take |> Array.ofSeq
+                    let msg = sprintf "Recycle files in %s?\n%A" snapdir files
+                    let msg = if moar = 0 then msg else (sprintf "%s\n...and %d more" msg moar) 
+                    match (ViewModelUtil.pushOkCancelDialog msg) with
+                    | MessageBoxResult.Yes -> true
+                    | _ -> false
+                else 
+                    ViewModelUtil.pushDialog (sprintf "No files in %s" snapdir)
+                    false
+            if ok then
+                for f in files do
+                    FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
 
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 

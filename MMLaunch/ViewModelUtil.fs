@@ -27,3 +27,5 @@ module ViewModelUtil =
     let pushDialog(msg:string) =
         MessageBox.Show(msg) |> ignore
 
+    let pushOkCancelDialog(msg:string) =
+        MessageBox.Show(msg, "Confirm", MessageBoxButton.YesNo)

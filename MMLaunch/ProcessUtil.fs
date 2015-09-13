@@ -27,7 +27,7 @@ module ProcessUtil =
     ]
     let private LoaderName = "MMLoader.exe"
 
-    let private getLoaderPath() =
+    let getLoaderPath() =
         let lp = 
             LoaderSearchPath 
             |> List.map (fun path -> Path.Combine(path, LoaderName))

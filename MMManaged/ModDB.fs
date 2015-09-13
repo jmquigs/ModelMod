@@ -521,7 +521,7 @@ module State =
         member x.ExeDataDir
             with get() = Path.Combine(x.BaseDataDir,x.ExeBaseName)
         member x.ExeSnapshotDir
-            with get() = Path.Combine(x.BaseDataDir,"snapshots")
+            with get() = Path.Combine(x.ExeDataDir,"snapshots")
 
     // various muties
 
@@ -554,5 +554,3 @@ module State =
     let getExeBaseName() = Locator.ExeBaseName
     let getExeDataDir() = Locator.ExeDataDir
     let getExeSnapshotDir() = Locator.ExeSnapshotDir
-
-              
