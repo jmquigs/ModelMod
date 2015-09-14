@@ -13,9 +13,13 @@
             Content="Open File..." 
                 HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="96"/>
         <Label Content="Mod Name:" HorizontalAlignment="Left" Margin="10,37,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="96"/>
-        <TextBox HorizontalAlignment="Left" Height="23" Margin="10,68,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
+        <TextBox 
+            Text="{Binding Path=ModName, Mode=TwoWay}"
+            HorizontalAlignment="Left" Height="23" Margin="10,68,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
         <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,96,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
-        <Label Content="Label" HorizontalAlignment="Left" Margin="10,127,0,0" VerticalAlignment="Top" Width="142"/>
+        <Label 
+            Content="{Binding Path=ModDest}" 
+            HorizontalAlignment="Left" Margin="10,127,0,0" VerticalAlignment="Top" Width="246"/>
         <Button 
             Command="{Binding Path=Create}"
             Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>

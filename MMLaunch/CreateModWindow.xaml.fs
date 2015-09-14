@@ -25,6 +25,21 @@ type CreateModViewModel() =
     let mutable snapDir = ""
     let mutable dataDir = ""
     let mutable targetFile = ""
+    let mutable modName = ""
+    
+    let validateModName (mn:string):Result<string,string> =
+        let illegalChars = [|'/'; '\\'; ':'; '*'; '?'; '"'; '<'; '>'; '|'|]
+
+        let mn = mn.Trim()
+
+        match mn with
+        | "" -> Err("Enter mod name")
+        | s when s.IndexOfAny(illegalChars) >= 0 -> Err(sprintf "Mod name cannot contain any of: %A" illegalChars)
+        | s when s.Contains("..") -> Err("Mod name cannot contain ..")
+        | s ->
+            Ok(Path.Combine(dataDir,mn))
+
+    // SnapshotDir and DataDir are usually just set once on view creation 
 
     member x.SnapshotDir 
         with get() = snapDir
@@ -32,6 +47,20 @@ type CreateModViewModel() =
     member x.DataDir
         with get() = dataDir
         and set value = dataDir <- value
+
+    member x.ModName
+        with get() = modName
+        and set (value:string) = 
+            modName <- value.Trim()
+            x.TargetFileChanged()
+
+    member x.ModDest 
+        with get() = 
+            // TODO: would like to update this on each keystroke, but that seems to require 
+            // hooking the selectionChanged event, which is a PITA from F# 
+            match validateModName modName with
+            | Err(s) -> s
+            | Ok(path) -> path
 
     member x.BrowseFile = alwaysExecutable (fun action ->
         match ViewModelUtil.pushSelectFileDialog (Some(x.SnapshotDir),"MMObj files (*.mmobj)|*.mmobj") with
@@ -43,12 +72,22 @@ type CreateModViewModel() =
     member x.TargetFileChanged() = 
         x.RaisePropertyChanged("CanCreate") 
         x.RaisePropertyChanged("Create") 
+        x.RaisePropertyChanged("ModDest")
 
-    member x.CanCreate = File.Exists(targetFile)
+    member x.CanCreate = 
+        let mnvalid = 
+            match validateModName(modName) with 
+            | Err(_) -> false 
+            | Ok(_) -> true
+        File.Exists(targetFile) && mnvalid
 
     member x.Create =  
         new RelayCommand (
             (fun canExecute -> x.CanCreate), 
             (fun action ->
-                // dooo it
+                match validateModName(modName) with
+                | Err(e) -> ViewModelUtil.pushDialog(e)
+                | Ok(file) ->
+                    ViewModelUtil.pushDialog("creating with: " + file)
+                
                 () ))

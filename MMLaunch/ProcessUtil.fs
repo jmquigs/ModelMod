@@ -62,7 +62,7 @@ module ProcessUtil =
             let logExeName = Path.GetFileName(exePath)
             Path.Combine(path, (sprintf "modelmod.%s.log" logExeName))
                     
-    let launchWithLoader (exePath:string):Result<Process> =
+    let launchWithLoader (exePath:string):Result<Process,System.Exception> =
         try 
             if not (File.Exists(exePath)) then
                 failwithf "Exe does not exist: %s" exePath    
@@ -133,7 +133,7 @@ module ProcessUtil =
             | e -> 
                 Err(e)
 
-    let openTextFile (filepath:string): Result<unit> =
+    let openTextFile (filepath:string): Result<unit,System.Exception> =
         try
             if not (File.Exists(filepath)) then
                 failwithf "Injection log not found: %s" filepath
@@ -149,8 +149,8 @@ module ProcessUtil =
             | e -> 
                 Err(e)        
 
-    let openInjectionLog (exePath:string): Result<unit> =
+    let openInjectionLog (exePath:string): Result<unit,System.Exception> =
         getInjectionLog exePath |> openTextFile
 
-    let openModelModLog (exePath:string): Result<unit> =
+    let openModelModLog (exePath:string): Result<unit,System.Exception> =
         getModelModLog exePath |> openTextFile

@@ -8,11 +8,12 @@ open System.Windows.Input
 
 open Microsoft.Win32
 
-// This is a bit of weird Result type, but lets us focus on the idiom of using pattern matching to 
-// handle errors, rather than require try blocks in random places
-type Result<'T> = 
-    Ok of 'T
-    | Err of Exception
+// When used with Exception as the fail type, this 
+// encourages the idiom of using pattern matching to 
+// handle errors, rather than require try blocks in random places.
+type Result<'SuccessType,'FailType>  =
+    Ok of 'SuccessType
+    | Err of 'FailType
         
 module ViewModelUtil =
     type RelayCommand (canExecute:(obj -> bool), action:(obj -> unit)) =
