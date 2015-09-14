@@ -3,11 +3,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Create Mod" Height="300" Width="300">
+    Title="Create Mod" Width="300" Height="242">
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
-    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="250" Width="266">
-        <Button Content="Button" HorizontalAlignment="Left" Margin="62,112,0,0" VerticalAlignment="Top" Width="137"/>
+    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="189" Width="266">
+        <Button 
+            Command="{Binding Path=BrowseFile}"
+            Content="Open File..." 
+                HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="96"/>
+        <Label Content="Mod Name:" HorizontalAlignment="Left" Margin="10,37,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="96"/>
+        <TextBox HorizontalAlignment="Left" Height="23" Margin="10,68,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
+        <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,96,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
+        <Label Content="Label" HorizontalAlignment="Left" Margin="10,127,0,0" VerticalAlignment="Top" Width="142"/>
+        <Button 
+            Command="{Binding Path=Create}"
+            Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>
     </Grid>
 </Window>

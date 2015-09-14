@@ -6,6 +6,8 @@ open FSharp.ViewModule
 open FSharp.ViewModule.Validation
 open System.Windows.Input
 
+open Microsoft.Win32
+
 // This is a bit of weird Result type, but lets us focus on the idiom of using pattern matching to 
 // handle errors, rather than require try blocks in random places
 type Result<'T> = 
@@ -29,3 +31,22 @@ module ViewModelUtil =
 
     let pushOkCancelDialog(msg:string) =
         MessageBox.Show(msg, "Confirm", MessageBoxButton.YesNo)
+
+    let pushSelectFileDialog(initialDir:string option,filter:string) =
+        let dlg = new OpenFileDialog()
+
+        match initialDir with
+        | None -> ()
+        | Some dir ->
+            dlg.InitialDirectory <- dir
+
+        dlg.Filter <- filter
+        dlg.FilterIndex <- 0
+        dlg.RestoreDirectory <- true
+
+        let res = dlg.ShowDialog() 
+        if res.HasValue && res.Value then
+            Some (dlg.FileName)
+        else
+            None
+

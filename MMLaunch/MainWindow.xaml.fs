@@ -132,31 +132,25 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
 module MainViewUtil = 
     let pushSelectExecutableDialog(currentExe:string option) = 
-        let dlg = new OpenFileDialog()
+        let initialDir = 
+            match currentExe with
+            | None -> None
+            | Some exe when File.Exists(exe) -> Some(Directory.GetParent(exe).ToString())
+            | Some exe -> None
 
-        match currentExe with
-        | None -> ()
-        | Some exe ->
-            if File.Exists(exe) then
-                dlg.InitialDirectory <- Directory.GetParent(exe).ToString()
+        ViewModelUtil.pushSelectFileDialog (initialDir,"Executable files (*.exe)|*.exe")
 
-        dlg.Filter <- "Executable files (*.exe)|*.exe"
-        dlg.FilterIndex <- 0
-        dlg.RestoreDirectory <- true
-
-        let res = dlg.ShowDialog() 
-        if res.HasValue && res.Value then
-            Some (dlg.FileName)
-        else
-            None
-
-    let getSnapshotDir (profile:ProfileModel) =
+    let private getDirLocator (profile:ProfileModel) =
         let root = Directory.GetParent(ProcessUtil.getLoaderPath()).FullName
         let root = Path.Combine(root, "..")
         let dl = State.DirLocator(root, profile.Config)
+        dl
 
-        let snapdir = Path.GetFullPath(dl.ExeSnapshotDir)
-        snapdir
+    let getSnapshotDir (profile:ProfileModel) =
+        Path.GetFullPath(getDirLocator(profile).ExeSnapshotDir)
+
+    let getDataDir (profile:ProfileModel) =
+        Path.GetFullPath(getDirLocator(profile).ExeDataDir)
 
     let pushRemoveSnapshotsDialog (profile:ProfileModel) =
         let snapdir = getSnapshotDir profile
@@ -186,6 +180,12 @@ module MainViewUtil =
 
     let pushCreateModDialog (profile:ProfileModel) =
         let cw = new CreateModView()
+
+        // put some stuff in its viewmodel
+        let vm = cw.Root.DataContext :?> CreateModViewModel
+        vm.SnapshotDir <- getSnapshotDir(profile)
+        vm.DataDir <- getDataDir(profile)
+
         cw.Root.ShowDialog() |> ignore
         
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
