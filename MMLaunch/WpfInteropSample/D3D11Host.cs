@@ -98,7 +98,7 @@ namespace WpfInteropSample
                 return;
 
             StopRendering();
-            Unitialize();
+            Uninitialize();
             UnitializeImageSource();
             UninitializeGraphicsDevice();
         }
@@ -272,7 +272,7 @@ namespace WpfInteropSample
         BasicEffect _basicEffect;
 
 
-        private void Initialize()
+        public virtual void Initialize()
         {
             float tilt = MathHelper.ToRadians(0);  // 0 degree angle
             // Use the world matrix to tilt the cube along x and y axes.
@@ -413,7 +413,7 @@ namespace WpfInteropSample
         }
 
 
-        private void Unitialize()
+        public virtual void Uninitialize()
         {
             _vertexBuffer.Dispose();
             _vertexBuffer = null;
@@ -426,7 +426,7 @@ namespace WpfInteropSample
         }
 
 
-        private void Render(TimeSpan time)
+        public virtual void Render(TimeSpan time)
         {
             GraphicsDevice.Clear(Color.SteelBlue);
             GraphicsDevice.RasterizerState = RasterizerState.CullNone;

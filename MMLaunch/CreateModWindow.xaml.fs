@@ -17,9 +17,6 @@ open FsXaml
 open ViewModelUtil
 open ModelMod
 
-// Note: this will throw an exception if the WpfInteropSample assembly can't be found.  Adding a reference to that assembly 
-// isn't sufficient; it has to be copied to the bin path for this project before this project is built.  This is done
-// by a postbuild step in the WpfInteropSample project.
 type CreateModView = XAML<"CreateModWindow.xaml", true>
 
 type CreateModViewModel() = 
