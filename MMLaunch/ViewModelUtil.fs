@@ -1,6 +1,7 @@
 ﻿namespace MMLaunch
 
 open System
+open System.ComponentModel
 open System.Windows
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
@@ -16,6 +17,8 @@ type Result<'SuccessType,'FailType>  =
     | Err of 'FailType
         
 module ViewModelUtil =
+    let DesignMode = DesignerProperties.GetIsInDesignMode(new DependencyObject())
+
     type RelayCommand (canExecute:(obj -> bool), action:(obj -> unit)) =
         let event = new DelegateEvent<EventHandler>()
         interface ICommand with

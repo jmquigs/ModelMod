@@ -213,8 +213,6 @@ type MainViewModel() as self =
 
     let EmptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
 
-    let DesignMode = DesignerProperties.GetIsInDesignMode(new DependencyObject())
-
     let mutable selectedProfile = EmptyProfile
 
     let mutable loaderState = NotStarted
@@ -271,7 +269,7 @@ type MainViewModel() as self =
             | Started (_,exe) -> sprintf "Started; waiting for exit (target: %s)" exe
 
     member x.Profiles = 
-        if DesignMode then
+        if ViewModelUtil.DesignMode then
             new ObservableCollection<ProfileModel>([||])
         else
             new ObservableCollection<ProfileModel>(profiles)
