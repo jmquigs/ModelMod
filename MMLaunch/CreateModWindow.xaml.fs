@@ -36,6 +36,7 @@ type CreateModViewModel() =
         | "" -> Err("Enter mod name")
         | s when s.IndexOfAny(illegalChars) >= 0 -> Err(sprintf "Mod name cannot contain any of: %A" illegalChars)
         | s when s.Contains("..") -> Err("Mod name cannot contain ..")
+        | s when Directory.Exists(Path.Combine(dataDir,mn)) -> Err("Directory already exists, please choose a different mod name")
         | s ->
             Ok(Path.Combine(dataDir,mn))
 

@@ -3,7 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Create Mod" Width="300" Height="242">
+    Title="Create Mod" Width="397" Height="242">
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
@@ -19,7 +19,7 @@
         <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,96,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
         <Label 
             Content="{Binding Path=ModDest}" 
-            HorizontalAlignment="Left" Margin="10,127,0,0" VerticalAlignment="Top" Width="246"/>
+            HorizontalAlignment="Left" Margin="10,127,-97,0" VerticalAlignment="Top" Width="353"/>
         <Button 
             Command="{Binding Path=Create}"
             Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>
