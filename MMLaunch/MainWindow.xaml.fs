@@ -141,7 +141,9 @@ module MainViewUtil =
         ViewModelUtil.pushSelectFileDialog (initialDir,"Executable files (*.exe)|*.exe")
 
     let private getDirLocator (profile:ProfileModel) =
-        let root = Directory.GetParent(ProcessUtil.getLoaderPath()).FullName
+        let lp = ProcessUtil.getLoaderPath()
+        if lp = "" then failwithf "Unable to find loader path; check that %s is built for this configuration" ProcessUtil.LoaderName
+        let root = Directory.GetParent(lp).FullName
         let root = Path.Combine(root, "..")
         let dl = State.DirLocator(root, profile.Config)
         dl

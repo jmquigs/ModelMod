@@ -25,7 +25,7 @@ module ProcessUtil =
         "../../../Release" ;
 #endif
     ]
-    let private LoaderName = "MMLoader.exe"
+    let LoaderName = "MMLoader.exe"
 
     let getLoaderPath() =
         let lp = 
