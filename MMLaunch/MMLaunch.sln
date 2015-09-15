@@ -5,10 +5,13 @@ VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MMLaunch", "MMLaunch.fsproj", "{5FC4A84B-A153-4927-B6AA-015C78F6D03D}"
 	ProjectSection(ProjectDependencies) = postProject
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A} = {B7751FAB-AE42-457F-8D69-51BEE5DC080A}
 		{E87272E6-CE49-4D85-9E55-EAC6117D419A} = {E87272E6-CE49-4D85-9E55-EAC6117D419A}
 	EndProjectSection
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MMManaged", "..\MMManaged\MMManaged.fsproj", "{E87272E6-CE49-4D85-9E55-EAC6117D419A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfInteropSample", "WpfInteropSample\WpfInteropSample.csproj", "{B7751FAB-AE42-457F-8D69-51BEE5DC080A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -40,6 +43,18 @@ Global
 		{E87272E6-CE49-4D85-9E55-EAC6117D419A}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
 		{E87272E6-CE49-4D85-9E55-EAC6117D419A}.Release|Mixed Platforms.Build.0 = Release|Any CPU
 		{E87272E6-CE49-4D85-9E55-EAC6117D419A}.Release|x86.ActiveCfg = Release|Any CPU
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|Mixed Platforms.Build.0 = Debug|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|x86.ActiveCfg = Debug|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Debug|x86.Build.0 = Debug|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|Mixed Platforms.ActiveCfg = Release|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|Mixed Platforms.Build.0 = Release|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|x86.ActiveCfg = Release|x86
+		{B7751FAB-AE42-457F-8D69-51BEE5DC080A}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

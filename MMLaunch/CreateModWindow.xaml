@@ -2,8 +2,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
+    xmlns:wpfmono="clr-namespace:WpfInteropSample;assembly=WpfInteropSample"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Create Mod" Width="397" Height="242">
+    Title="Create Mod" Width="557" Height="475">
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
@@ -23,5 +24,20 @@
         <Button 
             Command="{Binding Path=Create}"
             Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>
+
+        <wpfmono:D3D11Host 
+            HorizontalAlignment="Left" 
+            Height="259" 
+            Margin="276,0,-254,-70" 
+            VerticalAlignment="Top"
+            Width="244" 
+            RenderTransformOrigin="0.17,-0.04"
+            x:Name="Host0"
+                         Grid.Row="0"
+                         Grid.Column="0"
+                         SnapsToDevicePixels="True"
+                         Stretch="Fill" />
+
+        <Image />
     </Grid>
 </Window>
