@@ -66,6 +66,43 @@ let addToWorld(o) =
     if not found then
         world <- { world with RenderObjects = List.Cons (o, currObjs) }
 
+type MeshViewControl(conf:Conf, graphics:GraphicsDevice) =
+    let init() = 
+        resetCamera(graphics.Viewport) defaultPosition
+
+        match conf.AppSettings with 
+        | None -> ()
+        | Some settings ->
+            match settings.CamPosition with
+            | None -> ()
+            | Some position -> 
+                resetCamera(graphics.Viewport) position
+
+        let moddb = ModDB.loadModDB(conf)
+        setModDB moddb
+
+        for ref in moddb.References do
+            addToWorld(XnaRender.MakeMesh(graphics, ref.Mesh))
+
+    do init()
+
+    member x.Update(gameTime:GameTime) =
+        let keyState = Keyboard.GetState()
+
+        let newCamera = Camera.update world.Camera keyState gameTime
+
+        world <- { world with Camera = newCamera }
+
+    member x.Draw(gameTime:GameTime) =
+        graphics.Clear(Color.Indigo) 
+        
+        let wrd = { XnaRender.WorldRenderData.Device = graphics; 
+                    XnaRender.WorldRenderData.View = world.Camera.View; 
+                    XnaRender.WorldRenderData.Projection = world.Camera.Projection }
+        for o in world.RenderObjects do
+            o.Update gameTime.ElapsedGameTime.Milliseconds
+            o.Render wrd
+            
 type MeshViewApp(conf) as self =
     inherit Game()
 
@@ -73,13 +110,13 @@ type MeshViewApp(conf) as self =
     
     let _conf = conf
 
+    let mutable _control:MeshViewControl option = None
+
     override m.Initialize() =
         base.Initialize()
         
     override m.LoadContent() =
         base.LoadContent()
-
-        resetCamera(self.GraphicsDevice.Viewport) defaultPosition
 
         match conf.AppSettings with 
         | None -> ()
@@ -93,44 +130,18 @@ type MeshViewApp(conf) as self =
                 _graphics.PreferredBackBufferHeight <- ws.Height
                 _graphics.ApplyChanges()
 
-                resetCamera(self.GraphicsDevice.Viewport) defaultPosition
-
-            match settings.CamPosition with
-            | None -> ()
-            | Some position -> 
-                resetCamera(self.GraphicsDevice.Viewport) position
-
-        let moddb = ModDB.loadModDB(_conf)
-        setModDB moddb
-
-        for ref in moddb.References do
-            addToWorld(XnaRender.MakeMesh(self.GraphicsDevice, ref.Mesh))
+        _control <- Some(new MeshViewControl(conf,_graphics.GraphicsDevice))
             
     override m.UnloadContent() =
         base.UnloadContent()
 
     override m.Update(gameTime) =
-
-        let keyState = Keyboard.GetState()
-
-        let newCamera = Camera.update world.Camera keyState gameTime
-
-        world <- { world with Camera = newCamera }
-
         base.Update(gameTime)
+        (Option.get _control).Update(gameTime)
         
     override m.Draw(gameTime) =
-
-        base.GraphicsDevice.Clear(Color.Indigo) 
-        
-        let wrd = { XnaRender.WorldRenderData.Device = base.GraphicsDevice; 
-                    XnaRender.WorldRenderData.View = world.Camera.View; 
-                    XnaRender.WorldRenderData.Projection = world.Camera.Projection }
-        for o in world.RenderObjects do
-            o.Update gameTime.ElapsedGameTime.Milliseconds
-            o.Render wrd
-
-        base.Draw gameTime
+        base.Draw(gameTime)
+        (Option.get _control).Draw(gameTime)
 
 let findFilePath basename =
     let rec findIt walk =
