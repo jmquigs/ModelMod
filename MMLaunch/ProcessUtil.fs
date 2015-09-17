@@ -103,15 +103,19 @@ module ProcessUtil =
             let loaderProc = proc
 
             // pause for a bit to avoid loader's "found on first launch" heuristic;
-            // this could fail if the system is really slow, though, and can't get loader up in time.
-            // this is one of several race conditions here...this one still occasionally hits a CreateRemoteThread
-            // problem.
+            // this could fail if the system is really slow, and can't get loader up in time.
+            // the whole injection process is rather racey and could use some improvement.
+            // most of the races are internal to MMLoader.exe, however.
             Thread.Sleep(2000)
 
             // ok, loader is fired up, and by the time we get here the user has already accepted the elevation
-            // dialog...so launch the target exe; loader will find it and inject.  this also should handle the
+            // dialog.  so launch the target exe; loader will find it and inject.  this also should handle the
             // case where the exe restarts itself because it needs to be launched from some parent process
             // (e.g. Steam)
+            // we don't store a reference to the game process because we don't do anything with it at this point;
+            // and anyway this process often isn't the one we'll ultimately inject due 
+            // to relaunches.
+
             // in theory loader could start the game too, but then it would start as admin, which we don't want.
             
             let proc = new Process()
@@ -123,10 +127,6 @@ module ProcessUtil =
                 loaderProc.Kill()
                 loaderProc.WaitForExit()
                 failwith "Failed to start game process"
-
-            // we don't store a reference to the game process because we don't do anything with it at this point;
-            // and anyway this process often isn't the one we'll ultimately inject - could be relaunched by itself
-            // (auto-update) or another process (Steam).
 
             Ok(loaderProc)
         with 
