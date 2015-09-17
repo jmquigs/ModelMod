@@ -111,7 +111,6 @@ module XnaRender =
         { new IXnaRenderable with 
             member x.Update elapsed = ()
             member x.Render wrd = renderFn(wrd)
-            //interface System.IDisposable with
             member x.Dispose() = 
                 effect.Dispose()
                 wfState.Dispose()
