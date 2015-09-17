@@ -25,18 +25,17 @@
             Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>
 
         <local:PreviewHost 
+            x:Name="ModelPreview"
             HorizontalAlignment="Left" 
             Height="259" 
             Margin="276,0,-254,-70" 
             VerticalAlignment="Top"
             Width="244" 
             RenderTransformOrigin="0.17,-0.04"
-            x:Name="Host0"
-                         Grid.Row="0"
-                         Grid.Column="0"
-                         SnapsToDevicePixels="True"
-                         Stretch="Fill" />
-
+            Grid.Row="0"
+            Grid.Column="0"
+            SnapsToDevicePixels="True"
+            Stretch="Fill" />
         <Image />
     </Grid>
 </Window>

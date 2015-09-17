@@ -65,6 +65,11 @@
     <Compile Include="App.fs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\MMView\MMView.fsproj">
+      <Name>MMView</Name>
+      <Project>{404fa43f-143a-4eb1-ae53-24fc9f65a538}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="WpfInteropSample\WpfInteropSample.csproj">
       <Name>WpfInteropSample</Name>
       <Project>{b7751fab-ae42-457f-8d69-51bee5dc080a}</Project>

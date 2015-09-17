@@ -187,6 +187,8 @@ module MainViewUtil =
         let vm = cw.Root.DataContext :?> CreateModViewModel
         vm.SnapshotDir <- getSnapshotDir(profile)
         vm.DataDir <- getDataDir(profile)
+        let previewHost = cw.Root.FindName("ModelPreview") :?> PreviewHost
+        vm.PreviewHost <- Some(previewHost)
 
         cw.Root.ShowDialog() |> ignore
         

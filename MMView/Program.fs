@@ -2,7 +2,7 @@
 
 [<EntryPoint>]
 let main argv = 
-    Main.run argv
+    MeshView.Main.run argv
     0 
 
 

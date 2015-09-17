@@ -26,6 +26,7 @@ type CreateModViewModel() =
     let mutable dataDir = ""
     let mutable targetFile = ""
     let mutable modName = ""
+    let mutable previewHost: PreviewHost option = None
     
     let validateModName (mn:string):Result<string,string> =
         let illegalChars = [|'/'; '\\'; ':'; '*'; '?'; '"'; '<'; '>'; '|'|]
@@ -40,7 +41,7 @@ type CreateModViewModel() =
         | s ->
             Ok(Path.Combine(dataDir,mn))
 
-    // SnapshotDir and DataDir are usually just set once on view creation 
+    // SnapshotDir,DataDir,PreviewHost are usually just set once on view creation 
 
     member x.SnapshotDir 
         with get() = snapDir
@@ -48,6 +49,8 @@ type CreateModViewModel() =
     member x.DataDir
         with get() = dataDir
         and set value = dataDir <- value
+    member x.PreviewHost
+        with set value = previewHost <- value
 
     member x.ModName
         with get() = modName
@@ -71,6 +74,10 @@ type CreateModViewModel() =
         x.TargetFileChanged())
 
     member x.TargetFileChanged() = 
+        match previewHost with
+        | None -> ()
+        | Some(host) -> host.SelectedFile <- targetFile
+
         x.RaisePropertyChanged("CanCreate") 
         x.RaisePropertyChanged("Create") 
         x.RaisePropertyChanged("ModDest")
