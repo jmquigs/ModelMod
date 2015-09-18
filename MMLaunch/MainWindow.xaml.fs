@@ -194,6 +194,23 @@ module MainViewUtil =
         
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 
+    let profileDirHasFiles (p:ProfileModel) (dirSelector: ProfileModel -> string) =
+        if p.ExePath = "" 
+        then false
+        else
+            let sd = dirSelector p
+            if not (Directory.Exists sd) 
+            then false
+            else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+
+    let openModsDir (p:ProfileModel) =
+        let hasfiles = profileDirHasFiles p (fun p -> getDataDir p)
+        if hasfiles then
+            let proc = new Process()
+            proc.StartInfo.UseShellExecute <- true
+            proc.StartInfo.FileName <- getDataDir p 
+            proc.Start() |> ignore
+
 /// Used for Snapshot and Input profiles, since they both basically just have a name 
 /// and description as far as the UI is concerned.
 type SubProfileModel(name:string) =
@@ -385,16 +402,15 @@ type MainViewModel() as self =
     member x.UpdateProfileButtons() =
         x.RaisePropertyChanged("RemoveSnapshots")
         x.RaisePropertyChanged("CreateMod")
+        x.RaisePropertyChanged("OpenMods")
+
+    member x.HasModFiles 
+        with get() = 
+            MainViewUtil.profileDirHasFiles x.SelectedProfile (fun prof -> (MainViewUtil.getDataDir prof))
 
     member x.HasSnapshots 
         with get() = 
-            if x.SelectedProfile.ExePath = "" 
-            then false
-            else
-                let sd = MainViewUtil.getSnapshotDir x.SelectedProfile
-                if not (Directory.Exists sd) 
-                then false
-                else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+            MainViewUtil.profileDirHasFiles x.SelectedProfile (fun prof -> (MainViewUtil.getSnapshotDir prof))
 
     member x.LoaderIsStartable
         with get() = 
@@ -416,6 +432,12 @@ type MainViewModel() as self =
             (fun canExecute -> x.HasSnapshots), 
             (fun action ->
                 MainViewUtil.pushCreateModDialog x.SelectedProfile))
+
+    member x.OpenMods =
+        new RelayCommand (
+            (fun canExecute -> x.HasModFiles),
+            (fun action ->
+                MainViewUtil.openModsDir x.SelectedProfile))
 
     member x.StartInSnapshotMode = 
         new RelayCommand (

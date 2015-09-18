@@ -49,6 +49,9 @@
             <Button 
                 Command="{Binding Path=CreateMod}"
                 Content="Create Mod" Margin="124,418,325,-37" Height="22" RenderTransformOrigin="0.582,0.682"/>
+            <Button 
+                Command="{Binding Path=OpenMods}"
+                Content="Open Mods Folder..." Margin="251,418,198,-37" Width="122" Height="22"/>
         </Grid>
         <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="465" Margin="-124,1,-387,-321" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
         <Grid HorizontalAlignment="Left" Height="84" Margin="-124,471,-387,-410" VerticalAlignment="Top" Width="737">
