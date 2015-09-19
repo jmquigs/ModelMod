@@ -17,7 +17,7 @@
             Command="{Binding Path=BrowseFile}"
             Content="Use Different File..." 
                 HorizontalAlignment="Left" Margin="10,173,0,0" VerticalAlignment="Top" Width="142"/>
-        <Label Content="Mod Name:" HorizontalAlignment="Left" Margin="10,200,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="96"/>
+        <Label Content="Mod Name: (hit tab when done)" HorizontalAlignment="Left" Margin="10,200,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="186"/>
         <TextBox 
             Text="{Binding Path=ModName, Mode=TwoWay}"
             HorizontalAlignment="Left" Height="23" Margin="10,231,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
