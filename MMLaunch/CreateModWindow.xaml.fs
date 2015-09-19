@@ -133,6 +133,8 @@ type CreateModViewModel() =
                 match validateModName(modName) with
                 | Err(e) -> ViewModelUtil.pushDialog(e)
                 | Ok(file) ->
-                    ViewModelUtil.pushDialog("creating with: " + file)
-                
+                    match (ModUtil.createMod dataDir modName targetMMObjFile.FullPath) with
+                    | Ok(modFile) -> 
+                        ViewModelUtil.pushDialog(sprintf "Mod created: import %s into blender to get started" modFile)
+                    | Err(msg) -> ViewModelUtil.pushDialog(msg)                
                 () ))

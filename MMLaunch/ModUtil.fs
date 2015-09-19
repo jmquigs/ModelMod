@@ -1,10 +1,12 @@
-﻿namespace MMWiz
+﻿namespace MMLaunch
 
 open System
 open System.IO
 
 open YamlDotNet.RepresentationModel
 open YamlDotNet.Serialization
+
+open ViewModelUtil
 
 module ModUtil =
 
@@ -27,9 +29,8 @@ module ModUtil =
 
     type ModFilePath = string
     type Message = string
-    type CreateModResult = Success of ModFilePath | Error of Message
         
-    let createMod (modRoot:string) (modName:string) (srcMMObjFile:string):CreateModResult = 
+    let createMod (modRoot:string) (modName:string) (srcMMObjFile:string):Result<ModFilePath,Message> = 
         try
             let modName = modName.Trim()
             if modName = "" then 
@@ -149,6 +150,6 @@ module ModUtil =
                 sr.Serialize(sw, modObj) 
                 modYamlFile
 
-            Success(modMMObjFile)
+            Ok(modMMObjFile)
         with 
-            | e -> Error(e.Message)
+            | e -> Err(e.Message)

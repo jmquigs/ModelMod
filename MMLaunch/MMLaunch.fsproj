@@ -53,6 +53,7 @@
   <ItemGroup>
     <Compile Include="ViewModelUtil.fs" />
     <Compile Include="ProcessUtil.fs" />
+    <Compile Include="ModUtil.fs" />
     <Compile Include="PreviewHost.fs" />
     <Resource Include="CreateModWindow.xaml" />
     <Compile Include="CreateModWindow.xaml.fs" />
@@ -118,5 +119,9 @@
       <Project>{e87272e6-ce49-4d85-9e55-eac6117d419a}</Project>
       <Private>True</Private>
     </ProjectReference>
+    <Reference Include="YamlDotNet">
+      <HintPath>packages\YamlDotNet.3.5.1\lib\net35\YamlDotNet.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
   </ItemGroup>
 </Project>
