@@ -7,22 +7,27 @@
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
-    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="189" Width="266">
+    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="353" Width="266">
+        <Grid.Resources>
+            <DataTemplate x:Key="modFileTemplate">
+                <Label Content="{Binding Path=Name}"/>
+            </DataTemplate>
+        </Grid.Resources>
         <Button 
             Command="{Binding Path=BrowseFile}"
-            Content="Open File..." 
-                HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="96"/>
-        <Label Content="Mod Name:" HorizontalAlignment="Left" Margin="10,37,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="96"/>
+            Content="Use Different File..." 
+                HorizontalAlignment="Left" Margin="10,173,0,0" VerticalAlignment="Top" Width="142"/>
+        <Label Content="Mod Name:" HorizontalAlignment="Left" Margin="10,200,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="96"/>
         <TextBox 
             Text="{Binding Path=ModName, Mode=TwoWay}"
-            HorizontalAlignment="Left" Height="23" Margin="10,68,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
-        <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,96,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
+            HorizontalAlignment="Left" Height="23" Margin="10,231,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
+        <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,259,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
         <Label 
             Content="{Binding Path=ModDest}" 
-            HorizontalAlignment="Left" Margin="10,127,-97,0" VerticalAlignment="Top" Width="353"/>
+            HorizontalAlignment="Left" Margin="10,290,-97,0" VerticalAlignment="Top" Width="353"/>
         <Button 
             Command="{Binding Path=Create}"
-            Content="Create" HorizontalAlignment="Left" Margin="10,158,0,0" VerticalAlignment="Top" Width="75"/>
+            Content="Create" HorizontalAlignment="Left" Margin="10,321,0,0" VerticalAlignment="Top" Width="75"/>
 
         <local:PreviewHost 
             x:Name="ModelPreview"
@@ -36,6 +41,12 @@
             Grid.Column="0"
             SnapsToDevicePixels="True"
             Stretch="Fill" />
-        <Image />
+        <ScrollViewer HorizontalAlignment="Left" Height="158" Margin="10,10,0,0" VerticalAlignment="Top" Width="246" RenderTransformOrigin="0.19,-0.19">
+            <ListBox
+                ItemsSource="{Binding Path=Files}"
+                SelectedItem="{Binding Path=SelectedFile,Mode=TwoWay}"
+                ItemTemplate="{StaticResource modFileTemplate}"/>
+
+        </ScrollViewer>
     </Grid>
 </Window>

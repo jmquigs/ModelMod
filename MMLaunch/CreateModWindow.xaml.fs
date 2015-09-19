@@ -19,14 +19,22 @@ open ModelMod
 
 type CreateModView = XAML<"CreateModWindow.xaml", true>
 
+type MMObjFileModel(fullPath) =     
+    member x.Name 
+        with get() = 
+            Path.GetFileName(fullPath)
+    member x.FullPath 
+        with get() = fullPath
+
 type CreateModViewModel() = 
     inherit ViewModelBase()
 
     let mutable snapDir = ""
     let mutable dataDir = ""
-    let mutable targetFile = ""
+    let mutable targetMMObjFile:MMObjFileModel = MMObjFileModel("")
     let mutable modName = ""
     let mutable previewHost: PreviewHost option = None
+    let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     
     let validateModName (mn:string):Result<string,string> =
         let illegalChars = [|'/'; '\\'; ':'; '*'; '?'; '"'; '<'; '>'; '|'|]
@@ -45,12 +53,30 @@ type CreateModViewModel() =
 
     member x.SnapshotDir 
         with get() = snapDir
-        and set value = snapDir <- value
+        and set value = 
+            snapDir <- value
+            mmobjFiles.Clear()
+            if Directory.Exists snapDir then
+                Directory.GetFiles (snapDir, "*.mmobj") 
+                    |> Array.map (fun f -> MMObjFileModel(f))
+                    |> Array.iter (fun nt -> mmobjFiles.Add(nt))
+            x.TargetFileChanged()
+            x.RaisePropertyChanged("Files") 
     member x.DataDir
         with get() = dataDir
         and set value = dataDir <- value
     member x.PreviewHost
         with set value = previewHost <- value
+
+    member x.Files 
+        with get() = mmobjFiles
+
+    member x.SelectedFile
+        with get() = 
+            targetMMObjFile
+        and set value = 
+            targetMMObjFile <- value
+            x.TargetFileChanged()
 
     member x.ModName
         with get() = modName
@@ -70,24 +96,35 @@ type CreateModViewModel() =
         match ViewModelUtil.pushSelectFileDialog (Some(x.SnapshotDir),"MMObj files (*.mmobj)|*.mmobj") with
         | None -> ()
         | Some (file) -> 
-            targetFile <- file // todo: show preview window
+            // try to find existing model in collection
+            let found = mmobjFiles |> Seq.tryFind (fun m -> m.FullPath = file)
+            let model = 
+                match found with
+                | None -> 
+                    let model = new MMObjFileModel(file)
+                    mmobjFiles.Add(model)
+                    model
+                | Some (model) -> model
+            targetMMObjFile <- model
         x.TargetFileChanged())
-
+            
     member x.TargetFileChanged() = 
         match previewHost with
         | None -> ()
-        | Some(host) -> host.SelectedFile <- targetFile
+        | Some(host) -> 
+            host.SelectedFile <- targetMMObjFile.FullPath
 
         x.RaisePropertyChanged("CanCreate") 
         x.RaisePropertyChanged("Create") 
         x.RaisePropertyChanged("ModDest")
+        x.RaisePropertyChanged("SelectedFile")
 
     member x.CanCreate = 
         let mnvalid = 
             match validateModName(modName) with 
             | Err(_) -> false 
             | Ok(_) -> true
-        File.Exists(targetFile) && mnvalid
+        File.Exists(targetMMObjFile.FullPath) && mnvalid
 
     member x.Create =  
         new RelayCommand (
