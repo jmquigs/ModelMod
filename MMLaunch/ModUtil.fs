@@ -29,7 +29,13 @@ module ModUtil =
 
     type ModFilePath = string
     type Message = string
-        
+
+    let addToModIndex (modRoot:string) (modFile:string):Result<unit,Message> =
+        try
+            Err("unimplemented")
+        with 
+            | e -> Err(e.Message)
+
     let createMod (modRoot:string) (modName:string) (srcMMObjFile:string):Result<ModFilePath,Message> = 
         try
             let modName = modName.Trim()

@@ -7,7 +7,7 @@
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
-    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="353" Width="266">
+    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="380" Width="266">
         <Grid.Resources>
             <DataTemplate x:Key="modFileTemplate">
                 <Label Content="{Binding Path=Name}"/>
@@ -27,7 +27,7 @@
             HorizontalAlignment="Left" Margin="10,290,-97,0" VerticalAlignment="Top" Width="353"/>
         <Button 
             Command="{Binding Path=Create}"
-            Content="Create" HorizontalAlignment="Left" Margin="10,321,0,0" VerticalAlignment="Top" Width="75"/>
+            Content="Create" HorizontalAlignment="Left" Margin="17,342,0,0" VerticalAlignment="Top" Width="75"/>
 
         <local:PreviewHost 
             x:Name="ModelPreview"
@@ -48,5 +48,6 @@
                 ItemTemplate="{StaticResource modFileTemplate}"/>
 
         </ScrollViewer>
+        <CheckBox IsChecked="{Binding Path=AddToModIndex}" Content="Add to Mod Index" HorizontalAlignment="Left" Margin="17,321,0,0" VerticalAlignment="Top"/>
     </Grid>
 </Window>

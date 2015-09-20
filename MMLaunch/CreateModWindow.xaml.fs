@@ -35,6 +35,7 @@ type CreateModViewModel() =
     let mutable modName = ""
     let mutable previewHost: PreviewHost option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
+    let mutable addToModIndex = true
     
     let validateModName (mn:string):Result<string,string> =
         let illegalChars = [|'/'; '\\'; ':'; '*'; '?'; '"'; '<'; '>'; '|'|]
@@ -119,6 +120,10 @@ type CreateModViewModel() =
         x.RaisePropertyChanged("ModDest")
         x.RaisePropertyChanged("SelectedFile")
 
+    member x.AddToModIndex 
+        with get() = addToModIndex
+        and set value = addToModIndex <- value
+
     member x.CanCreate = 
         let mnvalid = 
             match validateModName(modName) with 
@@ -135,6 +140,15 @@ type CreateModViewModel() =
                 | Ok(file) ->
                     match (ModUtil.createMod dataDir modName targetMMObjFile.FullPath) with
                     | Ok(modFile) -> 
-                        ViewModelUtil.pushDialog(sprintf "Mod created: import %s into blender to get started" modFile)
+                        let createdMessage = sprintf "Import %s into blender to edit." modFile
+                        let modIndexErr = 
+                            if addToModIndex then
+                                match (ModUtil.addToModIndex dataDir modFile) with
+                                | Err(e) -> (sprintf "\n\nFailed to add mod to mod index, please add it manually: %s\n\n" e)
+                                | Ok(_) -> ""
+                            else
+                                ""
+                                
+                        ViewModelUtil.pushDialog(sprintf "Mod created.  %s%s" modIndexErr createdMessage )
                     | Err(msg) -> ViewModelUtil.pushDialog(msg)                
                 () ))
