@@ -30,9 +30,44 @@ module ModUtil =
     type ModFilePath = string
     type Message = string
 
+    let modIndexTemplate = """type: "Index"
+mods:"""
     let addToModIndex (modRoot:string) (modFile:string):Result<unit,Message> =
         try
-            Err("unimplemented")
+            // yamldotnot doesn't seem to produce comment/text nodes in the representation model.  
+            // so rather than lose those, just operate on it as a text file.
+            let indexFileName = Path.Combine(modRoot, "ModIndex.yaml")
+            let modTextLines = 
+                if File.Exists indexFileName then
+                    File.ReadAllLines(indexFileName)
+                else
+                    modIndexTemplate.Split([| "\r\n"; "\n" |], StringSplitOptions.None);
+            
+            let modName = Path.GetFileNameWithoutExtension modFile
+            let modName = sprintf "\"%s\"" modName
+
+            let found = modTextLines |> Array.tryFind (fun l -> l.Contains modName)
+
+            match found with
+            | Some l -> Ok(())
+            | None ->
+                // find the "mods:" line, insert new mod after that so that we don't need to find the terminator
+                let modsLineIdx = 
+                    match (modTextLines |> Array.tryFindIndex (fun l -> l.ToLowerInvariant().StartsWith("mods:"))) with
+                    | None ->
+                        // derp
+                        failwith "Can't find 'mods:' line"
+                    | Some idx -> idx
+                    
+                let start = modTextLines |> Seq.take (modsLineIdx+1) 
+                let rest = modTextLines |> Seq.skip (modsLineIdx+1) 
+                let newModLine = seq { yield (sprintf "- {name: %s}" modName) } 
+                
+                let lines = Seq.concat [ start; newModLine; rest ] 
+
+                File.WriteAllLines(indexFileName, lines)
+
+                Ok(())                
         with 
             | e -> Err(e.Message)
 
