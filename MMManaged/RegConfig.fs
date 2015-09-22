@@ -169,6 +169,17 @@ module RegConfig =
 
         ()
 
+    let removeProfile (conf:RunConfig) =
+        let pKey = conf.ProfileKeyName.Trim()
+        if pKey = "" then failwith "Empty profile key"
+
+        let pKey = 
+            if not (pKey.StartsWith(regLoc.ProfRoot)) then
+                regLoc.ProfRoot @@ pKey
+            else
+                pKey
+        deleteProfileKey pKey
+
     let getDefaultProfileName (exePath:String) = Path.GetFileNameWithoutExtension(exePath)
         
     let setProfileName (rc:RunConfig):RunConfig = 

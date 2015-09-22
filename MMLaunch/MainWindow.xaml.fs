@@ -64,6 +64,7 @@ module LocStrings =
     module Misc = 
         let NewProfileName = "New Profile"
         let ConfirmRecycle = Formatters.StringAnyRetString("Recycle files in %s?\n%A")
+        let ConfirmProfileRemove = Formatters.AnyRetString("Remove profile '%s'?\n\nNote: mod & snapshot files that are associated with this profile will not be removed.")
         let RecycleMoar = Formatters.StringAnyRetString("%s\n...and %d more")
         let LoaderNotStarted = "Not Started"
         let LoaderStartPending = "Start Pending..."
@@ -190,6 +191,12 @@ module MainViewUtil =
     let getDataDir (profile:ProfileModel) =
         Path.GetFullPath(getDirLocator(profile).ExeDataDir)
 
+    let pushDeleteProfileDialog (profile:ProfileModel) =
+        let msg = sprintf LocStrings.Misc.ConfirmProfileRemove profile.Name
+        match (ViewModelUtil.pushOkCancelDialog msg) with
+        | MessageBoxResult.Yes -> true
+        | _ -> false
+
     let pushRemoveSnapshotsDialog (profile:ProfileModel) =
         let snapdir = getSnapshotDir profile
         if not (Directory.Exists snapdir) then
@@ -275,13 +282,26 @@ type LoaderState =
     | Started of (Process * GameExePath)
     | Stopped of (Process * GameExePath)
 
+type ProfileModelConverter() =
+    inherit Converter<ProfileModel option, obj>(
+        (fun value cparams ->
+            match value with
+            | None -> null
+            | Some p -> box p),
+        ProfileModel(CoreTypes.DefaultRunConfig),
+        (fun value cparams ->
+            match value with
+            | null -> None
+            | p -> Some(p :?> ProfileModel)),
+        None)
+
 #nowarn "40"
 type MainViewModel() as self = 
     inherit ViewModelBase()
 
     let EmptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
 
-    let mutable selectedProfile = EmptyProfile
+    let mutable selectedProfile:ProfileModel option = None
     let mutable loaderState = NotStarted
 
     do
@@ -312,6 +332,15 @@ type MainViewModel() as self =
         }
 
         messageLoop ())
+
+    let getSelectedProfileField (getter:ProfileModel -> 'a) (devVal:'a) = 
+         match selectedProfile with
+        | None -> devVal
+        | Some profile -> getter profile
+    let setSelectedProfileField (setter:ProfileModel -> unit) =
+        match selectedProfile with
+        | None -> ()
+        | Some profile -> setter profile 
 
     member x.PeriodicUpdate() = 
         x.UpdateLoaderState <|     
@@ -360,46 +389,70 @@ type MainViewModel() as self =
    
             x.RaisePropertyChanged("DeleteProfile") 
             x.RaisePropertyChanged("SelectedProfile") 
+            x.RaisePropertyChanged("SelectedProfileName") 
+            x.RaisePropertyChanged("SelectedProfileExePath") 
+            x.RaisePropertyChanged("SelectedProfileLoadModsOnStart") 
             x.RaisePropertyChanged("SelectedInputProfile") 
+            x.RaisePropertyChanged("SelectedSnapshotProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
             x.RaisePropertyChanged("ProfileDescription")
             x.UpdateLaunchUI()
             x.UpdateProfileButtons()
 
+    // Various boilerplate accessors for the selected profile: I put these in
+    // because the XAML field notation (e.g. SelectedProfile.Name) won't 
+    // trigger the converter on SelectedProfile before looking for .Name,
+    // so it fails, because SelectedProfile is an option type.
+    // There is probably a better way to do this, since this kinda sucks.
+    member x.SelectedProfileName 
+        with get () = getSelectedProfileField (fun profile -> profile.Name) ""
+        and set (value:string) = setSelectedProfileField (fun profile -> profile.Name <- value)
+
+    member x.SelectedProfileExePath
+        with get () = getSelectedProfileField (fun profile -> profile.ExePath) ""
+        and set (value:string) = setSelectedProfileField (fun profile -> profile.ExePath <- value)
+
+    member x.SelectedProfileLoadModsOnStart
+        with get () = getSelectedProfileField (fun profile -> profile.LoadModsOnStart) CoreTypes.DefaultRunConfig.LoadModsOnStart
+        and set (value:bool) = setSelectedProfileField (fun profile -> profile.LoadModsOnStart <- value)
+
     member x.SelectedInputProfile 
-        with get () = x.SelectedProfile.InputProfile
+        with get () = getSelectedProfileField (fun profile -> profile.InputProfile) CoreTypes.DefaultRunConfig.InputProfile
         and set (value:string) = 
-            x.SelectedProfile.InputProfile <- value
+            setSelectedProfileField (fun profile -> profile.InputProfile <- value)
             x.RaisePropertyChanged("ProfileDescription")
 
     member x.SelectedSnapshotProfile
-        with get () = x.SelectedProfile.SnapshotProfile
+        with get () = getSelectedProfileField (fun profile -> profile.SnapshotProfile) CoreTypes.DefaultRunConfig.SnapshotProfile
         and set (value:string) = 
-            x.SelectedProfile.SnapshotProfile <- value
+            setSelectedProfileField (fun profile -> profile.SnapshotProfile <- value)
             x.RaisePropertyChanged("ProfileDescription")
 
     member x.ProfileDescription
         with get () =
-            let inputText = 
-                match (ProfileText.Input.Descriptions |> Map.tryFind x.SelectedProfile.InputProfile) with 
-                | None -> LocStrings.Errors.NoInputDescription
-                | Some (text) ->
-                    LocStrings.Input.Header + "\n" + LocStrings.Input.Desc1 + "\n" + LocStrings.Input.Desc2 + "\n" + text
-            let snapshotText = 
-                let makeStringList (xforms:string list) =  String.Join(", ", xforms)
+            match x.SelectedProfile with
+            | None -> ""
+            | Some profile ->
+                let inputText = 
+                    match (ProfileText.Input.Descriptions |> Map.tryFind profile.InputProfile) with 
+                    | None -> LocStrings.Errors.NoInputDescription
+                    | Some (text) ->
+                        LocStrings.Input.Header + "\n" + LocStrings.Input.Desc1 + "\n" + LocStrings.Input.Desc2 + "\n" + text
+                let snapshotText = 
+                    let makeStringList (xforms:string list) =  String.Join(", ", xforms)
 
-                let pxforms = 
-                    match (SnapshotTransforms.Position |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
-                    | None -> LocStrings.Errors.NoSnapshotDescription
-                    | Some (xforms) -> makeStringList xforms
+                    let pxforms = 
+                        match (SnapshotTransforms.Position |> Map.tryFind profile.SnapshotProfile) with
+                        | None -> LocStrings.Errors.NoSnapshotDescription
+                        | Some (xforms) -> makeStringList xforms
 
-                let uvxforms = 
-                    match (SnapshotTransforms.UV |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
-                    | None -> LocStrings.Errors.NoSnapshotDescription
-                    | Some (xforms) -> makeStringList xforms
-                LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
-                + LocStrings.Snapshot.UVLabel + uvxforms
-            inputText + "\n" + snapshotText     
+                    let uvxforms = 
+                        match (SnapshotTransforms.UV |> Map.tryFind profile.SnapshotProfile) with
+                        | None -> LocStrings.Errors.NoSnapshotDescription
+                        | Some (xforms) -> makeStringList xforms
+                    LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
+                    + LocStrings.Snapshot.UVLabel + uvxforms
+                inputText + "\n" + snapshotText     
 
     member x.LauncherProfileIcon 
         with get() = 
@@ -412,43 +465,47 @@ type MainViewModel() as self =
                 | Some(p) -> p.Icon
             | NotStarted
             | StartFailed (_,_)
-            | Stopped (_,_) -> x.SelectedProfile.Icon
+            | Stopped (_,_) -> 
+                match x.SelectedProfile with
+                | None -> null
+                | Some(p) -> p.Icon
 
     member x.ProfileAreaVisibility = 
         if  DesignMode || 
-            selectedProfile.Name <> EmptyProfile.Name then
+            selectedProfile.IsSome then
             Visibility.Visible
         else
             Visibility.Hidden
 
     member x.BrowseExe = alwaysExecutable (fun mainWin ->
-        match MainViewUtil.pushSelectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
-        | None -> ()
-        | Some (exePath) -> 
-            // verify that the chosen path is not already claimed by another profile
-            let existingProfileKey = RegConfig.findProfilePath exePath
-            let ok = 
-                match existingProfileKey with
-                | None -> true
-                | Some (key) ->
-                    key.EndsWith(x.SelectedProfile.ProfileKeyName)
+        selectedProfile |> Option.iter (fun selectedProfile ->
+            match MainViewUtil.pushSelectExecutableDialog(Some(selectedProfile.ExePath)) with
+            | None -> ()
+            | Some (exePath) -> 
+                // verify that the chosen path is not already claimed by another profile
+                let existingProfileKey = RegConfig.findProfilePath exePath
+                let ok = 
+                    match existingProfileKey with
+                    | None -> true
+                    | Some (key) ->
+                        key.EndsWith(selectedProfile.ProfileKeyName)
 
-            if ok then
-                x.SelectedProfile.ExePath <- exePath
-                if x.SelectedProfile.Name = "" || x.SelectedProfile.Name.StartsWith(LocStrings.Misc.NewProfileName) then
-                    x.SelectedProfile.Name <- RegConfig.getDefaultProfileName exePath
-                    x.SelectedProfile <- x.SelectedProfile
+                if ok then
+                    selectedProfile.ExePath <- exePath
+                    if selectedProfile.Name = "" || selectedProfile.Name.StartsWith(LocStrings.Misc.NewProfileName) then
+                        selectedProfile.Name <- RegConfig.getDefaultProfileName exePath
 
-                    // update the name in the list box using this heavy-handed method; raising changed 
-                    // events doesn't seem to be enough
-                    MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.Items.Refresh())                        
+                        // update the name in the list box using this heavy-handed method; raising changed 
+                        // events doesn't seem to be enough
+                        MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.Items.Refresh())                        
 
-                x.RaisePropertyChanged("SelectedProfile") 
-                x.RaisePropertyChanged("Profiles")                                 
-                x.UpdateLaunchUI()
-                x.UpdateProfileButtons()
-            else
-                MainViewUtil.failValidation LocStrings.Errors.BadExePath)
+                    x.RaisePropertyChanged("SelectedProfile") 
+                    x.RaisePropertyChanged("Profiles")                                 
+                    x.UpdateLaunchUI()
+                    x.UpdateProfileButtons()
+                else
+                    MainViewUtil.failValidation LocStrings.Errors.BadExePath))
+
 
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then
@@ -470,11 +527,15 @@ type MainViewModel() as self =
 
     member x.HasModFiles 
         with get() = 
-            MainViewUtil.profileDirHasFiles x.SelectedProfile (fun prof -> (MainViewUtil.getDataDir prof))
+            match x.SelectedProfile with
+            | None -> false
+            | Some profile -> MainViewUtil.profileDirHasFiles profile (fun prof -> (MainViewUtil.getDataDir prof))
 
     member x.HasSnapshots 
         with get() = 
-            MainViewUtil.profileDirHasFiles x.SelectedProfile (fun prof -> (MainViewUtil.getSnapshotDir prof))
+            match x.SelectedProfile with
+            | None -> false
+            | Some profile -> MainViewUtil.profileDirHasFiles profile (fun prof -> (MainViewUtil.getSnapshotDir prof))
 
     member x.LoaderIsStartable
         with get() = 
@@ -504,72 +565,91 @@ type MainViewModel() as self =
                 observableProfiles.Add(profile)
                 
                 x.RaisePropertyChanged("Profiles")
-                x.SelectedProfile <- profile
+                x.SelectedProfile <- Some(profile)
                 
                 // force the lb to scroll manually
                 MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.ScrollIntoView(profile))))
 
     member x.DeleteProfile = 
         new RelayCommand (
-            (fun canExecute -> x.SelectedProfile.Name <> EmptyProfile.Name), 
+            (fun canExecute -> selectedProfile.IsSome ), 
             (fun action ->
-                () ))
+                x.SelectedProfile |> Option.iter (fun profile ->
+                    if (MainViewUtil.pushDeleteProfileDialog profile) then                    
+                        try 
+                            if profile.Config.ProfileKeyName <> "" then
+                                RegConfig.removeProfile profile.Config
+                        
+                            if (observableProfiles.Count <= 1) then
+                                x.SelectedProfile <- None
+                                observableProfiles.Clear()
+                            else
+                                x.SelectedProfile <- Some(observableProfiles.Item(observableProfiles.Count - 1))
+                                x.UpdateLaunchUI()
+                                x.UpdateProfileButtons()
+
+                                observableProfiles.Remove(profile) |> ignore
+                        with
+                            | e -> 
+                                ViewModelUtil.pushDialog e.Message)))
 
     member x.RemoveSnapshots =  
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
             (fun action ->
-                MainViewUtil.pushRemoveSnapshotsDialog x.SelectedProfile))
+                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushRemoveSnapshotsDialog profile)))
 
     member x.CreateMod = 
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
             (fun mainWin ->
                 let mainWin = mainWin :?> Window
-                MainViewUtil.pushCreateModDialog mainWin x.SelectedProfile))
+                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushCreateModDialog mainWin profile)))
 
     member x.OpenMods =
         new RelayCommand (
             (fun canExecute -> x.HasModFiles),
             (fun action ->
-                MainViewUtil.openModsDir x.SelectedProfile))
+                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.openModsDir profile )))
 
     member x.StartInSnapshotMode = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable), 
             (fun action -> 
-                x.UpdateLoaderState <|
-                    match loaderState with 
-                    | Started (proc,exe) -> 
-                        // kill even in stopped case in case poll didn't catch exit
-                        proc.Kill()
-                        proc.WaitForExit()
-                        Stopped(proc,exe)
-                    | StartPending(_) -> loaderState
-                    | Stopped (proc,exe) -> loaderState
-                    | StartFailed (_) -> loaderState
-                    | NotStarted -> loaderState
+                x.SelectedProfile |> Option.iter (fun selectedProfile -> 
+                    x.UpdateLoaderState <|
+                        match loaderState with 
+                        | Started (proc,exe) -> 
+                            // kill even in stopped case in case poll didn't catch exit
+                            proc.Kill()
+                            proc.WaitForExit()
+                            Stopped(proc,exe)
+                        | StartPending(_) -> loaderState
+                        | Stopped (proc,exe) -> loaderState
+                        | StartFailed (_) -> loaderState
+                        | NotStarted -> loaderState
 
-                x.UpdateLoaderState <| StartPending(x.SelectedProfile.ExePath)
-                x.UpdateLoaderState <|
-                    match (ProcessUtil.launchWithLoader x.SelectedProfile.ExePath) with 
-                    | Ok(p) -> Started(p,x.SelectedProfile.ExePath)
-                    | Err(e) -> 
-                        MainViewUtil.failValidation e.Message
-                        StartFailed(e,x.SelectedProfile.ExePath)))
+                    x.UpdateLoaderState <| StartPending(selectedProfile.ExePath)
+                    x.UpdateLoaderState <|
+                        match (ProcessUtil.launchWithLoader selectedProfile.ExePath) with 
+                        | Ok(p) -> Started(p,selectedProfile.ExePath)
+                        | Err(e) -> 
+                            MainViewUtil.failValidation e.Message
+                            StartFailed(e,selectedProfile.ExePath))))
+                
     member x.ViewInjectionLog = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable),
             (fun action ->
-                match ProcessUtil.openInjectionLog x.SelectedProfile.ExePath with
-                | Ok(_) -> ()
-                | Err(e) -> MainViewUtil.failValidation e.Message
-            ))
+                x.SelectedProfile |> Option.iter (fun profile ->
+                    match ProcessUtil.openInjectionLog profile.ExePath with
+                    | Ok(_) -> ()
+                    | Err(e) -> MainViewUtil.failValidation e.Message)))
     member x.ViewModelModLog = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible),
             (fun action ->
-                match ProcessUtil.openModelModLog x.SelectedProfile.ExePath with
-                | Ok(_) -> ()
-                | Err(e) -> MainViewUtil.failValidation e.Message
-            ))
+                x.SelectedProfile |> Option.iter (fun profile ->
+                    match ProcessUtil.openModelModLog profile.ExePath with
+                    | Ok(_) -> ()
+                    | Err(e) -> MainViewUtil.failValidation e.Message)))
