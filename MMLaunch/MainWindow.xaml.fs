@@ -266,9 +266,17 @@ type MainViewModel() as self =
     let EmptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
 
     let mutable selectedProfile = EmptyProfile
-
     let mutable loaderState = NotStarted
 
+    do
+        RegConfig.init() // reg config requires init to set hive root
+
+    let observableProfiles = 
+        new ObservableCollection<ProfileModel>(
+            RegConfig.loadAll() |> 
+                Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
+
+    // Start an agent to give us a perodic timer
     // From: http://fsharpforfunandprofit.com/posts/concurrency-actor-model/
     let rec agent = MailboxProcessor.Start(fun inbox -> 
         let rec messageLoop() = async{
@@ -289,16 +297,11 @@ type MainViewModel() as self =
 
         messageLoop ())
 
-    do
-        RegConfig.init() // reg config requires init to set hive root
-
-    let profiles = RegConfig.loadAll() |> Array.map (fun rc -> ProfileModel(rc))
-
     member x.PeriodicUpdate() = 
         x.UpdateLoaderState <|     
             match loaderState with
-            | NotStarted -> loaderState
-            | StartPending(_) -> loaderState
+            | NotStarted 
+            | StartPending(_) 
             | StartFailed (_) -> loaderState
             | Stopped (proc,exe) -> loaderState
             | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
@@ -324,7 +327,7 @@ type MainViewModel() as self =
         if ViewModelUtil.DesignMode then
             new ObservableCollection<ProfileModel>([||])
         else
-            new ObservableCollection<ProfileModel>(profiles)
+            observableProfiles
 
     member x.SnapshotProfiles = 
         new ObservableCollection<SubProfileModel>
@@ -339,6 +342,7 @@ type MainViewModel() as self =
         and set value = 
             selectedProfile <- value
    
+            x.RaisePropertyChanged("DeleteProfile") 
             x.RaisePropertyChanged("SelectedProfile") 
             x.RaisePropertyChanged("SelectedInputProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
@@ -386,7 +390,7 @@ type MainViewModel() as self =
             match loaderState with 
             | Started (_,exe) 
             | StartPending (exe) -> 
-                let profile = profiles |> Array.tryFind (fun p -> p.ExePath = exe)
+                let profile = observableProfiles |> Seq.tryFind (fun p -> p.ExePath = exe)
                 match profile with
                 | None -> null
                 | Some(p) -> p.Icon
@@ -415,7 +419,16 @@ type MainViewModel() as self =
 
             if ok then
                 x.SelectedProfile.ExePath <- exePath
+                if x.SelectedProfile.Name = "" || x.SelectedProfile.Name.StartsWith(LocStrings.Misc.NewProfileName) then
+                    x.SelectedProfile.Name <- RegConfig.getDefaultProfileName exePath
+                    x.SelectedProfile <- x.SelectedProfile
+
+                // TODO: for some reason this doesn't update the listbox profile name
+
                 x.RaisePropertyChanged("SelectedProfile") 
+                x.RaisePropertyChanged("Profiles")                                 
+                x.UpdateLaunchUI()
+                x.UpdateProfileButtons()
             else
                 MainViewUtil.failValidation LocStrings.Errors.BadExePath)
 
@@ -453,6 +466,33 @@ type MainViewModel() as self =
             | StartFailed (_,_) 
             | Stopped (_,_) 
             | NotStarted -> true
+
+    member x.NewProfile = 
+        new RelayCommand (
+            (fun canExecute -> true), 
+            (fun action ->
+                // find temp profile name
+                let seqNextName = seq {
+                    let rec next count = 
+                        let nextName = if count = 0 then LocStrings.Misc.NewProfileName else (sprintf "%s (%d)" LocStrings.Misc.NewProfileName count)
+                        let found = observableProfiles |> Seq.tryFind (fun pm -> pm.Name = nextName)
+                        match found with
+                        | None -> nextName
+                        | Some v -> next (count+1)
+                    yield (next 0)
+                }
+
+                let profile = new ProfileModel( { RegConfig.loadDefaultProfile()  with ProfileName = (Seq.head seqNextName) })
+                observableProfiles.Add(profile)
+                
+                x.RaisePropertyChanged("Profiles")
+                x.SelectedProfile <- profile))
+
+    member x.DeleteProfile = 
+        new RelayCommand (
+            (fun canExecute -> x.SelectedProfile.Name <> EmptyProfile.Name), 
+            (fun action ->
+                () ))
 
     member x.RemoveSnapshots =  
         new RelayCommand (

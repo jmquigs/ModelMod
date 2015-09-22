@@ -14,12 +14,18 @@
                 <Label Content="{Binding Path=Name}"/>
             </DataTemplate>
         </Grid.Resources>
-        <Grid HorizontalAlignment="Left" Height="143" Margin="-124,1,0,0" VerticalAlignment="Top" Width="113">
+        <Grid HorizontalAlignment="Left" Height="232" Margin="-124,1,0,-88" VerticalAlignment="Top" Width="161">
             <ListBox 
-                HorizontalAlignment="Left" Height="123" Margin="10,10,0,0" VerticalAlignment="Top" Width="100"
+                HorizontalAlignment="Left" Height="211" Margin="10,10,0,-78" VerticalAlignment="Top" Width="141"
                 ItemsSource="{Binding Path=Profiles}"
                 SelectedItem="{Binding Path=SelectedProfile,Mode=TwoWay}"
                 ItemTemplate="{StaticResource profileNameTemplate}"/>
+            <Button 
+                Command="{Binding Path=NewProfile}"
+                Content="New" Margin="10,226,83,-16" Width="68" RenderTransformOrigin="0.27,0.545"/>
+            <Button 
+                Command="{Binding Path=DeleteProfile}"
+                Content="Delete" Margin="83,226,0,-16" HorizontalAlignment="Left" Width="68"/>
         </Grid>
         <Grid Margin="42,10,-387,-268" Visibility="{Binding Path=ProfileAreaVisibility}">
             <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>

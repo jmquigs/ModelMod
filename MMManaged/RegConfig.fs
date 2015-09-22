@@ -169,10 +169,11 @@ module RegConfig =
 
         ()
 
+    let getDefaultProfileName (exePath:String) = Path.GetFileNameWithoutExtension(exePath)
+        
     let setProfileName (rc:RunConfig):RunConfig = 
         if rc.ProfileName = "" then
-            let exeBase = Path.GetFileNameWithoutExtension(rc.ExePath)
-            { rc with ProfileName = exeBase }
+            { rc with ProfileName = getDefaultProfileName rc.ExePath }
         else 
             rc
         
