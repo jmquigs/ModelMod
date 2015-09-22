@@ -23,7 +23,7 @@
         </Grid>
         <Grid Margin="42,10,-387,-268" Visibility="{Binding Path=ProfileAreaVisibility}">
             <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
-            <Label Content="{Binding Path=SelectedProfile.ExePath}"  HorizontalAlignment="Left" Margin="108,31,0,0" VerticalAlignment="Top" Width="147" Height="26"/>
+            <Label Content="{Binding Path=SelectedProfile.ExePath}"  HorizontalAlignment="Left" Margin="108,31,0,0" VerticalAlignment="Top" Width="373" Height="26"/>
             <Label Content="Profile Name" HorizontalAlignment="Left" VerticalAlignment="Top"/>
             <TextBox Text="{Binding Path=SelectedProfile.Name, Mode=TwoWay}"  HorizontalAlignment="Left" Height="23" Margin="108,3,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
             <Label Content="Input Profile" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
@@ -39,7 +39,7 @@
                       SelectedValue="{Binding Path=SelectedSnapshotProfile}"
                       HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
             <Button Command="{Binding Path=BrowseExe}" 
-                    Content="Browse" HorizontalAlignment="Left" Margin="295,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
+                    Content="Browse" HorizontalAlignment="Left" Margin="486,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
             <CheckBox IsChecked="{Binding Path=SelectedProfile.LoadModsOnStart}" Content="Load Mods On Start" HorizontalAlignment="Left" Margin="7,124,0,0" VerticalAlignment="Top"/>
             <ScrollViewer CanContentScroll="True" HorizontalAlignment="Left" Height="248" Margin="10,145,0,0" VerticalAlignment="Top" Width="541">
                 <TextBlock Text="{Binding Path=ProfileDescription}" HorizontalAlignment="Left" TextWrapping="Wrap" VerticalAlignment="Top" RenderTransformOrigin="0.22,-0.938" Height="238"/>
