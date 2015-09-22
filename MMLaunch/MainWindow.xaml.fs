@@ -106,7 +106,11 @@ type ProfileModel(config:CoreTypes.RunConfig) =
         if config.InputProfile.Trim() = "" || not (InputProfiles.isValid config.InputProfile)
             then { config with InputProfile = InputProfiles.DefaultProfile} else config
 
-    let save() = RegConfig.saveProfile config
+    let save() = 
+        try 
+            RegConfig.saveProfile config
+        with 
+            | e -> ViewModelUtil.pushDialog (sprintf "%s" e.Message)
 
     let mutable iconSource = null
 
