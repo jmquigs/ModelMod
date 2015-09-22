@@ -16,12 +16,14 @@
         </Grid.Resources>
         <Grid HorizontalAlignment="Left" Height="232" Margin="-124,1,0,-88" VerticalAlignment="Top" Width="161">
             <ListBox 
+                x:Name="ProfilesListBox"
                 HorizontalAlignment="Left" Height="211" Margin="10,10,0,-78" VerticalAlignment="Top" Width="141"
                 ItemsSource="{Binding Path=Profiles}"
                 SelectedItem="{Binding Path=SelectedProfile,Mode=TwoWay}"
                 ItemTemplate="{StaticResource profileNameTemplate}"/>
             <Button 
                 Command="{Binding Path=NewProfile}"
+                CommandParameter="{Binding ElementName=MainWindow}"
                 Content="New" Margin="10,226,83,-16" Width="68" RenderTransformOrigin="0.27,0.545"/>
             <Button 
                 Command="{Binding Path=DeleteProfile}"
@@ -45,6 +47,7 @@
                       SelectedValue="{Binding Path=SelectedSnapshotProfile}"
                       HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
             <Button Command="{Binding Path=BrowseExe}" 
+                    CommandParameter="{Binding ElementName=MainWindow}"
                     Content="Browse" HorizontalAlignment="Left" Margin="486,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
             <CheckBox IsChecked="{Binding Path=SelectedProfile.LoadModsOnStart}" Content="Load Mods On Start" HorizontalAlignment="Left" Margin="7,124,0,0" VerticalAlignment="Top"/>
             <ScrollViewer CanContentScroll="True" HorizontalAlignment="Left" Height="248" Margin="10,145,0,0" VerticalAlignment="Top" Width="541">

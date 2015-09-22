@@ -7,6 +7,7 @@ open System.Windows
 open System.IO
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
+open System.Windows.Controls
 open System.Windows.Input
 open System.ComponentModel
 open System.Collections.ObjectModel
@@ -248,6 +249,17 @@ module MainViewUtil =
             proc.StartInfo.FileName <- getDataDir p 
             proc.Start() |> ignore
 
+    // utility method to faciliate various hacks with the Profiles list box
+    let findProfilesListBox (mainWin:obj):ListBox option =
+        let mainWin = mainWin :?> Window
+        match mainWin with 
+        | null -> None
+        | win ->            
+            let lb = win.FindName("ProfilesListBox") :?> System.Windows.Controls.ListBox
+            match lb with
+            | null -> None
+            | _ -> Some(lb)
+
 /// Used for Snapshot and Input profiles, since they both basically just have a name 
 /// and description as far as the UI is concerned.
 type SubProfileModel(name:string) =
@@ -409,7 +421,7 @@ type MainViewModel() as self =
         else
             Visibility.Hidden
 
-    member x.BrowseExe = alwaysExecutable (fun action ->
+    member x.BrowseExe = alwaysExecutable (fun mainWin ->
         match MainViewUtil.pushSelectExecutableDialog(Some(x.SelectedProfile.ExePath)) with
         | None -> ()
         | Some (exePath) -> 
@@ -427,7 +439,9 @@ type MainViewModel() as self =
                     x.SelectedProfile.Name <- RegConfig.getDefaultProfileName exePath
                     x.SelectedProfile <- x.SelectedProfile
 
-                // TODO: for some reason this doesn't update the listbox profile name
+                    // update the name in the list box using this heavy-handed method; raising changed 
+                    // events doesn't seem to be enough
+                    MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.Items.Refresh())                        
 
                 x.RaisePropertyChanged("SelectedProfile") 
                 x.RaisePropertyChanged("Profiles")                                 
@@ -474,7 +488,7 @@ type MainViewModel() as self =
     member x.NewProfile = 
         new RelayCommand (
             (fun canExecute -> true), 
-            (fun action ->
+            (fun mainWin ->
                 // find temp profile name
                 let seqNextName = seq {
                     let rec next count = 
@@ -490,7 +504,10 @@ type MainViewModel() as self =
                 observableProfiles.Add(profile)
                 
                 x.RaisePropertyChanged("Profiles")
-                x.SelectedProfile <- profile))
+                x.SelectedProfile <- profile
+                
+                // force the lb to scroll manually
+                MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.ScrollIntoView(profile))))
 
     member x.DeleteProfile = 
         new RelayCommand (
