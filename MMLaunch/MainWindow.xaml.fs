@@ -212,7 +212,7 @@ module MainViewUtil =
                 for f in files do
                     FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
 
-    let pushCreateModDialog (profile:ProfileModel) =
+    let pushCreateModDialog (parentWin:Window) (profile:ProfileModel) =
         let cw = new CreateModView()
 
         // put some stuff in its viewmodel
@@ -222,6 +222,7 @@ module MainViewUtil =
         let previewHost = cw.Root.FindName("ModelPreview") :?> PreviewHost
         vm.PreviewHost <- Some(previewHost)
 
+        cw.Root.Owner <- parentWin
         cw.Root.ShowDialog() |> ignore
         
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
@@ -462,8 +463,9 @@ type MainViewModel() as self =
     member x.CreateMod = 
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
-            (fun action ->
-                MainViewUtil.pushCreateModDialog x.SelectedProfile))
+            (fun mainWin ->
+                let mainWin = mainWin :?> Window
+                MainViewUtil.pushCreateModDialog mainWin x.SelectedProfile))
 
     member x.OpenMods =
         new RelayCommand (

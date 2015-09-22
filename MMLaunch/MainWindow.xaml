@@ -3,6 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
+    x:Name="MainWindow"
     Title="ModelMod Launcher" Height="607" Width="772">
     <Window.DataContext>
         <local:MainViewModel/>
@@ -48,6 +49,7 @@
                 Content="Remove Snapshots" Margin="0,418,452,-37" Height="22" RenderTransformOrigin="0.376,0.636"/>
             <Button 
                 Command="{Binding Path=CreateMod}"
+                CommandParameter="{Binding ElementName=MainWindow}"
                 Content="Create Mod" Margin="124,418,325,-37" Height="22" RenderTransformOrigin="0.582,0.682"/>
             <Button 
                 Command="{Binding Path=OpenMods}"
