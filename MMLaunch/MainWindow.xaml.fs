@@ -21,7 +21,17 @@ open ModelMod
 
 type MainView = XAML<"MainWindow.xaml", true>
 
+// Helper module for using parameterized loc strings with failwith, etc 
+// (since we can't pass them directly as an argument):
+// http://stackoverflow.com/questions/18551851/why-does-fs-printfn-work-with-literal-strings-but-not-values-of-type-string
+module Formatters =
+    type String = Printf.StringFormat<string -> unit>
+    type StringRetString = Printf.StringFormat<string -> string>
+    type StringAnyRetString<'a> = Printf.StringFormat<string -> 'a -> string>
+    type AnyRetString<'a> = Printf.StringFormat<'a -> string>
+
 module LocStrings = 
+    // Ideally these strings would actually be localized someday using whatever method.
     module Input =
         let Header = "Input:"
         let Desc1 = "Press CONTROL followed by the following keys."
@@ -38,6 +48,27 @@ module LocStrings =
         let Desc1 = "The following transforms will be applied"
         let PosLabel = "Position: "
         let UVLabel = "UV: "
+
+    module Errors = 
+        let ProfileNameRequired = "Profile name may not be empty"
+        let NoFilesInDir = Formatters.AnyRetString("No files in %s")
+        let SnapshotDirNotFound = Formatters.StringRetString("Snapshot directory does not exist: %s")
+        let CantFindLoader = Formatters.String("Unable to find loader path; check that %s is built for this configuration")
+        let LoaderStartFailed = Formatters.StringAnyRetString("Start Failed: %s (target: %s)")
+        let LoaderUnknownExit = Formatters.AnyRetString("Unknown (code: %d)")
+        let NoInputDescription = "No Input description available"
+        let NoSnapshotDescription = "No Snapshot description available"
+        let BadExePath = "Cannot set exe path; it is already used by another profile"
+
+    module Misc = 
+        let NewProfileName = "New Profile"
+        let ConfirmRecycle = Formatters.StringAnyRetString("Recycle files in %s?\n%A")
+        let RecycleMoar = Formatters.StringAnyRetString("%s\n...and %d more")
+        let LoaderNotStarted = "Not Started"
+        let LoaderStartPending = "Start Pending..."
+        let LoaderStopped = Formatters.StringAnyRetString("Exited with status: %s (target: %s)")
+        let LoaderStarted = Formatters.AnyRetString("Started; waiting for exit (target: %s)")
+        let ExeFilesFilter = "Executable files (*.exe)"
 
 module ProfileText = 
     module Input = 
@@ -101,7 +132,7 @@ type ProfileModel(config:CoreTypes.RunConfig) =
         and set (value:string) = 
             let value = value.Trim()
             if value = "" then
-                ViewModelUtil.pushDialog "Profile name may not be empty"
+                ViewModelUtil.pushDialog LocStrings.Errors.ProfileNameRequired
             else
                 config <- {config with ProfileName = value } 
                 save()
@@ -138,11 +169,11 @@ module MainViewUtil =
             | Some exe when File.Exists(exe) -> Some(Directory.GetParent(exe).ToString())
             | Some exe -> None
 
-        ViewModelUtil.pushSelectFileDialog (initialDir,"Executable files (*.exe)|*.exe")
+        ViewModelUtil.pushSelectFileDialog (initialDir,LocStrings.Misc.ExeFilesFilter + "|*.exe")
 
     let private getDirLocator (profile:ProfileModel) =
         let lp = ProcessUtil.getLoaderPath()
-        if lp = "" then failwithf "Unable to find loader path; check that %s is built for this configuration" ProcessUtil.LoaderName
+        if lp = "" then failwithf LocStrings.Errors.CantFindLoader ProcessUtil.LoaderName
         let root = Directory.GetParent(lp).FullName
         let root = Path.Combine(root, "..")
         let dl = State.DirLocator(root, profile.Config)
@@ -157,7 +188,7 @@ module MainViewUtil =
     let pushRemoveSnapshotsDialog (profile:ProfileModel) =
         let snapdir = getSnapshotDir profile
         if not (Directory.Exists snapdir) then
-            ViewModelUtil.pushDialog (sprintf "Snapshot directory does not exist: %s" snapdir)
+            ViewModelUtil.pushDialog (sprintf LocStrings.Errors.SnapshotDirNotFound snapdir)
         else
             let files = Directory.GetFiles(snapdir);
 
@@ -168,13 +199,14 @@ module MainViewUtil =
 
                 if files.Length > 0 then
                     let files = files |> Seq.take take |> Array.ofSeq
-                    let msg = sprintf "Recycle files in %s?\n%A" snapdir files
-                    let msg = if moar = 0 then msg else (sprintf "%s\n...and %d more" msg moar) 
+                    
+                    let msg = sprintf LocStrings.Misc.ConfirmRecycle snapdir files
+                    let msg = if moar = 0 then msg else (sprintf  LocStrings.Misc.RecycleMoar msg moar) 
                     match (ViewModelUtil.pushOkCancelDialog msg) with
                     | MessageBoxResult.Yes -> true
                     | _ -> false
                 else 
-                    ViewModelUtil.pushDialog (sprintf "No files in %s" snapdir)
+                    ViewModelUtil.pushDialog (sprintf LocStrings.Errors.NoFilesInDir snapdir)
                     false
             if ok then
                 for f in files do
@@ -275,17 +307,17 @@ type MainViewModel() as self =
     member x.LoaderStateText 
         with get() = 
             match loaderState with
-            | NotStarted -> "Not Started"
-            | StartPending(_) -> "Start Pending..."
-            | StartFailed (e,exe) -> sprintf "Start Failed: %s (target: %s)" e.Message exe
+            | NotStarted -> LocStrings.Misc.LoaderNotStarted 
+            | StartPending(_) -> LocStrings.Misc.LoaderStartPending 
+            | StartFailed (e,exe) -> sprintf LocStrings.Errors.LoaderStartFailed e.Message exe 
             | Stopped (proc,exe) -> 
                 let exitReason = 
                     match ProcessUtil.LoaderExitReasons |> Map.tryFind proc.ExitCode with
-                    | None -> sprintf "Unknown (code: %d)" proc.ExitCode
+                    | None -> sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode 
                     | Some (reason) -> reason
                     
-                sprintf "Exited with status: %s (target: %s)" exitReason exe
-            | Started (_,exe) -> sprintf "Started; waiting for exit (target: %s)" exe
+                sprintf LocStrings.Misc.LoaderStopped exitReason exe  
+            | Started (_,exe) -> sprintf LocStrings.Misc.LoaderStarted exe 
 
     member x.Profiles = 
         if ViewModelUtil.DesignMode then
@@ -329,7 +361,7 @@ type MainViewModel() as self =
         with get () =
             let inputText = 
                 match (ProfileText.Input.Descriptions |> Map.tryFind x.SelectedProfile.InputProfile) with 
-                | None -> "No Input description available"
+                | None -> LocStrings.Errors.NoInputDescription
                 | Some (text) ->
                     LocStrings.Input.Header + "\n" + LocStrings.Input.Desc1 + "\n" + LocStrings.Input.Desc2 + "\n" + text
             let snapshotText = 
@@ -337,12 +369,12 @@ type MainViewModel() as self =
 
                 let pxforms = 
                     match (SnapshotTransforms.Position |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
-                    | None -> "No Snapshot description available"
+                    | None -> LocStrings.Errors.NoSnapshotDescription
                     | Some (xforms) -> makeStringList xforms
 
                 let uvxforms = 
                     match (SnapshotTransforms.UV |> Map.tryFind x.SelectedProfile.SnapshotProfile) with
-                    | None -> "No Input description available"
+                    | None -> LocStrings.Errors.NoSnapshotDescription
                     | Some (xforms) -> makeStringList xforms
                 LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
                 + LocStrings.Snapshot.UVLabel + uvxforms
@@ -384,7 +416,7 @@ type MainViewModel() as self =
                 x.SelectedProfile.ExePath <- exePath
                 x.RaisePropertyChanged("SelectedProfile") 
             else
-                MainViewUtil.failValidation "Cannot set exe path; it is already used by another profile")
+                MainViewUtil.failValidation LocStrings.Errors.BadExePath)
 
     member x.UpdateLoaderState(newState) =
         if newState <> loaderState then
