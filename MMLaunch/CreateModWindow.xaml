@@ -3,11 +3,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Create Mod" Width="557" Height="475">
+    Title="Create Mod" Width="806" Height="550">
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
-    <Grid HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="380" Width="266">
+    <Grid Margin="10,10,456,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="435">
         <Grid.Resources>
             <DataTemplate x:Key="modFileTemplate">
                 <Label Content="{Binding Path=Name}"/>
@@ -20,22 +20,22 @@
         <Label Content="Mod Name: (hit tab when done)" HorizontalAlignment="Left" Margin="10,200,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="186"/>
         <TextBox 
             Text="{Binding Path=ModName, Mode=TwoWay}"
-            HorizontalAlignment="Left" Height="23" Margin="10,231,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="142"/>
+            HorizontalAlignment="Left" Height="23" Margin="10,231,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="306"/>
         <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,259,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
         <Label 
             Content="{Binding Path=ModDest}" 
-            HorizontalAlignment="Left" Margin="10,290,-97,0" VerticalAlignment="Top" Width="353"/>
+            HorizontalAlignment="Left" Margin="10,290,0,0" VerticalAlignment="Top" Width="306"/>
         <Button 
             Command="{Binding Path=Create}"
-            Content="Create" HorizontalAlignment="Left" Margin="17,342,0,0" VerticalAlignment="Top" Width="75"/>
+            Content="Create" HorizontalAlignment="Left" Margin="10,354,0,0" VerticalAlignment="Top" Width="75"/>
 
         <local:PreviewHost 
             x:Name="ModelPreview"
             HorizontalAlignment="Left" 
-            Height="259" 
-            Margin="276,0,-254,-70" 
+            Height="435" 
+            Margin="335,0,-504,-55" 
             VerticalAlignment="Top"
-            Width="244" 
+            Width="435" 
             RenderTransformOrigin="0.17,-0.04"
             Grid.Row="0"
             Grid.Column="0"
