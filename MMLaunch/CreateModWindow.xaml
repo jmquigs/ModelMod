@@ -3,7 +3,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Create Mod" Width="806" Height="550">
+    Title="Create Mod" Width="806" Height="550"
+    ResizeMode="NoResize">
+    
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>

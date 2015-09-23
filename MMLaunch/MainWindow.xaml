@@ -4,7 +4,8 @@
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
     x:Name="MainWindow"
-    Title="ModelMod Launcher" Height="607" Width="772">
+    Title="ModelMod Launcher" Height="607" Width="772"
+    ResizeMode="NoResize">
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
