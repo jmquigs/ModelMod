@@ -396,7 +396,7 @@ void RenderState::selectNextTexture() {
 
 	_currentTexturePtr = _activeTextureList[_currentTextureIdx];
 
-	MM_LOG_INFO(format("Current texture set to: {:x}", (int)_currentTexturePtr));
+	//MM_LOG_INFO(format("Current texture set to: {:x}", (int)_currentTexturePtr));
 	//MM_LOG_INFO(texInfo[_currentTexturePtr]);
 }
 
@@ -413,7 +413,7 @@ void RenderState::selectPrevTexture() {
 
 	_currentTexturePtr = _activeTextureList[_currentTextureIdx];
 
-	MM_LOG_INFO(format("Current texture set to: {:x}", (int)_currentTexturePtr));
+	//MM_LOG_INFO(format("Current texture set to: {:x}", (int)_currentTexturePtr));
 	//MM_LOG_INFO(texInfo[_currentTexturePtr]);
 }
 
