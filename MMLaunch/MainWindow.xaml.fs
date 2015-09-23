@@ -497,12 +497,10 @@ type MainViewModel() as self =
 
                         // update the name in the list box using this heavy-handed method; raising changed 
                         // events doesn't seem to be enough
-                        MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.Items.Refresh())                        
+                        MainViewUtil.findProfilesListBox mainWin |> Option.iter (fun lb -> lb.Items.Refresh())
 
-                    x.RaisePropertyChanged("SelectedProfile") 
-                    x.RaisePropertyChanged("Profiles")                                 
-                    x.UpdateLaunchUI()
-                    x.UpdateProfileButtons()
+                    // force an update to the selectedProfile to update view model stuff (lame)
+                    x.SelectedProfile <- x.SelectedProfile
                 else
                     MainViewUtil.failValidation LocStrings.Errors.BadExePath))
 
