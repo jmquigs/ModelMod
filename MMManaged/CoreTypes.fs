@@ -108,6 +108,10 @@ module CoreTypes =
         Data: byte[]
     }
 
+    type MeshReadFlags = {
+        ReadMaterialFile: bool
+    }
+
     type Mesh = {
         Type : ModType
         Triangles : IndexedTri[]

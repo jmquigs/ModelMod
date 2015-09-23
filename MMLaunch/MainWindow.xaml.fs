@@ -335,8 +335,8 @@ type MainViewModel() as self =
 
     let getSelectedProfileField (getter:ProfileModel -> 'a) (devVal:'a) = 
          match selectedProfile with
-        | None -> devVal
-        | Some profile -> getter profile
+         | None -> devVal
+         | Some profile -> getter profile
     let setSelectedProfileField (setter:ProfileModel -> unit) =
         match selectedProfile with
         | None -> ()

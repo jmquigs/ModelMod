@@ -6,6 +6,7 @@ open YamlDotNet.RepresentationModel
 
 open CoreTypes
 
+// TODO: horrible module name for what this is
 module MMView =
     type WinSettings = {
         PosX: int
@@ -18,6 +19,7 @@ module MMView =
         Window: WinSettings option
         Transform: bool
         CamPosition: Vec3F option
+        MeshReadFlags: MeshReadFlags
     }
     type Conf = { 
         ModIndexFile: string option

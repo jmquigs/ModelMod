@@ -99,6 +99,24 @@ module XnaRender =
 
         let wfState = wireframeState()
 
+        if mesh.Tex0Path <> "" then
+            // TODO: here we would actually try to load the texture and install it into the effect.  However, 
+            // Monogame/SharpDX don't have direct support for loading DDS textures, so we have to do one of these:
+            // 1) Use the content pipeline (an additional assembly reference, and there isn't a nuget for it)
+            // 2) Use FreeImageNET/FreeImage directly (which is what the content pipeline uses)
+            // 3) Add yet another dependency to legacy D3DX and use pinvoke on it.
+            // I tried looking at 1, and managed to get it to actually load a TextureContent, but it wasn't
+            // clear how to convert that into a Texture2D for the effect without writing a bunch of tedious data
+            // filling code - shouldn't there be a utility for this somewhere?  
+            // Ideally we'd just use FreeImage or something else
+            // directly if we can, so that we don't depend on the whole content
+            // pipeline just for this one feature.  
+            // We may also be able to use the DirectXTK for this since it doesn't need to be D3D9 compatible
+            // https://github.com/Microsoft/DirectXTK
+            // or https://github.com/Microsoft/DirectXTex
+            // Giving up for now.  
+            ()
+
         let renderFn = basicRender { 
             Effect=effect
             RasterizerState=wfState

@@ -45,6 +45,10 @@ module MeshUtil =
         Normal: Vec3F[];
     }
 
+    type MtlLib = {
+        MapKd: string
+    }
+
     /// Returns a string representation of a face in obj format (PNT; indices are 1-based)
     let faceToString(face: PTNIndex[]) =
         let inc x = x + 1
@@ -56,7 +60,30 @@ module MeshUtil =
         ) face
         sb.ToString()
 
-    let readObj(filename,modType): Mesh =
+    let readMtlLib filename = 
+        let lines = File.ReadAllLines(filename)
+        let mutable mtllib = {
+            MapKd = ""
+        }
+
+        let makeName (s:string[] option) =
+            match s with 
+            | None -> None
+            | Some n -> Some (n.[0])
+        let (|StringValue|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
+
+        for line in lines do
+            match line with 
+            | StringValue @"map_Kd\s+(\S+).*" (texFile) ->
+                // store absolute path in case the renderer doesn't have the obj path information to reconstruct it (e.g.: preview window)
+                let texFile = Path.Combine(Path.GetDirectoryName filename, texFile)
+                mtllib <- { mtllib with MapKd = texFile }
+            | _ -> ()
+        mtllib
+            
+    let readObj(filename,modType,flags:MeshReadFlags option): Mesh =
+        let flags = defaultArg flags { ReadMaterialFile = false }
+
         //use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
@@ -127,7 +154,7 @@ module MeshUtil =
             | None -> None
             | Some xs -> Some (List.ofArray xs.[0])
 
-        let makeVGroupName (s:string[] option) =
+        let makeName (s:string[] option) =
             match s with 
             | None -> None
             | Some n -> Some (n.[0])
@@ -135,10 +162,15 @@ module MeshUtil =
         let (|Vec2f|_|) pattern str = REUtil.checkGroupMatch pattern 3 str |> REUtil.extract 1 float32 |> makeVec2f
         let (|Vec3f|_|) pattern str = REUtil.checkGroupMatch pattern 4 str |> REUtil.extract 1 float32 |> makeVec3f
         let (|BlendPairs|_|) pattern str = REUtil.checkGroupMatch pattern 5 str |> REUtil.extract 1 extractBlendPair |> makeBlendVectors
-        let (|VertexGroupName|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeVGroupName
+        let (|VertexGroupName|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
         let (|TransformFunctionList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractTransform |> makeTransform
         let (|PTNIndex3|_|) pattern str = REUtil.checkGroupMatch pattern 10 str |> REUtil.extract 1 int32 |> sub1 |> make3PTNIndex
         let (|VertexGroupList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractVGroups |> makeVGroupList
+        let (|MtlLib|_|) pattern str = 
+            if flags.ReadMaterialFile then
+                REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
+            else
+                None
 
         let stringStartsWithAny (prefixes:string list) (s:string) =
             let found = 
@@ -187,41 +219,49 @@ module MeshUtil =
 
         let groupsForVertex = new ResizeArray<int list>()
         let posAt i = positions.[i]
+
+        let triangles = new ResizeArray<IndexedTri>()
+
+        let mutable mtllib = {
+            MapKd = ""
+        }
            
-        // walk the file lines to build a list of triangles and store component data into the resize arrays
-        let triangles = [
-            for line in lines do
-                match line with 
-                    | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt ->
-                        uvs.Add(vt)
-                    | Vec3f @"v\s+(\S+)\s+(\S+)\s+(\S+).*" v ->
-                        positions.Add(v) 
-                    | Vec3f @"vn\s+(\S+)\s+(\S+)\s+(\S+).*" vn ->
-                        normals.Add(vn)
-                    | VertexGroupName @"#vgn\s+(\S+).*" (vgroup) ->
-                        if not (vgnames.Contains(vgroup)) then 
-                            vgnames.Add(vgroup)
-                            // we only care about the annotations (if any) so extract them now and store them as the group name.
-                            // store groups without any annotations with an empty string to preserve indices.
-                            let annt = 
-                                match vgroup with
-                                | VgroupAnnotation annt -> annt
-                                | _ -> ""
-                            avgnames.Add(annt)
-                    | VertexGroupList @"#vg\s+(.*)$" (vgroups) ->
-                        groupsForVertex.Add(vgroups)
-                    | BlendPairs @"#vbld\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+).*" (bi,bw) ->
-                        blendindices.Add(bi)
-                        blendweights.Add(bw)
-                    | TransformFunctionList @"#pos_xforms\s+(.*)$" (xforms) ->
-                        xforms |> List.iter (fun xf -> if not (postransforms.Contains(xf)) then  postransforms.Add(xf))
-                    | TransformFunctionList @"#uv_xforms\s+(.*)$" (xforms) ->
-                        xforms |> List.iter (fun xf -> if not (uvtransforms.Contains(xf)) then uvtransforms.Add(xf))
-                    | PTNIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
-                        yield {Verts=v}
-                    | _ -> () //printfn "unknown line: %s" line
-        ] 
-        let triangles = List.toArray triangles
+        // walk the file lines to store component data in the resize arrays
+        for line in lines do
+            match line with 
+                | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt ->
+                    uvs.Add(vt)
+                | Vec3f @"v\s+(\S+)\s+(\S+)\s+(\S+).*" v ->
+                    positions.Add(v) 
+                | Vec3f @"vn\s+(\S+)\s+(\S+)\s+(\S+).*" vn ->
+                    normals.Add(vn)
+                | VertexGroupName @"#vgn\s+(\S+).*" (vgroup) ->
+                    if not (vgnames.Contains(vgroup)) then 
+                        vgnames.Add(vgroup)
+                        // we only care about the annotations (if any) so extract them now and store them as the group name.
+                        // store groups without any annotations with an empty string to preserve indices.
+                        let annt = 
+                            match vgroup with
+                            | VgroupAnnotation annt -> annt
+                            | _ -> ""
+                        avgnames.Add(annt)
+                | VertexGroupList @"#vg\s+(.*)$" (vgroups) ->
+                    groupsForVertex.Add(vgroups)
+                | BlendPairs @"#vbld\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+).*" (bi,bw) ->
+                    blendindices.Add(bi)
+                    blendweights.Add(bw)
+                | TransformFunctionList @"#pos_xforms\s+(.*)$" (xforms) ->
+                    xforms |> List.iter (fun xf -> if not (postransforms.Contains(xf)) then  postransforms.Add(xf))
+                | TransformFunctionList @"#uv_xforms\s+(.*)$" (xforms) ->
+                    xforms |> List.iter (fun xf -> if not (uvtransforms.Contains(xf)) then uvtransforms.Add(xf))
+                | PTNIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
+                    triangles.Add({Verts=v})
+                | MtlLib @"mtllib\s+(\S+).*" (mtlFile) ->
+                    let path = Path.Combine(Path.GetDirectoryName(filename), mtlFile)
+                    mtllib <- readMtlLib path
+                | _ -> () //printfn "unknown line: %s" line
+
+        let triangles = triangles.ToArray()
 
         if triangles.Length = 0 then
             failwithf "Error load meshing file %s: no faces found; check that normals and texture coordinates are present" filename
@@ -264,9 +304,9 @@ module MeshUtil =
             AppliedPositionTransforms = postransforms.ToArray()
             AppliedUVTransforms = uvtransforms.ToArray()
             AnnotatedVertexGroups = groupsForVertex
-            // When reading a mesh, we don't read a mtl file, so override texture paths must currently come from the yaml file.
-            // (by default we assume that a mod doesn't want to change the texture)
-            Tex0Path = ""
+            // During normal game load, we don't read the mtl file, so MapKd will be blank here.  
+            // Override texture paths, if any, must currently come from the yaml file.
+            Tex0Path = mtllib.MapKd
             Tex1Path = ""
             Tex2Path = ""
             Tex3Path = ""
@@ -416,14 +456,14 @@ map_Kd $$filename
         )
         found <> None
 
-    let readFrom(filename,modType) =
+    let readFrom(filename,modType,flags) =
         let ext = Path.GetExtension(filename).ToLower()
         let readFn = 
             match ext with 
             | ".obj" -> readObj
             | ".mmobj" -> readObj
             | _ -> failwithf "Don't know how to read file type: %s" ext
-        let md = readFn(filename,modType)
+        let md = readFn(filename,modType,flags)
         md
 
     let writeTo(filename,mesh:Mesh) = 
