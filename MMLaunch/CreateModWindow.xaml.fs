@@ -38,6 +38,7 @@ type CreateModViewModel() as self =
     let mutable previewHost: PreviewHost option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     let mutable addToModIndex = true
+    let mutable removeSnapshotsFn = (fun _ -> ())
 
     let mutable sdWriteTime = DateTime.Now
 
@@ -80,8 +81,8 @@ type CreateModViewModel() as self =
 
         x.TargetFileChanged()
         x.RaisePropertyChanged("Files")         
+        x.RaisePropertyChanged("RemoveSnapshots")
 
-    // SnapshotDir,DataDir,PreviewHost are usually just set once on view creation 
     member x.SnapshotDir 
         with get() = snapDir
         and set value = 
@@ -164,8 +165,14 @@ type CreateModViewModel() as self =
         match targetMMObjFile with
             | None -> false
             | Some (file) -> File.Exists(file.FullPath) && mnvalid
-        
-        
+
+    member x.RemoveSnapshotsFn
+        with set value = removeSnapshotsFn <- value
+
+    member x.RemoveSnapshots =  
+        new RelayCommand (
+            (fun canExecute -> true), 
+            (fun action -> removeSnapshotsFn() ))
 
     member x.Create =  
         new RelayCommand (

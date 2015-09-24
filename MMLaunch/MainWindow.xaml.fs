@@ -225,7 +225,7 @@ module MainViewUtil =
                 for f in files do
                     FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
 
-    let pushCreateModDialog (parentWin:Window) (profile:ProfileModel) =
+    let makeCreateModDialog (parentWin:Window) (profile:ProfileModel) =
         let cw = new CreateModView()
 
         // put some stuff in its viewmodel
@@ -236,7 +236,7 @@ module MainViewUtil =
         vm.PreviewHost <- Some(previewHost)
 
         cw.Root.Owner <- parentWin
-        cw.Root.ShowDialog() |> ignore
+        (cw,vm)
         
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 
@@ -573,18 +573,22 @@ type MainViewModel() as self =
                             | e -> 
                                 ViewModelUtil.pushDialog e.Message)))
 
+    member x.DoRemoveSnapshots() = x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushRemoveSnapshotsDialog profile)
+
     member x.RemoveSnapshots =  
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
-            (fun action ->
-                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushRemoveSnapshotsDialog profile)))
+            (fun action -> x.DoRemoveSnapshots()))
 
     member x.CreateMod = 
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
             (fun mainWin ->
                 let mainWin = mainWin :?> Window
-                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushCreateModDialog mainWin profile)))
+                x.SelectedProfile |> Option.iter (fun profile ->
+                    let view,vm = MainViewUtil.makeCreateModDialog mainWin profile
+                    vm.RemoveSnapshotsFn <- ( fun _ -> x.DoRemoveSnapshots())
+                    view.Root.ShowDialog() |> ignore)))
 
     member x.OpenMods =
         new RelayCommand (

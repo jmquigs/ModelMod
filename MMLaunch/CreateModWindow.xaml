@@ -5,7 +5,7 @@
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
     Title="Create Mod" Width="806" Height="550"
     ResizeMode="NoResize">
-    
+
     <Window.DataContext>
         <local:CreateModViewModel/>
     </Window.DataContext>
@@ -18,18 +18,18 @@
         <Button 
             Command="{Binding Path=BrowseFile}"
             Content="Use Different File..." 
-                HorizontalAlignment="Left" Margin="10,173,0,0" VerticalAlignment="Top" Width="142"/>
-        <Label Content="Mod Name: (hit tab when done)" HorizontalAlignment="Left" Margin="10,200,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="186"/>
+                HorizontalAlignment="Left" Margin="9,195,0,0" VerticalAlignment="Top" Width="125" Height="27"/>
+        <Label Content="Mod Name: (hit tab when done)" HorizontalAlignment="Left" Margin="10,227,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.211,0.077" Width="186" Height="32"/>
         <TextBox 
             Text="{Binding Path=ModName, Mode=TwoWay}"
-            HorizontalAlignment="Left" Height="23" Margin="10,231,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="306"/>
-        <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,259,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142"/>
+            HorizontalAlignment="Left" Height="29" Margin="10,264,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="306"/>
+        <Label Content="Mod will be created in:" HorizontalAlignment="Left" Margin="10,298,0,0" VerticalAlignment="Top" RenderTransformOrigin="-0.316,-0.462" Width="142" Height="32"/>
         <Label 
             Content="{Binding Path=ModDest}" 
-            HorizontalAlignment="Left" Margin="10,290,0,0" VerticalAlignment="Top" Width="306"/>
+            HorizontalAlignment="Left" Margin="10,335,0,0" VerticalAlignment="Top" Width="306" Height="33"/>
         <Button 
             Command="{Binding Path=Create}"
-            Content="Create" HorizontalAlignment="Left" Margin="10,354,0,0" VerticalAlignment="Top" Width="75"/>
+            Content="Create" HorizontalAlignment="Left" Margin="10,398,0,0" VerticalAlignment="Top" Width="75" Height="27"/>
 
         <local:PreviewHost 
             x:Name="ModelPreview"
@@ -43,13 +43,16 @@
             Grid.Column="0"
             SnapsToDevicePixels="True"
             Stretch="Fill" />
-        <ScrollViewer HorizontalAlignment="Left" Height="158" Margin="10,10,0,0" VerticalAlignment="Top" Width="246" RenderTransformOrigin="0.19,-0.19">
+        <ScrollViewer HorizontalAlignment="Left" Height="159" Margin="10,10,0,0" VerticalAlignment="Top" Width="284" RenderTransformOrigin="0.19,-0.19">
             <ListBox
                 ItemsSource="{Binding Path=Files}"
                 SelectedItem="{Binding Path=SelectedFile,Mode=TwoWay}"
                 ItemTemplate="{StaticResource modFileTemplate}"/>
 
         </ScrollViewer>
-        <CheckBox IsChecked="{Binding Path=AddToModIndex}" Content="Add to Mod Index" HorizontalAlignment="Left" Margin="17,321,0,0" VerticalAlignment="Top"/>
+        <CheckBox IsChecked="{Binding Path=AddToModIndex}" Content="Add to Mod Index" HorizontalAlignment="Left" Margin="10,373,0,0" VerticalAlignment="Top" Height="20"/>
+        <Button 
+            Command="{Binding Path=RemoveSnapshots}"
+            Content="Remove Snapshots" HorizontalAlignment="Left" Margin="150,195,0,0" VerticalAlignment="Top" Width="125" Height="27"/>
     </Grid>
 </Window>
