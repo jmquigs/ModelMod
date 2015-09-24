@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Threading
 open System.Windows
+open System.Windows.Threading
 open System.IO
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
@@ -272,8 +273,6 @@ module MainViewUtil =
 type SubProfileModel(name:string) =
     member x.Name with get() = name
 
-type ViewModelMessage = Tick
-
 type GameExePath = string
 type LoaderState = 
     NotStarted
@@ -312,26 +311,11 @@ type MainViewModel() as self =
             RegConfig.loadAll() |> 
                 Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
 
-    // Start an agent to give us a perodic timer
-    // From: http://fsharpforfunandprofit.com/posts/concurrency-actor-model/
-    let rec agent = MailboxProcessor.Start(fun inbox -> 
-        let rec messageLoop() = async{
-            let! msg = inbox.TryReceive(0)
-
-            match msg with
-            | None -> ()
-            | Some (vmm) -> 
-                match vmm with
-                | Tick -> 
-                    self.PeriodicUpdate()
-
-            do! Async.Sleep(1000)
-            agent.Post(Tick)
-            
-            return! messageLoop ()
-        }
-
-        messageLoop ())
+    let timer = new DispatcherTimer()
+    do 
+        timer.Interval <- new TimeSpan(0,0,1)
+        timer.Tick.Add(fun (args) -> self.PeriodicUpdate())
+        timer.Start()
 
     let getSelectedProfileField (getter:ProfileModel -> 'a) (devVal:'a) = 
          match selectedProfile with
