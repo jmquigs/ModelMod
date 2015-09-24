@@ -12,6 +12,7 @@ module ProcessUtil =
              (-2, "Wait period expired"); // shouldn't see this; should be translated into a more specific code
              (-3, "Target process not found");
              (-4, "Some injection attempts failed")
+             (-5, "Could not create mutex, another instance of target may be running")
             ]
 
     let private LoaderSearchPath = ["."; 
@@ -61,6 +62,14 @@ module ProcessUtil =
         | path ->
             let logExeName = Path.GetFileName(exePath)
             Path.Combine(path, (sprintf "modelmod.%s.log" logExeName))
+
+    let getLoaderExitReason (proc:Process) (defReason:string) =
+        if not proc.HasExited then
+            "Proc has not exited"
+        else
+            match LoaderExitReasons |> Map.tryFind proc.ExitCode with
+            | None -> defReason
+            | Some (reason) -> reason            
                     
     let launchWithLoader (exePath:string):Result<Process,System.Exception> =
         try 
@@ -117,6 +126,10 @@ module ProcessUtil =
             // to relaunches.
 
             // in theory loader could start the game too, but then it would start as admin, which we don't want.
+
+            // make sure loader hasn't died while we slept
+            if loaderProc.HasExited then
+                failwithf "%s" (getLoaderExitReason loaderProc "Unknown")
             
             let proc = new Process()
             proc.StartInfo.UseShellExecute <- false

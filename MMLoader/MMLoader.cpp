@@ -394,8 +394,8 @@ int _tmain(int argc, const char* argv[])
 		DWORD err = GetLastError();
 		if (!mutie || err != ERROR_SUCCESS) {
 			string err = "Unable to create new mutex: " + string(mutieName) + "; another MMLoader may already be running for the process";
-			Util::DisplayMessageBox(err.c_str());
-			return -1;
+			Util::Log("Error: %s\n", err.c_str());
+			return -5;
 		}
 	}
 

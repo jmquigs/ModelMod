@@ -361,9 +361,7 @@ type MainViewModel() as self =
             | StartFailed (e,exe) -> sprintf LocStrings.Errors.LoaderStartFailed e.Message exe 
             | Stopped (proc,exe) -> 
                 let exitReason = 
-                    match ProcessUtil.LoaderExitReasons |> Map.tryFind proc.ExitCode with
-                    | None -> sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode 
-                    | Some (reason) -> reason
+                    ProcessUtil.getLoaderExitReason proc (sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode)
                     
                 sprintf LocStrings.Misc.LoaderStopped exitReason exe  
             | Started (_,exe) -> sprintf LocStrings.Misc.LoaderStarted exe 
