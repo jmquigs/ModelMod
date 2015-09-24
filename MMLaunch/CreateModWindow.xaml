@@ -43,13 +43,11 @@
             Grid.Column="0"
             SnapsToDevicePixels="True"
             Stretch="Fill" />
-        <ScrollViewer HorizontalAlignment="Left" Height="159" Margin="10,10,0,0" VerticalAlignment="Top" Width="284" RenderTransformOrigin="0.19,-0.19">
-            <ListBox
-                ItemsSource="{Binding Path=Files}"
-                SelectedItem="{Binding Path=SelectedFile,Mode=TwoWay}"
-                ItemTemplate="{StaticResource modFileTemplate}"/>
-
-        </ScrollViewer>
+        <ListBox
+            ScrollViewer.VerticalScrollBarVisibility="Visible"
+            ItemsSource="{Binding Path=Files}"
+            SelectedItem="{Binding Path=SelectedFile,Mode=TwoWay}"
+            ItemTemplate="{StaticResource modFileTemplate}" Margin="0,0,0,245"/>
         <CheckBox IsChecked="{Binding Path=AddToModIndex}" Content="Add to Mod Index" HorizontalAlignment="Left" Margin="10,373,0,0" VerticalAlignment="Top" Height="20"/>
         <Button 
             Command="{Binding Path=RemoveSnapshots}"
