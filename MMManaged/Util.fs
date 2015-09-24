@@ -18,31 +18,28 @@ module REUtil =
         match groups with 
             | None -> None
             | Some groups -> 
-                let tryExtract v =
-                    try
-                        let ret = xFn v
-                        (Some ret,None)
+                let tryExtract v = 
+                    // use a try here so that we can make sure the value text is included
+                    // in the error message if the extraction fails
+                    try 
+                        let res = xFn (v) 
+                        res
                     with 
-                        | ex -> 
-                            let err = sprintf "Failed to extract value %s from groups[len %d]: %s" v groups.Count ex.Message
-                            (None,Some err)
+                        | ex -> failwith "Illegal value: %A: %s" v ex.Message                    
 
-                let endI = groups.Count - 1
-                let res = [ 
-                    for i in [start .. endI] do
-                        let res = tryExtract (groups.[i].Value.Trim())
-                        match res with
-                        | (Some ret,None) -> yield ret
-                        | (None,Some err) -> reLog.Error "%s" err; ()
-                        | _ -> failwith "unexpected error"
-                ]
-                let expectedLen = groups.Count - start
-                //printfn "extracted %d, expected %d" (res.Length) expectedLen
-                if expectedLen <> res.Length then
-                    reLog.Error "Failed to extract one or more matches from group: %s" groups.[0].Value
-                    None
-                else
-                    Some (List.toArray res)
+                try 
+                    let endI = groups.Count - 1
+
+                    let res = [| 
+                        for i in [start .. endI] do
+                            let v = groups.[i].Value.Trim()
+                            yield tryExtract v
+                    |]
+                    Some (res)
+                with 
+                    | ex -> 
+                        reLog.Error "Failed to extract value from groups[len %d]: %s" groups.Count ex.Message
+                        None
 
 module Util =
     let replaceSpaceWithUnderscore (s:string) = s.Replace(' ', '_')
