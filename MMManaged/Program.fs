@@ -6,7 +6,7 @@ open System.Windows
 
 open ModelMod
 
-// This module useful for running the managed code under a profiler.  To use it, change the project type
+// This module is useful for running the managed code under a profiler.  To use it, change the project type
 // to a "console application", then uncomment the entry point below.  You can then run it under 
 // the vs2013 profiler.
 

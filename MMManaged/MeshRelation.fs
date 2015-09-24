@@ -126,18 +126,33 @@ module MeshRelation =
             let exclusionFilter = if exclusionCheckingEnabled then isExcluded else (fun _ _ -> false)
 
             // for a single mod position index and value, find the relation data
-            let getVertRel modIdx modPos = 
-                let _,closestDist,closestIdx = 
-                    // this is a straight up, bad-ass linear search through the ref positions
-                    ref.Mesh.Positions |> Array.fold (fun (currIdx,closestDist,closestIdx) refPos -> 
-                        let v = modPos - refPos
-                        let lenSqrd = v.LengthSquared()
+            let getVertRel modIdx (modPos:Vec3F) = 
+                let closestDist,closestIdx = 
+                    let mutable currIdx = 0
+                    let mutable closestDist = System.Single.MaxValue
+                    let mutable closestIdx = -1
+
+                    // this is a straight up, bad-ass linear search through the ref positions.
+                    // this loop was pretty hot on the instrumentation profiler, but a lot of that was 
+                    // because function calls like LengthSquared() only appear to be expensive because of the sheer 
+                    // number of invocations.  but they still add up to something, so I reduced the intensity 
+                    // by "inlining" the vector subtraction/distance calculations.  This saved about 12% on load times.
+                    for refPos in ref.Mesh.Positions do
+                        let vX = modPos.X - refPos.X
+                        let vY = modPos.Y - refPos.Y
+                        let vZ = modPos.Z - refPos.Z
+                        let lenSqrd = //v.LengthSquared()
+                             (vX) * (vX) +
+                             (vY) * (vY) +
+                             (vZ) * (vZ)
                         
                         if (lenSqrd >= closestDist) || (exclusionFilter modIdx currIdx) then
-                            (currIdx+1, closestDist, closestIdx) 
+                            ()
                         else
-                            (currIdx+1, lenSqrd, currIdx)
-                    ) (0, System.Single.MaxValue, -1) 
+                            closestDist <- lenSqrd
+                            closestIdx <- currIdx
+                        currIdx <- currIdx + 1
+                    closestDist,closestIdx
 
                 if closestIdx = -1 then
                     // wat
