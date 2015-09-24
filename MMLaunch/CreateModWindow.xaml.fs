@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Threading
 open System.Windows
+open System.Windows.Threading
 open System.IO
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
@@ -19,6 +20,7 @@ open ModelMod
 
 type CreateModView = XAML<"CreateModWindow.xaml", true>
 
+[<AllowNullLiteral>] // For listbox selecteditem compatibility
 type MMObjFileModel(fullPath) =     
     member x.Name 
         with get() = 
@@ -26,17 +28,33 @@ type MMObjFileModel(fullPath) =
     member x.FullPath 
         with get() = fullPath
 
-type CreateModViewModel() = 
+type CreateModViewModel() as self = 
     inherit ViewModelBase()
 
     let mutable snapDir = ""
     let mutable dataDir = ""
-    let mutable targetMMObjFile:MMObjFileModel = MMObjFileModel("")
+    let mutable targetMMObjFile:MMObjFileModel option = None
     let mutable modName = ""
     let mutable previewHost: PreviewHost option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     let mutable addToModIndex = true
-    
+
+    let mutable sdWriteTime = DateTime.Now
+
+    let timer = new DispatcherTimer()
+    do 
+        timer.Interval <- new TimeSpan(0,0,1)
+        timer.Tick.Add(fun (args) -> 
+            let sd = self.SnapshotDir
+            if Directory.Exists(sd) then
+                let writeTime = Directory.GetLastWriteTime(sd)
+                if writeTime <> sdWriteTime then
+                    ()
+                    sdWriteTime <- writeTime
+                    self.UpdateFileList()
+        )
+        timer.Start()
+            
     let validateModName (mn:string):Result<string,string> =
         let illegalChars = [|'/'; '\\'; ':'; '*'; '?'; '"'; '<'; '>'; '|'|]
 
@@ -50,19 +68,25 @@ type CreateModViewModel() =
         | s ->
             Ok(Path.Combine(dataDir,mn))
 
-    // SnapshotDir,DataDir,PreviewHost are usually just set once on view creation 
+    member x.UpdateFileList() = 
+        mmobjFiles.Clear()
+        if Directory.Exists snapDir then
+            Directory.GetFiles (snapDir, "*.mmobj") 
+                |> Array.sortBy (fun f -> File.GetLastWriteTime(Path.Combine(snapDir,f) ))
+                |> Array.rev
+                |> Array.map (fun f -> MMObjFileModel(f))
+                |> Array.iter (fun nt -> mmobjFiles.Add(nt))
+            sdWriteTime <- Directory.GetLastWriteTime(snapDir)
 
+        x.TargetFileChanged()
+        x.RaisePropertyChanged("Files")         
+
+    // SnapshotDir,DataDir,PreviewHost are usually just set once on view creation 
     member x.SnapshotDir 
         with get() = snapDir
         and set value = 
             snapDir <- value
-            mmobjFiles.Clear()
-            if Directory.Exists snapDir then
-                Directory.GetFiles (snapDir, "*.mmobj") 
-                    |> Array.map (fun f -> MMObjFileModel(f))
-                    |> Array.iter (fun nt -> mmobjFiles.Add(nt))
-            x.TargetFileChanged()
-            x.RaisePropertyChanged("Files") 
+            x.UpdateFileList()
     member x.DataDir
         with get() = dataDir
         and set value = dataDir <- value
@@ -74,9 +98,14 @@ type CreateModViewModel() =
 
     member x.SelectedFile
         with get() = 
-            targetMMObjFile
+            match targetMMObjFile with
+            | None -> null
+            | Some(file) -> file
         and set value = 
-            targetMMObjFile <- value
+            if value = null then
+                targetMMObjFile <- None
+            else
+                targetMMObjFile <- Some(value)
             x.TargetFileChanged()
 
     member x.ModName
@@ -106,19 +135,22 @@ type CreateModViewModel() =
                     mmobjFiles.Add(model)
                     model
                 | Some (model) -> model
-            targetMMObjFile <- model
+            targetMMObjFile <- Some(model)
         x.TargetFileChanged())
             
     member x.TargetFileChanged() = 
         match previewHost with
         | None -> ()
         | Some(host) -> 
-            host.SelectedFile <- targetMMObjFile.FullPath
+            match targetMMObjFile with
+            | None -> host.SelectedFile <- ""
+            | Some file -> 
+                host.SelectedFile <- file.FullPath
 
-        x.RaisePropertyChanged("CanCreate") 
-        x.RaisePropertyChanged("Create") 
-        x.RaisePropertyChanged("ModDest")
-        x.RaisePropertyChanged("SelectedFile")
+                x.RaisePropertyChanged("CanCreate") 
+                x.RaisePropertyChanged("Create") 
+                x.RaisePropertyChanged("ModDest")
+                x.RaisePropertyChanged("SelectedFile")
 
     member x.AddToModIndex 
         with get() = addToModIndex
@@ -129,16 +161,21 @@ type CreateModViewModel() =
             match validateModName(modName) with 
             | Err(_) -> false 
             | Ok(_) -> true
-        File.Exists(targetMMObjFile.FullPath) && mnvalid
+        match targetMMObjFile with
+            | None -> false
+            | Some (file) -> File.Exists(file.FullPath) && mnvalid
+        
+        
 
     member x.Create =  
         new RelayCommand (
             (fun canExecute -> x.CanCreate), 
             (fun action ->
-                match validateModName(modName) with
-                | Err(e) -> ViewModelUtil.pushDialog(e)
-                | Ok(file) ->
-                    match (ModUtil.createMod dataDir modName targetMMObjFile.FullPath) with
+                match validateModName(modName),targetMMObjFile with
+                | Err(e),_ -> ViewModelUtil.pushDialog(e)
+                | _,None -> ()
+                | Ok(_),Some(file) ->
+                    match (ModUtil.createMod dataDir modName file.FullPath) with
                     | Ok(modFile) -> 
                         let createdMessage = sprintf "Import %s into blender to edit." modFile
                         let modIndexErr = 
@@ -150,5 +187,5 @@ type CreateModViewModel() =
                                 ""
                                 
                         ViewModelUtil.pushDialog(sprintf "Mod created.  %s%s" modIndexErr createdMessage )
-                    | Err(msg) -> ViewModelUtil.pushDialog(msg)                
-                () ))
+                    | Err(msg) -> ViewModelUtil.pushDialog(msg)                                         
+            ))

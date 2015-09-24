@@ -94,6 +94,9 @@ module Main =
                 o.Render wrd
 
         member x.Cleanup() =
+            if not graphics.IsDisposed then
+                graphics.Clear(Color.Black) 
+
             for x in world.RenderObjects do
                 x.Dispose()
             world <- newWorld()

@@ -21,9 +21,7 @@ type PreviewHost() =
     override x.Initialize() =
         x.Uninitialize()
 
-        if not (File.Exists selectedFile) then
-            ()
-        else
+        if (File.Exists selectedFile) then
             let conf = { 
                 Conf.ModIndexFile = None
                 FilesToLoad = [selectedFile]
