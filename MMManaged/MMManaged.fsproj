@@ -71,6 +71,7 @@
     <Content Include="packages.config" />
     <None Include="LoadInFSI.fsx" />
     <None Include="TestFSI.fsx" />
+    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="MonoGame.Framework">
