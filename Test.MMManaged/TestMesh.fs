@@ -10,7 +10,7 @@ open ModelMod.CoreTypes
 
 let monolith = 
     let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
-    MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement)
+    MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
 let check = Check.QuickThrowOnFailure
 
@@ -39,7 +39,7 @@ let ``Mesh: write``() =
     }
     MeshUtil.writeObj monolith objPath
 
-    let monolith = MeshUtil.readFrom(objPath,CoreTypes.GPUReplacement)
+    let monolith = MeshUtil.readFrom(objPath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
     let check = Check.QuickThrowOnFailure
 

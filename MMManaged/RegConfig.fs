@@ -115,6 +115,10 @@ module RegConfig =
         Registry.SetValue(regLoc.Hive.Name @@ pKey, valName, value);
         value
 
+    let setGlobalValue valName value = 
+        Registry.SetValue(regLoc.HiveRoot , valName, value);
+        value
+
     let createNewProfile() = 
         let profiles = getProfileKeyNames() 
       
