@@ -17,7 +17,6 @@ module MMView =
     }
     type AppSettings = {
         Window: WinSettings option
-        Transform: bool
         CamPosition: Vec3F option
         MeshReadFlags: MeshReadFlags
     }

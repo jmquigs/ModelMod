@@ -28,9 +28,8 @@ type PreviewHost() =
                 AppSettings = 
                     Some({
                             Window = None
-                            Transform = false
                             CamPosition = Some(Vec3F(0.f,3.75f,10.0f))
-                            MeshReadFlags = { ReadMaterialFile = true }
+                            MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = false }
                     })
             }
             control <- Some(new MeshView.Main.MeshViewControl(conf, x.GraphicsDevice))

@@ -54,11 +54,10 @@ module ModDB =
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
-    let loadUntransformedMesh(path, (modType:ModType), flags) = MeshUtil.readFrom(path, modType, flags)
-
-    let loadAndTransformMesh(path, (modType:ModType), flags) = 
-        let mesh = loadUntransformedMesh(path, modType, flags)
-        if mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0 then
+    let loadMesh(path, (modType:ModType), flags) = 
+        let mesh = MeshUtil.readFrom(path, modType, flags)
+        if flags.ReverseTransform && 
+            (mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0) then
             let mesh = MeshTransform.reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh 
             // clear out applied transforms, since they have been reversed.
             { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
@@ -133,7 +132,7 @@ module ModDB =
                 | ModType.GPUReplacement ->     
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
-                    Some (loadAndTransformMesh (Path.Combine(basePath, meshPath),modType,None))
+                    Some (loadMesh (Path.Combine(basePath, meshPath),modType,CoreTypes.DefaultReadFlags))
 
             // fill in texture paths (if any) from yaml
             let mesh = 
@@ -248,7 +247,7 @@ module ModDB =
         let refName = Path.GetFileNameWithoutExtension filename
 
         let meshPath = node |> Yaml.getValue "meshpath" |> Yaml.toString
-        let mesh = loadAndTransformMesh (Path.Combine(basePath, meshPath),ModType.Reference,None)
+        let mesh = loadMesh (Path.Combine(basePath, meshPath),ModType.Reference,CoreTypes.DefaultReadFlags)
 
         // load vertex elements (binary)
         let binVertDeclPath = 
@@ -319,12 +318,10 @@ module ModDB =
                 // load it as a reference, but allow conf to control whether it should be transformed (normally it is, but if loading
                 // for UI display, we might omit the transform because we want it displayed in tool format, not game-format)
                 match conf.AppSettings with 
-                | None -> loadAndTransformMesh (filename,ModType.Reference, None)
+                | None -> 
+                    loadMesh (filename,ModType.Reference, CoreTypes.DefaultReadFlags)
                 | Some settings -> 
-                    if not settings.Transform then
-                        loadUntransformedMesh (filename,ModType.Reference, Some(settings.MeshReadFlags))
-                    else
-                        loadAndTransformMesh (filename,ModType.Reference, Some(settings.MeshReadFlags))
+                    loadMesh (filename,ModType.Reference, settings.MeshReadFlags)
 
             let refName = Path.GetFileNameWithoutExtension filename
             [ MReference(

@@ -110,6 +110,11 @@ module CoreTypes =
 
     type MeshReadFlags = {
         ReadMaterialFile: bool
+        ReverseTransform: bool
+    }
+    let DefaultReadFlags = {
+        ReadMaterialFile = false 
+        ReverseTransform = true
     }
 
     type Mesh = {

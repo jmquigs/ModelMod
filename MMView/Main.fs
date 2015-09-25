@@ -238,9 +238,8 @@ module Main =
             Some (fileToLoad), Some 
                 ({ 
                     AppSettings.Window = winSettings
-                    Transform = transform 
                     CamPosition = camPos 
-                    MeshReadFlags = { ReadMaterialFile = true }
+                    MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = transform }
                 })
     
     let run(argv:string[]) =

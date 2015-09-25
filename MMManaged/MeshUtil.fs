@@ -81,9 +81,7 @@ module MeshUtil =
             | _ -> ()
         mtllib
             
-    let readObj(filename,modType,flags:MeshReadFlags option): Mesh =
-        let flags = defaultArg flags { ReadMaterialFile = false }
-
+    let readObj(filename,modType,flags:MeshReadFlags): Mesh =
         //use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
