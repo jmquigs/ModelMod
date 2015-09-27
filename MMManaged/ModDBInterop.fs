@@ -60,9 +60,9 @@ module ModDBInterop =
                 failwithf "Cannot load data, index file does not exist: %A" modIndexPath
 
             let conf = {
-                MMView.Conf.ModIndexFile = Some modIndexPath
-                MMView.Conf.FilesToLoad = []
-                MMView.Conf.AppSettings = None
+                StartConf.Conf.ModIndexFile = Some modIndexPath
+                StartConf.Conf.FilesToLoad = []
+                StartConf.Conf.AppSettings = None
             }
 
             State.Moddb <- ModDB.loadModDB conf

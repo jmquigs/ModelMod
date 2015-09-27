@@ -22,7 +22,7 @@ let main argv =
     let mdb = 
         ModDB.loadModDB
             ({ 
-                MMView.Conf.ModIndexFile = Some(mpath)
+                StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
             })

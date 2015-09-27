@@ -8,7 +8,7 @@ open Microsoft.Xna.Framework.Input
 open Microsoft.Xna.Framework.Graphics
 
 open ModelMod
-open ModelMod.MMView
+open ModelMod.StartConf
 open ModelMod.CoreTypes
 
 module Main =
@@ -204,7 +204,7 @@ module Main =
                         if parts.Length <> 4 then failwith illegalMessage
                         else   
                             let winSet = { 
-                                MMView.WinSettings.PosX = int parts.[0]
+                                StartConf.WinSettings.PosX = int parts.[0]
                                 PosY = int parts.[1]
                                 Width = int parts.[2]
                                 Height = int parts.[3]
@@ -250,7 +250,7 @@ module Main =
         let fileToLoad,appSettings = parseCommandLine(argv)
     
         let loadConfWithSettings confPath appSettings = 
-            let conf = MMView.loadConf confPath None
+            let conf = StartConf.loadConf confPath None
             match conf with
             | None -> failwithf "Failed to load conf file: %s" confPath
             | Some conf ->     
@@ -268,7 +268,7 @@ module Main =
                 // direct load of mesh file
                 { 
                     ModIndexFile = None
-                    MMView.Conf.FilesToLoad = [ file ] 
+                    StartConf.Conf.FilesToLoad = [ file ] 
                     AppSettings = appSettings
                 }
             | Some file when Path.GetExtension(file).ToLowerInvariant().Trim().Equals(".yaml") ->

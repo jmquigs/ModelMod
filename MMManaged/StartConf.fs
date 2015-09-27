@@ -6,8 +6,8 @@ open YamlDotNet.RepresentationModel
 
 open CoreTypes
 
-// TODO: horrible module name for what this is
-module MMView =
+module StartConf =
+    // only use for MMView tool
     type WinSettings = {
         PosX: int
         PosY: int

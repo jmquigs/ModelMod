@@ -62,7 +62,7 @@
     <Compile Include="MeshUtil.fs" />
     <Compile Include="MeshTransform.fs" />
     <Compile Include="Yaml.fs" />
-    <Compile Include="MMView.fs" />
+    <Compile Include="StartConf.fs" />
     <Compile Include="MeshRelation.fs" />
     <Compile Include="ModDB.fs" />
     <Compile Include="ModDBInterop.fs" />

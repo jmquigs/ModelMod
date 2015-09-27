@@ -11,7 +11,7 @@ open YamlDotNet.RepresentationModel
 open Microsoft.Xna.Framework
 
 open MeshRelation
-open MMView
+open StartConf
 open CoreTypes
 open InteropTypes
 
@@ -287,7 +287,7 @@ module ModDB =
             { DBReference.Name = refName
               Mesh = mesh})
         
-    let loadFile (conf:MMView.Conf) (filename) =
+    let loadFile (conf:StartConf.Conf) (filename) =
         use sw = new Util.StopwatchTracker("load file: " + filename)
 
         let ext = Path.GetExtension(filename).ToLowerInvariant()
@@ -406,7 +406,7 @@ module ModDB =
         // return a list of the refs and objects
         modObjects @ refObjects
 
-    let loadModDB(conf:MMView.Conf) = 
+    let loadModDB(conf:StartConf.Conf) = 
         use sw = new Util.StopwatchTracker("LoadModDB")
 
         // read index if available, loading active mods (only) from index

@@ -3,7 +3,7 @@
 open System.IO
 
 open WpfInteropSample
-open ModelMod.MMView
+open ModelMod.StartConf
 open ModelMod.CoreTypes
 
 type PreviewHost() =
