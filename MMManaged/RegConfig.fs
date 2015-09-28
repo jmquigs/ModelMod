@@ -7,6 +7,7 @@ open Microsoft.Win32
 open CoreTypes
 
 module RegKeys = 
+    let RecycleSnapshots = "RecycleSnapshots"
     let DocRoot = "DocRoot"
     let ProfExePath = "ExePath"
     let ProfName = "ProfileName"
@@ -116,8 +117,12 @@ module RegConfig =
         value
 
     let setGlobalValue valName value = 
-        Registry.SetValue(regLoc.HiveRoot , valName, value);
+        Registry.SetValue(regLoc.HiveRoot, valName, value);
         value
+
+    let getGlobalValue valName (defValue) = 
+        let v = Registry.GetValue(regLoc.HiveRoot, valName, defValue)
+        v
 
     let createNewProfile() = 
         let profiles = getProfileKeyNames() 

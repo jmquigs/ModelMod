@@ -55,6 +55,8 @@
     <Compile Include="ProcessUtil.fs" />
     <Compile Include="ModUtil.fs" />
     <Compile Include="PreviewHost.fs" />
+    <Resource Include="ConfirmDialog.xaml" />
+    <Compile Include="ConfirmDialog.xaml.fs" />
     <Resource Include="CreateModWindow.xaml" />
     <Compile Include="CreateModWindow.xaml.fs" />
     <Resource Include="MainWindow.xaml" />

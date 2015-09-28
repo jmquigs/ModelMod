@@ -64,9 +64,10 @@ module LocStrings =
 
     module Misc = 
         let NewProfileName = "New Profile"
-        let ConfirmRecycle = Formatters.StringAnyRetString("Recycle files in %s?\n%A")
+        let ConfirmRecycle = Formatters.StringAnyRetString("Remove files in %s?\n%A")
         let ConfirmProfileRemove = Formatters.AnyRetString("Remove profile '%s'?\n\nNote: mod & snapshot files that are associated with this profile will not be removed.")
         let RecycleMoar = Formatters.StringAnyRetString("%s\n...and %d more")
+        let RecycleSlow = "Use Recycle Bin (can be slow,blocks UI; yeah lame I know)"
         let LoaderNotStarted = "Not Started"
         let LoaderStartPending = "Start Pending..."
         let LoaderStopped = Formatters.StringAnyRetString("Exited with status: %s (target: %s)")
@@ -198,14 +199,21 @@ module MainViewUtil =
         | MessageBoxResult.Yes -> true
         | _ -> false
 
-    let pushRemoveSnapshotsDialog (profile:ProfileModel) =
+    let makeConfirmDialog (parentWin:Window) =
+        let view = new ConfirmDialogView()
+        view.Root.Owner <- parentWin
+        let vm = view.Root.DataContext :?> ConfirmDialogViewModel
+        vm.View <- view
+        (view,vm)
+
+    let pushRemoveSnapshotsDialog (mainWin:Window) (profile:ProfileModel) =
         let snapdir = getSnapshotDir profile
         if not (Directory.Exists snapdir) then
             ViewModelUtil.pushDialog (sprintf LocStrings.Errors.SnapshotDirNotFound snapdir)
         else
             let files = Directory.GetFiles(snapdir);
 
-            let ok = 
+            let (ok,recycle) = 
                 let display = 5
                 let take = Math.Min(files.Length,display)
                 let moar = files.Length - take
@@ -215,15 +223,30 @@ module MainViewUtil =
                     
                     let msg = sprintf LocStrings.Misc.ConfirmRecycle snapdir files
                     let msg = if moar = 0 then msg else (sprintf  LocStrings.Misc.RecycleMoar msg moar) 
-                    match (ViewModelUtil.pushOkCancelDialog msg) with
-                    | MessageBoxResult.Yes -> true
-                    | _ -> false
+                    let view,vm = makeConfirmDialog mainWin
+                    vm.CheckBoxText <- LocStrings.Misc.RecycleSlow
+                    vm.Text <- msg
+                    vm.CheckboxChecked <- RegConfig.getGlobalValue RegKeys.RecycleSnapshots 1 |> (fun v -> v :?> int) |> RegUtil.dwordAsBool
+                    view.Root.ShowDialog() |> ignore
+                    vm.Confirmed,vm.CheckboxChecked
                 else 
                     ViewModelUtil.pushDialog (sprintf LocStrings.Errors.NoFilesInDir snapdir)
-                    false
+                    false,true
             if ok then
-                for f in files do
-                    FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
+                // save the recycle pref
+                RegConfig.setGlobalValue RegKeys.RecycleSnapshots (recycle |> RegUtil.boolAsDword) |> ignore
+
+                if recycle then
+                    // invoke the power of VB!
+                    // dunno why this is sofa king slow, but probably we should be pushing a progress dialog or doing it async.
+                    // (if we do it async, and the user is on the create mods dialog, the user will get to watch the 
+                    // snapshot list slowly drain away, which could be useful, or annoying)
+                    for f in files do
+                        FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin)
+                else
+                    // smoke 'em
+                    for f in files do
+                        File.Delete(f)
 
     let makeCreateModDialog (parentWin:Window) (profile:ProfileModel) =
         let cw = new CreateModView()
@@ -573,12 +596,14 @@ type MainViewModel() as self =
                             | e -> 
                                 ViewModelUtil.pushDialog e.Message)))
 
-    member x.DoRemoveSnapshots() = x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.pushRemoveSnapshotsDialog profile)
+    member x.DoRemoveSnapshots (mainWin:Window) = 
+        x.SelectedProfile |> Option.iter (fun profile ->
+            MainViewUtil.pushRemoveSnapshotsDialog mainWin profile)
 
     member x.RemoveSnapshots =  
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
-            (fun action -> x.DoRemoveSnapshots()))
+            (fun mainWin -> x.DoRemoveSnapshots(mainWin :?> Window)))
 
     member x.CreateMod = 
         new RelayCommand (
@@ -587,7 +612,7 @@ type MainViewModel() as self =
                 let mainWin = mainWin :?> Window
                 x.SelectedProfile |> Option.iter (fun profile ->
                     let view,vm = MainViewUtil.makeCreateModDialog mainWin profile
-                    vm.RemoveSnapshotsFn <- ( fun _ -> x.DoRemoveSnapshots())
+                    vm.RemoveSnapshotsFn <- ( fun _ -> x.DoRemoveSnapshots(mainWin))
                     view.Root.ShowDialog() |> ignore)))
 
     member x.OpenMods =

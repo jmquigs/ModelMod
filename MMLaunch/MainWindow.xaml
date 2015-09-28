@@ -57,6 +57,7 @@
             </ScrollViewer>
             <Button 
                 Command="{Binding Path=RemoveSnapshots}"
+                CommandParameter="{Binding ElementName=MainWindow}"
                 Content="Remove Snapshots" Margin="0,418,452,-37" Height="22" RenderTransformOrigin="0.376,0.636"/>
             <Button 
                 Command="{Binding Path=CreateMod}"
