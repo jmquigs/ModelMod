@@ -54,6 +54,7 @@
     <Compile Include="ViewModelUtil.fs" />
     <Compile Include="ProcessUtil.fs" />
     <Compile Include="ModUtil.fs" />
+    <Compile Include="BlenderUtil.fs" />
     <Compile Include="PreviewHost.fs" />
     <Resource Include="ConfirmDialog.xaml" />
     <Compile Include="ConfirmDialog.xaml.fs" />
@@ -66,6 +67,7 @@
     <Content Include="packages.config" />
     <Compile Include="ViewModel.fs" />
     <Compile Include="App.fs" />
+    <None Include="TestFSI.fsx" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MMView\MMView.fsproj">
