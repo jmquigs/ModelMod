@@ -621,6 +621,20 @@ type MainViewModel() as self =
             (fun action ->
                 x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.openModsDir profile )))
 
+    member x.SetupBlender = 
+        new RelayCommand (
+            (fun canExecute -> true),
+            (fun action ->
+                let found = BlenderUtil.findInstallPath()
+                match found with
+                | None -> ViewModelUtil.pushDialog "Can't find blender"
+                | Some (idir,ver) ->
+                    let res = BlenderUtil.installMMScripts ver
+                    match res with
+                    | Ok(dir) -> ViewModelUtil.pushDialog (sprintf "Blender scripts installed and registered in'%s'" dir)
+                    | Err(s) -> ViewModelUtil.pushDialog s
+                ))
+
     member x.StartInSnapshotMode = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable), 
