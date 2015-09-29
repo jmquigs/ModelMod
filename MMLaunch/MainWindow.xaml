@@ -73,7 +73,7 @@
         <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="465" Margin="-124,1,-387,-321" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
         <Grid HorizontalAlignment="Left" Height="84" Margin="-124,471,-387,-410" VerticalAlignment="Top" Width="737">
             <Button Command="{Binding StartInSnapshotMode}"
-        		Content="Start (Snapshot)" HorizontalAlignment="Left" Margin="9,10,0,0" VerticalAlignment="Top" Width="102" RenderTransformOrigin="0.51,0.955"/>
+        		Content="Start" HorizontalAlignment="Left" Margin="9,10,0,0" VerticalAlignment="Top" Width="102" RenderTransformOrigin="0.51,0.955"/>
             <Label Content="{Binding LoaderStateText}" HorizontalAlignment="Right" Height="30" Margin="0,8,10,0" VerticalAlignment="Top" Width="565"/>
             <Image Source="{Binding LauncherProfileIcon}"  HorizontalAlignment="Right" Height="32" Margin="0,6,580,0" VerticalAlignment="Top" Width="32" RenderTransformOrigin="1.031,0.812"/>
             <Button 
