@@ -36,6 +36,12 @@ module ProcessUtil =
         match lp with 
         | None -> ""
         | Some (path) -> path
+
+    let getMMRoot() =
+        let lp = getLoaderPath()
+        match lp with 
+        | "" -> failwith "Unable to find MM root"
+        | s -> Path.Combine(Path.GetDirectoryName(s), "..")
                 
     // Returns the log directory
     let private getLogPath() =

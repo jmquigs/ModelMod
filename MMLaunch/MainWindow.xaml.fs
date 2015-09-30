@@ -628,8 +628,8 @@ type MainViewModel() as self =
                 let found = BlenderUtil.findInstallPath()
                 match found with
                 | None -> ViewModelUtil.pushDialog "Can't find blender"
-                | Some (idir,ver) ->
-                    let res = BlenderUtil.installMMScripts ver
+                | Some (idir) ->
+                    let res = BlenderUtil.installMMScripts()
                     match res with
                     | Ok(dir) -> ViewModelUtil.pushDialog (sprintf "Blender scripts installed and registered in'%s'" dir)
                     | Err(s) -> ViewModelUtil.pushDialog s

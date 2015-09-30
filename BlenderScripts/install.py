@@ -22,7 +22,8 @@ def install_mmobj():
 		print(SUCCESS)
 
 def show_paths():
-	print("PATHS:",addon_utils.paths())
+	for p in addon_utils.paths():
+		print("MMPATH:",p)
 	
 defaultCommand = "paths"
 command = ""

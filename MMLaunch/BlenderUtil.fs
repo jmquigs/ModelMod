@@ -60,7 +60,7 @@ module BlenderUtil =
 
     let getExe (idir:string) = Path.Combine(idir,"blender.exe")
 
-    let findInstallPath():(string*string) option =        
+    let findInstallPath():(string) option =        
         // prefer 64-bit
         let views = [RegistryView.Registry64; RegistryView.Registry32]
         let found = views |> List.tryPick (fun view ->
@@ -68,34 +68,78 @@ module BlenderUtil =
             match idir with
             | "" -> None
             | path ->
-                let ver = queryKey view "ShortVersion" UnknownVersion
-                Some(idir,ver)
+                Some(idir)
         )
 
         match found with
         | None -> None
-        | Some(idir,ver) ->
+        | Some(idir) ->
             // make sure exe actually exists
             if not (File.Exists (getExe idir)) then
                 None
             else
                 found
 
-    let private getAddonsPath(blenderVer:string) = 
-        let blenderVer = blenderVer.Trim()
-        if blenderVer = "" then failwith "empty blender version"
+    let private runBlender (exe:string) (cmd:string) = 
+        if not (File.Exists exe) then
+            failwithf "Can't find blender executable: %s" exe
 
-        // we want to avoid installing directly in the blender directory because that probably requires admin privs.
-        // going to try the easy way which is to just use the version string to construct the appdata addon path.
-        // if this causes problems, though, may need to ultimately exec blender to get the actual path list and then 
-        // reconstruct the appdata path from that (see "paths" command in install.py).  Note that blender won't 
-        // include the appdata addon path in the list it reports if the path doesn't exist.
+        let pySetup = Path.GetFullPath(Path.Combine(ProcessUtil.getMMRoot(),PythonSetupScript))
+        if not (File.Exists pySetup) then
+            failwithf "Can't find setup script: %s" pySetup
+
+        let proc = new Process()
+        proc.StartInfo.UseShellExecute <- false 
+        proc.StartInfo.FileName <- exe
+        proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- %s" pySetup cmd
+        proc.StartInfo.RedirectStandardOutput <- true
+        proc.StartInfo.RedirectStandardError <- true
+        proc.Start() |> ignore
+        proc.WaitForExit()
+        let rawOut = proc.StandardOutput.ReadToEnd()
+        let rawErr = proc.StandardError.ReadToEnd()
+        rawOut,rawErr
+        
+    let private getAddonsPath (idir:string) =
+        // exec blender with install.py to get the addon paths.
+        // if the appdata path is in the list, use it.
+        // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
+        // install dir path (so that we get the correct version, etc), and return that.
+        // (we need to use an appdata path, because otherwise we likely need admin privs to install)
+        let exe = getExe idir
+        let rawOut,rawErr = runBlender exe "paths"
+
+        let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
+
+        let PathLine = "MMPATH:"
+        let paths = 
+            outLines 
+            |> Array.filter (fun line -> line.StartsWith(PathLine))
+            |> Array.map (fun line -> line.Substring(PathLine.Length).Trim())
+
+        if paths.Length = 0 then
+            let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+            failwith "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
         let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-        let addOns = Path.Combine(appData,(sprintf @"Blender Foundation\Blender\%s\scripts\addons" blenderVer))
-        addOns       
+        let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
+        match found with
+        | Some p -> p
+        | None ->
+            // rebuild a new appData path, using a relative part from one of the existing paths
+            let relRoot = "Blender Foundation"
+            let found = paths |> Array.tryFind (fun p -> p.Contains(relRoot))
+            let path = 
+                match found with
+                | None -> 
+                    let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                    failwith "Unable to locate a suitable addon path:%s" rawMsg
+                | Some path -> path
+            let path = path.Substring(path.IndexOf(relRoot))
+            let path = Path.Combine(appData,path)
+            path     
 
-    let installMMScripts(blenderVer:string):Result<string,string> =
+    let installMMScripts():Result<string,string> =
         try
             let srcDir,pySetup = 
                 let lp = ProcessUtil.getLoaderPath()
@@ -109,19 +153,17 @@ module BlenderUtil =
                 failwith "Python setup script does not exist: %s" pySetup
 
             let found = findInstallPath()
-            let idir,ver = 
+            let idir = 
                 match found with
                 | None -> failwith "Blender not found"
                 | Some stuff -> stuff
-            if ver = UnknownVersion then
-                failwith "Unknown blender version"
 
             let exe = getExe idir
 
             if not (File.Exists exe) then
                 failwith "Can't find blender executable"
 
-            let addons = getAddonsPath(ver)
+            let addons = getAddonsPath idir
 
             // the directory may not exist yet
             if not (Directory.Exists addons) then
@@ -136,16 +178,7 @@ module BlenderUtil =
             directoryCopy srcDir dest true
 
             // run the python script to make sure they are registered with blender
-            let proc = new Process()
-            proc.StartInfo.UseShellExecute <- false 
-            proc.StartInfo.FileName <- exe
-            proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- install" pySetup
-            proc.StartInfo.RedirectStandardOutput <- true
-            proc.StartInfo.RedirectStandardError <- true
-            proc.Start() |> ignore
-            proc.WaitForExit()
-            let rawOut = proc.StandardOutput.ReadToEnd()
-            let rawErr = proc.StandardError.ReadToEnd()
+            let rawOut,rawErr = runBlender exe "install"
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
