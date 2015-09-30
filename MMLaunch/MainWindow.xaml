@@ -32,6 +32,7 @@
                 Content="Delete" Margin="83,226,0,-16" HorizontalAlignment="Left" Width="68"/>
             <Button 
                 Command="{Binding Path=SetupBlender}"
+                CommandParameter="{Binding ElementName=MainWindow}"
                 Content="Setup Blender" Margin="10,253,10,-43"/>
         </Grid>
         <Grid Margin="42,10,-387,-268" Visibility="{Binding Path=ProfileAreaVisibility}">

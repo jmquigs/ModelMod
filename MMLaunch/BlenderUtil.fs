@@ -8,15 +8,11 @@ open Microsoft.Win32
 
 module BlenderUtil =
     let SubKey = @"SOFTWARE\BlenderFoundation"
-
     let UnknownVersion = "<unknown>"
-
     let ModName = "io_scene_mmobj"
-
+    let BlenderExe = "blender.exe"
     let SourceScriptDir = Path.Combine("BlenderScripts",ModName)
-
     let PythonSetupScript = @"BlenderScripts\install.py"
-
     let PySuccessLine = "MMINFO: Plugin enabled"
     let PyFailLine = "MMERROR: "
 
@@ -58,10 +54,10 @@ module BlenderUtil =
                 printfn "%A" e.Message
                 defVal
 
-    let getExe (idir:string) = Path.Combine(idir,"blender.exe")
+    let getExe (idir:string) = Path.Combine(idir,BlenderExe)
 
-    let findInstallPath():(string) option =        
-        // prefer 64-bit
+    let detectInstallPath():(string) option = 
+        // look in registry.  use 64-bit registry first
         let views = [RegistryView.Registry64; RegistryView.Registry32]
         let found = views |> List.tryPick (fun view ->
             let idir = queryKey view "Install_Dir" ""
@@ -100,13 +96,12 @@ module BlenderUtil =
         let rawErr = proc.StandardError.ReadToEnd()
         rawOut,rawErr
         
-    let private getAddonsPath (idir:string) =
+    let private getAddonsPath (exe:string) =
         // exec blender with install.py to get the addon paths.
         // if the appdata path is in the list, use it.
         // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
         // install dir path (so that we get the correct version, etc), and return that.
         // (we need to use an appdata path, because otherwise we likely need admin privs to install)
-        let exe = getExe idir
         let rawOut,rawErr = runBlender exe "paths"
 
         let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
@@ -119,7 +114,7 @@ module BlenderUtil =
 
         if paths.Length = 0 then
             let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
-            failwith "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
+            failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
         let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
         let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
@@ -133,37 +128,27 @@ module BlenderUtil =
                 match found with
                 | None -> 
                     let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
-                    failwith "Unable to locate a suitable addon path:%s" rawMsg
+                    failwithf "Unable to locate a suitable addon path:%s" rawMsg
                 | Some path -> path
             let path = path.Substring(path.IndexOf(relRoot))
             let path = Path.Combine(appData,path)
             path     
 
-    let installMMScripts():Result<string,string> =
+    let installMMScripts (exe:string):Result<string,string> =
         try
-            let srcDir,pySetup = 
+            let srcDir = 
                 let lp = ProcessUtil.getLoaderPath()
                 let root = Path.Combine(Path.GetDirectoryName(lp), "..")
 
-                Path.GetFullPath(Path.Combine(root,SourceScriptDir)), Path.GetFullPath(Path.Combine(root,PythonSetupScript))
+                Path.GetFullPath(Path.Combine(root,SourceScriptDir))
 
             if not (Directory.Exists srcDir) then
                 failwith "Source script directory does not exist: %s" srcDir
-            if not (File.Exists pySetup) then
-                failwith "Python setup script does not exist: %s" pySetup
-
-            let found = findInstallPath()
-            let idir = 
-                match found with
-                | None -> failwith "Blender not found"
-                | Some stuff -> stuff
-
-            let exe = getExe idir
 
             if not (File.Exists exe) then
                 failwith "Can't find blender executable"
 
-            let addons = getAddonsPath idir
+            let addons = getAddonsPath exe
 
             // the directory may not exist yet
             if not (Directory.Exists addons) then

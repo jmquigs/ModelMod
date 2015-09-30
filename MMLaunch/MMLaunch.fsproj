@@ -60,6 +60,8 @@
     <Compile Include="ConfirmDialog.xaml.fs" />
     <Resource Include="CreateModWindow.xaml" />
     <Compile Include="CreateModWindow.xaml.fs" />
+    <Resource Include="BlenderWindow.xaml" />
+    <Compile Include="BlenderWindow.xaml.fs" />
     <Resource Include="MainWindow.xaml" />
     <Compile Include="MainWindow.xaml.fs" />
     <Resource Include="App.xaml" />

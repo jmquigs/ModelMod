@@ -199,6 +199,12 @@ module MainViewUtil =
         | MessageBoxResult.Yes -> true
         | _ -> false
 
+    let makeBlenderWindow (parentWin:Window) =
+        let view = new BlenderView()
+        view.Root.Owner <- parentWin
+        let vm = view.Root.DataContext :?> BlenderViewModel
+        (view,vm)
+        
     let makeConfirmDialog (parentWin:Window) =
         let view = new ConfirmDialogView()
         view.Root.Owner <- parentWin
@@ -624,16 +630,11 @@ type MainViewModel() as self =
     member x.SetupBlender = 
         new RelayCommand (
             (fun canExecute -> true),
-            (fun action ->
-                let found = BlenderUtil.findInstallPath()
-                match found with
-                | None -> ViewModelUtil.pushDialog "Can't find blender"
-                | Some (idir) ->
-                    let res = BlenderUtil.installMMScripts()
-                    match res with
-                    | Ok(dir) -> ViewModelUtil.pushDialog (sprintf "Blender scripts installed and registered in'%s'" dir)
-                    | Err(s) -> ViewModelUtil.pushDialog s
-                ))
+            (fun mainWin ->
+                let mainWin = mainWin :?> Window
+                let view,_ = MainViewUtil.makeBlenderWindow(mainWin)
+                view.Root.ShowDialog() |> ignore
+            ))
 
     member x.StartInSnapshotMode = 
         new RelayCommand (

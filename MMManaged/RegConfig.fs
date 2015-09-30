@@ -7,6 +7,7 @@ open Microsoft.Win32
 open CoreTypes
 
 module RegKeys = 
+    let LastSelectedBlender = "LastSelectedBlender"
     let RecycleSnapshots = "RecycleSnapshots"
     let DocRoot = "DocRoot"
     let ProfExePath = "ExePath"

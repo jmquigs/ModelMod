@@ -1,0 +1,27 @@
+﻿<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
+    xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
+    Title="Blender Setup" Height="273" Width="601"
+    ResizeMode="NoResize">
+    <Window.DataContext>
+        <local:BlenderViewModel/>
+    </Window.DataContext>
+    <Grid HorizontalAlignment="Left" Margin="10,10,-41,14" Width="626" RenderTransformOrigin="-1.362,-0.626">
+        <Label Content="Blender Path:" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="181"/>
+        <Label Content="{Binding Path=SelectedBlender}" HorizontalAlignment="Left" Margin="10,41,0,0" VerticalAlignment="Top" Width="563"/>
+        <Button Content="Detect" 
+                Command="{Binding Path=Detect}"
+                HorizontalAlignment="Left" Margin="90,72,0,0" VerticalAlignment="Top" Width="75"/>
+        <Button Content="Browse" 
+                Command="{Binding Path=Browse}"
+                HorizontalAlignment="Left" Margin="10,72,0,0" VerticalAlignment="Top" Width="75"/>
+        <Label Content="Script Status:" HorizontalAlignment="Left" Margin="10,125,0,0" VerticalAlignment="Top"/>
+        <Label Content="Label" HorizontalAlignment="Left" Margin="10,151,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.079,-0.423" Width="563"/>
+        <Button Content="Check" HorizontalAlignment="Left" Margin="13,182,0,0" VerticalAlignment="Top" Width="75"/>
+        <Button Content="Install" 
+                Command="{Binding Path=Install}"
+                HorizontalAlignment="Left" Margin="93,182,0,0" VerticalAlignment="Top" Width="75"/>
+    </Grid>
+</Window>
