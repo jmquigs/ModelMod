@@ -65,7 +65,6 @@
     <Resource Include="App.xaml" />
     <Content Include="App.config" />
     <Content Include="packages.config" />
-    <Compile Include="ViewModel.fs" />
     <Compile Include="App.fs" />
     <None Include="TestFSI.fsx" />
   </ItemGroup>
