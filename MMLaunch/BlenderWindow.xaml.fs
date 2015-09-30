@@ -25,6 +25,7 @@ type BlenderViewModel() =
 
     let mutable detectedBlender = None
     let mutable selectedBlender = None
+    let mutable scriptStatus = ""
 
     let detectBlender() = 
         let path = BlenderUtil.detectInstallPath()
@@ -37,6 +38,19 @@ type BlenderViewModel() =
             else
                 None
 
+    let getScriptStatus (scriptdir:string option) = 
+        let lastScriptDir = defaultArg scriptdir (RegConfig.getGlobalValue RegKeys.LastScriptInstallDir "" :?> string)
+
+        match lastScriptDir with
+        | "" -> "Unknown"
+        | s when not (Directory.Exists(s)) -> "Unknown"
+        | s ->
+            match BlenderUtil.checkScriptStatus s with
+            | Err(s) -> sprintf "Failed to check status: %s" s
+            | Ok(BlenderUtil.NotFound) -> "Not installed"
+            | Ok(BlenderUtil.UpToDate) -> "Up to date"
+            | Ok(BlenderUtil.Diverged) -> "Out of date or modified locally"
+
     do
         detectedBlender <- detectBlender()
         let lastBlender = RegConfig.getGlobalValue RegKeys.LastSelectedBlender "" :?> string
@@ -45,6 +59,7 @@ type BlenderViewModel() =
             | "" -> detectedBlender
             | s when (not (File.Exists s)) -> detectedBlender
             | s -> Some(s)
+        scriptStatus <- getScriptStatus None
 
     member x.SelectedBlender 
         with get() = 
@@ -55,8 +70,14 @@ type BlenderViewModel() =
             if File.Exists value then
                 RegConfig.setGlobalValue RegKeys.LastSelectedBlender value |> ignore
 
-            selectedBlender <- Some(value)
             x.RaisePropertyChanged("SelectedBlender")
+
+    member x.ScriptStatus 
+        with get() = 
+            scriptStatus
+        and set value = 
+            scriptStatus <- value
+            x.RaisePropertyChanged("ScriptStatus")
 
     member x.Detect = 
         new RelayCommand (
@@ -83,6 +104,21 @@ type BlenderViewModel() =
                     if (File.Exists (exe)) then
                         x.SelectedBlender <- exe
             ))
+    member x.Check = 
+        new RelayCommand (
+            (fun canExecute -> true), 
+            (fun action -> 
+                match selectedBlender with
+                | None -> ViewModelUtil.pushDialog "Please select a version of blender to use first."
+                | Some exe ->  
+                    match (BlenderUtil.getAddonsPath exe) with
+                    | Err(e) -> ViewModelUtil.pushDialog (sprintf "Failed to get addons path: %s" e)
+                    | Ok(path) ->
+                        let path = Path.Combine(path,BlenderUtil.ModName)
+                        if Directory.Exists path then
+                            RegConfig.setGlobalValue RegKeys.LastScriptInstallDir path |> ignore
+                        x.ScriptStatus <- getScriptStatus (Some(path))
+            ))
     member x.Install = 
         new RelayCommand (
             (fun canExecute -> true), 
@@ -93,8 +129,11 @@ type BlenderViewModel() =
                     match ViewModelUtil.pushOkCancelDialog ("This will install or update the MMObj blender scripts.  If you have modified the files locally, your changes will be overwritten.  Proceed?") with
                     | MessageBoxResult.Yes ->
                         match BlenderUtil.installMMScripts(exe) with
-                        | Ok(dir) -> ViewModelUtil.pushDialog (sprintf "Blender scripts installed and registered in'%s'" dir)
+                        | Ok(dir) -> 
+                            RegConfig.setGlobalValue RegKeys.LastScriptInstallDir dir |> ignore
+                            ViewModelUtil.pushDialog (sprintf "Blender scripts installed and registered in'%s'" dir)
+                            x.ScriptStatus <- getScriptStatus None
+
                         | Err(s) -> ViewModelUtil.pushDialog s
                     | _ -> ()
-                | _ -> ()
         ))

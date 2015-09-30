@@ -18,8 +18,11 @@
                 Command="{Binding Path=Browse}"
                 HorizontalAlignment="Left" Margin="10,72,0,0" VerticalAlignment="Top" Width="75"/>
         <Label Content="Script Status:" HorizontalAlignment="Left" Margin="10,125,0,0" VerticalAlignment="Top"/>
-        <Label Content="Label" HorizontalAlignment="Left" Margin="10,151,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.079,-0.423" Width="563"/>
-        <Button Content="Check" HorizontalAlignment="Left" Margin="13,182,0,0" VerticalAlignment="Top" Width="75"/>
+        <Label Content="{Binding Path=ScriptStatus}"
+               HorizontalAlignment="Left" Margin="10,151,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.079,-0.423" Width="563"/>
+        <Button Content="Check" 
+                Command="{Binding Path=Check}"
+                HorizontalAlignment="Left" Margin="13,182,0,0" VerticalAlignment="Top" Width="75"/>
         <Button Content="Install" 
                 Command="{Binding Path=Install}"
                 HorizontalAlignment="Left" Margin="93,182,0,0" VerticalAlignment="Top" Width="75"/>

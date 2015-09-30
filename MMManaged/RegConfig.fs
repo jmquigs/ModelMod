@@ -8,6 +8,7 @@ open CoreTypes
 
 module RegKeys = 
     let LastSelectedBlender = "LastSelectedBlender"
+    let LastScriptInstallDir = "LastScriptInstallDir"
     let RecycleSnapshots = "RecycleSnapshots"
     let DocRoot = "DocRoot"
     let ProfExePath = "ExePath"

@@ -3,7 +3,6 @@
 open System
 open System.IO
 open System.Diagnostics
-
 open Microsoft.Win32
 
 module BlenderUtil =
@@ -15,6 +14,11 @@ module BlenderUtil =
     let PythonSetupScript = @"BlenderScripts\install.py"
     let PySuccessLine = "MMINFO: Plugin enabled"
     let PyFailLine = "MMERROR: "
+
+    type ScriptStatus =
+        NotFound
+        | UpToDate
+        | Diverged
 
     // http://www.fssnip.net/raw/gO
     let rec directoryCopy srcPath dstPath copySubDirs =
@@ -96,51 +100,88 @@ module BlenderUtil =
         let rawErr = proc.StandardError.ReadToEnd()
         rawOut,rawErr
         
-    let private getAddonsPath (exe:string) =
-        // exec blender with install.py to get the addon paths.
-        // if the appdata path is in the list, use it.
-        // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
-        // install dir path (so that we get the correct version, etc), and return that.
-        // (we need to use an appdata path, because otherwise we likely need admin privs to install)
-        let rawOut,rawErr = runBlender exe "paths"
+    let getAddonsPath (exe:string):Result<string,string> =
+        try
+            // exec blender with install.py to get the addon paths.
+            // if the appdata path is in the list, use it.
+            // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
+            // install dir path (so that we get the correct version, etc), and return that.
+            // (we need to use an appdata path, because otherwise we likely need admin privs to install)
+            let rawOut,rawErr = runBlender exe "paths"
 
-        let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
+            let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
-        let PathLine = "MMPATH:"
-        let paths = 
-            outLines 
-            |> Array.filter (fun line -> line.StartsWith(PathLine))
-            |> Array.map (fun line -> line.Substring(PathLine.Length).Trim())
+            let PathLine = "MMPATH:"
+            let paths = 
+                outLines 
+                |> Array.filter (fun line -> line.StartsWith(PathLine))
+                |> Array.map (fun line -> line.Substring(PathLine.Length).Trim())
 
-        if paths.Length = 0 then
-            let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
-            failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
+            if paths.Length = 0 then
+                let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
-        let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-        let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
-        match found with
-        | Some p -> p
-        | None ->
-            // rebuild a new appData path, using a relative part from one of the existing paths
-            let relRoot = "Blender Foundation"
-            let found = paths |> Array.tryFind (fun p -> p.Contains(relRoot))
-            let path = 
-                match found with
-                | None -> 
-                    let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
-                    failwithf "Unable to locate a suitable addon path:%s" rawMsg
-                | Some path -> path
-            let path = path.Substring(path.IndexOf(relRoot))
-            let path = Path.Combine(appData,path)
-            path     
+            let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+            let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
+            match found with
+            | Some p -> Ok(p)
+            | None ->
+                // rebuild a new appData path, using a relative part from one of the existing paths
+                let relRoot = "Blender Foundation"
+                let found = paths |> Array.tryFind (fun p -> p.Contains(relRoot))
+                let path = 
+                    match found with
+                    | None -> 
+                        let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                        failwithf "Unable to locate a suitable addon path:%s" rawMsg
+                    | Some path -> path
+                let path = path.Substring(path.IndexOf(relRoot))
+                let path = Path.Combine(appData,path)
+                Ok(path)
+            with
+        | e -> Err(e.Message)
+
+    let getScriptSourceDir() = 
+        let lp = ProcessUtil.getLoaderPath()
+        let root = Path.Combine(Path.GetDirectoryName(lp), "..")
+
+        Path.GetFullPath(Path.Combine(root,SourceScriptDir))
+
+    let checkScriptStatus (currInstallDir:string):Result<ScriptStatus,string> = 
+        try
+            if not (Directory.Exists currInstallDir) then
+                Ok(NotFound)
+            else
+                let srcDir = getScriptSourceDir()
+
+                if not (Directory.Exists srcDir) then
+                    failwith "Source script directory does not exist: %s" srcDir
+
+                let srcFiles = Directory.GetFiles(srcDir,"*.*", SearchOption.AllDirectories)
+                let currFiles = srcFiles |> Array.map (fun f -> f.Replace(srcDir,currInstallDir))
+
+                let diffFound = 
+                    Array.zip srcFiles currFiles 
+                    |> Array.tryPick (fun (src,curr) ->
+                        if not (File.Exists curr) then
+                            Some(curr)
+                        else
+                            let srcData = File.ReadAllBytes(src)
+                            let currData = File.ReadAllBytes(curr)
+                            if srcData <> currData then
+                                Some(curr)
+                            else
+                                None
+                    )
+                match diffFound with
+                | None -> Ok(UpToDate)
+                | Some diff -> Ok(Diverged)
+        with
+            | e -> Err(e.Message)
 
     let installMMScripts (exe:string):Result<string,string> =
         try
-            let srcDir = 
-                let lp = ProcessUtil.getLoaderPath()
-                let root = Path.Combine(Path.GetDirectoryName(lp), "..")
-
-                Path.GetFullPath(Path.Combine(root,SourceScriptDir))
+            let srcDir = getScriptSourceDir()
 
             if not (Directory.Exists srcDir) then
                 failwith "Source script directory does not exist: %s" srcDir
@@ -148,7 +189,10 @@ module BlenderUtil =
             if not (File.Exists exe) then
                 failwith "Can't find blender executable"
 
-            let addons = getAddonsPath exe
+            let addons = 
+                match (getAddonsPath exe) with
+                | Ok(path) -> path
+                | Err(s) -> failwithf "%s" s
 
             // the directory may not exist yet
             if not (Directory.Exists addons) then
