@@ -32,6 +32,7 @@ Installation
 
 Non-programmers should install the binary version: link
 
+You will also need the visual C++ runtime: link
 
 Development
 -----------
