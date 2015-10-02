@@ -331,9 +331,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
 	// convert to multi-byte until I do the real fix and convert the rest of this program to wide.
 	// the memory associated with these args is leaked...ZOMG
-	char* mb_args = (char*)malloc(argc * sizeof(char*));
-
-	char** argv = &mb_args;
+	char** argv = new char*[argc]; 
 	if (argc > 0) {
 		for (int i = 0; i < argc; ++i) {
 			argv[i] = Util::ConvertToMB(uArgv[i]);
