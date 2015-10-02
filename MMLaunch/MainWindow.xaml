@@ -34,6 +34,10 @@
                 Command="{Binding Path=SetupBlender}"
                 CommandParameter="{Binding ElementName=MainWindow}"
                 Content="Setup Blender" Margin="10,253,10,-43"/>
+            <Button Content="Preferences" 
+                    Command="{Binding Path=OpenPreferences}"
+                    CommandParameter="{Binding ElementName=MainWindow}"
+                    HorizontalAlignment="Left" VerticalAlignment="Top" Width="141" RenderTransformOrigin="1.16,7.591" Margin="10,280,0,-70"/>
         </Grid>
         <Grid Margin="42,10,-387,-268" Visibility="{Binding Path=ProfileAreaVisibility}">
             <Label Content="ExePath" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>

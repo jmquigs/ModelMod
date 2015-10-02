@@ -62,6 +62,8 @@
     <Compile Include="CreateModWindow.xaml.fs" />
     <Resource Include="BlenderWindow.xaml" />
     <Compile Include="BlenderWindow.xaml.fs" />
+    <Resource Include="PreferencesWindow.xaml" />
+    <Compile Include="PreferencesWindow.xaml.fs" />
     <Resource Include="MainWindow.xaml" />
     <Compile Include="MainWindow.xaml.fs" />
     <Resource Include="App.xaml" />
@@ -110,6 +112,7 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Numerics" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Windows.Interactivity">
       <HintPath>packages\Expression.Blend.Sdk.1.0.2\lib\net45\System.Windows.Interactivity.dll</HintPath>
       <Private>True</Private>

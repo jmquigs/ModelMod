@@ -71,7 +71,7 @@ module CoreTypes =
         LoadModsOnStart = true
         InputProfile = ""
         SnapshotProfile = ""
-        DocRoot = ""
+        DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
     }
 
     // ------------------------------------------------------------------------

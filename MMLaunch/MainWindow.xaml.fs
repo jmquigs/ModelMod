@@ -179,7 +179,7 @@ module MainViewUtil =
 
         ViewModelUtil.pushSelectFileDialog (initialDir,LocStrings.Misc.ExeFilesFilter + "|*.exe")
 
-    let private getDirLocator (profile:ProfileModel) =
+    let getDirLocator (profile:ProfileModel) =
         let lp = ProcessUtil.getLoaderPath()
         if lp = "" then failwithf LocStrings.Errors.CantFindLoader ProcessUtil.LoaderName
         let root = Directory.GetParent(lp).FullName
@@ -205,6 +205,12 @@ module MainViewUtil =
         let vm = view.Root.DataContext :?> BlenderViewModel
         (view,vm)
         
+    let makePreferencesWindow (parentWin:Window) =
+        let view = new PreferencesView()
+        view.Root.Owner <- parentWin
+        let vm = view.Root.DataContext :?> PreferencesViewModel
+        (view,vm)
+
     let makeConfirmDialog (parentWin:Window) =
         let view = new ConfirmDialogView()
         view.Root.Owner <- parentWin
@@ -270,13 +276,17 @@ module MainViewUtil =
     let failValidation (msg:string) = ViewModelUtil.pushDialog msg
 
     let profileDirHasFiles (p:ProfileModel) (dirSelector: ProfileModel -> string) =
-        if p.ExePath = "" 
-        then false
-        else
-            let sd = dirSelector p
-            if not (Directory.Exists sd) 
+        // dir locator may throw exception if data dir does not exist
+        try 
+            if p.ExePath = "" 
             then false
-            else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+            else
+                let sd = dirSelector p
+                if not (Directory.Exists sd) 
+                then false
+                else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+        with 
+            | e -> false
 
     let openModsDir (p:ProfileModel) =
         let hasfiles = profileDirHasFiles p (fun p -> getDataDir p)
@@ -636,6 +646,15 @@ type MainViewModel() as self =
                 view.Root.ShowDialog() |> ignore
             ))
 
+    member x.OpenPreferences = 
+        new RelayCommand (
+            (fun canExecute -> true),
+            (fun mainWin ->
+                let mainWin = mainWin :?> Window
+                let view,_ = MainViewUtil.makePreferencesWindow(mainWin)
+                view.Root.ShowDialog() |> ignore
+            ))
+
     member x.StartInSnapshotMode = 
         new RelayCommand (
             (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable), 
@@ -654,12 +673,28 @@ type MainViewModel() as self =
                         | NotStarted -> loaderState
 
                     x.UpdateLoaderState <| StartPending(selectedProfile.ExePath)
-                    x.UpdateLoaderState <|
-                        match (ProcessUtil.launchWithLoader selectedProfile.ExePath) with 
-                        | Ok(p) -> Started(p,selectedProfile.ExePath)
-                        | Err(e) -> 
-                            MainViewUtil.failValidation e.Message
-                            StartFailed(e,selectedProfile.ExePath))))
+                    
+                    try
+                        // make sure the data dir exists
+                        let dir = MainViewUtil.getDirLocator(selectedProfile).QueryBaseDataDir()
+                        if dir <> "" && not (Directory.Exists dir) then
+                            Directory.CreateDirectory(dir) |> ignore
+
+                        let dir = MainViewUtil.getDataDir selectedProfile
+                        if dir <> "" && not (Directory.Exists dir) then
+                            Directory.CreateDirectory(dir) |> ignore
+
+                        // start it 
+                        x.UpdateLoaderState <|
+                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath) with 
+                            | Ok(p) -> Started(p,selectedProfile.ExePath)
+                            | Err(e) -> 
+                                MainViewUtil.failValidation e.Message
+                                StartFailed(e,selectedProfile.ExePath)
+                    with 
+                        | e -> MainViewUtil.failValidation (sprintf "Failed to start: %s" e.Message)
+            )))
+
                 
     member x.ViewInjectionLog = 
         new RelayCommand (

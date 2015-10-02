@@ -198,13 +198,18 @@ module RegConfig =
             { rc with ProfileName = getDefaultProfileName rc.ExePath }
         else 
             rc
+
+    let getDocRoot():string = 
+        regget(regLoc.HiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
+    let setDocRoot(r:string) = 
+        setGlobalValue RegKeys.DocRoot r
         
     let loadFromFullProfileKey(profPath:string) (profileKeyName:string):RunConfig = 
         let mmHiveRoot = regLoc.HiveRoot
 
         let mutable rc = { 
             // eventually this may come from the profile as well, right now it is global
-            DocRoot = regget(mmHiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
+            DocRoot = getDocRoot()
 
             ProfileKeyName = profileKeyName
             ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string

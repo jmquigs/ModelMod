@@ -1,0 +1,21 @@
+﻿<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
+    xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
+    Title="Preferences" Height="224" Width="621"
+    ResizeMode="NoResize">
+    <Window.DataContext>
+        <local:PreferencesViewModel/>
+    </Window.DataContext>
+    <Grid HorizontalAlignment="Left" Height="224" Margin="10,10,0,0" VerticalAlignment="Top" Width="581">
+        <Button 
+            Content="Browse" 
+            Command="{Binding Path=Browse}"
+            HorizontalAlignment="Left" Margin="10,69,0,0" VerticalAlignment="Top" Width="75"/>
+        <Label Content="Mod Data Directory:" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="214"/>
+        <TextBox 
+            HorizontalAlignment="Left" Height="23" Margin="10,41,0,0" TextWrapping="Wrap" 
+            Text="{Binding Path=DocRoot}" VerticalAlignment="Top" Width="561"/>
+    </Grid>
+</Window>

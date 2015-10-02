@@ -506,14 +506,20 @@ module State =
 
     // Helper type for finding various directories
     type DirLocator(rootDir:string, conf:RunConfig) = 
+        member x.QueryBaseDataDir() = 
+            // this is set from registry; if not set, use RootDir + DefaultDataDir
+            if conf.DocRoot <> "" then
+                conf.DocRoot
+            else
+                Path.Combine(rootDir, DefaultDataDir)
+
+        // This throws an exception if the base data dir does not exist; the exception is intended
+        // to stop loading; we don't try to create it or otherwise proceed if it isn't found.
+        // To just query the data directory without risk of exception, use 
+        // QueryBaseDataDir() 
         member x.BaseDataDir 
             with get() = 
-                // this is set from registry; if not set, use RootDir + DefaultDataDir
-                let dataDir = 
-                    if conf.DocRoot <> "" then
-                        conf.DocRoot
-                    else
-                        Path.Combine(rootDir, DefaultDataDir)
+                let dataDir = x.QueryBaseDataDir()
                 if not (Directory.Exists dataDir) then
                     failwithf "Data directory does not exist: %s" dataDir
 
