@@ -222,23 +222,37 @@ void RenderState::init(IDirect3DDevice9* dev) {
 		_focusWindow = params.hFocusWindow;
 	}
 
-
-	// Usually, in dev mode, don't want to load on startup. Use the keybinding to load meshes.
-	//loadMeshes();
-
-	// load "selected" texture.  maybe should just generate this
+	// create "selected" texture
 	WCHAR* dataPath = NULL;
-	if (Interop::OK() && (dataPath = Interop::Callbacks().GetDataPath()) != NULL) {
+	if (Interop::OK()) {
 		IDirect3DTexture9 * tex;
 
-		WCHAR fullpath[16384];
-		swprintf_s(fullpath, sizeof(fullpath)/sizeof(fullpath[0]), L"%S/selected_texture.png", dataPath);
-
-		HRESULT hr = D3DXCreateTextureFromFileW(dev, fullpath, &tex);
+		int width = 256;
+		int height = 256;
+		HRESULT hr = dev->CreateTexture(width, height, 1, 0,
+			D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, 0);
 		if (FAILED(hr)) {
 			MM_LOG_INFO("Failed to create 'selection' texture");
 		} else {
 			_selectionTexture = tex;
+
+			D3DLOCKED_RECT rect;
+			hr = tex->LockRect(0, &rect, 0, D3DLOCK_DISCARD);
+			if (FAILED(hr)) {
+				MM_LOG_INFO("Failed to lock 'selection' texture");
+			}
+			else {
+				unsigned char* dest = static_cast<unsigned char*>(rect.pBits);
+
+				// fill it with a lovely shade of green
+				Uint32 numEls = width * height;
+				for (Uint32 i = 0; i < numEls; ++i) {
+					Uint32* d = (Uint32*)(dest + (i*sizeof(Uint32)));
+					*d = 0xFF00FF00;
+				}
+				//MM_LOG_INFO("filled selection texture");
+				tex->UnlockRect(0);
+			}
 		}
 	}
 
