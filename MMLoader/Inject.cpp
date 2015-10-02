@@ -108,7 +108,13 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 				}
 				else {
 					waitTimeout = 500;
-					MaxHookAttempts = 25;
+					// Note, if you need to debug injection (via attaching during SpinWhileFileExists),
+					// set this to a large number  
+					// to prevent the loader from bailing and aborting
+					// during the time it takes you to attach.
+					// 100 attempts at 500 timeout = about 50 seconds of waiting.
+					// Don't use waitTimeout INFINITE as above, it will deadlock.
+					MaxHookAttempts = 25; 
 				}
 					 
 				int attempt = 0;

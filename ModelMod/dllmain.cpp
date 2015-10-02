@@ -32,6 +32,9 @@ void SpinWhileFileExists(HMODULE dllModule) {
 	// Consume CPU while waiting for debugger attach.  I like this better than using IsDebuggerPresent because
 	// I can just create or delete the file when I need the debugger, rather than doing a code or build config modification
 
+	// Note, to use this with Loader, you probably need to make a loader modification; search for
+	// SpinWhileFileExists in inject.cpp.
+
 	MM_LOG_INFO(format("Beginning spin: {}", spinPath));
 	FILE* fp = NULL;
 	do  {
