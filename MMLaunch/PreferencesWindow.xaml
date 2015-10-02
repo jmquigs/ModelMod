@@ -17,5 +17,6 @@
         <TextBox 
             HorizontalAlignment="Left" Height="23" Margin="10,41,0,0" TextWrapping="Wrap" 
             Text="{Binding Path=DocRoot}" VerticalAlignment="Top" Width="561"/>
+        <Label Content="Note: if you change this, you must move any mod files manually." HorizontalAlignment="Left" Margin="10,96,0,0" VerticalAlignment="Top" Width="360"/>
     </Grid>
 </Window>
