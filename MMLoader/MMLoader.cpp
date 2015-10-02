@@ -272,12 +272,15 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 	switch(waitRet)  
 	{
 	case WAIT_OBJECT_0:
+		Util::Log("Got WAIT_OBJECT_0\n");
 		break;
 
 	case WAIT_ABANDONED:
+		Util::Log("Got WAIT_ABANDONED\n");
 		break;
 
 	case WAIT_TIMEOUT:
+		Util::Log("Got WAIT_TIMEOUT\n");
 		break;
 
 	case WAIT_FAILED:
@@ -286,6 +289,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		ret = -1;
 		break;
 	default:
+		Util::Log("Got WaitForSingleObject code %08X", waitRet);
 		break;
 	}
 
