@@ -308,7 +308,7 @@ void RenderState::addSceneNotify(ISceneNotify* notify) {
 }
 
 static const bool SnapWholeScene = false;
-// Snapshotting is currently stops after a certain amount of real time has passed from the start of the snap, specified by this constant.
+// Snapshotting currently stops after a certain amount of real time has passed from the start of the snap, specified by this constant.
 // One might expect that just snapping everything drawn within a single begin/end scene combo is sufficient, but this often misses data, 
 // and sometimes fails to snapshot anything at all.  Perhaps the game is using multiple being/end combos, or drawing outside of begin/end 
 // block.  Using a window makes it much more likely that something useful is captured, at the expense of some duplicates; even though
