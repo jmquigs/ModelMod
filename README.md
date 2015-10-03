@@ -45,6 +45,6 @@ Install the following:
 
 * June 2010 DirectX SDK: http://www.microsoft.com/en-us/download/details.aspx?id=6812
 (I hope to eliminate this eventually, but right now it is required for some legacy d3dx code)
-* Visual Studio 2013 or 2015 Community:
+* Visual Studio 2015 Community:
 https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
 * Visual F# power tools (optional but recommended) https://fsprojects.github.io/VisualFSharpPowerTools/
