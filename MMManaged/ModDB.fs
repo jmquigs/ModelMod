@@ -54,7 +54,7 @@ module ModDB =
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
-    let loadMesh(path, (modType:ModType), flags) = 
+    let loadUncachedMesh(path, (modType:ModType), flags) = 
         let mesh = MeshUtil.readFrom(path, modType, flags)
         if flags.ReverseTransform && 
             (mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0) then
@@ -62,6 +62,15 @@ module ModDB =
             // clear out applied transforms, since they have been reversed.
             { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
         else
+            mesh
+
+    let loadMesh(path, (modType:ModType), flags) = 
+        match MemoryCache.get (path,modType,flags) with 
+        | None -> 
+            let mesh = loadUncachedMesh(path,modType,flags)
+            MemoryCache.save(path,modType,flags,mesh)
+            mesh
+        | Some mesh ->
             mesh
         
     let getModType = function
