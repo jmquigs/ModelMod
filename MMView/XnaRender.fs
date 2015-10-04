@@ -24,7 +24,7 @@ module XnaRender =
 
     type IXnaRenderable =
         inherit System.IDisposable
-        abstract member Update : int -> unit // TODO: should probably be a in different interface (ITickable?)
+        abstract member Update : int -> unit 
         abstract member Render : WorldRenderData -> unit;
 
     let basicRender (objRenderData:ObjectRenderData) (worldRenderData:WorldRenderData) =
@@ -105,6 +105,7 @@ module XnaRender =
             // 1) Use the content pipeline (an additional assembly reference, and there isn't a nuget for it)
             // 2) Use FreeImageNET/FreeImage directly (which is what the content pipeline uses)
             // 3) Add yet another dependency to legacy D3DX and use pinvoke on it.
+            // 4) Use one of MS's open source dx toolkits to load it
             // I tried looking at 1, and managed to get it to actually load a TextureContent, but it wasn't
             // clear how to convert that into a Texture2D for the effect without writing a bunch of tedious data
             // filling code - shouldn't there be a utility for this somewhere?  
@@ -114,6 +115,8 @@ module XnaRender =
             // We may also be able to use the DirectXTK for this since it doesn't need to be D3D9 compatible
             // https://github.com/Microsoft/DirectXTK
             // or https://github.com/Microsoft/DirectXTex
+            // If we could use one of those open source DX libs, and it was compatible with D3D9, 
+            // maybe we could eliminate the whole stupid legacy D3DX dependency entirely.
             // Giving up for now.  
             ()
 

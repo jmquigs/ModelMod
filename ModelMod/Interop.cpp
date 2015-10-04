@@ -44,7 +44,12 @@ int InitCLR(WCHAR* mmPath) {
 		return RetFailGotManager;
 	}
 
-	// TODO: cleanup on failure!
+	// Note, this function allocate a bunch of COM pointers and then essentially 
+	// leaks them (in both success and failure cases).  However this function is 
+	// just executed once and the resulting objects
+	// are all singletons anyway, so process-exit style cleanup is fine here.
+	// IF we ever switch to invoking this more than once, however, we'll need 
+	// to track and clean up those objects.
 
 	if (!mmPath) {
 		MM_LOG_INFO("Error: No path specified, can't load managed assembly");

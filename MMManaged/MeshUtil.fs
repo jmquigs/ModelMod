@@ -115,7 +115,8 @@ module MeshUtil =
 
                 // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.  
                 // I think I have some bad rounding going on somewhere
-                // in the conversion/capture of these; either in snapshotting, or in blender 
+                // in the conversion/capture of these; either in snapshotting, or in blender, 
+                // since the differences are small.
                 let sum = weights.X + weights.Y + weights.Z + weights.W 
                 let weights = 
                     if ((1.f - sum) > 0.f) then

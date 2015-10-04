@@ -240,7 +240,7 @@ IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT SDKVersion) {
 			// Some apps create multiple d3d9 interfaces and hang on to them.  Thus, it isn't valid to release the interface
 			// just because an app asked for another one (could crash the app).  So just replace the old one without
 			// deallocating (potential leak)
-			// TODO: maybe I should just AddRef on it, then Release() here?
+			// TODO: maybe I should just AddRef on it when created, then Release() here?
 			//MM_LOG_INFO(format("Releasing old hook interface"));
 			//gH_D3D9->Release();
 			//delete gH_D3D9;

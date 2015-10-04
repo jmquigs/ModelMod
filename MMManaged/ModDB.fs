@@ -26,8 +26,9 @@ module ModDB =
     let private (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
     type ModDB(refObjects,modObjects,meshRels) =
-        // explode deletion mods into interop representation now.  TODO: this violates abstraction since it makes moddb use interop types.
-        // perhaps this should be moved into the interop state
+        // explode deletion mods into interop representation now.  
+        // this is a little weird because it makes moddb use interop types, but it 
+        // is more convenient to do this here than in ModDBInterop.
         let deletionMods = 
             modObjects 
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))

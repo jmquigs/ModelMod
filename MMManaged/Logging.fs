@@ -42,6 +42,7 @@ module Logging =
             else
                 let category,logger = makeLogger(category)
                 // TODO: why do I keep getting "key already exists", app domain issue?
+                // Note: think this is from when I was setting up the appdomain incorrectly, probably fixed now, needs retest.
                 //_loggers.Add(category,logger) 
                 logger
         logger  

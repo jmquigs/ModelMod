@@ -62,7 +62,7 @@ module MeshTransform =
     // Parse a string representing a position or normal transform function, and return a three-tuple of the fn name, the F# function 
     // that the transform and the associated quantity required to do it.  
     // Calling code has an opportunity to change the amount, if needed (for example, to reverse the transform).  
-    // TODO: would like to be able to generize this so that the vec2 and vec3 implementions could be combined, but something is forcing
+    // TODO: would like to be able to generalize this so that the vec2 and vec3 implementions could be combined, but something is forcing
     // a specialization for the vector types.  This doesn't happen with reverseFunc below, though.
     let parseVec3XformFunc (isNormal:bool) (mesh:Mesh) (xname:string) = 
         let dummyRet = "",noop,0.f

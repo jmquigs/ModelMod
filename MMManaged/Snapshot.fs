@@ -252,7 +252,8 @@ module Snapshot =
             // now write the index (primitive) data
             // since we only wrote out the potentially-usable verts, and not the full buffer, we have to offset each index by
             // MinVertexIndex, since that is the lowest possible index that we can use 
-            // TODO: need to test this with something that has minVertexIndex != 0; may need to include some code to use that in processTriangle
+            // TODO: I think I've seen this work with minVertexIndex <> 0, but I'm not sure since that is an uncommon case; 
+            // needs definitive test.
             let indexElemSize = 2 // 2 = sizeof short (Format.Index16)
             let ibStartOffset = int64 sd.minVertexIndex * (int64 indexElemSize) + int64 (sd.startIndex * uint32 indexElemSize)
             ignore (ibDS.Seek(ibStartOffset, SeekOrigin.Begin))
