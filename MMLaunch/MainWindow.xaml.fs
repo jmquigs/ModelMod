@@ -39,6 +39,7 @@ module LocStrings =
         let Desc1 = "Press CONTROL followed by the following keys."
         let Desc2 = "There is no in-game UI that displays these, so try alt-tab if you forget them."
         let Reload = "Load (or reload) modelmod managed code, configuration, and mods"
+        let ReloadMods = "Load (or reload) mods only"
         let Toggle = "Toggle mod display"
         let ClearTex = "Clear the active texture list (will be rebuilt from scene textures)"
         let SelectNextTex = "Select Previous Texture"
@@ -77,15 +78,16 @@ module LocStrings =
 module ProfileText = 
     module Input = 
         let CommandOrder = [
-            LocStrings.Input.Reload; LocStrings.Input.Toggle;
+            LocStrings.Input.ReloadMods; LocStrings.Input.Toggle;
             LocStrings.Input.ClearTex; 
-            LocStrings.Input.SelectNextTex; LocStrings.Input.SelectPrevTex; LocStrings.Input.DoSnapshot]
+            LocStrings.Input.SelectNextTex; LocStrings.Input.SelectPrevTex; LocStrings.Input.DoSnapshot
+            LocStrings.Input.Reload]
         let PunctKeys = [@"\"; "]"; 
             ";"; 
-            ","; "."; "/"]
+            ","; "."; "/"; "-"]
         let FKeys = ["F1"; "F2";
             "F7";
-            "F3"; "F4"; "F6"]
+            "F3"; "F4"; "F6"; "F9"]
     
         let Descriptions =
             let makeInputDesc keys = 

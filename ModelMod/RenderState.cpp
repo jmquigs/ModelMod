@@ -259,22 +259,23 @@ void RenderState::init(IDirect3DDevice9* dev) {
 	// Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
 	// TODO: should push this out to conf file eventually so that they can be customized without rebuild
 	// If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
-	_punctKeyMap[DIK_BACKSLASH] = [&]() { this->loadMods(); }; // TODO: update docs
+	_punctKeyMap[DIK_BACKSLASH] = [&]() { this->loadMods(); }; 
 	_punctKeyMap[DIK_RBRACKET] = [&]() { this->toggleShowModMesh(); };
 	_punctKeyMap[DIK_SEMICOLON] = [&]() { this->clearTextureLists(); };
 	_punctKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
 	_punctKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
 	_punctKeyMap[DIK_SLASH] = [&]() { this->requestSnap(); };
-	_punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); }; // TODO: doc, replicate in FKeys
+	_punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); }; 
 	
 
 	// If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
-	_fKeyMap[DIK_F1] = [&]() { this->loadEverything(); };
+	_fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
 	_fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
 	_fKeyMap[DIK_F7] = [&]() { this->clearTextureLists(); };
 	_fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
 	_fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
 	_fKeyMap[DIK_F6] = [&]() { this->requestSnap(); };
+	_fKeyMap[DIK_F9] = [&]() { this->loadEverything(); };
 
 	_pCurrentKeyMap = &_fKeyMap;
 	
