@@ -269,8 +269,10 @@ module MainViewUtil =
         let vm = cw.Root.DataContext :?> CreateModViewModel
         vm.SnapshotDir <- getSnapshotDir(profile)
         vm.DataDir <- getDataDir(profile)
+        let modNameTB = cw.Root.FindName("ModName") :?> TextBox
         let previewHost = cw.Root.FindName("ModelPreview") :?> PreviewHost
         vm.PreviewHost <- Some(previewHost)
+        vm.ModNameTB <- Some(modNameTB)
 
         cw.Root.Owner <- parentWin
         (cw,vm)

@@ -9,6 +9,7 @@ open System.IO
 open FSharp.ViewModule
 open FSharp.ViewModule.Validation
 open System.Windows.Input
+open System.Windows.Controls
 open System.ComponentModel
 open System.Collections.ObjectModel
 open Microsoft.Win32
@@ -36,6 +37,7 @@ type CreateModViewModel() as self =
     let mutable targetMMObjFile:MMObjFileModel option = None
     let mutable modName = ""
     let mutable previewHost: PreviewHost option = None
+    let mutable modNameTB: TextBox option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     let mutable addToModIndex = true
     let mutable removeSnapshotsFn = (fun _ -> ())
@@ -93,6 +95,10 @@ type CreateModViewModel() as self =
         and set value = dataDir <- value
     member x.PreviewHost
         with set value = previewHost <- value
+    member x.ModNameTB 
+        with set value = 
+            modNameTB <- value
+            modNameTB |> Option.iter (fun tb -> tb.SelectionChanged.Add(x.ModNameChanged) )
 
     member x.Files 
         with get() = mmobjFiles
@@ -109,6 +115,12 @@ type CreateModViewModel() as self =
                 targetMMObjFile <- Some(value)
             x.TargetFileChanged()
 
+    member x.ModNameChanged args = 
+        modNameTB |> Option.iter (fun tb ->
+            modName <- tb.Text.Trim()
+            x.TargetFileChanged()
+        )
+
     member x.ModName
         with get() = modName
         and set (value:string) = 
@@ -117,8 +129,6 @@ type CreateModViewModel() as self =
 
     member x.ModDest 
         with get() = 
-            // TODO: would like to update this on each keystroke, but that seems to require 
-            // hooking the selectionChanged event, which is a PITA from F# 
             match validateModName modName with
             | Err(s) -> s
             | Ok(path) -> path
