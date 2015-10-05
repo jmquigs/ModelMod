@@ -63,5 +63,6 @@ ModelMod references various third party .NET libraries which have their own
 licenses.  
 
 The following components of ModelMod are in the Public Domain.  These programs are distributed WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 * The MMLoader injection utility (files in "MMLoader" subdirectory)
 * All unit/integration tests (files in the "Test.MMManaged" subdirectory)
