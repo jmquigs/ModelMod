@@ -14,5 +14,20 @@ let veqEqEpsilon (ep:float32) (v1:Vec3F) (v2:Vec3F) =
 
 let TestDataDir = 
     let asmPath = Assembly.GetExecutingAssembly().CodeBase.Replace("file:///","")
-    let tdata = Path.GetFullPath(Path.Combine(asmPath,@"..\..\..\..\TestData"))
-    tdata
+
+    let paths = [ @"..\TestData"; "@..\..\..\..\TestData" ]
+
+    let paths = paths |> List.map (fun p -> Path.GetFullPath(Path.Combine(asmPath,p)))
+
+    let found =     
+        paths |> List.tryPick (fun p -> 
+            if Directory.Exists p then
+                Some(p)
+            else
+                None
+    )
+
+    match found with 
+    | None -> failwithf "Failed to locate test data directory, searched: %A" paths
+    | Some path -> path
+    

@@ -27,3 +27,7 @@ ipch/
 MMManaged/TestFSI.fsx
 Logs/
 Data/
+.fake/
+test/
+build/
+deploy/

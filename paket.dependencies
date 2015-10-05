@@ -8,3 +8,5 @@ nuget FsXaml.Wpf 0.9.9 framework: >= net45
 nuget MonoGame.Framework.WindowsDX 3.3.0.0 framework: >= net45
 nuget NUnit 2.6.4 framework: >= net45
 nuget YamlDotNet 3.5.1 framework: >= net45
+nuget FAKE
+nuget NUnit.Runners
