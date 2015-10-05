@@ -4,7 +4,7 @@ It works by replacing 3D models (and textures, optionally) at the renderer level
 You start by selecting and snapshotting some model in the target game.
 This snapshot can then be edited in a 3D modeling tool.  When the game runs
 and draws the original model, ModelMod transparently swaps in your modified
-version, and renders that instead.
+version, and renders that in place of the original.
 
 Demo Videos
 -----------
@@ -48,3 +48,20 @@ Install the following:
 * Visual Studio 2015 Community:
 https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
 * Visual F# power tools (optional but recommended) https://fsprojects.github.io/VisualFSharpPowerTools/
+(can be installed via Visual Studio Extensions menu)
+
+License
+-------
+
+Unless otherwise noted here, ModelMod code is licensed under the terms of the
+GNU GPL version 3.
+
+The included c++ format library (format.h/format.cc) is licensed under its
+author's license - see format.h for details.
+
+ModelMod references various third party .NET libraries which have their own
+licenses.  
+
+The following components of ModelMod are in the Public Domain.  These programs are distributed WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+* The MMLoader injection utility (files in "MMLoader" subdirectory)
+* All unit/integration tests (files in the "Test.MMManaged" subdirectory)
