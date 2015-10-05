@@ -3,6 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
 VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".paket", ".paket", "{B6EDA9F7-843B-4244-BD55-DA47A2618A69}"
+	ProjectSection(SolutionItems) = preProject
+		..\paket.dependencies = ..\paket.dependencies
+	EndProjectSection
+EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MMLaunch", "MMLaunch.fsproj", "{5FC4A84B-A153-4927-B6AA-015C78F6D03D}"
 	ProjectSection(ProjectDependencies) = postProject
 		{B7751FAB-AE42-457F-8D69-51BEE5DC080A} = {B7751FAB-AE42-457F-8D69-51BEE5DC080A}
