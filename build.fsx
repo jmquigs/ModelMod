@@ -70,6 +70,9 @@ Target "CopyStuff" (fun _ ->
         |> CopyFiles (buildDir + "/BlenderScripts")
     !! ("./BlenderScripts/io_scene_mmobj/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts/io_scene_mmobj")
+
+    !! (buildBin + "/ModelMod.exe")
+        |> CopyFiles buildDir
 )
 
 Target "Zip" (fun _ ->
