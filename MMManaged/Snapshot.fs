@@ -322,7 +322,7 @@ module Snapshot =
 
             let lookupTransforms map =
                 if doTransforms then
-                    let profileKey = State.Conf.SnapshotProfile
+                    let profileKey = State.Data.Conf.SnapshotProfile
 
                     let xforms = map |> Map.tryFind profileKey
                     match xforms with 

@@ -33,10 +33,10 @@ module ModDBInterop =
             if exeModule.Contains("..") then failwith "Illegal exe module, contains '..' : %A" exeModule
 
             // set the root path to the parent of the native ModelMod.dll.  
-            State.RootDir <- Directory.GetParent(mmDllPath).ToString()
+            let rootDir = Directory.GetParent(mmDllPath).ToString()
 
             let conf = RegConfig.load exeModule
-            let conf = State.validateAndSetConf conf 
+            let conf = State.validateAndSetConf rootDir conf 
 
             let ret = {    
                 RunModeFull = conf.RunModeFull
@@ -81,7 +81,7 @@ module ModDBInterop =
                 StartConf.Conf.AppSettings = None
             }
 
-            State.Moddb <- ModDB.loadModDB conf
+            State.Data.Moddb <- ModDB.loadModDB conf
 
             Util.reportMemoryUsage()
             0
@@ -90,7 +90,7 @@ module ModDBInterop =
             log.Error "%A" e
             InteropTypes.GenericFailureCode
 
-    let getModCount() = State.Moddb.MeshRelations.Length + State.Moddb.DeletionMods.Length
+    let getModCount() = State.Data.Moddb.MeshRelations.Length + State.Data.Moddb.DeletionMods.Length
 
     let modTypeToInt modType = 
         match modType with
@@ -100,7 +100,7 @@ module ModDBInterop =
         | Reference -> failwith "A mod has type set to reference"
 
     let private getMeshRelationMod i = 
-        let moddb = State.Moddb
+        let moddb = State.Data.Moddb
         let meshrel = List.nth (moddb.MeshRelations) i
         let refm = meshrel.RefMesh
         let modm = meshrel.ModMesh
@@ -147,7 +147,7 @@ module ModDBInterop =
         let emptyMod = InteropTypes.EmptyModData
 
         try
-            let moddb = State.Moddb
+            let moddb = State.Data.Moddb
 
             let maxMods = getModCount()
 
@@ -344,7 +344,7 @@ module ModDBInterop =
         (destVbBw:BinaryWriter) (destVbSize:int) 
         (destIbBw:BinaryWriter) (destIbSize:int) =
         try
-            let moddb = State.Moddb
+            let moddb = State.Data.Moddb
 
             let md = getModData modIndex
             if md.modType <> 3 then // TODO: maybe mod type should be an enum after all

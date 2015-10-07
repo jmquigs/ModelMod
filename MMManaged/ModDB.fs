@@ -522,8 +522,9 @@ module ModDB =
             ms.Seek(int64 offset, SeekOrigin.Begin) |> ignore
             br
 
-// This is needed for interop runs, where we need to keep the loaded ModDB state somewhere but we don't want
-// to pass it over the interop barrier directly.
+/// Contains mutable state, including the current configuration and data for all loaded mods.  
+/// This is stored here so that we don't have to pass it all over the interop barrier, which 
+/// would be totally nasty (and is also largely irrelevant to code on that side).
 module State =
     let private log = Logging.getLogger("State")
 
@@ -558,13 +559,30 @@ module State =
             with get() = Path.Combine(x.ExeDataDir,"snapshots")
 
     // various muties
+    let mutable private _moddb = new ModDB.ModDB([],[],[]) 
+    let mutable private _rootDir = "."
+    let mutable private _conf = CoreTypes.DefaultRunConfig
+    let mutable private _locator = DirLocator(_rootDir,_conf)
 
-    let mutable Moddb = new ModDB.ModDB([],[],[])
-    let mutable RootDir = "."
-    let mutable Conf = CoreTypes.DefaultRunConfig
-    let mutable Locator = DirLocator(RootDir,Conf)
+    // access to the muties out side of the module goes through this, via the "Data" field below.
+    type StateDateAccessor() = 
+        member x.Moddb 
+            with get() = _moddb 
+            and set value = _moddb <- value
+        member x.Conf
+            with get() = _conf
 
-    let validateAndSetConf (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
+    /// Contains all publically accessible data in the State module.
+    let Data = new StateDateAccessor()
+
+    /// Verify the specified confiuration and install it in state.  Does not load the Moddb.
+    /// Throws exception if confiuration is invalid.
+    let validateAndSetConf (rootDir:string) (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
+        if not (Directory.Exists rootDir) then
+            failwith "Root directory does not exist: %s" rootDir
+
+        _rootDir <- rootDir
+
         let snapProfile = 
             match conf.SnapshotProfile with
             | profile when SnapshotProfiles.isValid(profile) -> profile
@@ -577,14 +595,20 @@ module State =
             { conf with
                 SnapshotProfile = snapProfile
             }
-        log.Info "Root dir: %A" (Path.GetFullPath(RootDir))
+        log.Info "Root dir: %A" (Path.GetFullPath(_rootDir))
         log.Info "Conf: %A" conf
             
-        Conf <- conf
-        Locator <- DirLocator(RootDir,Conf)
+        _conf <- conf
+        _locator <- DirLocator(_rootDir,_conf)
         conf
          
-    let getBaseDataDir() = Locator.BaseDataDir
-    let getExeBaseName() = Locator.ExeBaseName
-    let getExeDataDir() = Locator.ExeDataDir
-    let getExeSnapshotDir() = Locator.ExeSnapshotDir
+    /// Returns the base directory for document storage (often <MyDocuments>\ModelMod, but controlled from registry)
+    let getBaseDataDir() = _locator.BaseDataDir
+    /// Returns the base name of the game executable (e.g. "Awesome.exe" -> "Awesome")
+    let getExeBaseName() = _locator.ExeBaseName
+    /// Returns the executable-specific data directory, which is a combination of the base data directory and 
+    /// the exe base name.  (e.g. "<MyDocuments>\ModelMod\Awesome")
+    let getExeDataDir() = _locator.ExeDataDir
+    /// Returns the executable-specific directory snapshot storage.
+    /// (e.g. "<MyDocuments>\ModelMod\Awesome\snapshots")
+    let getExeSnapshotDir() = _locator.ExeSnapshotDir
