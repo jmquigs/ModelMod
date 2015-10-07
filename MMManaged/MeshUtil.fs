@@ -49,13 +49,6 @@ module MonoGameHelpers =
 module MeshUtil =
     let private log = Logging.getLogger("Mesh")
 
-    type Tri = {
-        // three elements each
-        Position: Vec3F[];
-        TexCoord: Vec2F[];
-        Normal: Vec3F[];
-    }
-
     type MtlLib = {
         MapKd: string
     }

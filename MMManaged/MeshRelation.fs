@@ -24,6 +24,14 @@ open Microsoft.Xna.Framework
 open CoreTypes
 
 module MeshRelation =
+
+    type Tri = {
+        // three elements each
+        Position: Vec3F[];
+        TexCoord: Vec2F[];
+        Normal: Vec3F[];
+    }
+
     let private log = Logging.getLogger("MeshRelation")
 
     type MVProjections = { x:float ; y:float ; z:float } 
@@ -62,7 +70,7 @@ module MeshRelation =
                             (pos,tc,nrm)
                         )
                     let pos,tc,nrm = derefed |> Array.unzip3
-                    { MeshUtil.Tri.Position = pos; MeshUtil.Tri.TexCoord = tc; MeshUtil.Tri.Normal = nrm }
+                    { Tri.Position = pos; Tri.TexCoord = tc; Tri.Normal = nrm }
                 )
             tris
 
