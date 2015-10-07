@@ -18,12 +18,17 @@ namespace ModelMod
 
 open System.Runtime.InteropServices
 
+// Using interop makes the IL unverifiable, disable warning.
 #nowarn "9"
-// ----------------------------------------------------------------------------
-// These are types that are passed back to native land  
+
+/// Contains types that are passed back and forth over interop.  All of these types have strict layout requirements
+/// which must match the native code, so changes here must be reflected in that code, otherwise crashamundo 
+/// (if you're lucky).
 module InteropTypes =
     // the use of multibyte could be a problem here if we need to marshal strings containing unicode characters (i18n paths for example),
     // but currently the unmanaged code doesn't need to know about paths other than the MM install dir, which it already knows.
+
+    /// Run-time configuration data.  Mostly derived from RunConfig.
     [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Ansi  )>] 
     type ConfData = {
         [<MarshalAs(UnmanagedType.U1)>]
@@ -34,6 +39,7 @@ module InteropTypes =
         InputProfile: string
     }
 
+    /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
     [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Unicode)>]
     type ModData = {
         modType: int 
@@ -57,6 +63,7 @@ module InteropTypes =
         tex3Path: string
     }
 
+    /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
     let EmptyModData = {
         modType = -1
         primType = 0
@@ -75,6 +82,9 @@ module InteropTypes =
     }
     
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
+    /// Data provided by native code for snapshotting.  Most of these fields come from the DrawIndexedPrimitive() 
+    /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them 
+    /// from the SharpDX device.
     type SnapshotData = {
         primType: int32
         baseVertexIndex: int32
@@ -83,12 +93,20 @@ module InteropTypes =
         startIndex: uint32
         primCount: uint32 
 
+        /// Vertex buffer pointer
         vertDecl:nativeint
+        /// Index buffer pointer
         ib:nativeint
     }
 
+    /// Get the mod count (native -> managed callback)
     type GetModCountCB = delegate of unit -> int 
+    /// Get the mod data for the mod at specified index, where index is in range 0..(modcount-1).
+    /// (native -> managed callback).  If index is out of range, EmptyModData is returned.
     type GetModDataCB = delegate of int -> ModData
+    /// Fill buffers associated with mod at specified index, where index is in range 0..(modcount-1).  
+    /// The native pointers are the destination buffers.  An exception will be logged and GenericFailureCode
+    /// returned if an error occurs (for instance, buffers are too small).
     type FillModDataCB = 
         delegate of 
             modIndex:int *
@@ -99,11 +117,21 @@ module InteropTypes =
             ibData:nativeptr<byte> *
             ibSize:int32 -> int
             
+    /// Take a snapshot.  Managed code is responsible for all the work here, including writing the files to disk
+    /// and performing any transformations.  Returns 0 on success or logs an exception and returns
+    /// GenericFailureCode on error.
     type TakeSnapshotCB = 
         delegate of 
             device: nativeint *
             snapData: SnapshotData -> int
 
+    /// Generic return value for failure.  Not much detail here because generally native code can't do anything 
+    /// about failures, but this is useful
+    /// to help it avoid crashing.  Managed code should typically log detailed exception information when 
+    /// failures occurr.
     let GenericFailureCode = 47
+
+    /// Return value when log initialization fails, which "should never happen" but is fundamental enough that
+    /// we have a special return code for it.
     let LogInitFailed = 50
 

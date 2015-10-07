@@ -20,9 +20,14 @@ open System.Text.RegularExpressions
 open System.Diagnostics
 open System
 
+/// Regexp utilities, mostly used during .mmobj file load (see MeshUtil).
 module REUtil =
     let private reLog = Logging.getLogger("Regex")
 
+    /// Checks that a regex matches the specified pattern and subgroup count; if so returns the groups, if not,
+    /// returns None.  Note that the group count is one higher than the number of apparent groups in the regexp, 
+    /// because there is an implicit first group that matches everything on success.
+    /// e.g. "baz(.*)foo(.*)bar" = 3 expected groups
     let checkGroupMatch pattern count str  = 
         let m = Regex.Match(str,pattern)
         if m.Success && m.Groups.Count = count then
@@ -30,6 +35,11 @@ module REUtil =
         else
             None
 
+    /// Extract values from a list of groups, starting at the specified index and continuing to the end of the
+    /// groups.  Uses the specified extraction function to 
+    /// transform each group value.  Returns an array of all the extract values.
+    /// If any value fails to extract, returns None.  Also returns None if the starting index is >= the
+    /// number of groups.
     let extract start xFn (groups:GroupCollection option)  =
         match groups with 
             | None -> None
@@ -57,6 +67,7 @@ module REUtil =
                         reLog.Error "Failed to extract value from groups[len %d]: %s" groups.Count ex.Message
                         None
 
+/// General utilities
 module Util =
     let replaceSpaceWithUnderscore (s:string) = s.Replace(' ', '_')
 
@@ -64,6 +75,9 @@ module Util =
 
     let private swEnabled = true
 
+    /// Use for basic timing measurements.  If you create it with a "use" statement, it will print the 
+    /// elapsed time to the log when it goes out of scope.  Otherwise you can manually print the elapsed time
+    /// with StopAndPrint().
     type StopwatchTracker(name) = 
         let sw = new Stopwatch()
         do sw.Start()
@@ -80,6 +94,8 @@ module Util =
         interface System.IDisposable with
             member x.Dispose() = x.StopAndPrint()
 
+    /// Report the memory usage of the current process.  Reports both the CLR memory and
+    /// total process memory (which includes CLR memory).
     let reportMemoryUsage() =
         // log memory statistics
         let log = Logging.getLogger("Util")
