@@ -49,11 +49,6 @@ module MonoGameHelpers =
 module MeshUtil =
     let private log = Logging.getLogger("Mesh")
 
-    let makeVec2 x y = 
-        Vec2F(x,y)
-    let makeVec3 x y z = 
-        Vec3F(x,y,z)
-
     type Tri = {
         // three elements each
         Position: Vec3F[];
