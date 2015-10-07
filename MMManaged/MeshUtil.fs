@@ -30,6 +30,7 @@ open CoreTypes
 
 type SDXDT = SharpDX.Direct3D9.DeclarationType
 
+/// Wrapper module for utilities imported from monogame.
 module MonoGameHelpers =
     // "import" some private methods from monogame for working with half-precision floats.  
     // This is the second-worst way to do this (worst being copy paste).  
@@ -38,10 +39,12 @@ module MonoGameHelpers =
     let private mgHalfUint16ToFloat = halfTypeHelper.GetMethod("Convert", BindingFlags.Static ||| BindingFlags.NonPublic, null, [| typeof<uint16> |], null)
     let private mgfloatToHalfUint16 = halfTypeHelper.GetMethod("Convert", BindingFlags.Static ||| BindingFlags.NonPublic, null, [| typeof<System.Single> |], null)
 
+    /// Convert a half-precision float represented by a uint16 into a float.
     let halfUint16ToFloat (u:uint16) =
         if mgHalfUint16ToFloat = null then failwith "mgHalfUint16ToFloat is null; failed to import private method from monogame?"
         mgHalfUint16ToFloat.Invoke(null, [| u |]) :?> float32
 
+    /// Convert a float into a half-precision float represented by a uint16.
     let floatToHalfUint16  (f:float32) =
         if mgfloatToHalfUint16 = null then failwith "mgfloatToHalfUint16 is null; failed to import private method from monogame?"
         mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
@@ -53,7 +56,8 @@ module MeshUtil =
         MapKd: string
     }
 
-    /// Returns a string representation of a face in obj format (PNT; indices are 1-based)
+    /// Returns a string representation of a face in obj format (PTN; indices are 1-based,
+    /// e.g.: "1/4/10")
     let faceToString(face: PTNIndex[]) =
         let inc x = x + 1
 
@@ -64,6 +68,7 @@ module MeshUtil =
         ) face
         sb.ToString()
 
+    /// Read an obj mttlib file.
     let readMtlLib filename = 
         let lines = File.ReadAllLines(filename)
         let mutable mtllib = {
@@ -85,7 +90,14 @@ module MeshUtil =
             | _ -> ()
         mtllib
             
+    /// Read an obj (or MMObj) file, and return the 
+    /// constructed Mesh object.
     let readObj(filename,modType,flags:MeshReadFlags): Mesh =
+        // The basic strategy here is to use a bunch of active patterns 
+        // that use regexps to recognize and convert various types of data.  
+        // We define a bunch of helper functions, pack them up into 
+        // active patterns, then run a match with all the patterns on each line.
+
         //use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
@@ -161,6 +173,15 @@ module MeshUtil =
             match s with 
             | None -> None
             | Some n -> Some (n.[0])
+
+        let stringStartsWithAny (prefixes:string list) (s:string) =
+            let found = 
+                prefixes |> List.tryFind (fun prefix ->
+                    s.Trim().StartsWith(prefix.Trim(), StringComparison.InvariantCultureIgnoreCase)
+                )
+            match found with
+            | None -> None
+            | Some prefix -> Some (s)
             
         let (|Vec2f|_|) pattern str = REUtil.checkGroupMatch pattern 3 str |> REUtil.extract 1 float32 |> makeVec2f
         let (|Vec3f|_|) pattern str = REUtil.checkGroupMatch pattern 4 str |> REUtil.extract 1 float32 |> makeVec3f
@@ -174,16 +195,6 @@ module MeshUtil =
                 REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
             else
                 None
-
-        let stringStartsWithAny (prefixes:string list) (s:string) =
-            let found = 
-                prefixes |> List.tryFind (fun prefix ->
-                    s.Trim().StartsWith(prefix.Trim(), StringComparison.InvariantCultureIgnoreCase)
-                )
-            match found with
-            | None -> None
-            | Some prefix -> Some (s)
-
         let (|SpecialGroup|_|) = stringStartsWithAny ["Index.";"PosTransform.";"UVTransform."]
         let (|DoubleDotAnnotation|_|) (str:string) = 
             let idx = str.IndexOf('.')
@@ -230,6 +241,11 @@ module MeshUtil =
         }
            
         // walk the file lines to store component data in the resize arrays
+        // performance note: this method generates lots of regexp "misses".  
+        // restructuring the code so that the last-successfully matched pattern is run
+        // first (using an MRU array or whatever) dramatically reduces the misses and 
+        // improves performance by about 10%.  However, it made this code a lot uglier,
+        // so I didn't commit it.
         for line in lines do
             match line with 
                 | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt ->
@@ -321,7 +337,9 @@ module MeshUtil =
 newmtl (null)
 map_Kd $$filename
 """
+    
 
+    /// Write a mesh to the specified path in MMObj format.
     let writeObj (md:Mesh) outpath =
         let lines = new ResizeArray<string>()
     
@@ -409,6 +427,7 @@ map_Kd $$filename
 
         File.WriteAllLines(outpath, lines.ToArray())
 
+    /// Returns the bounding box of a mesh.
     let getBoundingBox(mesh:Mesh) =
         let maxFloat = System.Single.MaxValue
 
@@ -431,6 +450,8 @@ map_Kd $$filename
         let center = Vector3.Multiply(Vector3.Add(lowerL,upperR), 0.5f)
         lowerL,upperR,center
 
+    /// Returns the total vertex size (in bytes), using the specified declaration
+    /// list.
     let getVertSize (elements:SDXVertexElement list) =
         // find the element with the highest offset
         let hElement = elements |> List.maxBy (fun el -> el.Offset)
@@ -450,6 +471,8 @@ map_Kd $$filename
             | _ -> failwithf "Some lazy person didn't fill in the size of type %A" hElement.Type
         int hElement.Offset + sizeBytes
 
+    /// Returns true if the declaration list contains blend data, false otherwise.
+    /// Note, both indices and weights must be present for this to return true.
     let hasBlendElements (elements:SDXVertexElement list) =
         let found = elements |> List.tryFind (fun el -> 
             match el.Usage with 
@@ -459,6 +482,8 @@ map_Kd $$filename
         )
         found <> None
 
+    /// Read a mesh file, determining the file type by extension.  Currently
+    /// only obj/mmobj are supported.
     let readFrom(filename,modType,flags) =
         let ext = Path.GetExtension(filename).ToLower()
         let readFn = 
@@ -469,25 +494,32 @@ map_Kd $$filename
         let md = readFn(filename,modType,flags)
         md
 
+    /// Write a mesh file, determining the file type by extension.  Currently
+    /// only obj/mmobj are supported.  The output is always in mmobj format, 
+    /// since mmobj is backwards compatible with obj.
     let writeTo(filename,mesh:Mesh) = 
         let ext = Path.GetExtension(filename).ToLower()
         let writeFn = 
             match ext with
             | ".obj" -> writeObj
+            | ".mmobj" -> writeObj
             | _ -> failwithf "Don't know how to write file type: %s" ext
         writeFn mesh filename
     
-    // Note: these Apply functions do not add the name of the applied function
-    // to the list in the IMesh, because the name is not available here; higher
-    // level code should do that.
+    /// Apply the specified position transformation func.  Calling code should ensure
+    /// that the function name is stored in the AppliedPositionTransforms of the mesh.
     let applyPositionTransformation func (mesh:Mesh) =
         let newPositions = mesh.Positions |> Array.map func
         { mesh with Positions = newPositions }
 
+    /// Apply the specified normal transformation func.  Calling code should ensure
+    /// that the function name is stored in the AppliedPositionTransforms of the mesh.
     let applyNormalTransformation func (mesh:Mesh) =
         let newNormals = mesh.Normals |> Array.map func
         { mesh with Normals = newNormals }
 
+    /// Apply the specified uv transformation func.  Calling code should ensure
+    /// that the function name is stored in the AppliedUVTransforms of the mesh.
     let applyUVTransformation func (mesh:Mesh) = 
         let newUVs = mesh.UVs |> Array.map func
         { mesh with UVs = newUVs }

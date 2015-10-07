@@ -23,8 +23,12 @@ open Microsoft.Xna.Framework
 
 open CoreTypes
 
+/// Utilities for comparing a Mod to a Reference and copying any required data from the Ref to the Mod 
+/// (such as blend weight information).  
 module MeshRelation =
+    let private log = Logging.getLogger("MeshRelation")
 
+    /// Triangle data (essentially a de-normalized version of IndexedTri).
     type Tri = {
         // three elements each
         Position: Vec3F[];
@@ -32,10 +36,20 @@ module MeshRelation =
         Normal: Vec3F[];
     }
 
-    let private log = Logging.getLogger("MeshRelation")
-
     type MVProjections = { x:float ; y:float ; z:float } 
 
+    /// Data required for CPU animations.  These are currently unimplemented, but this is some of the 
+    /// data that is needed using a method I prototyped before.  That method is roughly as follows
+    /// 1) for each mod vert, compute an offset vector from the ref to the mod, with both in a neutral/root position
+    /// The offset vector is computed from nearest vertex of the nearest triangle to the mod vert.  The centroids 
+    /// of each triangle containing the ref vert are used to find the nearest triangle to the mod vert (normals 
+    /// should probably be used as well so that double-sided triangles don't cause problems).
+    /// 2) At run-time, on each frame, whenever the original ref is drawn, lock the VB and read back the 
+    /// ref data into system memory.  For each mod vert, re-compute the (current) projection triangle, and compute
+    /// the projection vectors again.  Use the projection vectors to offset the ref verts.  
+    /// 3) Write a new vb using the new ref verts; draw it, and Voila, its the animated mod.
+    /// Provided you aren't doing this for a huge amount of data, the performance hit barely registers (though, to be 
+    /// fair, the original code was in C++, so I don't know how well managed code would handle it).
     type CPUSkinningData = {
         UseRef: bool
         VecToModVert: Vec3F
@@ -44,6 +58,8 @@ module MeshRelation =
         RefNormal: Vec3F
         //refTexCoord: Vec2F
     }
+
+    /// Relation data for each ref/mod vert pair.
     type VertRel = {
         Distance: float32
         RefPointIdx: int
@@ -137,7 +153,7 @@ module MeshRelation =
                     | _,_ -> false
 
         let buildVertRels():VertRel[] = 
-            //  CPU-only: build triangles for ref and mod
+            // for CPU-skinning mods only: build triangles for ref and mod
             let modTris,refTris = 
                 match modMesh.Type with 
                 | CPUReplacement -> buildTris modMesh, buildTris refMesh
@@ -156,10 +172,10 @@ module MeshRelation =
                     let mutable closestDist = System.Single.MaxValue
                     let mutable closestIdx = -1
 
-                    // this is a straight up, bad-ass linear search through the ref positions.
-                    // this loop was pretty hot on the instrumentation profiler, but a lot of that was 
+                    // This is a straight up, bad-ass linear search through the ref positions.
+                    // This loop was pretty hot on the instrumentation profiler, but a lot of that was 
                     // because function calls like LengthSquared() only appear to be expensive because of the sheer 
-                    // number of invocations.  but they still add up to something, so I reduced the intensity 
+                    // number of invocations. They still add up to something, so I reduced the intensity 
                     // by "inlining" the vector subtraction/distance calculations.  This saved about 12% on load times.
                     for refPos in ref.Mesh.Positions do
                         let vX = modPos.X - refPos.X
@@ -208,7 +224,7 @@ module MeshRelation =
             let modVertRels = modMesh.Positions |> Array.mapi getVertRel
 
             // warn if median distance is "large" (could be an indicator of mismatched transforms between ref and mod),
-            // in which case the relation is going to be jacked.
+            // in which case the relation is going to be jacked.  This can produce false positives, though.
             modVertRels 
                 |> Array.sortBy (fun vr -> vr.Distance) 
                 |> (fun sortedVRs ->

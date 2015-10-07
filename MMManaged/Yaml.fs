@@ -21,35 +21,42 @@ open System.IO
 
 open YamlDotNet.RepresentationModel
 
+/// Helper functions for working with YamlDotNet in an fsharpy way.
 module Yaml =
+    /// Load a yaml file and return the root documents collection.
     let load (filename:string) = 
         use input = new StringReader(File.ReadAllText(filename))
         let yamlStream = new YamlStream()
         yamlStream.Load(input)
         yamlStream.Documents
 
+    /// Convert a node to a string.  Throws exception on failure.
     let toString (node:YamlNode) =
         match node with 
         | :? YamlScalarNode as scalar -> 
             scalar.Value
         | _ -> failwithf "Cannot extract string from node %A" node
 
+    /// Convert the node to Some(toString(node)), or returns None if node is None.  
+    /// Throws exception if the node is Some but the conversion fails.
     let toOptionalString (node:YamlNode option) =
-        match node with 
-        | None -> None
-        | Some n -> Some (toString(n))
+        node |> Option.map (fun n -> toString(n))
 
+    /// Convert the node to an integer.  Throws exception on failure.
     let toInt (node:YamlNode) =
         match node with 
         | :? YamlScalarNode as scalar -> 
             Convert.ToInt32 scalar.Value
         | _ -> failwithf "Cannot extract string from node %A" node
         
+    /// Convert the node to a boolean.  If node is None, returns the default value.  If some,
+    /// returns the converted boolean, or throws exception if it cannot be converted.
     let toBool (defval:bool) (node:YamlNode option) =
         match node with
         | None -> defval
         | Some x -> Convert.ToBoolean(toString(x))
 
+    /// Returns a value from the mapping, or None if the key is not found.
     let getOptionalValue (key:string) (mapNode:YamlMappingNode) = 
         let key = key.ToLowerInvariant()
 
@@ -58,6 +65,7 @@ module Yaml =
             | None -> None
             | Some(s) -> Some (s.Value)
 
+    /// Returns a value form the mapping, or throws exception if the key is not found.
     let getValue (key:string) (mapNode:YamlMappingNode) = 
         let key = key.ToLower()
         let nValue = getOptionalValue key mapNode
@@ -65,20 +73,23 @@ module Yaml =
             | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
             | Some v -> v
     
+    /// Convert the node to Some(YamlSequenceNode)), or returns None if node is None.  
+    /// Throws exception if the node is Some but the conversion fails.
     let toOptionalSequence (node:YamlNode option) =
-        match node with
-        | None -> None
-        | Some thing ->
+        node |> Option.map (fun thing -> 
             match thing with
-            | :? YamlSequenceNode as ySeq -> Some ySeq
-            | _ -> failwithf "Expected sequence type, but got %A" thing
+            | :? YamlSequenceNode as ySeq -> ySeq
+            | _ -> failwithf "Expected sequence type, but got %A" thing)
 
+    /// Convert the node to a YamlSequenceNode.  If conversion fails, throw exception with the specified fail message.
     let toSequence (failMsg:string) (node:YamlNode) =
         let s = toOptionalSequence(Some(node))
         match s with
         | None -> failwith failMsg
         | Some s -> s
 
+    /// Convert the node to Some(YamlMappingNode)), or returns None if node is None.  
+    /// Throws exception if the node is Some but the conversion fails.
     let toOptionalMapping (node:YamlNode option) =
         match node with
         | None -> None
@@ -89,6 +100,7 @@ module Yaml =
                 Some yml
             | _ -> failwithf "Expected mapping node type, but got %A" thing
 
+    /// Convert the node to a mapping node.  Throws exception if the conversion fails.
     let toMapping (failMsg:string) (node:YamlNode) =
         let mapping = toOptionalMapping(Some(node))
         match mapping with

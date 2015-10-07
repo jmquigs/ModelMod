@@ -23,11 +23,11 @@ open InteropTypes
 
 open System.Collections.Generic
 
-// This is a simple in-memory cache for loaded meshes.  It speeds up reload iteration time,
-// since only modified meshes are reloaded.  Would be nice to extend this to other things
-// (yaml, meshrelation), since time spent in those can add up as well.
-// To force a clear of the cache, use the full reload keybinding to reload the 
-// whole assembly.
+/// This is a simple in-memory cache for loaded meshes.  It speeds up reload iteration time,
+/// since only modified meshes are reloaded.  Would be nice to extend this to other things
+/// (yaml, meshrelation), since time spent in those can add up as well.
+/// To force a clear of the cache, use the full reload keybinding to reload the 
+/// whole assembly.
 module MemoryCache =
     let private log = Logging.getLogger("MemoryCache")
 

@@ -22,6 +22,7 @@ open Microsoft.Xna.Framework
 
 open CoreTypes
 
+/// Helpers for transforming meshes.
 module MeshTransform = 
     let private log = Logging.getLogger("MeshTransform")
 
@@ -49,9 +50,11 @@ module MeshTransform =
                 Vector3.Transform(vec,mat)
         scale
 
+    /// Flips the UV Y coordinate (Y <- 1 - Y)
     let uvFlipY (unused:float32) = 
         let flip(vec:Vector2) = new Vector2(vec.X, 1.f - vec.Y)
         flip
+    /// Flips the uv X coordinate (X <- 1 - x)
     let uvFlipX (unused:float32) = 
         let flip(vec:Vector2) = new Vector2(1.f - vec.X, vec.Y)
         flip
@@ -66,6 +69,8 @@ module MeshTransform =
             Vector3.Add(pos, center)        
         recenterAtZero
 
+    /// Recenter a mesh at zero.  NOTE: this function is currently not invertible, 
+    /// so is generally unused.
     let recenter (mesh:Mesh) = recenterHelper false mesh 0.f
 
     let noop x y = y
@@ -75,9 +80,9 @@ module MeshTransform =
         let fnName = parts.[0].ToLowerInvariant()
         fnName, parts
 
-    // Parse a string representing a position or normal transform function, and return a three-tuple of the fn name, the F# function 
-    // that the transform and the associated quantity required to do it.  
-    // Calling code has an opportunity to change the amount, if needed (for example, to reverse the transform).  
+    /// Parse a string representing a position or normal transform function, and return a three-tuple of the fn name, the F# function 
+    /// that the transform and the associated quantity required to do it.  
+    /// Calling code has an opportunity to change the amount, if needed (for example, to reverse the transform).  
     // TODO: would like to be able to generalize this so that the vec2 and vec3 implementions could be combined, but something is forcing
     // a specialization for the vector types.  This doesn't happen with reverseFunc below, though.
     let parseVec3XformFunc (isNormal:bool) (mesh:Mesh) (xname:string) = 
@@ -110,6 +115,7 @@ module MeshTransform =
         | "" -> log.Error "Empty string is an invalid transform function"; dummyRet
         | _ -> log.Error "Unrecognized vec3 transform function: %s" fnName; dummyRet
 
+    /// As for parseVec3XformFunc, but for 2d data.
     let parseVec2XformFunc (isNormal:bool) (mesh:Mesh) (xname:string) = 
         let dummyRet = "",noop,0.f
         let fnName, parts = extractFN xname
@@ -125,6 +131,8 @@ module MeshTransform =
                     | _ -> log.Error "Unknown flip axis: %A in value: %A" axis xname; dummyRet
         | _ -> log.Error "Unrecognized vec2 transform function: %s" fnName; dummyRet
 
+    /// Reverse the specified transform function.  The input amount is the amount to be reversed;
+    /// The details of the reversal depend on the function.
     let reverseFunc (fnName:string,fn,amount:float32) = 
         let dummyRet = "",noop,0.f
         match fnName with
@@ -142,14 +150,19 @@ module MeshTransform =
         | "" -> log.Error "Empty string is an invalid transform function"; dummyRet
         | _ -> log.Error "Unrecognized reversed transform function: %s" fnName; dummyRet
 
+    /// Given transform function parts, return a function that applies it to 
+    /// a single input value.
     let buildInvocation (fnName:string, fn, amount:float32) = fn amount
 
+    /// Given transform function parts, return a function that reverse the transform
+    /// and applies it to a single input value.
     let buildReverseInvocation (fnName:string, fn, amount:float32) = 
         let fnName,fn,amount = reverseFunc(fnName,fn,amount)
         buildInvocation(fnName,fn,amount)
 
-    // Apply the list of named transforms to the specified mesh.  The invokeBuilder function allows you 
-    // to change the order in which they are applied.  
+    /// Apply the list of named transforms to the specified mesh.  The invokeBuilder function allows you 
+    /// to change the order in which they are applied (see buildInvocation,buildReverseInvocation).
+    /// This function operates on spatial mesh data (positions and normals).
     // NOTE: this implementation has some good points, but I'm sure it could be done more simply.
     let private applyMeshTransformsInternal (xforms:string list) (invokeBuilder) (mesh:Mesh) =
         if List.length xforms = 0 then
@@ -172,6 +185,7 @@ module MeshTransform =
             let mesh = MeshUtil.applyNormalTransformation compositeTransform mesh
             mesh
 
+    /// As for applyMeshTransformsInternal, but for uv coordinates.
     let private applyUVTransformsInternal (uv_xforms:string list) (invokeBuilder) (mesh:Mesh) =
         if List.length uv_xforms = 0 then
             mesh
@@ -183,11 +197,13 @@ module MeshTransform =
             let mesh = MeshUtil.applyUVTransformation compositeTransform mesh
             mesh
 
+    /// Apply the specified list of transforms to the mesh.
     let applyMeshTransforms (xforms:string list) (uv_xforms:string list) (mesh:Mesh) = 
         let mesh = applyMeshTransformsInternal xforms buildInvocation mesh 
         let mesh = applyUVTransformsInternal uv_xforms buildInvocation mesh 
         mesh
 
+    /// Reverse each supplied transform, then apply them to the mesh.
     let reverseMeshTransforms (xforms:string list) (uv_xforms:string list) (mesh:Mesh) = 
         let mesh = applyMeshTransformsInternal (List.rev xforms) buildReverseInvocation mesh 
         let mesh = applyUVTransformsInternal (List.rev uv_xforms) buildReverseInvocation mesh 
