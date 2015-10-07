@@ -22,6 +22,7 @@ open Microsoft.Win32
 
 open CoreTypes
 
+/// List of all the reg value names that we set (in HKCU/Software/ModelMod)
 module RegKeys = 
     let LastSelectedBlender = "LastSelectedBlender"
     let LastScriptInstallDir = "LastScriptInstallDir"
@@ -34,7 +35,9 @@ module RegKeys =
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
       
+/// Various registry access utilities.
 module RegUtil = 
+    /// Registry path concatenator.
     // not using path.combine here; has some weird behavior: System.IO.Path.Combine(@"a",@"\b") -> "\b"
     // however, this doesn't handle the case where a or b has more than one consecutive \
     let (@@) (a:string) (b:string) = 
@@ -47,9 +50,12 @@ module RegUtil =
         | false,true -> a + b
         | false,false -> a + @"\" + b
 
+    /// Convert specified dword (integer) type to bool
     let dwordAsBool dw = if (int dw > 0) then true else false
+    /// Convert specified bool type to dword (integer)
     let boolAsDword b = if (b) then 1 else 0
 
+    /// Zeropad the specified string up to count places.
     let zeroPad (count:int) (s:string) =
         let numZeros = count - s.Length
         if numZeros <= 0 then 
@@ -61,11 +67,14 @@ module RegUtil =
             sw.Write(s)
             sw.ToString()
         
+/// Utilities for accessing ModelMod specific configuration data.
 module RegConfig =
     let private log = Logging.getLogger("RegConfig")
 
     open RegUtil
 
+    /// The registry unit tests use a different ModelMod root; this type
+    /// allows the root to be changed to that specific whitelisted root.
     module private RegLocTypes = 
         type RegLoc(rootFn: unit -> string) = 
             member x.Root:string = rootFn()
@@ -81,7 +90,11 @@ module RegConfig =
     // mutable so that unit test can change it, via Init functions below
     let mutable private regLoc = RegLocTypes.FailsauceRegLoc
 
+    /// Initialize the registry root for normal use.  
+    /// This must be called prior to use, otherwise
+    /// all registry functions will thrown an exception.  
     let init() = regLoc <- RegLocTypes.NormalRegLoc
+    /// Initialize the registry root for integration test use.
     let initForTest() = regLoc <- RegLocTypes.TestRegLoc
 
     let private regget(key,value,def) =
@@ -90,6 +103,8 @@ module RegConfig =
         | null -> def
         | _ -> res
 
+    /// Returns a list of of all the profile key names
+    /// "Profile0000", "Profile0001", etc
     let getProfileKeyNames() = 
         let profKey = regLoc.Hive.OpenSubKey(regLoc.ProfRoot)
         match profKey with 
@@ -98,6 +113,8 @@ module RegConfig =
             let profiles = profKey.GetSubKeyNames()
             Array.sort profiles
 
+    /// Given an exe path, find its profile key path, or None if not found.
+    /// Each exe path must therefore map to exactly one profile.                
     let findProfilePath (exePath:string) = 
         let exePath = exePath.Trim()
         let profiles = getProfileKeyNames() 
@@ -109,12 +126,14 @@ module RegConfig =
                 Some(pBase) // exclude hive
             else None)
 
-    // Fail with exception if write to specified key is not authorized.
-    // The hardcoded string here is deliberate.
+    /// Fail with exception if write to specified key is not authorized.
+    /// The hardcoded string here is deliberate, so that we don't end up writing
+    /// to willy-nilly places.
     let private checkRoot (key:string) (failMsg:string) =
         if not ((key.StartsWith(@"Software\ModelMod")) && (key.StartsWith(regLoc.Root))) then
             failwith failMsg
 
+    /// Remove a value from the specified profile 
     let deleteProfileValue (pKey:string) (valName:string) =
         checkRoot pKey (sprintf "Refusing to delete value from unauth key: %A" pKey)
         
@@ -123,25 +142,31 @@ module RegConfig =
         | null -> ()
         | _ -> key.DeleteValue(valName,false)
 
+    /// Remove an entire profile
     let deleteProfileKey (pKey:string) = 
         checkRoot pKey (sprintf "Refusing to delete unauth key: %A" pKey)
 
         regLoc.Hive.DeleteSubKey pKey
 
+    /// Set a profile value
     let setProfileValue (pKey:string) valName value =
         checkRoot pKey (sprintf "Refusing to set unauth key value: %A" pKey)
 
         Registry.SetValue(regLoc.Hive.Name @@ pKey, valName, value);
         value
 
+    /// Set a global (as in ModelMod root global) value
     let setGlobalValue valName value = 
         Registry.SetValue(regLoc.HiveRoot, valName, value);
         value
 
+    /// Get a global (as in ModelMod root global) value
     let getGlobalValue valName (defValue) = 
         let v = Registry.GetValue(regLoc.HiveRoot, valName, defValue)
         v
 
+    /// Creata a new empty profile.  Up to 10000 profiles are supported, more 
+    /// available in the pro version.  
     let createNewProfile() = 
         let profiles = getProfileKeyNames() 
       
@@ -164,6 +189,8 @@ module RegConfig =
         
         pName
 
+    /// Save a profile using the values from the supplied config.  At a minimum,
+    /// ExePath must be set in the config.
     let saveProfile (conf:RunConfig) =
         if not (File.Exists conf.ExePath) then
             failwithf "Exe path does not exist, cannot save profile: %A" conf.ExePath
@@ -196,6 +223,8 @@ module RegConfig =
 
         ()
 
+    /// Remove a profile.  Uses the profile key name in the config to locate the 
+    /// profile.  Does not require ExePath to be set.
     let removeProfile (conf:RunConfig) =
         let pKey = conf.ProfileKeyName.Trim()
         if pKey = "" then failwith "Empty profile key"
@@ -207,19 +236,25 @@ module RegConfig =
                 pKey
         deleteProfileKey pKey
 
+    /// Return a default name for a profile, which is just the base exe name.
     let getDefaultProfileName (exePath:String) = Path.GetFileNameWithoutExtension(exePath)
         
-    let setProfileName (rc:RunConfig):RunConfig = 
+    /// Set a default profile name in the specified run config.  If already set, doesn't
+    /// change it; otherwise, sets it to getDefaultProfileName(exepath).
+    let setDefaultProfileName (rc:RunConfig):RunConfig = 
         if rc.ProfileName = "" then
             { rc with ProfileName = getDefaultProfileName rc.ExePath }
         else 
             rc
 
+    /// Get the global document/data root.
     let getDocRoot():string = 
         regget(regLoc.HiveRoot,RegKeys.DocRoot,DefaultRunConfig.DocRoot) :?> string
+    /// Set the global document/data root.
     let setDocRoot(r:string) = 
         setGlobalValue RegKeys.DocRoot r
         
+    /// Load a runconfig form the specified profile path and key.
     let loadFromFullProfileKey(profPath:string) (profileKeyName:string):RunConfig = 
         let mmHiveRoot = regLoc.HiveRoot
 
@@ -236,20 +271,24 @@ module RegConfig =
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
         }
 
-        setProfileName rc 
+        setDefaultProfileName rc 
 
+    /// Load a default profile.
     let loadDefaultProfile():RunConfig =
         let profPath = regLoc.Hive.Name @@ regLoc.ProfileDefaultsKey
         loadFromFullProfileKey profPath "" // use empty string for key name when loading from default profile
 
+    /// Load a profile.
     let loadFromProfileKey(profileKey:string):RunConfig =
         let profPath = if not (profileKey.StartsWith(regLoc.ProfRoot)) then regLoc.ProfRoot @@ profileKey else profileKey
         let profPath = regLoc.Hive.Name @@ profPath
         loadFromFullProfileKey profPath profileKey
                     
+    /// Return all the available profiles.
     let loadAll (): RunConfig[] =
         getProfileKeyNames() |> Array.map loadFromProfileKey
 
+    /// Load a profile for the specified exe.  Returns a default profile if none found.
     let load (exePath:string):RunConfig = 
         let exePath = exePath.Trim()
 
@@ -265,7 +304,7 @@ module RegConfig =
                     // if this defaults key is missing, then we just use the hardcoded defaults below
                     let prof = loadDefaultProfile()
                     // the default profile won't have an exe path, so set it
-                    setProfileName { prof with ExePath = exePath }
+                    setDefaultProfileName { prof with ExePath = exePath }
                 | Some profName -> 
                     loadFromProfileKey profName
 
