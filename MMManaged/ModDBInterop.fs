@@ -23,9 +23,12 @@ open Microsoft.Xna.Framework
 open CoreTypes
 open InteropTypes
 
+/// Provides a ModDB interface to native code.
 module ModDBInterop =
     let private log = Logging.getLogger("ModDBInterop")
 
+    /// Initializes the system with a specific modelmod dll path and executable module.  Reads the 
+    /// registry configuration for the specified executable (if any).
     let setPaths (mmDllPath:string) (exeModule:string) =
         try
             // check for valid paths
@@ -54,6 +57,8 @@ module ModDBInterop =
                 InputProfile = CoreTypes.DefaultRunConfig.InputProfile
             }
 
+    /// Returns the data root.  Note, this is NOT the exe-specific data directory; it is the parent of that directory.
+    /// TODO: is this even needed?
     let getDataPath() = 
         try
             State.getBaseDataDir()
@@ -62,6 +67,7 @@ module ModDBInterop =
             log.Error "%A" e
             null
 
+    /// Loads the exe-specific data.  Requires a ModIndex.yaml file to exist in the exe's data directory.
     let loadFromDataPath() =
         try
             let exeDataDir = State.getExeDataDir()
@@ -90,8 +96,10 @@ module ModDBInterop =
             log.Error "%A" e
             InteropTypes.GenericFailureCode
 
+    /// Get the loaded mod count.
     let getModCount() = State.Data.Moddb.MeshRelations.Length + State.Data.Moddb.DeletionMods.Length
 
+    /// Converts a mod type to a native-enum compatible interger.
     let modTypeToInt modType = 
         match modType with
         | CPUReplacement -> 2
@@ -99,6 +107,7 @@ module ModDBInterop =
         | Deletion -> 5
         | Reference -> failwith "A mod has type set to reference"
 
+    /// Get the MeshRel mod at the specified index.
     let private getMeshRelationMod i = 
         let moddb = State.Data.Moddb
         let meshrel = List.nth (moddb.MeshRelations) i
@@ -141,6 +150,7 @@ module ModDBInterop =
             tex3Path = modm.Tex3Path
         }
        
+    /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.
     let getModData(i) = 
         // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
         // which does not allow null.  Can't use option type here because native code calls this.
@@ -150,6 +160,9 @@ module ModDBInterop =
             let moddb = State.Data.Moddb
 
             let maxMods = getModCount()
+
+            // the index is "virtualized".  the first n mods are the meshrelation mods.  after that are
+            // the deletion mods.  
 
             let ret = 
                 match i with 
@@ -174,6 +187,8 @@ module ModDBInterop =
                 log.Error "%s" e.StackTrace
                 emptyMod
 
+    /// Return a binary writer for the specified unmanaged pointer.  If size parameter is less than the buffer size,
+    /// this will probably explode when you write to it, if you're lucky.
     let private getBinaryWriter (p:nativeptr<byte>) size = 
         let bw = 
             if size > 0 
@@ -207,7 +222,11 @@ module ModDBInterop =
         bw.Write(v.Y)
         bw.Write(v.Z)        
 
+    /// Helper functions for writing data.
     module DataWriters =
+        let private round (x:float32) = System.Math.Round (float x)
+
+        /// Write a blend index extracted from raw binary data as a 4-byte array.
         let rbBlendIndex (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Ubyte4 ->
@@ -215,6 +234,7 @@ module ModDBInterop =
                 let idx = br.ReadBytes(4)
                 bw.Write(idx) 
             | _ -> failwithf "Unsupported type for raw blend index: %A" el.Type
+        /// Write a blend weight extracted from raw binary data as a 4-byte array.
         let rbBlendWeight (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -223,6 +243,7 @@ module ModDBInterop =
                 bw.Write(br.ReadBytes(4))
             | _ -> failwithf "Unsupported type for raw blend weight: %A" el.Type
 
+        /// Write a blend index from the specified mesh as a 4-byte array.
         let private writeMeshBI (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
             if (idx > mesh.BlendIndices.Length) then
                 failwithf "oops: invalid blend-index index: %A of %A" idx mesh.BlendIndices.Length
@@ -230,7 +251,7 @@ module ModDBInterop =
             let buf = [| byte (bi.X :?> int32); byte (bi.Y :?> int32) ; byte (bi.Z :?> int32); byte (bi.W :?> int32) |]
             bw.Write(buf)            
 
-        let private round (x:float32) = System.Math.Round (float x)
+        /// Write a blend weight from the specified mesh as a 4-byte array.
         let private writeMeshBW (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
             if (idx > mesh.BlendWeights.Length) then
                 failwithf "oops: invalid blend-weight index: %A of %A" idx mesh.BlendWeights.Length
@@ -243,6 +264,7 @@ module ModDBInterop =
 //                log.Error "weights do not sum to 255 for idx %A: %A, %A; basevec: %A" idx buf sum wgt
             bw.Write(buf)
 
+        /// Write a blend weight from the specified mesh as 4 32-bit float values.
         let private writeMeshBWF4 (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
             if (idx > mesh.BlendWeights.Length) then
                 failwithf "oops: invalid blend-weight index: %A of %A" idx mesh.BlendWeights.Length
@@ -252,12 +274,14 @@ module ModDBInterop =
             bw.Write(wgt.Z)
             bw.Write(wgt.W)
 
+        /// Write a blend index from the mod mesh.
         let modmBlendIndex (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.Ubyte4 -> writeMeshBI modm modVertIndex bw
             | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
 
+        /// Write a blend index from the ref mesh.
         let refmBlendIndex (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -266,6 +290,7 @@ module ModDBInterop =
                 writeMeshBI refm refVertIndex bw
             | _ -> failwithf "Unsupported type for ref blend index: %A" el.Type
 
+        /// Write a blend weight from the mod mesh.
         let modmBlendWeight (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -274,6 +299,7 @@ module ModDBInterop =
                 writeMeshBWF4 modm modVertIndex bw
             | _ -> failwithf "Unsupported type for mod blend weight: %A" el.Type
 
+        /// Write a blend weight from the ref mesh.
         let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -285,6 +311,7 @@ module ModDBInterop =
                 writeMeshBWF4 refm refVertIndex bw
             | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
 
+        /// Write a normal from the mod mesh.
         let modmNormal (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -297,6 +324,7 @@ module ModDBInterop =
                 writeF3Vector srcNrm bw
             | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
 
+        /// Write a normal extracted from raw binary data.
         let rbNormal (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -305,6 +333,7 @@ module ModDBInterop =
                 bw.Write(br.ReadBytes(4))                
             | _ -> failwithf "Unsupported type for raw normal: %A" el.Type
 
+        /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
         let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
             // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point, 
@@ -330,6 +359,7 @@ module ModDBInterop =
                 writeF3Vector vec bw
             | _ -> failwithf "Unsupported type for mod binormal/tangent: %A" el.Type
 
+        /// Write a binormal or tangent vector extracted from raw binary data.
         let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
@@ -338,6 +368,7 @@ module ModDBInterop =
                 bw.Write(br.ReadBytes(4))                
             | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
 
+    /// Fill the render buffers associated with the specified mod.  
     let private fillModDataInternalHelper 
         (modIndex:int) 
         (destDeclBw:BinaryWriter) (destDeclSize:int) 
@@ -375,10 +406,10 @@ module ModDBInterop =
 
             // copy vertex data.  this is where most of the work happens.
             if (destVbSize > 0) then
-                // we aren't using an index list, so we'll fill the buffer with vertices represnting all the primitives.
+                // we aren't using an index list, so we'll fill the buffer with vertices representing all the primitives.
 
                 // walk the mod triangle list: for each point on each triangle, write a unique entry into the vb.
-                // these bools control where data comes from (normally we don't want to change these except
+                // the following bools control where data comes from (normally we don't want to change these except
                 // when debugging something)
 
                 // true: use normals from the mod
@@ -411,6 +442,8 @@ module ModDBInterop =
 //                let debugLog (s:string) = 
 //                    log.Info "%A" s
 //                    incr loggedVectorsCount
+
+                // determine how we will write the data, depending on weight mode and available input data sources
 
                 let useRefBlendData,useRefBinaryData = 
                     // if blending is required, fail unless specified weight source has the data.
@@ -487,6 +520,8 @@ module ModDBInterop =
                             | Some bvd -> bvd
                         DataWriters.rbBinormalTangent binDataLookup vertRels                    
 
+                // Write part of a vertex.  The input element controls which 
+                // part is written.
                 let writeElement (v:PTNIndex) (el:SDXVertexElement) =
                     let modVertIndex = v.Pos
                     let modNrmIndex = v.Nrm
@@ -528,14 +563,17 @@ module ModDBInterop =
                             | _ -> failwith "Unsupported type for Color: %A" el.Type
                         | _ -> failwithf "Unsupported usage: %A" el.Usage
 
+                // Write a full vertex to the buffer.
                 let writeVertex (v:PTNIndex) = 
                     let writeToVert = writeElement v
                     declElements |> List.iter writeToVert
                     if (bw.BaseStream.Position % (int64 md.vertSizeBytes) <> 0L) then
                         failwith "Wrote an insufficient number of bytes for the vertex"
 
+                // Write the three triangle verts to the buffer.
                 let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
 
+                // Write all the triangles to the buffer.
                 modm.Triangles |> Array.iter writeTriangle
             0
         with

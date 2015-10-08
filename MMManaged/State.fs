@@ -26,10 +26,10 @@ open CoreTypes
 module State =
     let private log = Logging.getLogger("State")
 
-    // The data directory contains all data for all games, as well as the selection texture.
+    /// The data directory contains all data for all games, as well as the selection texture.
     let private DefaultDataDir = "Data"
 
-    // Helper type for finding various directories
+    /// Helper type for finding various directories
     type DirLocator(rootDir:string, conf:RunConfig) = 
         member x.QueryBaseDataDir() = 
             // this is set from registry; if not set, use RootDir + DefaultDataDir

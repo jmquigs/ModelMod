@@ -239,6 +239,7 @@ module CoreTypes =
     // These are types loaded by the moddb from yaml files
 
     /// Storage for a named Reference object.
+    /// The Name of a reference is its base file name (no extension).  
     type DBReference = {
         Name : string
         Mesh : Mesh
@@ -256,6 +257,7 @@ module CoreTypes =
     let EmptyModAttributes = { ModAttributes.DeletedGeometry = [] }
 
     /// Storage for a named mod.  
+    /// The Name of a mod is its base file name (no extension).  
     type DBMod = {
         RefName: string option
         Ref: DBReference option

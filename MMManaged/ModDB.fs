@@ -31,6 +31,7 @@ open StartConf
 open CoreTypes
 open InteropTypes
 
+/// Contains the "Mod Database"; functions for reading yaml, mmobj, and other files and storing them in memory.
 module ModDB =
     let private log = Logging.getLogger("ModDB")
 
@@ -41,6 +42,7 @@ module ModDB =
 
     let private (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
+    /// Root type for the Mod Database; everything is stored in here.
     type ModDB(refObjects,modObjects,meshRels) =
         // explode deletion mods into interop representation now.  
         // this is a little weird because it makes moddb use interop types, but it 
@@ -65,12 +67,14 @@ module ModDB =
         member x.MeshRelations = meshRels
         member x.DeletionMods = deletionMods
 
+    /// Unpack a "transforms" list from yaml.
     let getMeshTransforms (node:YamlMappingNode) =
         let transforms = node |> Yaml.getOptionalValue "transforms" |> Yaml.toOptionalSequence
         match transforms with
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
+    /// Load specified mesh, bypassing the cache.
     let loadUncachedMesh(path, (modType:ModType), flags) = 
         let mesh = MeshUtil.readFrom(path, modType, flags)
         if flags.ReverseTransform && 
@@ -81,6 +85,7 @@ module ModDB =
         else
             mesh
 
+    /// Load specified mesh, using cached version if available.
     let loadMesh(path, (modType:ModType), flags) = 
         match MemoryCache.get (path,modType,flags) with 
         | None -> 
@@ -90,6 +95,7 @@ module ModDB =
         | Some mesh ->
             mesh
         
+    /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
         | "cpureplacement" -> ModType.CPUReplacement
         | "gpureplacement" -> ModType.GPUReplacement        
@@ -97,13 +103,16 @@ module ModDB =
         | "deletion" -> ModType.Deletion
         | x -> failwithf "unsupported mod type: %A" x
 
+    /// Convert a string representation of a weight mode into a type.  Throws exception if invalid.
     let getWeightMode = function
         | "mod" -> WeightMode.Mod
         | "ref" -> WeightMode.Ref
         | "binaryref" -> WeightMode.BinaryRef
         | x -> failwithf "unsupported weight mode: %A" x
         
-    let buildMod (node:YamlMappingNode) filename =
+    /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
+    /// It is an error to call this on yaml that represents something other than a Mod.
+    let buildMod (node:YamlMappingNode) filename:ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
@@ -126,7 +135,7 @@ module ModDB =
                 | None -> WeightMode.Ref
                 | Some s -> getWeightMode (s.ToLowerInvariant().Trim())
 
-            // non-deletion and non-reference types require some refnames
+            // non-deletion and non-reference types require a refname
             match (modType,refName) with
             | (ModType.Reference, _) 
             | (ModType.Deletion, _) -> ()
@@ -206,6 +215,7 @@ module ModDB =
         log.Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
         Mod(md)
 
+    /// Read an SDX vertex element from the specified stream.
     let readVertexElement (reader:BinaryReader) =
         let stream = reader.ReadInt16() // hmm, these are actually uint16s, but sharpdx defines them as int16s
         let offset = reader.ReadInt16()
@@ -222,6 +232,7 @@ module ModDB =
             LanguagePrimitives.EnumOfValue<byte,SharpDX.Direct3D9.DeclarationUsage>(usage),
             usageindex)
 
+    /// Write an SDX vertex element to the specified stream.
     let writeVertexElement (ve:SharpDX.Direct3D9.VertexElement) (writer:BinaryWriter) =
         writer.Write(ve.Stream)
         writer.Write(ve.Offset)
@@ -230,6 +241,8 @@ module ModDB =
         writer.Write(byte ve.Usage)
         writer.Write(byte ve.UsageIndex)
 
+    /// Load a binary vertex declaration file; returns the raw bytes and an unpacked representation of the 
+    /// vertex.
     let loadBinVertDeclData (path:string) =
         let dat = File.ReadAllBytes(path)
 
@@ -246,6 +259,7 @@ module ModDB =
             ] 
         dat, elements
 
+    /// Load binary vertex data from the specified path.  Normally not used.
     let loadBinVertData (path:string) =
         let dat = File.ReadAllBytes(path)
 
@@ -266,6 +280,8 @@ module ModDB =
             Data = vData
         }
 
+    /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
+    /// It is an error to call this on yaml that represents something other than a Reference.
     let buildReference (node:YamlMappingNode) filename =
         //log.Info "Building reference from %A" node
 
@@ -313,6 +329,8 @@ module ModDB =
             { DBReference.Name = refName
               Mesh = mesh})
         
+    /// Load a file.  Supported types are yaml and mmobj files.  Other types (such as binary vertex data), cannot be 
+    /// loaded directly; they must be specified in a yaml file.
     let loadFile (conf:StartConf.Conf) (filename) =
         use sw = new Util.StopwatchTracker("load file: " + filename)
 
@@ -355,6 +373,14 @@ module ModDB =
                   Mesh = mesh})]
         | _ -> failwithf "Don't know how to load: %s" filename
 
+    /// Load a mod index file.  The file contains a list of mods by name, and optionall whether each mod is active.
+    /// If no active flag is present, a mod is assumed to be active.
+    /// The mod names in the list refer to the base names of .yaml files in the entire directory structure
+    /// below the mod index file.  The mods may link to references files which similarly use base names.  
+    /// Any reference required by a mod will be loaded by this function.  The structure of the directory tree
+    /// is irrelevant; only base names matter.
+    /// If yaml files contain other file names (such as texture or mmobj files), those paths are relative to the 
+    /// containing yaml file.
     let loadIndexObjects (filename:string) (activeOnly:bool) conf =
         // load the index, find all the mods that we are interested in.
         use input = new StringReader(File.ReadAllText(filename))
@@ -432,6 +458,7 @@ module ModDB =
         // return a list of the refs and objects
         modObjects @ refObjects
 
+    /// Load the ModDB, using the index file or other files specified in the start configuration.
     let loadModDB(conf:StartConf.Conf) = 
         use sw = new Util.StopwatchTracker("LoadModDB")
 
@@ -486,9 +513,9 @@ module ModDB =
 
         new ModDB(refs,mods,meshRels)        
 
+    /// Create a map of the elements by usage so that we can quickly look up the offset of a given usage.
     let createUsageOffsetLookupMap(elements:SDXVertexElement list) =
-        // create a map of the elements by usage so that we can quickly look up the offset of a given usage.
-        // actually this is an array, because the usage values are really small, and using an array is a bit faster
+        // ...actually this is an array, because the usage values are really small, and using an array is a bit faster
         // that a mutable dictionary - roughly 33% as measured.  Its almost 10x faster than an immutable dictionary.
         let elements = 
             elements 
@@ -506,6 +533,7 @@ module ModDB =
         let offsetLookup = elements |> List.fold (fun (arr:int[]) el -> arr.[int el.Usage] <- int el.Offset; arr ) lookupArray
         offsetLookup 
 
+    /// Faciliates looking up particular types of binary vertex data.
     type BinaryLookupHelper(bvd:BinaryVertexData,elements:SDXVertexElement list) =
         let ms = new MemoryStream(bvd.Data)
         let br = new BinaryReader(ms)
@@ -514,9 +542,9 @@ module ModDB =
 
         let offsetLookup = createUsageOffsetLookupMap elements
 
-        // return a reader into the binary data for the given vertex index and usage.  
-        // caller should use the element type to determine how much data to read in what format.
-        // caller must not dispose or close the reader.
+        /// Return a reader into the binary data for the given vertex index and usage.  
+        /// Caller should use the element type to determine how much data to read in what format.
+        /// Caller must not dispose or close the reader.
         member x.BinaryReader(vertIdx:int,usage:SDXVertexDeclUsage) =
             let offset = (vertIdx * stride) + offsetLookup.[int usage]
             ms.Seek(int64 offset, SeekOrigin.Begin) |> ignore
