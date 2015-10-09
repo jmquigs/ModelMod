@@ -34,6 +34,10 @@ using namespace ModelMod;
 #define TRACK_SHADER_CONSTANTS 0
 
 #define MaxActiveStreams 32
+
+/// Wrap an IDirect3DDevice9.  Many functions just pass through, though we do some texture tracking and 
+/// other book-keeping.  Most of the work happens in DrawIndexPrimitive, though significant work is 
+/// also done in BeginScene (where we load mods and process input).
 class Hook_IDirect3DDevice9 : public IDirect3DDevice9 {
 	static const string LogCategory;
 
@@ -153,9 +157,10 @@ public:
 	}
 	STDMETHOD(Reset)(THIS_ D3DPRESENT_PARAMETERS* pPresentationParameters) {
 		D3D_CALL_LOG("d3d Reset");
+#if TRACK_SHADER_CONSTANTS
 		_hookRenderState.vsFloatConstants.clear();
 		_hookRenderState.psFloatConstants.clear();
-
+#endif
 		// TODO (device reset): other cleanup here?
 
 		return _dev->Reset(pPresentationParameters);
@@ -334,9 +339,6 @@ public:
 	STDMETHOD(SetLight)(THIS_ DWORD Index,CONST D3DLIGHT9* light) {
 		D3D_CALL_LOG("d3d SetLight");
 		HRESULT hr = _dev->SetLight(Index, light);
-		if (SUCCEEDED(hr)) {
-			_hookRenderState.setLight(Index,light);
-		}
 		return hr;
 	}
 	STDMETHOD(GetLight)(THIS_ DWORD Index,D3DLIGHT9* light) {
@@ -462,8 +464,11 @@ public:
 		D3D_CALL_LOG("d3d DrawPrimitive");
 		return _dev->DrawPrimitive(PrimitiveType,StartVertex,PrimitiveCount);
 	}
+	/// Draws an indexed primitive.  Usually.  Also performs our mesh swap out, if applicable, and takes snapshots, if applicable.
 	STDMETHOD(DrawIndexedPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount) {
 		D3D_CALL_LOG("d3d DrawIndexedPrimitive");
+
+		// guard against re-enter
 		if (_hookRenderState.isDIPActive()) {
 			return _dev->DrawIndexedPrimitive(PrimitiveType,BaseVertexIndex,MinVertexIndex,NumVertices,startIndex,primCount);
 		}
@@ -532,7 +537,7 @@ public:
 				_hookRenderState.saveRenderState(this);
 				_dev->SetVertexDeclaration(mod->decl);
 				_dev->SetStreamSource(0, mod->vb, 0, mod->modData.vertSizeBytes);
-				_dev->SetIndices(NULL);
+				_dev->SetIndices(NULL); // no indices? yeah, gross.  if modding the whole world, this will be an issue.
 				for (Uint32 i = 0; i < MaxModTextures; ++i) {
 					if (mod->texture[i]) {
 						_dev->SetTexture(i, mod->texture[i]);
@@ -587,8 +592,6 @@ public:
 	}
 	STDMETHOD(SetVertexDeclaration)(THIS_ IDirect3DVertexDeclaration9* pDecl) {
 		D3D_CALL_LOG("d3d SetVertexDeclaration");
-		_hookRenderState._lastDecl = pDecl;
-		_hookRenderState._lastWasFVF = false;
 
 		return _dev->SetVertexDeclaration(pDecl);
 	}
@@ -598,8 +601,6 @@ public:
 	}
 	STDMETHOD(SetFVF)(THIS_ DWORD FVF) {
 		D3D_CALL_LOG("d3d SetFVF");
-		_hookRenderState._lastFVF = FVF;
-		_hookRenderState._lastWasFVF = true;
 
 		return _dev->SetFVF(FVF);
 	}
@@ -730,14 +731,16 @@ public:
 			_currStream0VB = pStreamData;
 		}
 
+#if MM_HOOK_VERTEX_BUFFERS
 		//if (dynamic_cast<Hook_IDirect3DVertexBuffer9*>(pStreamData)) {
-		if (pStreamData && MM_HOOK_VERTEX_BUFFERS) {
+		if (pStreamData) {
 			realVB = ((Hook_IDirect3DVertexBuffer9*)pStreamData)->vb();
 		} 
 
-		if (StreamNumber == 0 && MM_HOOK_VERTEX_BUFFERS) {
+		if (StreamNumber == 0) {
 			_hookRenderState._currHookVB0 = (Hook_IDirect3DVertexBuffer9*)pStreamData;
 		}
+#endif
 
 		return _dev->SetStreamSource(StreamNumber,realVB,OffsetInBytes,Stride);
 	}

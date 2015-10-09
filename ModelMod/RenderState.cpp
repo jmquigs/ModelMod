@@ -30,7 +30,6 @@ namespace ModelMod {
 RenderState::RenderState(void) :
 		_currentTextureIdx(-1),
 		_currentTexturePtr(NULL),
-		_hasLightZero(false),
 		_snapRequested(false),
 		_doingSnap(false),
 		_snapStart(0),
@@ -41,20 +40,12 @@ RenderState::RenderState(void) :
 		_focusWindow(NULL),
 		_selectionTexture(NULL),
 		_currHookVB0(NULL),
-		_pCurrentKeyMap(NULL)
-		//_modTexture(NULL),
-		//_modVertexShader(NULL),
-		//_modPixelShader(NULL) 
-		{
+		_pCurrentKeyMap(NULL) 
+	{
 		_sCurrentRenderState = this;
 
-		memset(&_lightZero, 0, sizeof(D3DLIGHT9));
 		memset(_selectedOnStage, 0, sizeof(bool) * MM_MAX_STAGE);
 		memset(_stageEnabled, 0, sizeof(bool) * MM_MAX_STAGE);
-
-		_lastFVF = 0;
-		_lastWasFVF = false;
-		_lastDecl = NULL;
 	}
 
 RenderState::~RenderState(void) {
@@ -593,24 +584,6 @@ void RenderState::saveTexture(int i, WCHAR* path) {
 		}
 		texture->Release();
 	}
-}
-
-void RenderState::setLight(DWORD Index,CONST D3DLIGHT9* light) {
-	if (Index == 0) {
-		if (light) {
-			_lightZero = *light;
-			_hasLightZero = true;
-		} else
-			_hasLightZero = false;
-	}
-}
-void RenderState::getLight(DWORD Index,D3DLIGHT9** light) {
-	Index;
-
-	if (_hasLightZero)
-		*light = &_lightZero;
-	else
-		*light = NULL;
 }
 
 };

@@ -86,6 +86,8 @@ typedef map<UINT,ConstantData<int,4>> IntConstantMap;
 typedef map<UINT,ConstantData<BOOL,1>> BoolConstantMap;
 typedef std::map<int, std::function<void()>> InputKeyMap;
 
+/// Badly named class.  Sure, there is render state in here.  There is also input processing,
+/// texture selection code, managed code initialization, mod loading, and some other stuff.
 class RenderState : public ID3DResourceTracker, public IRenderState {
 	static RenderState* _sCurrentRenderState;
 	static const string LogCategory;
@@ -108,8 +110,6 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	bool _snapRequested;
 	bool _doingSnap;
 	bool _initted;
-	D3DLIGHT9 _lightZero;
-	bool _hasLightZero;
 	bool _showModMesh;
 	bool _dipActive;
 	
@@ -123,9 +123,6 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	HWND _focusWindow;
 	IDirect3DDevice9* _dev;
 	IDirect3DTexture9* _selectionTexture;
-public:
-	// Public data members
-	// TODO: make these private with accessors if I decide to keep them
 
 	D3DRenderState _d3dRenderState;
 
@@ -135,11 +132,7 @@ public:
 
 	FloatConstantMap psFloatConstants;
 	IntConstantMap psIntConstants;
-	BoolConstantMap psBoolConstants;
-
-	DWORD _lastFVF;
-	bool _lastWasFVF;
-	IDirect3DVertexDeclaration9* _lastDecl;
+	BoolConstantMap psBoolConstants;	
 
 	Hook_IDirect3DVertexBuffer9* _currHookVB0; // track hook vb only for stream 0
 
@@ -286,9 +279,6 @@ public:
 
 	void setTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture);
 	void setTextureStageState(DWORD Stage,D3DTEXTURESTAGESTATETYPE Type, DWORD Value);
-
-	void setLight(DWORD Index,CONST D3DLIGHT9* light);
-	void getLight(DWORD Index,D3DLIGHT9** light);
 };
 
 };
