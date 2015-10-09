@@ -32,6 +32,12 @@ typedef struct ImpFunctionData {
 typedef map<string,ImpFunctionData> ImpFunctionDataMap;
 typedef map<string,ImpFunctionDataMap> ImportMap;
 
+/// Replace key global functions with our own variants.  This assumes that 
+/// the functions are in the PE table of the main executable; NOT in some dll loaded
+/// by that executable.  That is known to fail in some cases, in particular games that
+/// load a secondary DLL that has the d3d9 imports.  Only way to hook those is to
+/// extend this class to examine those PE tables as well or make this dll masquerade as d3d9.
+/// Both are Ugh.  Maybe there are other methods - I'm no expert.
 class ImportHooker
 {
 	ImportMap _imports;

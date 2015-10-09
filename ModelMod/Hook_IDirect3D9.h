@@ -22,6 +22,7 @@
 #include "Log.h"
 using namespace ModelMod;
 
+/// Wraps IDirect3D9.  Primary purpose is to return the hook device when the device is created.
 class Hook_IDirect3D9 : public IDirect3D9 {
 private:
 	IDirect3D9* _d3d9;

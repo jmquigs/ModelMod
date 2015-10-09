@@ -140,7 +140,7 @@ struct NativeModData {
 	}
 };
 
-// Interal functions
+// Interface used by the rest of the native code; all access to managed code must go through here.
 namespace Interop {
 	int InitCLR(WCHAR* mmPath);
 	int ReloadAssembly();

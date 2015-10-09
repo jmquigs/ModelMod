@@ -17,10 +17,11 @@
 #include <metahost.h>
 
 // see MMAppDomain.fs for info on how to regenerate this.  It must be in-sync with the managed definition.
-// Bah #import means can't use /MP (multi-processor compilation).  oh well.
+// Bah, #import means can't use /MP (multi-processor compilation).  oh well.
 #import "..\MMAppDomain\MMAppDomain.tlb" 
 using namespace ModelModCLRAppDomain;
 
+/// Required to host a CLR.
 class HostControl : public IHostControl {
 	IMMAppDomainMananger* _manager;
 	LONG _cref;

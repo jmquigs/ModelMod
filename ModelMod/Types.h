@@ -63,8 +63,10 @@ public:
 		_count = 0;
 	}
 	~ConstantData() {
-		// TODO(leak): this is seriously bad...if you pass a copy of a map of these for instance to a function
-		// all the pointers will get deleted when that map goes out of scope.
+		// TODO(leak): if you pass a copy of a map of these for instance to a function
+		// all the pointers will get deleted when that map goes out of scope.  
+		// so never delete them here.
+		// there is probably some c++-11 way of handling this, but anyway this code is unused ATM.
 		//delete [] _buffer;
 	}
 

@@ -27,6 +27,8 @@ using namespace std;
 typedef HRESULT (_stdcall *DInputProc)(HINSTANCE,DWORD,REFIID,LPVOID,LPUNKNOWN);
 
 namespace ModelMod {	
+
+/// Allows keyboard input.  Brought to you by DirectInput8.
 class Input
 {
 IDirectInput8* _dinput;

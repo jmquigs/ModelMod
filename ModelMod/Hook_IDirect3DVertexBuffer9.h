@@ -17,6 +17,8 @@
 #pragma once
 #include <d3d9.h>
 
+/// Wrapper for Vertex Buffer.  Not using this now,
+/// (MM_HOOK_VERTEX_BUFFERS = 0).  I think it was some prototype thing, might be useful again some day.
 class Hook_IDirect3DVertexBuffer9 : public IDirect3DVertexBuffer9
 {
 	IDirect3DVertexBuffer9 *_vb;
