@@ -109,8 +109,9 @@ module ProcessUtil =
                 lp
 
             let proc = new Process()
-            proc.StartInfo.Verb <- "runas"; // loader requires elevation for poll mode
-            proc.StartInfo.UseShellExecute <- true // also required for elevation
+            // For now we assume game doesn't need to run as admin, therefore we don't need admin to inject.
+            //proc.StartInfo.Verb <- "runas"; // required for elevation
+            //proc.StartInfo.UseShellExecute <- true // also required for elevation
             proc.StartInfo.FileName <- loaderPath
             
             // hardcode log path to the same hardcoded path that ModelMod will use (which is relative 
