@@ -369,6 +369,9 @@ module ModDBInterop =
             | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
 
     /// Fill the render buffers associated with the specified mod.  
+    // Note: there is a lot of symmetry between this and the snapshot module (essentially they are the same 
+    // process in two different directions), but they have totally separate implementations right now.  Might be worth 
+    // unifying them in some way.
     let private fillModDataInternalHelper 
         (modIndex:int) 
         (destDeclBw:BinaryWriter) (destDeclSize:int) 
@@ -582,6 +585,7 @@ module ModDBInterop =
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
 
+    /// Fill the render buffers associated with the specified mod.  
     let fillModData 
         (modIndex:int) 
         (destDeclData:nativeptr<byte>) (destDeclSize:int) 

@@ -24,8 +24,11 @@ open System
 
 open Microsoft.Xna.Framework
 
+// Using interop makes the IL unverifiable, disable warning.
 #nowarn "9"
+/// Defines the main native->managed interface. 
 module MMNative =
+    /// Called by native code to initialize managed code and configuration.  
     type SetPathsCB = 
         delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
 
@@ -45,6 +48,7 @@ module MMNative =
         TakeSnapshot: InteropTypes.TakeSnapshotCB
     }
 
+    /// Called by managed code to provide native code with the callback interface.
     [< DllImport("ModelMod.dll") >] 
     extern int OnInitialized(ManagedCallbacks callback)
     
@@ -73,9 +77,13 @@ module Interop =
 
     let _,log = NativeLogFactory "Interop"
     
+/// Managed entry point.  Native code is hardcoded to look for Main.Main(arg:string), and call it after 
+/// loading the assembly.
 type Main() = 
+    /// Perma handles prevent the GC from moving around managed memory that native code is pointing at.
     static member PermaHandles = new System.Collections.Generic.List<GCHandle>()
 
+    /// Creates a perma handle.  These are static, so live until the assembly is reloaded.
     static member AllocPermaHandle thing =
         // NOTE: these are unpinned.  For delegates, trying to use GCHandleType.Pinned throws an exception.
         // according to this, pin is not needed:
@@ -107,7 +115,7 @@ type Main() =
         // likely call back immediately via one of the delegates on the same thread (before OnInitialized returns 
         // here).
         try
-            RegConfig.init()
+            RegConfig.init() // sets the hive root
 
             let phandle = Main.AllocPermaHandle
 
@@ -127,6 +135,7 @@ type Main() =
             ret
         with 
             e ->
+                // uncomment to debug problems with this code
                 //Main.WriteToFailLog e
                 
                 Interop.log.Error "%A" e

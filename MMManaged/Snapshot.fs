@@ -23,6 +23,7 @@ open SharpDX.Direct3D9
 
 open CoreTypes
      
+/// Utilities for reading types from binary vertex data.
 module Extractors = 
     type SourceReader = BinaryReader
 
@@ -47,6 +48,8 @@ module Extractors =
         let a,b,c,d = br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
         a,b,c,d
 
+/// Defines the actual transforms associated with each snapshot transform profile.  
+// NOTE: probably want to push this out to configuration at some point, since these are both game and 3d-tool specific.
 module SnapshotTransforms = 
     let Position = 
         Map.ofList [ 
@@ -62,14 +65,21 @@ module SnapshotTransforms =
             SnapshotProfiles.Profile2, ["flip y"]
         ]
 
+/// Utilities for calling out to the ModelMod dll to have it do some work for us.
 module private SSInterop =
     [< DllImport("ModelMod.dll") >]
+    /// Saves a dds texture from the specified texture stage.  This is handled by native code, which has 
+    /// direct access to the D3DX library; no easy equivalent here in managed land.
     extern void SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
 
+/// Snapshot utilities.
 module Snapshot =
 
     let private log = Logging.getLogger("Snapshot")
 
+    /// Increments on each snapshot.  Note: it will get reset to zero if the assembly is reloaded, which 
+    /// means that snapshots can overlap (filenames include the vertex and primitive count, so usually 
+    /// this just results in a slightly messy directory as opposed to snapshot stomping).
     let private snapshotNum = ref 0
 
     // for use with Snapshot.readElement
@@ -83,6 +93,8 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
+    /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
+    /// function, depending on the type.
     let private readElement (fns:ReadOutputFunctions) reader (el:SDXVertexElement) =
         let handleVector name outputFn = 
             match el.Type with
@@ -146,6 +158,9 @@ module Snapshot =
                     disp.Dispose()
         }
 
+    /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
+    /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.  
+    /// Returns 0 on success.
     let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
         try 
             incr snapshotNum
@@ -299,7 +314,15 @@ module Snapshot =
             let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.primCount sd.numVertices
 
             // write textures for enabled stages only
-            let maxStage = 7 // because, uh, its a lucky number
+            // Note: Sometimes we can't read textures from the device.
+            // The flags need to be set properly in CreateTexture to make this 
+            // possible, and some games don't do that.  I'm fuzzy on the specifics, but I think its 
+            // D3DUSAGE_DYNAMIC that prevents capture, because the
+            // driver might decide to put the texture in video memory and then we can't read it.
+            // We could override that universally but it could harm 
+            // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be 
+            // useful.
+            let maxStage = 7 // 8 textures ought to be enough for anybody.
             let texturePaths = 
                 [0..maxStage] 
                 |> List.filter (fun i -> 
@@ -376,6 +399,7 @@ module Snapshot =
             File.WriteAllBytes(declfile, declBytes)
             
             // write raw ib and vb; just write the portion that was used by the DIP call
+            // Note: these are generally for debug only; create mod tool doesn't even use them.
             let getStreamBytes (startoffset) (datastream:SharpDX.DataStream) size =                 
                 datastream.Seek(startoffset, SeekOrigin.Begin) |> ignore
                 let data:byte[] = Array.zeroCreate size
