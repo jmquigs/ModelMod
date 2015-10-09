@@ -5,7 +5,7 @@
 
 // Ripped from Oblivion Script Extender 
 // http://obse.silverlock.org/
-// The sordid thread-suspending logic in DoInjectDLL is my own dismal contribution
+// The sordid thread-suspending logic in DoInjectDLL is my own dismal contribution for ModelMod
 
 extern BOOL SuspendProcessThreads(DWORD dwOwnerPID, bool suspend);
 

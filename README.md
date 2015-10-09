@@ -16,8 +16,6 @@ Requirements
 * Windows PC.
 * Only a few games have been tested.  Programming effort is usually required
 to get new games to work.
-* ModelMod uses DLL injection to override the renderer in the target game;
-the launcher app requires administrative privileges (via UAC escalation) to do this.
 * The target game must use D3D9 for rendering.  Support for other versions is possible,
 but has not been implemented.
 * For animated models, the target game
