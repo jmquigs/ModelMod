@@ -15,7 +15,7 @@ let veqEqEpsilon (ep:float32) (v1:Vec3F) (v2:Vec3F) =
 let TestDataDir = 
     let asmPath = Assembly.GetExecutingAssembly().CodeBase.Replace("file:///","")
 
-    let paths = [ @"..\TestData"; "@\..\..\..\..\..\TestData" ]
+    let paths = [ @"..\..\TestData"; @"..\TestData"; "@\..\..\..\..\..\TestData" ]
 
     let paths = paths |> List.map (fun p -> Path.GetFullPath(Path.Combine(asmPath,p)))
 
