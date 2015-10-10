@@ -51,6 +51,7 @@
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="ViewModelUtil.fs" />
     <Compile Include="ProcessUtil.fs" />
     <Compile Include="ModUtil.fs" />

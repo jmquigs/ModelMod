@@ -1,6 +1,7 @@
 ﻿// include Fake lib
 #r @"packages/FAKE/tools/FakeLib.dll"
 open Fake
+open Fake.AssemblyInfoFile
 
 let buildDir = "./build/"
 let buildBin = buildDir + "/Bin"
@@ -8,7 +9,7 @@ let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "0.1"  // or retrieve from CI server
+let version = "1.0.0.1"  // or retrieve from CI server
 
 Target "Clean" (fun _ ->
     CleanDirs [buildDir; testDir; deployDir; ".\ModelMod\Release"; ".\MMLoader\Release"; nativeOut]
@@ -22,6 +23,40 @@ Target "BuildNative" (fun _ ->
     !! "**/ModelMod.sln"
       |> MSBuildRelease buildBin "Build" // note, native code ignores the buildBin override, so we have to copy manually later
       |> Log "BuildNative-Output: "
+)
+
+Target "MakeAssInfo" (fun _ ->
+    CreateFSharpAssemblyInfo "./MMLaunch/AssemblyInfo.fs"
+        [Attribute.Title "ModelMod launcher application"
+         Attribute.Description ""
+         Attribute.Guid "2ce8e338-7143-4f97-ab39-3e90ca50bdf2"
+         Attribute.Product "ModelMod"
+         Attribute.Version version
+         Attribute.FileVersion version]
+
+    CreateFSharpAssemblyInfo "./MMManaged/AssemblyInfo.fs"
+        [Attribute.Title "ModelMod managed code library"
+         Attribute.Description ""
+         Attribute.Guid "13c62567-ab30-4954-9c47-213bc2a0ab7e"
+         Attribute.Product "ModelMod"
+         Attribute.Version version
+         Attribute.FileVersion version]
+
+    CreateFSharpAssemblyInfo "./StartupApp/AssemblyInfo.fs"
+        [Attribute.Title "ModelMod launcher 'shortcut'"
+         Attribute.Description ""
+         Attribute.Guid "df438f0d-1e48-42d2-bc4d-7b3500c48515"
+         Attribute.Product "ModelMod"
+         Attribute.Version version
+         Attribute.FileVersion version]
+
+    CreateCSharpAssemblyInfo "./MMAppDomain/Properties/AssemblyInfo.cs"
+        [Attribute.Title "ModelMod CLR app domain host"
+         Attribute.Description ""
+         Attribute.Guid "7b59b7f1-5876-4dd3-abc5-ee380144983d"
+         Attribute.Product "ModelMod"
+         Attribute.Version version
+         Attribute.FileVersion version]
 )
 
 Target "BuildCS" (fun _ ->
@@ -85,6 +120,7 @@ Target "Zip" (fun _ ->
 
 // Dependencies
 "Clean"
+  ==> "MakeAssInfo" 
   ==> "BuildCS"
   ==> "BuildFS"
   ==> "BuildTest"
