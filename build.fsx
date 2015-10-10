@@ -3,13 +3,33 @@
 open Fake
 open Fake.AssemblyInfoFile
 
+open System.IO
+
 let buildDir = "./build/"
 let buildBin = buildDir + "/Bin"
 let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "1.0.0.1"  // or retrieve from CI server
+let version = "1.0.0.2"  // or retrieve from CI server
+
+let updateRcVersions rcFile =
+    let lines = File.ReadAllLines(rcFile)
+    let replVer (vSearch:string) (formatter:unit -> string) (l:string) = 
+        if l.TrimStart().ToUpperInvariant().StartsWith(vSearch.ToUpperInvariant()) then
+            let vidx = l.ToUpperInvariant().IndexOf(vSearch.ToUpperInvariant())
+            l.Substring(0,vidx) + vSearch + formatter()
+        else
+            l
+
+    let fn = 
+        (replVer "VALUE \"FileVersion\", " (fun _ -> (sprintf "\"%s\"" version) )) 
+        >> (replVer "VALUE \"ProductVersion\", " (fun _ -> (sprintf "\"%s\"" version)))
+        >> (replVer "FILEVERSION " (fun _ -> (sprintf "%s" (version.Replace(".",",") ))))
+        >> (replVer "PRODUCTVERSION " (fun _ -> (sprintf "%s" (version.Replace(".",",") ))))
+    let lines = lines |> Array.map fn
+    File.WriteAllLines(rcFile, lines)
+    ()
 
 Target "Clean" (fun _ ->
     CleanDirs [buildDir; testDir; deployDir; ".\ModelMod\Release"; ".\MMLoader\Release"; nativeOut]
@@ -57,6 +77,11 @@ Target "MakeAssInfo" (fun _ ->
          Attribute.Product "ModelMod"
          Attribute.Version version
          Attribute.FileVersion version]
+)
+
+Target "UpdateRcVersions" (fun _ ->
+    updateRcVersions ("./ModelMod/ModelMod.rc")
+    updateRcVersions ("./MMLoader/MMLoader.rc")
 )
 
 Target "BuildCS" (fun _ ->
@@ -125,6 +150,7 @@ Target "Zip" (fun _ ->
   ==> "BuildFS"
   ==> "BuildTest"
   ==> "Test"
+  ==> "UpdateRcVersions"
   ==> "BuildNative"
   ==> "CopyNative"
   ==> "CopyStuff"
