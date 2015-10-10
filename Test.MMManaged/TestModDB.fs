@@ -1,7 +1,6 @@
 ﻿module TestModDB
 
 open FsUnit
-open FsCheck
 open NUnit.Framework
 open System.IO
 open System.Reflection
@@ -20,19 +19,18 @@ let ``ModDB: load mod db``() =
                 AppSettings = None
             })
 
-    let check = Check.QuickThrowOnFailure
-    check (mdb.Mods.Length = 2 |@ sprintf "incorrect number of mods: %A" mdb.Mods)
-    check (mdb.References.Length = 1 |@ sprintf "incorrect number of references: %A" mdb.References)
-    check (mdb.MeshRelations.Length = 1 |@ sprintf "incorrect number of meshrels: %A" mdb.MeshRelations)
+    Assert.AreEqual (mdb.Mods.Length, 2, sprintf "incorrect number of mods: %A" mdb.Mods)
+    Assert.AreEqual (mdb.References.Length, 1, sprintf "incorrect number of references: %A" mdb.References)
+    Assert.AreEqual (mdb.MeshRelations.Length, 1, sprintf "incorrect number of meshrels: %A" mdb.MeshRelations)
 
     // check ref
     let () =
         let mref = List.head mdb.References
-        check (mref.Name = "MonolithRef" |@ sprintf "wrong ref name: %A" mref)
+        Assert.AreEqual (mref.Name, "MonolithRef", sprintf "wrong ref name: %A" mref)
         // check ref mesh, a few properties at least
         let refMesh = mref.Mesh
-        check (refMesh.Positions.Length = 8 |@ sprintf "wrong ref mesh vert count: %A" refMesh)
-        check (refMesh.Triangles.Length = 12 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
+        Assert.AreEqual (refMesh.Positions.Length, 8, sprintf "wrong ref mesh vert count: %A" refMesh)
+        Assert.AreEqual (refMesh.Triangles.Length, 12, sprintf "wrong ref mesh prim count: %A" refMesh)
 
     // check mod
     let () =
@@ -40,19 +38,19 @@ let ``ModDB: load mod db``() =
         let mref = List.head mdb.References
         let refMesh = mref.Mesh
 
-        check (mmod.Name = "MonolithMod" |@ sprintf "wrong mod name: %A" mmod)
-        check (mmod.RefName = Some("MonolithRef") |@ sprintf "wrong mod ref name: %A" mmod)
-        check (mmod.Ref = Some(mref) |@ sprintf "wrong mod ref: %A" mmod)
-        check (mmod.Mesh <> None |@ sprintf "wrong mod mesh: %A" mmod)
+        Assert.AreEqual (mmod.Name, "MonolithMod", sprintf "wrong mod name: %A" mmod)
+        Assert.AreEqual (mmod.RefName, Some("MonolithRef"), sprintf "wrong mod ref name: %A" mmod)
+        Assert.AreEqual (mmod.Ref, Some(mref), sprintf "wrong mod ref: %A" mmod)
+        Assert.IsTrue (mmod.Mesh <> None, sprintf "wrong mod mesh: %A" mmod)
         let attributes = {
             DeletedGeometry = []
         }
-        check (mmod.Attributes = attributes |@ sprintf "wrong mod attributes: expected %A, got %A" attributes mmod.Attributes)
+        Assert.AreEqual (mmod.Attributes, attributes, sprintf "wrong mod attributes: expected %A, got %A" attributes mmod.Attributes)
 
         // check mod mesh
         let modMesh = Option.get mmod.Mesh
-        check (modMesh.Positions.Length = 24 |@ sprintf "wrong ref mesh vert count: %A" refMesh)
-        check (modMesh.Triangles.Length = 36 |@ sprintf "wrong ref mesh prim count: %A" refMesh)
+        Assert.AreEqual (modMesh.Positions.Length, 24, sprintf "wrong ref mesh vert count: %A" refMesh)
+        Assert.AreEqual (modMesh.Triangles.Length, 36, sprintf "wrong ref mesh prim count: %A" refMesh)
 
     // check deletion mod
     let () =
@@ -61,14 +59,14 @@ let ``ModDB: load mod db``() =
         let attributes = {
             DeletedGeometry = delGeometry
         }
-        check (dmod.Name = "DelMod" |@ sprintf "wrong mod name: %A" dmod)
-        check (dmod.RefName = None |@ sprintf "wrong mod ref name: %A" dmod)
-        check (dmod.Ref = None |@ sprintf "wrong mod ref: %A" dmod)
-        check (dmod.Mesh = None |@ sprintf "wrong mod mesh: %A" dmod)
-        check (dmod.Attributes = attributes |@ sprintf "wrong mod attributes: expected %A, got %A" attributes dmod.Attributes)
+        Assert.AreEqual (dmod.Name, "DelMod", sprintf "wrong mod name: %A" dmod)
+        Assert.AreEqual (dmod.RefName, None, sprintf "wrong mod ref name: %A" dmod)
+        Assert.AreEqual (dmod.Ref, None, sprintf "wrong mod ref: %A" dmod)
+        Assert.AreEqual (dmod.Mesh, None, sprintf "wrong mod mesh: %A" dmod)
+        Assert.AreEqual (dmod.Attributes, attributes, sprintf "wrong mod attributes: expected %A, got %A" attributes dmod.Attributes)
 
         // should be two deletion mods in the database, one for each prim/vert pair.  leave further checking for the interop test
-        check (mdb.DeletionMods.Length = 2 |@ sprintf "wrong del mod count: %A" mdb.DeletionMods)
+        Assert.AreEqual (mdb.DeletionMods.Length, 2, sprintf "wrong del mod count: %A" mdb.DeletionMods)
 
     ()
 

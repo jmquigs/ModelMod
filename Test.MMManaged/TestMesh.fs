@@ -1,7 +1,6 @@
 ﻿module TestMesh
 
 open FsUnit
-open FsCheck
 open NUnit.Framework
 open System.IO
 
@@ -12,13 +11,11 @@ let monolith =
     let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
     MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
-let check = Check.QuickThrowOnFailure
-
 open MonoGameHelpers
 
 [<Test>]
 let ``Mesh: mono game helpers``() =
-    check (500us = floatToHalfUint16(halfUint16ToFloat(500us)) |@ "float conversion failed")
+    Assert.AreEqual(500us, floatToHalfUint16(halfUint16ToFloat(500us)), "float conversion failed")
 
 [<Test>]
 let ``Mesh: write``() =
@@ -41,16 +38,14 @@ let ``Mesh: write``() =
 
     let monolith = MeshUtil.readFrom(objPath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
-    let check = Check.QuickThrowOnFailure
-
-    check (monolith.Positions.Length = 8 |@ sprintf "incorrect pos count: %A" monolith)
-    check (monolith.Normals.Length = 8 |@ sprintf "incorrect nrm count: %A" monolith)
-    check (monolith.UVs.Length = 3 |@ sprintf "incorrect uv count: %A" monolith)
-    check (monolith.Triangles.Length = 12 |@ sprintf "incorrect uv count: %A" monolith)
-    check (monolith.AppliedPositionTransforms = posTransforms |@ sprintf "incorrect pos transforms: %A" monolith)
-    check (monolith.AppliedUVTransforms = uvTransforms |@ sprintf "incorrect uv transforms: %A" monolith)
+    Assert.AreEqual (monolith.Positions.Length, 8, sprintf "incorrect pos count: %A" monolith)
+    Assert.AreEqual (monolith.Normals.Length, 8, sprintf "incorrect nrm count: %A" monolith)
+    Assert.AreEqual (monolith.UVs.Length, 3, sprintf "incorrect uv count: %A" monolith)
+    Assert.AreEqual (monolith.Triangles.Length, 12, sprintf "incorrect uv count: %A" monolith)
+    Assert.AreEqual (monolith.AppliedPositionTransforms, posTransforms, sprintf "incorrect pos transforms: %A" monolith)
+    Assert.AreEqual (monolith.AppliedUVTransforms, uvTransforms, sprintf "incorrect uv transforms: %A" monolith)
     // tex0 path will NOT currently be read in - it comes from yaml.  this is "by design"
-    check (monolith.Tex0Path = "" |@ sprintf "incorrect tex0 path: %A" monolith)
+    Assert.AreEqual (monolith.Tex0Path, "", sprintf "incorrect tex0 path: %A" monolith)
 
     // check some stuff textually
     let checkHasLine (text:string[]) (x:string) = 

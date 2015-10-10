@@ -1,15 +1,12 @@
 ﻿module TestModDBInterop
 
 open FsUnit
-open FsCheck
 open NUnit.Framework
 open System.IO
 open System.Reflection
 
 open ModelMod
 open ModelMod.CoreTypes
-
-let check = Check.QuickThrowOnFailure
 
 [<Test>]
 // I'm ambivalent about this test.  It would be better to rig up a native test framework and test it 
@@ -22,49 +19,49 @@ let ``ModDBInterop: module functions``() =
     let fakeRoot = Path.Combine(Util.TestDataDir, "dummymodelmod.dll")
     ModDBInterop.setPaths fakeRoot "" |> ignore
     let datapath = ModDBInterop.getDataPath()
-    check (datapath <> null |@ "null data path")
-    check (Path.GetFullPath(datapath) = Path.GetFullPath(Util.TestDataDir) |@ "incorrect data path")
+    Assert.IsTrue (datapath <> null, "null data path")
+    Assert.AreEqual (Path.GetFullPath(datapath), Path.GetFullPath(Util.TestDataDir), "incorrect data path")
 
     let () = 
         let ret = ModDBInterop.loadFromDataPath()
-        check (ret = 0 |@ "load failure")
+        Assert.AreEqual (ret, 0, "load failure")
 
     let mcount = ModDBInterop.getModCount()
-    check (mcount = 3 |@ "incorrect mod count")
+    Assert.AreEqual (mcount, 3 , "incorrect mod count")
 
     let () = 
         let mmod = ModDBInterop.getModData(0) // monolith
-        check (mmod.modType = (ModDBInterop.modTypeToInt GPUReplacement) |@ sprintf "incorrect mod type: %A" mmod)
-        check (mmod.primType = 4 |@ sprintf "incorrect prim type: %A" mmod)
-        check (mmod.primCount = 36 |@ sprintf "incorrect prim count: %A" mmod)
-        check (mmod.vertCount = 24 |@ sprintf "incorrect vert count: %A" mmod)
-        check (mmod.refPrimCount = 12 |@ sprintf "incorrect ref prim count: %A" mmod)
-        check (mmod.refVertCount = 8 |@ sprintf "incorrect ref vert count: %A" mmod)
-        check (mmod.indexCount = 0 |@ sprintf "incorrect index count: %A" mmod)
-        check (mmod.indexElemSizeBytes = 0 |@ sprintf "incorrect index size: %A" mmod)
-        check (mmod.declSizeBytes = 72 |@ sprintf "incorrect decl size: %A" mmod)
-        check (mmod.vertSizeBytes = 92 |@ sprintf "incorrect vert size: %A" mmod)
-        check (mmod.tex0Path = "" |@ sprintf "incorrect tex0 path: %A" mmod)
-        check (mmod.tex1Path = "" |@ sprintf "incorrect tex1 path: %A" mmod)
-        check (mmod.tex2Path = "" |@ sprintf "incorrect tex2 path: %A" mmod)
-        check (mmod.tex3Path = "" |@ sprintf "incorrect tex3 path: %A" mmod)
+        Assert.AreEqual (mmod.modType, (ModDBInterop.modTypeToInt GPUReplacement) , sprintf "incorrect mod type: %A" mmod)
+        Assert.AreEqual (mmod.primType, 4 , sprintf "incorrect prim type: %A" mmod)
+        Assert.AreEqual (mmod.primCount, 36 , sprintf "incorrect prim count: %A" mmod)
+        Assert.AreEqual (mmod.vertCount, 24 , sprintf "incorrect vert count: %A" mmod)
+        Assert.AreEqual (mmod.refPrimCount, 12 , sprintf "incorrect ref prim count: %A" mmod)
+        Assert.AreEqual (mmod.refVertCount, 8 , sprintf "incorrect ref vert count: %A" mmod)
+        Assert.AreEqual (mmod.indexCount, 0 , sprintf "incorrect index count: %A" mmod)
+        Assert.AreEqual (mmod.indexElemSizeBytes, 0 , sprintf "incorrect index size: %A" mmod)
+        Assert.AreEqual (mmod.declSizeBytes, 72 , sprintf "incorrect decl size: %A" mmod)
+        Assert.AreEqual (mmod.vertSizeBytes, 92 , sprintf "incorrect vert size: %A" mmod)
+        Assert.AreEqual (mmod.tex0Path, "" , sprintf "incorrect tex0 path: %A" mmod)
+        Assert.AreEqual (mmod.tex1Path, "" , sprintf "incorrect tex1 path: %A" mmod)
+        Assert.AreEqual (mmod.tex2Path, "" , sprintf "incorrect tex2 path: %A" mmod)
+        Assert.AreEqual (mmod.tex3Path, "" , sprintf "incorrect tex3 path: %A" mmod)
 
     let checkDelMod index pCount vCount = 
         let mmod = ModDBInterop.getModData(index) 
-        check (mmod.modType = (ModDBInterop.modTypeToInt Deletion) |@ sprintf "incorrect mod type: %A" mmod)
-        check (mmod.primType = 4 |@ sprintf "incorrect prim type: %A" mmod)
-        check (mmod.primCount = 0 |@ sprintf "incorrect prim count: %A" mmod)
-        check (mmod.vertCount = 0 |@ sprintf "incorrect vert count: %A" mmod)
-        check (mmod.refPrimCount = pCount |@ sprintf "incorrect ref prim count: %A" mmod)
-        check (mmod.refVertCount = vCount |@ sprintf "incorrect ref vert count: %A" mmod)
-        check (mmod.indexCount = 0 |@ sprintf "incorrect index count: %A" mmod)
-        check (mmod.indexElemSizeBytes = 0 |@ sprintf "incorrect index size: %A" mmod)
-        check (mmod.declSizeBytes = 0 |@ sprintf "incorrect decl size: %A" mmod)
-        check (mmod.vertSizeBytes = 0 |@ sprintf "incorrect vert size: %A" mmod)
-        check (mmod.tex0Path = "" |@ sprintf "incorrect tex0 path: %A" mmod)
-        check (mmod.tex1Path = "" |@ sprintf "incorrect tex1 path: %A" mmod)
-        check (mmod.tex2Path = "" |@ sprintf "incorrect tex2 path: %A" mmod)
-        check (mmod.tex3Path = "" |@ sprintf "incorrect tex3 path: %A" mmod)
+        Assert.AreEqual (mmod.modType, (ModDBInterop.modTypeToInt Deletion) , sprintf "incorrect mod type: %A" mmod)
+        Assert.AreEqual (mmod.primType, 4 , sprintf "incorrect prim type: %A" mmod)
+        Assert.AreEqual (mmod.primCount, 0 , sprintf "incorrect prim count: %A" mmod)
+        Assert.AreEqual (mmod.vertCount, 0 , sprintf "incorrect vert count: %A" mmod)
+        Assert.AreEqual (mmod.refPrimCount, pCount , sprintf "incorrect ref prim count: %A" mmod)
+        Assert.AreEqual (mmod.refVertCount, vCount , sprintf "incorrect ref vert count: %A" mmod)
+        Assert.AreEqual (mmod.indexCount, 0 , sprintf "incorrect index count: %A" mmod)
+        Assert.AreEqual (mmod.indexElemSizeBytes, 0 , sprintf "incorrect index size: %A" mmod)
+        Assert.AreEqual (mmod.declSizeBytes, 0 , sprintf "incorrect decl size: %A" mmod)
+        Assert.AreEqual (mmod.vertSizeBytes, 0 , sprintf "incorrect vert size: %A" mmod)
+        Assert.AreEqual (mmod.tex0Path, "" , sprintf "incorrect tex0 path: %A" mmod)
+        Assert.AreEqual (mmod.tex1Path, "" , sprintf "incorrect tex1 path: %A" mmod)
+        Assert.AreEqual (mmod.tex2Path, "" , sprintf "incorrect tex2 path: %A" mmod)
+        Assert.AreEqual (mmod.tex3Path, "" , sprintf "incorrect tex3 path: %A" mmod)
 
     // del mods
     checkDelMod 1 100 200
@@ -73,6 +70,6 @@ let ``ModDBInterop: module functions``() =
     // out of range mod
     let () = 
         let mmod = ModDBInterop.getModData(100)
-        check (mmod = InteropTypes.EmptyModData |@ "expected empty mod")
+        Assert.AreEqual (mmod, InteropTypes.EmptyModData , "expected empty mod")
 
     ()

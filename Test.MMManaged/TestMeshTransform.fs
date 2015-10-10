@@ -1,7 +1,6 @@
 ﻿module TestMeshTransform
 
 open FsUnit
-open FsCheck
 open NUnit.Framework
 open System.IO
 
@@ -20,7 +19,7 @@ let ``MeshTransform: basic rotation``() =
     let v = new Vec3F(0.f,1.f,0.f)
     let res = MeshTransform.rotX false 90.f v
     let ex = Vec3F(0.f, 0.f, 1.f)
-    Check.QuickThrowOnFailure (vecEq res ex |@ sprintf "rotX: %A %A" res ex)
+    Assert.IsTrue (vecEq res ex, sprintf "rotX: %A %A" res ex)
 
 [<Test>]
 let ``MeshTransform: go ape with the monolith``() =
@@ -32,7 +31,7 @@ let ``MeshTransform: go ape with the monolith``() =
 
     // check first few positions
     let checkPos p1 ep1 msg = 
-        Check.QuickThrowOnFailure (vecEq p1 ep1 |@ sprintf "%s: got: %A; expected: %A" msg p1 ep1)
+        Assert.IsTrue (vecEq p1 ep1, sprintf "%s: got: %A; expected: %A" msg p1 ep1)
 
     checkPos nm.Positions.[0] (Vec3F(1.414214f,1.414214f,0.f)) "mismatch on pos 0"
     checkPos nm.Positions.[1] (Vec3F(1.06066f,1.767767f,0.f)) "mismatch on pos 1"
