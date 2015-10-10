@@ -11,7 +11,7 @@ let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "1.0.0.2"  // or retrieve from CI server
+let version = "1.0.0.3"  // or retrieve from CI server
 
 let updateRcVersions rcFile =
     let lines = File.ReadAllLines(rcFile)
@@ -29,6 +29,7 @@ let updateRcVersions rcFile =
         >> (replVer "PRODUCTVERSION " (fun _ -> (sprintf "%s" (version.Replace(".",",") ))))
     let lines = lines |> Array.map fn
     File.WriteAllLines(rcFile, lines)
+    trace ("Updating versions in rc file: " + rcFile)
     ()
 
 Target "Clean" (fun _ ->
@@ -143,14 +144,22 @@ Target "Zip" (fun _ ->
         |> Zip buildDir (deployDir + "ModelMod-" + version + ".zip")
 )
 
+Target "UpdateVersions" (fun _ ->
+    trace ("Version updated to: " + version)
+)
+
+  
 // Dependencies
-"Clean"
-  ==> "MakeAssInfo" 
+"MakeAssInfo"  
+==> "UpdateRcVersions"
+==> "UpdateVersions"
+
+"UpdateVersions"
+  ==> "Clean"
   ==> "BuildCS"
   ==> "BuildFS"
   ==> "BuildTest"
   ==> "Test"
-  ==> "UpdateRcVersions"
   ==> "BuildNative"
   ==> "CopyNative"
   ==> "CopyStuff"
@@ -158,4 +167,4 @@ Target "Zip" (fun _ ->
   ==> "Default"
 
 // start build
-RunTargetOrDefault "Default"
+RunTargetOrDefault "UpdateVersions"
