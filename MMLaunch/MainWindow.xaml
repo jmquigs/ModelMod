@@ -5,6 +5,7 @@
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
     x:Name="MainWindow"
     Title="ModelMod Launcher" Height="607" Width="772"
+    Icon="/MMLaunch;component/ModelMod.ico"
     ResizeMode="NoResize">
     <Window.DataContext>
         <local:MainViewModel/>

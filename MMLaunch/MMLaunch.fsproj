@@ -12,6 +12,7 @@
     <targetframeworkversion>v4.5</targetframeworkversion>
     <TargetFSharpCoreVersion>4.3.1.0</TargetFSharpCoreVersion>
     <Name>MMLaunch</Name>
+    <Win32Resource>.\Resource.res</Win32Resource>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DebugSymbols>true</DebugSymbols>
@@ -72,6 +73,7 @@
     <Content Include="paket.references" />
     <Compile Include="App.fs" />
     <None Include="TestFSI.fsx" />
+    <Resource Include="ModelMod.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MMView\MMView.fsproj">
