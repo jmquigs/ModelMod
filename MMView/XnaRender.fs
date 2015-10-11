@@ -88,7 +88,7 @@ module XnaRender =
         ]
         let ib = new IndexBuffer(device, IndexElementSize.SixteenBits, 16 * indices.Length, BufferUsage.None)
         ib.SetData (List.toArray indices)
-        vb,ib    
+        vb,ib
 
     // helper function to change the vert data on the VB
     let setVBData (vb:VertexBuffer) verts =
@@ -124,16 +124,16 @@ module XnaRender =
             // 4) Use one of MS's open source dx toolkits to load it
             // I tried looking at 1, and managed to get it to actually load a TextureContent, but it wasn't
             // clear how to convert that into a Texture2D for the effect without writing a bunch of tedious data
-            // filling code - shouldn't there be a utility for this somewhere?  
+            // filling code - shouldn't there be a utility for this somewhere?
             // Ideally we'd just use FreeImage or something else
             // directly if we can, so that we don't depend on the whole content
-            // pipeline just for this one feature.  
+            // pipeline just for this one feature.
             // We may also be able to use the DirectXTK for this since it doesn't need to be D3D9 compatible
             // https://github.com/Microsoft/DirectXTK
             // or https://github.com/Microsoft/DirectXTex
             // If we could use one of those open source DX libs, and it was compatible with D3D9, 
             // maybe we could eliminate the whole stupid legacy D3DX dependency entirely.
-            // Giving up for now.  
+            // Giving up for now.
             ()
 
         let renderFn = basicRender { 
@@ -185,7 +185,7 @@ module XnaRender =
             5s; 4s; 0s;
             0s; 4s; 2s; // bottom
             4s; 6s; 2s;
-            4s; 7s; 6s; // back            
+            4s; 7s; 6s; // back
             5s; 7s; 4s;
         |]
         let ib = new IndexBuffer(device, IndexElementSize.SixteenBits, 16 * indices.Length, BufferUsage.None)

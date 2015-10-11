@@ -42,7 +42,7 @@ type ConfirmDialogViewModel() =
     let mutable checkboxText = ""
     let mutable checkboxChecked = false
 
-    member x.View  
+    member x.View
         with get() = 
             match view with 
             | None -> null

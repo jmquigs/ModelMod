@@ -37,7 +37,7 @@ module Yaml =
             scalar.Value
         | _ -> failwithf "Cannot extract string from node %A" node
 
-    /// Convert the node to Some(toString(node)), or returns None if node is None.  
+    /// Convert the node to Some(toString(node)), or returns None if node is None.
     /// Throws exception if the node is Some but the conversion fails.
     let toOptionalString (node:YamlNode option) =
         node |> Option.map (fun n -> toString(n))
@@ -73,7 +73,7 @@ module Yaml =
             | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
             | Some v -> v
     
-    /// Convert the node to Some(YamlSequenceNode)), or returns None if node is None.  
+    /// Convert the node to Some(YamlSequenceNode)), or returns None if node is None.
     /// Throws exception if the node is Some but the conversion fails.
     let toOptionalSequence (node:YamlNode option) =
         node |> Option.map (fun thing -> 
@@ -88,7 +88,7 @@ module Yaml =
         | None -> failwith failMsg
         | Some s -> s
 
-    /// Convert the node to Some(YamlMappingNode)), or returns None if node is None.  
+    /// Convert the node to Some(YamlMappingNode)), or returns None if node is None.
     /// Throws exception if the node is Some but the conversion fails.
     let toOptionalMapping (node:YamlNode option) =
         match node with

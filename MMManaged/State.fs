@@ -20,14 +20,14 @@ open System.IO
 
 open CoreTypes
 
-/// Contains mutable state, including the current configuration and data for all loaded mods.  
+/// Contains mutable state, including the current configuration and data for all loaded mods.
 /// This is stored here so that we don't have to pass it all over the interop barrier, which 
 /// would be totally nasty (and is also largely irrelevant to code on that side).
 module State =
     let private log = Logging.getLogger("State")
 
     /// The data directory contains all data for all games, as well as the selection texture.
-    let private DefaultDataDir = "Data"
+    let private defaultDataDir = "Data"
 
     /// Helper type for finding various directories
     type DirLocator(rootDir:string, conf:RunConfig) = 
@@ -36,7 +36,7 @@ module State =
             if conf.DocRoot <> "" then
                 conf.DocRoot
             else
-                Path.Combine(rootDir, DefaultDataDir)
+                Path.Combine(rootDir, defaultDataDir)
 
         // This throws an exception if the base data dir does not exist; the exception is intended
         // to stop loading; we don't try to create it or otherwise proceed if it isn't found.
@@ -77,7 +77,7 @@ module State =
     /// Throws exception if confiuration is invalid.
     let validateAndSetConf (rootDir:string) (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
         if not (Directory.Exists rootDir) then
-            failwith "Root directory does not exist: %s" rootDir
+            failwithf "Root directory does not exist: %s" rootDir
 
         _rootDir <- rootDir
 

@@ -48,7 +48,7 @@ module Extractors =
         let a,b,c,d = br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
         a,b,c,d
 
-/// Defines the actual transforms associated with each snapshot transform profile.  
+/// Defines the actual transforms associated with each snapshot transform profile.
 // NOTE: probably want to push this out to configuration at some point, since these are both game and 3d-tool specific.
 module SnapshotTransforms = 
     let Position = 
@@ -103,7 +103,7 @@ module Snapshot =
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.Ubyte4 -> 
                 outputFn (Extractors.xNrmFromUbyte4 reader)
-            | _ -> failwithf "Unsupported type for %s: %A" name el.Type        
+            | _ -> failwithf "Unsupported type for %s: %A" name el.Type
                 
         match el.Usage with
             | SDXVertexDeclUsage.Position ->
@@ -159,23 +159,23 @@ module Snapshot =
         }
 
     /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
-    /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.  
+    /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
     /// Returns 0 on success.
     let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
         try 
             incr snapshotNum
 
             log.Info "Snapshot: number %d" snapshotNum.Value
-            log.Info "  Capturing %d primitives composed of %d vertices with primitive type %d" sd.primCount sd.numVertices sd.primType
-            log.Info "  MinVertexIndex: %d, BaseVertexIndex: %d, StartIndex: %d" sd.minVertexIndex sd.baseVertexIndex sd.startIndex
+            log.Info "  Capturing %d primitives composed of %d vertices with primitive type %d" sd.PrimCount sd.NumVertices sd.PrimType
+            log.Info "  MinVertexIndex: %d, BaseVertexIndex: %d, StartIndex: %d" sd.MinVertexIndex sd.BaseVertexIndex sd.StartIndex
 
-            if sd.baseVertexIndex <> 0 || sd.minVertexIndex <> 0u then
+            if sd.BaseVertexIndex <> 0 || sd.MinVertexIndex <> 0u then
                 // need a test case for these
                 log.Warn "One or more of baseVertexIndex, minVertexIndex is not zero.  Snapshot may not handle this case"
 
             // check primitive type
-            let primType = enum<PrimitiveType>(sd.primType)
-            if primType <> PrimitiveType.TriangleList then failwith "Cannot snap primitives of type: %A; only triangle lists are supported" primType
+            let primType = enum<PrimitiveType>(sd.PrimType)
+            if primType <> PrimitiveType.TriangleList then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
 
             // create the device from the native pointer.
             // note: creating a new sharpdx wrapper object from a native pointer does not increase the com ref count.
@@ -191,7 +191,9 @@ module Snapshot =
             let mutable strideBytes = 0
 
             device.GetStreamSource(0,&vb,&offsetBytes,&strideBytes)
-            if (vb = null) then failwith "Stream 0 VB is null, cannot snap"
+            match vb with
+            | null -> failwith "Stream 0 VB is null, cannot snap"
+            | _ -> ()
 
             // need to dispose the vb
             use dVB = makeLoggedDisposable vb "disposing stream 0 vb"
@@ -204,17 +206,17 @@ module Snapshot =
             if divider <> 1 then failwith "Divider must be 1" // this code doesn't handle other cases right now
 
             // index buffer
-            if sd.ib = 0n then failwith "Index buffer is null"
-            let ib = new IndexBuffer(sd.ib) // do not dispose, native code owns it
+            if sd.IndexBuffer = 0n then failwith "Index buffer is null"
+            let ib = new IndexBuffer(sd.IndexBuffer) // do not dispose, native code owns it
             let ibDesc = ib.Description
             log.Info"IndexBuffer: Format: %A, Usage: %A, Pool: %A, Size: %d" ibDesc.Format ibDesc.Usage ibDesc.Pool ibDesc.Size
 
             // check format
-            if ibDesc.Format <> Format.Index16 then failwith "Cannot snap indices of type: %A; only index16 are supported" ibDesc.Format
+            if ibDesc.Format <> Format.Index16 then failwithf "Cannot snap indices of type: %A; only index16 are supported" ibDesc.Format
 
             // vertex declaration
-            if sd.vertDecl = 0n then failwith "Vertex declaration is null"
-            let decl = new VertexDeclaration(sd.vertDecl) // do not dispose, native code owns it
+            if sd.VertDecl = 0n then failwith "Vertex declaration is null"
+            let decl = new VertexDeclaration(sd.VertDecl) // do not dispose, native code owns it
 
             let elements = decl.Elements 
             log.Info "Declaration: %d elements" elements.Length
@@ -268,7 +270,7 @@ module Snapshot =
             let readVertElement = readElement readOutputFns vbReader
 
             // start at minIndex and write out numVerts (we only write the verts used by the DIP call)
-            let vbStartOffset = int64 offsetBytes + ((int64 sd.baseVertexIndex + int64 sd.minVertexIndex) * int64 strideBytes)
+            let vbStartOffset = int64 offsetBytes + ((int64 sd.BaseVertexIndex + int64 sd.MinVertexIndex) * int64 strideBytes)
             ignore (vbDS.Seek(vbStartOffset, SeekOrigin.Begin) )
             // walk the verts to populate data arrays.
             // elements are sorted in offset order, so we only need to seek the reader between verts (not between elements)
@@ -278,7 +280,7 @@ module Snapshot =
             let processVert i = 
                 ignore (vbDS.Seek(vbStartOffset + (int64 i * int64 stride),SeekOrigin.Begin))
                 declElements |> List.iter readVertElement
-            [0..(int sd.numVertices-1)] |> List.iter processVert
+            [0..(int sd.NumVertices-1)] |> List.iter processVert
 
             // now write the index (primitive) data
             // since we only wrote out the potentially-usable verts, and not the full buffer, we have to offset each index by
@@ -286,7 +288,7 @@ module Snapshot =
             // TODO: I think I've seen this work with minVertexIndex <> 0, but I'm not sure since that is an uncommon case; 
             // needs definitive test.
             let indexElemSize = 2 // 2 = sizeof short (Format.Index16)
-            let ibStartOffset = int64 sd.minVertexIndex * (int64 indexElemSize) + int64 (sd.startIndex * uint32 indexElemSize)
+            let ibStartOffset = int64 sd.MinVertexIndex * (int64 indexElemSize) + int64 (sd.StartIndex * uint32 indexElemSize)
             ignore (ibDS.Seek(ibStartOffset, SeekOrigin.Begin))
 
             let triangles = new ResizeArray<IndexedTri>()
@@ -303,7 +305,7 @@ module Snapshot =
                 verts.[2] <- { Pos = c; Tex = c; Nrm = c }
                 triangles.Add({ Verts = verts})
 
-            [1..(int sd.primCount)] |> List.iter processTriangle
+            [1..(int sd.PrimCount)] |> List.iter processTriangle
 
             // set up to write files
             let baseDir = State.getExeSnapshotDir()
@@ -311,7 +313,7 @@ module Snapshot =
             if not (Directory.Exists baseDir) then
                 Directory.CreateDirectory(baseDir) |> ignore
 
-            let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.primCount sd.numVertices
+            let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.PrimCount sd.NumVertices
 
             // write textures for enabled stages only
             // Note: Sometimes we can't read textures from the device.
@@ -400,18 +402,18 @@ module Snapshot =
             
             // write raw ib and vb; just write the portion that was used by the DIP call
             // Note: these are generally for debug only; create mod tool doesn't even use them.
-            let getStreamBytes (startoffset) (datastream:SharpDX.DataStream) size =                 
+            let getStreamBytes (startoffset) (datastream:SharpDX.DataStream) size =
                 datastream.Seek(startoffset, SeekOrigin.Begin) |> ignore
                 let data:byte[] = Array.zeroCreate size
                 let ibBytes = datastream.Read(data,0,data.Length)
                 data
 
-            let ibBytesToRead = int sd.primCount * 3 * int indexElemSize
+            let ibBytesToRead = int sd.PrimCount * 3 * int indexElemSize
             getStreamBytes ibStartOffset ibDS ibBytesToRead 
                 |> 
                 (fun bytes -> 
                     // write header
-                    let iCount = int sd.primCount * 3
+                    let iCount = int sd.PrimCount * 3
                     let iSize = indexElemSize
 
                     let fname = Path.Combine(baseDir, (sprintf "%s_IB.dat" sbasename))
@@ -421,14 +423,14 @@ module Snapshot =
                     bw.Write(bytes)
                     ())
 
-            let vbBytesToRead = int sd.numVertices * strideBytes           
+            let vbBytesToRead = int sd.NumVertices * strideBytes
             getStreamBytes vbStartOffset vbDS vbBytesToRead 
                 |> 
                 (fun bytes ->
                     // write header
                     let fname = Path.Combine(baseDir, (sprintf "%s_VB.dat" sbasename))
                     use bw = new BinaryWriter(new FileStream(fname, FileMode.Create))
-                    bw.Write(sd.numVertices)
+                    bw.Write(sd.NumVertices)
                     bw.Write(stride)
                     bw.Write(bytes)
                     ())

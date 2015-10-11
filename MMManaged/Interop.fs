@@ -28,7 +28,7 @@ open Microsoft.Xna.Framework
 #nowarn "9"
 /// Defines the main native->managed interface. 
 module MMNative =
-    /// Called by native code to initialize managed code and configuration.  
+    /// Called by native code to initialize managed code and configuration.
     type SetPathsCB = 
         delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
 
@@ -69,7 +69,7 @@ module Interop =
             member x.Error format = Printf.ksprintf (formatError) format
         }
     
-    let setupLogging() = Logging.setLoggerFactory NativeLogFactory    
+    let setupLogging() = Logging.setLoggerFactory NativeLogFactory
 
     let _,log = NativeLogFactory "Interop"
     
@@ -88,12 +88,12 @@ type Main() =
         thing
 
     // Write specified object to alternate fail log.  Haven't needed this in a while.  It replaces the file
-    // (doesn't append), so just call it once.  
+    // (doesn't append), so just call it once.
     static member WriteToFailLog x = 
         let ad = AppDomain.CurrentDomain
-        let location = ad.BaseDirectory      
+        let location = ad.BaseDirectory
         let failLogPath = Path.Combine(location, "MMManaged.error.log")
-        File.WriteAllText(failLogPath, x.ToString())          
+        File.WriteAllText(failLogPath, x.ToString())
 
     static member InitLogging() =
         // try to set up logging and log a test message.  if we can't do that at least, we're gonna have a bad time.
@@ -134,7 +134,7 @@ type Main() =
                 //Main.WriteToFailLog e
                 
                 Interop.log.Error "%A" e
-                InteropTypes.GenericFailureCode        
+                InteropTypes.GenericFailureCode
 
     static member Main(ignoredArgument:string) = 
         let ret = Main.InitLogging()

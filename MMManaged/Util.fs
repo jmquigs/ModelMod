@@ -51,7 +51,7 @@ module REUtil =
                         let res = xFn (v) 
                         res
                     with 
-                        | ex -> failwith "Illegal value: %A: %s" v ex.Message                    
+                        | ex -> failwithf "Illegal value: %A: %s" v ex.Message
 
                 try 
                     let endI = groups.Count - 1
@@ -102,4 +102,4 @@ module Util =
         let manangedMemory = float32 (GC.GetTotalMemory(true)) / 1024.f / 1024.f
         let proc = Process.GetCurrentProcess();
         let procMemMB = float32 proc.PrivateMemorySize64 / 1024.f / 1024.f
-        log.Info "Memory: (clr: %3.2fMB; process: %3.2f MB)" manangedMemory procMemMB  
+        log.Info "Memory: (clr: %3.2fMB; process: %3.2f MB)" manangedMemory procMemMB

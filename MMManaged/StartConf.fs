@@ -22,7 +22,7 @@ open YamlDotNet.RepresentationModel
 
 open CoreTypes
 
-/// Contains startup configuration utilities.  
+/// Contains startup configuration utilities.
 /// Allows override of the standard registry and modindex load 
 /// scheme.  Normally only used for non-game invocations
 /// (preview window and MMView tool).  Unlike RunConfig, StartConf data is not stored in the registry.

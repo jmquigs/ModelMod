@@ -50,7 +50,7 @@ module ModUtil =
 mods:"""
     let addToModIndex (modRoot:string) (modFile:string):Result<unit,Message> =
         try
-            // yamldotnot doesn't seem to produce comment/text nodes in the representation model.  
+            // yamldotnot doesn't seem to produce comment/text nodes in the representation model.
             // so rather than lose those, just operate on it as a text file.
             let indexFileName = Path.Combine(modRoot, "ModIndex.yaml")
             let modTextLines = 
@@ -83,7 +83,7 @@ mods:"""
 
                 File.WriteAllLines(indexFileName, lines)
 
-                Ok(())                
+                Ok(())
         with 
             | e -> Err(e.Message)
 
@@ -155,7 +155,7 @@ mods:"""
                     let fDat = fDat |> Array.map (fun line -> 
                         match line with
                         | l when texFile <> None && l.StartsWith("map_Kd ") -> "map_Kd " + Path.GetFileName(Option.get texFile)
-                        | l -> l)                            
+                        | l -> l)
                     File.WriteAllLines(newMtlFile, fDat)
                     Some newMtlFile
 

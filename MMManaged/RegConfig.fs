@@ -51,7 +51,7 @@ module RegUtil =
         | false,false -> a + @"\" + b
 
     /// Convert specified dword (integer) type to bool
-    let dwordAsBool dw = if (int dw > 0) then true else false
+    let dwordAsBool dw = (int dw > 0)
     /// Convert specified bool type to dword (integer)
     let boolAsDword b = if (b) then 1 else 0
 
@@ -79,7 +79,7 @@ module RegConfig =
         type RegLoc(rootFn: unit -> string) = 
             member x.Root:string = rootFn()
             member x.Hive = Registry.CurrentUser
-            member x.ProfileDefaultsKey = "ProfileDefaults"    
+            member x.ProfileDefaultsKey = "ProfileDefaults"
             member x.HiveRoot = x.Hive.Name + @"\" + rootFn()
             member x.ProfRoot = rootFn() + @"\" + "Profiles"
 
@@ -90,9 +90,9 @@ module RegConfig =
     // mutable so that unit test can change it, via Init functions below
     let mutable private regLoc = RegLocTypes.FailsauceRegLoc
 
-    /// Initialize the registry root for normal use.  
+    /// Initialize the registry root for normal use.
     /// This must be called prior to use, otherwise
-    /// all registry functions will thrown an exception.  
+    /// all registry functions will thrown an exception.
     let init() = regLoc <- RegLocTypes.NormalRegLoc
     /// Initialize the registry root for integration test use.
     let initForTest() = regLoc <- RegLocTypes.TestRegLoc
@@ -114,7 +114,7 @@ module RegConfig =
             Array.sort profiles
 
     /// Given an exe path, find its profile key path, or None if not found.
-    /// Each exe path must therefore map to exactly one profile.                
+    /// Each exe path must therefore map to exactly one profile.
     let findProfilePath (exePath:string) = 
         let exePath = exePath.Trim()
         let profiles = getProfileKeyNames() 
@@ -166,7 +166,7 @@ module RegConfig =
         v
 
     /// Creata a new empty profile.  Up to 10000 profiles are supported, more 
-    /// available in the pro version.  
+    /// available in the pro version.
     let createNewProfile() = 
         let profiles = getProfileKeyNames() 
       
@@ -210,18 +210,17 @@ module RegConfig =
         let profSave k v = setProfileValue profKey k v
 
         // this is a syntactic trick to make sure I get a compiler error if I forget to save a field
-        let _ = {
-            ProfileKeyName = profKey
-            ProfileName = profSave RegKeys.ProfName conf.ProfileName
-            CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath 
-            RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
-            LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
-            InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
-            SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
-            DocRoot = "" // custom doc root not yet supported
-        }
-
-        ()
+        ignore
+            ({
+                ProfileKeyName = profKey
+                ProfileName = profSave RegKeys.ProfName conf.ProfileName
+                CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath 
+                RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
+                LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
+                InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
+                SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
+                DocRoot = "" // custom doc root not yet supported
+            })
 
     /// Remove a profile.  Uses the profile key name in the config to locate the 
     /// profile.  Does not require ExePath to be set.
@@ -312,4 +311,4 @@ module RegConfig =
                 failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
             runConfig
 
-        conf        
+        conf

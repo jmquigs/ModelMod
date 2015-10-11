@@ -304,12 +304,12 @@ module MainViewUtil =
                 let sd = dirSelector p
                 if not (Directory.Exists sd) 
                 then false
-                else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()   
+                else Directory.EnumerateFileSystemEntries(sd).GetEnumerator().MoveNext()
         with 
             | e -> false
 
     let openModsDir (p:ProfileModel) =
-        let hasfiles = profileDirHasFiles p (fun p -> getDataDir p)
+        let hasfiles = profileDirHasFiles p getDataDir
         if hasfiles then
             let proc = new Process()
             proc.StartInfo.UseShellExecute <- true
@@ -321,7 +321,7 @@ module MainViewUtil =
         let mainWin = mainWin :?> Window
         match mainWin with 
         | null -> None
-        | win ->            
+        | win ->
             let lb = win.FindName("ProfilesListBox") :?> System.Windows.Controls.ListBox
             match lb with
             | null -> None
@@ -357,7 +357,7 @@ type ProfileModelConverter() =
 type MainViewModel() as self = 
     inherit ViewModelBase()
 
-    let EmptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
+    let emptyProfile = ProfileModel(CoreTypes.DefaultRunConfig)
 
     let mutable selectedProfile:ProfileModel option = None
     let mutable loaderState = NotStarted
@@ -386,7 +386,7 @@ type MainViewModel() as self =
         | Some profile -> setter profile 
 
     member x.PeriodicUpdate() = 
-        x.UpdateLoaderState <|     
+        x.UpdateLoaderState <|
             match loaderState with
             | NotStarted 
             | StartPending(_) 
@@ -406,7 +406,7 @@ type MainViewModel() as self =
                 let exitReason = 
                     ProcessUtil.getLoaderExitReason proc (sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode)
                     
-                sprintf LocStrings.Misc.LoaderStopped exitReason exe  
+                sprintf LocStrings.Misc.LoaderStopped exitReason exe
             | Started (_,exe) -> sprintf LocStrings.Misc.LoaderStarted exe 
 
     member x.Profiles = 
@@ -493,7 +493,7 @@ type MainViewModel() as self =
                         | Some (xforms) -> makeStringList xforms
                     LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
                     + LocStrings.Snapshot.UVLabel + uvxforms
-                inputText + "\n" + snapshotText     
+                inputText + "\n" + snapshotText
 
     member x.LauncherProfileIcon 
         with get() = 
@@ -505,8 +505,8 @@ type MainViewModel() as self =
                 | None -> null
                 | Some(p) -> p.Icon
             | NotStarted
-            | StartFailed (_,_)
-            | Stopped (_,_) -> 
+            | StartFailed (_)
+            | Stopped (_) -> 
                 match x.SelectedProfile with
                 | None -> null
                 | Some(p) -> p.Icon
@@ -580,9 +580,9 @@ type MainViewModel() as self =
         with get() = 
             match loaderState with
             StartPending(_)
-            | Started (_,_) -> false
-            | StartFailed (_,_) 
-            | Stopped (_,_) 
+            | Started (_) -> false
+            | StartFailed (_) 
+            | Stopped (_) 
             | NotStarted -> true
 
     member x.NewProfile = 
@@ -614,7 +614,7 @@ type MainViewModel() as self =
             (fun canExecute -> selectedProfile.IsSome ), 
             (fun action ->
                 x.SelectedProfile |> Option.iter (fun profile ->
-                    if (MainViewUtil.pushDeleteProfileDialog profile) then                    
+                    if (MainViewUtil.pushDeleteProfileDialog profile) then
                         try 
                             if profile.Config.ProfileKeyName <> "" then
                                 RegConfig.removeProfile profile.Config
@@ -636,7 +636,7 @@ type MainViewModel() as self =
         x.SelectedProfile |> Option.iter (fun profile ->
             MainViewUtil.pushRemoveSnapshotsDialog mainWin profile)
 
-    member x.RemoveSnapshots =  
+    member x.RemoveSnapshots =
         new RelayCommand (
             (fun canExecute -> x.HasSnapshots), 
             (fun mainWin -> x.DoRemoveSnapshots(mainWin :?> Window)))
@@ -655,7 +655,7 @@ type MainViewModel() as self =
         new RelayCommand (
             (fun canExecute -> x.HasModFiles),
             (fun action ->
-                x.SelectedProfile |> Option.iter (fun profile -> MainViewUtil.openModsDir profile )))
+                x.SelectedProfile |> Option.iter MainViewUtil.openModsDir))
 
     member x.SetupBlender = 
         new RelayCommand (

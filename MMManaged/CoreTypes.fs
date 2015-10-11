@@ -64,7 +64,7 @@ module CoreTypes =
     // ------------------------------------------------------------------------
 
     /// Shorthand for Microsoft.Xna.Framework.Vector2
-    type Vec2F = Microsoft.Xna.Framework.Vector2    
+    type Vec2F = Microsoft.Xna.Framework.Vector2
 
     /// Shorthand for Microsoft.Xna.Framework.Vector3
     type Vec3F = Microsoft.Xna.Framework.Vector3
@@ -83,7 +83,7 @@ module CoreTypes =
     // ------------------------------------------------------------------------
     // Configuration types
 
-    /// A run config for modelmod.  Usually this is created from registry data.  
+    /// A run config for modelmod.  Usually this is created from registry data.
     type RunConfig = {
         /// Reg key that this profile is stored under, e.g "Profile0000"
         ProfileKeyName: string 
@@ -132,7 +132,7 @@ module CoreTypes =
         GPUReplacement 
         /// Animated on the CPU.  A snapshot of this kind of data usually results in a fully world-transformed and 
         /// animated mesh - pretty useless for modding.  ModelMod doesn't not currently support this type of mod,
-        /// even though it is technically possible.  
+        /// even though it is technically possible.
         | CPUReplacement 
         /// Removal mod.  These don't define meshes, but instead just list a primitive and vertex count.  Whenever 
         /// _anything_ is drawn with that exact primitive and vert count, it is not displayed.  This can lead to some
@@ -177,7 +177,7 @@ module CoreTypes =
         Data: byte[]
     }
 
-    /// Various options for reading meshes.  
+    /// Various options for reading meshes.
     type MeshReadFlags = {
         /// Whether to read any associated .mtl files.  If true and an .mtl file is available, Tex0Path
         /// will be set to whatever texture is defined in the material file.  This is primarily intended for tools; 
@@ -239,7 +239,7 @@ module CoreTypes =
     // These are types loaded by the moddb from yaml files
 
     /// Storage for a named Reference object.
-    /// The Name of a reference is its base file name (no extension).  
+    /// The Name of a reference is its base file name (no extension).
     type DBReference = {
         Name : string
         Mesh : Mesh
@@ -256,8 +256,8 @@ module CoreTypes =
     /// Default value
     let EmptyModAttributes = { ModAttributes.DeletedGeometry = [] }
 
-    /// Storage for a named mod.  
-    /// The Name of a mod is its base file name (no extension).  
+    /// Storage for a named mod.
+    /// The Name of a mod is its base file name (no extension).
     type DBMod = {
         RefName: string option
         Ref: DBReference option

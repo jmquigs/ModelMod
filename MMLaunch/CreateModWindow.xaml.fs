@@ -38,7 +38,7 @@ open ModelMod
 type CreateModView = XAML<"CreateModWindow.xaml", true>
 
 [<AllowNullLiteral>] // For listbox selecteditem compatibility
-type MMObjFileModel(fullPath) =     
+type MMObjFileModel(fullPath) =
     member x.Name 
         with get() = 
             Path.GetFileName(fullPath)
@@ -56,7 +56,7 @@ type CreateModViewModel() as self =
     let mutable modNameTB: TextBox option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     let mutable addToModIndex = true
-    let mutable removeSnapshotsFn = (fun _ -> ())
+    let mutable removeSnapshotsFn = ignore
 
     let mutable sdWriteTime = DateTime.Now
 
@@ -98,7 +98,7 @@ type CreateModViewModel() as self =
             sdWriteTime <- Directory.GetLastWriteTime(snapDir)
 
         x.TargetFileChanged()
-        x.RaisePropertyChanged("Files")         
+        x.RaisePropertyChanged("Files")
         x.RaisePropertyChanged("RemoveSnapshots")
 
     member x.SnapshotDir 
@@ -195,12 +195,12 @@ type CreateModViewModel() as self =
     member x.RemoveSnapshotsFn
         with set value = removeSnapshotsFn <- value
 
-    member x.RemoveSnapshots =  
+    member x.RemoveSnapshots =
         new RelayCommand (
             (fun canExecute -> true), 
             (fun action -> removeSnapshotsFn() ))
 
-    member x.Create =  
+    member x.Create =
         new RelayCommand (
             (fun canExecute -> x.CanCreate), 
             (fun action ->
@@ -220,5 +220,5 @@ type CreateModViewModel() as self =
                                 ""
                                 
                         ViewModelUtil.pushDialog(sprintf "Mod created.  %s%s" modIndexErr createdMessage )
-                    | Err(msg) -> ViewModelUtil.pushDialog(msg)                                         
+                    | Err(msg) -> ViewModelUtil.pushDialog(msg)
             ))

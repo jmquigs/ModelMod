@@ -24,7 +24,7 @@ open Microsoft.Xna.Framework
 open CoreTypes
 
 /// Utilities for comparing a Mod to a Reference and copying any required data from the Ref to the Mod 
-/// (such as blend weight information).  
+/// (such as blend weight information).
 module MeshRelation =
     let private log = Logging.getLogger("MeshRelation")
 
@@ -36,7 +36,7 @@ module MeshRelation =
         Normal: Vec3F[];
     }
 
-    type MVProjections = { x:float ; y:float ; z:float } 
+    type MVProjections = { X:float ; Y:float ; Z:float } 
 
     /// Data required for CPU animations.  These are currently unimplemented, but this is some of the 
     /// data that is needed using a method I prototyped before.  That method is roughly as follows
@@ -46,7 +46,7 @@ module MeshRelation =
     /// should probably be used as well so that double-sided triangles don't cause problems).
     /// 2) At run-time, on each frame, whenever the original ref is drawn, lock the VB and read back the 
     /// ref data into system memory.  For each mod vert, re-compute the (current) projection triangle, and compute
-    /// the projection vectors again.  Use the projection vectors to offset the ref verts.  
+    /// the projection vectors again.  Use the projection vectors to offset the ref verts.
     /// 3) Write a new vb using the new ref verts; draw it, and Voila, its the animated mod.
     /// Provided you aren't doing this for a huge amount of data, the performance hit barely registers (though, to be 
     /// fair, the original code was in C++, so I don't know how well managed code would handle it).
@@ -54,7 +54,7 @@ module MeshRelation =
         UseRef: bool
         VecToModVert: Vec3F
         ModProjections: MVProjections
-        RefIndices: int[]   
+        RefIndices: int[]
         RefNormal: Vec3F
         //refTexCoord: Vec2F
     }
@@ -103,7 +103,7 @@ module MeshRelation =
                 refAnnts |> List.tryFind (fun (s:string) -> 
                     s.ToUpperInvariant().Equals("EXCLUDE"))
 
-            let (|ModExcludesRef|_|) (refAnnts:string list,modAnnts:string list) =                
+            let (|ModExcludesRef|_|) (refAnnts:string list,modAnnts:string list) =
                 refAnnts |> List.tryFind (fun refA ->
                     let refA = refA.ToUpperInvariant()
                     modAnnts 
@@ -144,7 +144,7 @@ module MeshRelation =
 
                     match refAnnotations,modAnnotations with
                     | [],[] -> false
-                    | UnconditionalExclude groupName ->                    
+                    | UnconditionalExclude groupName ->
                         true
                     | ModExcludesRef groupName -> 
                         true
@@ -242,7 +242,7 @@ module MeshRelation =
             log.Info "built mesh relation from mod '%s' to ref '%s'" md.Name ref.Name
             sw.StopAndPrint()
     
-        member x.DBMod = md               
+        member x.DBMod = md
         member x.DBRef = ref
         member x.VertRelations = vertRels
         member x.ModMesh = modMesh

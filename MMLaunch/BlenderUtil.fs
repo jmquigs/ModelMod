@@ -127,11 +127,11 @@ module BlenderUtil =
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
-            let PathLine = "MMPATH:"
+            let pathLine = "MMPATH:"
             let paths = 
                 outLines 
-                |> Array.filter (fun line -> line.StartsWith(PathLine))
-                |> Array.map (fun line -> line.Substring(PathLine.Length).Trim())
+                |> Array.filter (fun line -> line.StartsWith(pathLine))
+                |> Array.map (fun line -> line.Substring(pathLine.Length).Trim())
 
             if paths.Length = 0 then
                 let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
@@ -171,7 +171,7 @@ module BlenderUtil =
                 let srcDir = getScriptSourceDir()
 
                 if not (Directory.Exists srcDir) then
-                    failwith "Source script directory does not exist: %s" srcDir
+                    failwithf "Source script directory does not exist: %s" srcDir
 
                 let srcFiles = Directory.GetFiles(srcDir,"*.*", SearchOption.AllDirectories)
                 let currFiles = srcFiles |> Array.map (fun f -> f.Replace(srcDir,currInstallDir))
@@ -200,7 +200,7 @@ module BlenderUtil =
             let srcDir = getScriptSourceDir()
 
             if not (Directory.Exists srcDir) then
-                failwith "Source script directory does not exist: %s" srcDir
+                failwithf "Source script directory does not exist: %s" srcDir
 
             if not (File.Exists exe) then
                 failwith "Can't find blender executable"

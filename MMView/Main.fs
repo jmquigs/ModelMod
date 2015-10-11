@@ -141,7 +141,7 @@ module Main =
             | Some settings ->
                 match settings.Window with
                 | None -> ()
-                | Some ws ->                
+                | Some ws ->
                     self.Window.AllowUserResizing <- ws.AllowResize
                     self.Window.Position <- new Point(ws.PosX,ws.PosY)
                     _graphics.PreferredBackBufferWidth <- ws.Width
@@ -205,7 +205,7 @@ module Main =
                     | Some s -> 
                         let parts = s.Split(',')
                         if parts.Length <> 3 then failwith illegalMessage
-                        else   
+                        else
                             Some (Vec3F(float32 parts.[0], float32 parts.[1], float32 parts.[2]), 2)
 
             let (|WinSettings|_|) (optName:string, optValue:string option) =
@@ -218,7 +218,7 @@ module Main =
                     | Some s -> 
                         let parts = s.Split(',')
                         if parts.Length <> 4 then failwith illegalMessage
-                        else   
+                        else
                             let winSet = { 
                                 StartConf.WinSettings.PosX = int parts.[0]
                                 PosY = int parts.[1]
@@ -269,12 +269,12 @@ module Main =
             let conf = StartConf.loadConf confPath None
             match conf with
             | None -> failwithf "Failed to load conf file: %s" confPath
-            | Some conf ->     
+            | Some conf ->
                 { conf with AppSettings = appSettings }
 
         let conf = 
             match fileToLoad with 
-            | None -> // look for default MMView.yaml                
+            | None -> // look for default MMView.yaml
                 let confFile = "MMView.yaml"
                 let confPath = findFilePath confFile
                 match confPath with 

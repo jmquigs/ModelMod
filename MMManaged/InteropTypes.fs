@@ -42,43 +42,43 @@ module InteropTypes =
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
     [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Unicode)>]
     type ModData = {
-        modType: int 
-        primType: int
-        vertCount: int
-        primCount: int
-        indexCount: int
-        refVertCount: int
-        refPrimCount: int
-        declSizeBytes: int
-        vertSizeBytes: int
-        indexElemSizeBytes: int
+        ModType: int 
+        PrimType: int
+        VertCount: int
+        PrimCount: int
+        IndexCount: int
+        RefVertCount: int
+        RefPrimCount: int
+        DeclSizeBytes: int
+        VertSizeBytes: int
+        IndexElemSizeBytes: int
         // Size must match MaxModTexPathLen from native code
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
-        tex0Path: string
+        Tex0Path: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
-        tex1Path: string
+        Tex1Path: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
-        tex2Path: string
+        Tex2Path: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
-        tex3Path: string
+        Tex3Path: string
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
     let EmptyModData = {
-        modType = -1
-        primType = 0
-        vertCount = 0
-        primCount = 0
-        indexCount = 0
-        refVertCount = 0
-        refPrimCount = 0
-        declSizeBytes = 0
-        vertSizeBytes = 0
-        indexElemSizeBytes = 0
-        tex0Path = ""
-        tex1Path = ""
-        tex2Path = ""
-        tex3Path = ""
+        ModType = -1
+        PrimType = 0
+        VertCount = 0
+        PrimCount = 0
+        IndexCount = 0
+        RefVertCount = 0
+        RefPrimCount = 0
+        DeclSizeBytes = 0
+        VertSizeBytes = 0
+        IndexElemSizeBytes = 0
+        Tex0Path = ""
+        Tex1Path = ""
+        Tex2Path = ""
+        Tex3Path = ""
     }
     
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
@@ -86,17 +86,17 @@ module InteropTypes =
     /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them 
     /// from the SharpDX device.
     type SnapshotData = {
-        primType: int32
-        baseVertexIndex: int32
-        minVertexIndex: uint32
-        numVertices: uint32
-        startIndex: uint32
-        primCount: uint32 
+        PrimType: int32
+        BaseVertexIndex: int32
+        MinVertexIndex: uint32
+        NumVertices: uint32
+        StartIndex: uint32
+        PrimCount: uint32 
 
         /// Vertex buffer pointer
-        vertDecl:nativeint
+        VertDecl:nativeint
         /// Index buffer pointer
-        ib:nativeint
+        IndexBuffer:nativeint
     }
 
     /// Get the mod count (native -> managed callback)
@@ -104,7 +104,7 @@ module InteropTypes =
     /// Get the mod data for the mod at specified index, where index is in range 0..(modcount-1).
     /// (native -> managed callback).  If index is out of range, EmptyModData is returned.
     type GetModDataCB = delegate of int -> ModData
-    /// Fill buffers associated with mod at specified index, where index is in range 0..(modcount-1).  
+    /// Fill buffers associated with mod at specified index, where index is in range 0..(modcount-1).
     /// The native pointers are the destination buffers.  An exception will be logged and GenericFailureCode
     /// returned if an error occurs (for instance, buffers are too small).
     type FillModDataCB = 

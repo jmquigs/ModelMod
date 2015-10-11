@@ -34,13 +34,13 @@ module Camera =
         CameraData(view,proj,defRot,position)
 
     let update (c:CameraData) (keyState:KeyboardState) gameTime =
-        let position = c.Position    
+        let position = c.Position
         let rot = c.Rotation
     
         let moveSpeed = 0.3f;
         let rotSpeed = 0.02f;
     
-        let move (vec:Vector3) = moveSpeed * vec    
+        let move (vec:Vector3) = moveSpeed * vec
     
         let position = if (keyState.IsKeyDown(Keys.W)) then (position + move rot.Forward) else position
         let position = if (keyState.IsKeyDown(Keys.S)) then (position + move rot.Backward) else position

@@ -32,8 +32,8 @@ type SDXDT = SharpDX.Direct3D9.DeclarationType
 
 /// Wrapper module for utilities imported from monogame.
 module MonoGameHelpers =
-    // "import" some private methods from monogame for working with half-precision floats.  
-    // This is the second-worst way to do this (worst being copy paste).  
+    // "import" some private methods from monogame for working with half-precision floats.
+    // This is the second-worst way to do this (worst being copy paste).
     let halfTypeHelper = typeof<Microsoft.Xna.Framework.Vector2>.Assembly.GetType("Microsoft.Xna.Framework.Graphics.PackedVector.HalfTypeHelper")
 
     let private mgHalfUint16ToFloat = halfTypeHelper.GetMethod("Convert", BindingFlags.Static ||| BindingFlags.NonPublic, null, [| typeof<uint16> |], null)
@@ -41,13 +41,15 @@ module MonoGameHelpers =
 
     /// Convert a half-precision float represented by a uint16 into a float.
     let halfUint16ToFloat (u:uint16) =
-        if mgHalfUint16ToFloat = null then failwith "mgHalfUint16ToFloat is null; failed to import private method from monogame?"
-        mgHalfUint16ToFloat.Invoke(null, [| u |]) :?> float32
+        match mgHalfUint16ToFloat with
+        | null -> failwith "mgHalfUint16ToFloat is null; failed to import private method from monogame?"
+        | fn -> fn.Invoke(null, [| u |]) :?> float32
 
     /// Convert a float into a half-precision float represented by a uint16.
     let floatToHalfUint16  (f:float32) =
-        if mgfloatToHalfUint16 = null then failwith "mgfloatToHalfUint16 is null; failed to import private method from monogame?"
-        mgfloatToHalfUint16.Invoke(null, [| f |]) :?> uint16
+        match mgfloatToHalfUint16 with
+        | null -> failwith "mgfloatToHalfUint16 is null; failed to import private method from monogame?"
+        | fn -> fn.Invoke(null, [| f |]) :?> uint16
 
 module MeshUtil =
     let private log = Logging.getLogger("Mesh")
@@ -79,7 +81,7 @@ module MeshUtil =
             match s with 
             | None -> None
             | Some n -> Some (n.[0])
-        let (|StringValue|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
+        let (|StringValue|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 id |> makeName
 
         for line in lines do
             match line with 
@@ -94,7 +96,7 @@ module MeshUtil =
     /// constructed Mesh object.
     let readObj(filename,modType,flags:MeshReadFlags): Mesh =
         // The basic strategy here is to use a bunch of active patterns 
-        // that use regexps to recognize and convert various types of data.  
+        // that use regexps to recognize and convert various types of data.
         // We define a bunch of helper functions, pack them up into 
         // active patterns, then run a match with all the patterns on each line.
 
@@ -129,7 +131,7 @@ module MeshUtil =
                 let indices = new Vec4X(fst v.[0], fst v.[1], fst v.[2], fst v.[3])
                 let weights = new Vec4F(snd v.[0], snd v.[1], snd v.[2], snd v.[3])
 
-                // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.  
+                // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.
                 // I think I have some bad rounding going on somewhere
                 // in the conversion/capture of these; either in snapshotting, or in blender, 
                 // since the differences are small.
@@ -192,7 +194,7 @@ module MeshUtil =
         let (|VertexGroupList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractVGroups |> makeVGroupList
         let (|MtlLib|_|) pattern str = 
             if flags.ReadMaterialFile then
-                REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 (fun s -> s) |> makeName
+                REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 id |> makeName
             else
                 None
         let (|SpecialGroup|_|) = stringStartsWithAny ["Index.";"PosTransform.";"UVTransform."]
@@ -241,7 +243,7 @@ module MeshUtil =
         }
            
         // walk the file lines to store component data in the resize arrays
-        // performance note: this method generates lots of regexp "misses".  
+        // performance note: this method generates lots of regexp "misses".
         // restructuring the code so that the last-successfully matched pattern is run
         // first (using an MRU array or whatever) dramatically reduces the misses and 
         // improves performance by about 10%.  However, it made this code a lot uglier,
@@ -323,7 +325,7 @@ module MeshUtil =
             AppliedPositionTransforms = postransforms.ToArray()
             AppliedUVTransforms = uvtransforms.ToArray()
             AnnotatedVertexGroups = groupsForVertex
-            // During normal game load, we don't read the mtl file, so MapKd will be blank here.  
+            // During normal game load, we don't read the mtl file, so MapKd will be blank here.
             // Override texture paths, if any, must currently come from the yaml file.
             Tex0Path = mtllib.MapKd
             Tex1Path = ""
@@ -382,7 +384,7 @@ map_Kd $$filename
                     failwithf "Mesh has blend weights but no indices"
                 | false,false ->
                     log.Warn "No blend data detected"
-                    [||],[||]                
+                    [||],[||]
 
         md.Positions |> Array.iteri (fun i pos ->
             let line = sprintf "v %f %f %f" pos.X pos.Y pos.Z 
@@ -437,7 +439,7 @@ map_Kd $$filename
         let lowerL, upperR = 
             Array.fold 
                 (fun (acc:Vector3*Vector3) (elem:Vector3) ->
-                    let lowerL, upperR = fst acc, snd acc
+                    let lowerL, upperR = acc
                     let lowX = if elem.X < lowerL.X then elem.X else lowerL.X
                     let lowY = if elem.Y < lowerL.Y then elem.Y else lowerL.Y
                     let lowZ = if elem.Z < lowerL.Z then elem.Z else lowerL.Z

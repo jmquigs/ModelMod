@@ -126,7 +126,7 @@ type BlenderViewModel() =
             (fun action -> 
                 match selectedBlender with
                 | None -> ViewModelUtil.pushDialog "Please select a version of blender to use first."
-                | Some exe ->  
+                | Some exe ->
                     match (BlenderUtil.getAddonsPath exe) with
                     | Err(e) -> ViewModelUtil.pushDialog (sprintf "Failed to get addons path: %s" e)
                     | Ok(path) ->
@@ -141,7 +141,7 @@ type BlenderViewModel() =
             (fun action -> 
                 match selectedBlender with
                 | None -> ViewModelUtil.pushDialog "Please select a version of blender to use first."
-                | Some exe ->                    
+                | Some exe ->
                     match ViewModelUtil.pushOkCancelDialog ("This will install or update the MMObj blender scripts.  If you have modified the files locally, your changes will be overwritten.  Proceed?") with
                     | MessageBoxResult.Yes ->
                         match BlenderUtil.installMMScripts(exe) with

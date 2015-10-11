@@ -31,10 +31,10 @@ module ProcessUtil =
              (-5, "Could not create mutex, another instance of target may be running")
             ]
 
-    let private LoaderSearchPath = ["."; 
+    let private loaderSearchPath = ["."; 
         // Make a dev tree path in case it isn't found in current directory.
         // I used to have this always use Release in the dev build, but then I got bitten in the ass by the fact
-        // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.  
+        // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.
         // so now it uses release or debug as specified by config
 #if DEBUG
         "../../../Debug" ;
@@ -46,7 +46,7 @@ module ProcessUtil =
 
     let getLoaderPath() =
         let lp = 
-            LoaderSearchPath 
+            loaderSearchPath 
             |> List.map (fun path -> Path.Combine(path, LoaderName))
             |> List.tryFind File.Exists
         match lp with 
@@ -91,21 +91,21 @@ module ProcessUtil =
         else
             match LoaderExitReasons |> Map.tryFind proc.ExitCode with
             | None -> defReason
-            | Some (reason) -> reason            
+            | Some (reason) -> reason
                     
     let launchWithLoader (exePath:string):Result<Process,System.Exception> =
         try 
             if not (File.Exists(exePath)) then
-                failwithf "Exe does not exist: %s" exePath    
+                failwithf "Exe does not exist: %s" exePath
             // crude, but if it isn't an exe, we probably can't inject it because the loader won't find 
             // it.  and .com files aren't supported, ha ha
-            if not (Path.GetExtension(exePath).ToLowerInvariant() = ".exe") then
+            if Path.GetExtension(exePath).ToLowerInvariant() <> ".exe" then
                 failwithf "Exe does not appear to be an exe: %s" exePath
             // find loader
             let loaderPath = 
                 let lp = getLoaderPath()
                 if not (File.Exists(lp))
-                    then failwithf "Can't find %s; searched in %A" LoaderName LoaderSearchPath
+                    then failwithf "Can't find %s; searched in %A" LoaderName loaderSearchPath
                 lp
 
             let proc = new Process()
@@ -183,7 +183,7 @@ module ProcessUtil =
             Ok(())
         with
             | e -> 
-                Err(e)        
+                Err(e)
 
     let openInjectionLog (exePath:string): Result<unit,System.Exception> =
         getInjectionLog exePath |> openTextFile

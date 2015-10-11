@@ -43,7 +43,7 @@ module Logging =
 
     let mutable private loggerFactory = ConsoleLoggerFactory
 
-    let private loggers = new Dictionary<string, ILog>()   
+    let private loggers = new Dictionary<string, ILog>()
 
     let setLoggerFactory(f:LoggerFactory) =
         loggers.Clear()
@@ -61,4 +61,4 @@ module Logging =
                 let _,logger = makeLogger(category) 
                 loggers.Add(category,logger) 
                 logger
-        logger  
+        logger

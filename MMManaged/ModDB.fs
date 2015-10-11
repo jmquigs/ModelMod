@@ -44,7 +44,7 @@ module ModDB =
 
     /// Root type for the Mod Database; everything is stored in here.
     type ModDB(refObjects,modObjects,meshRels) =
-        // explode deletion mods into interop representation now.  
+        // explode deletion mods into interop representation now.
         // this is a little weird because it makes moddb use interop types, but it 
         // is more convenient to do this here than in ModDBInterop.
         let deletionMods = 
@@ -53,14 +53,14 @@ module ModDB =
             |> List.map (fun imod ->
                 imod.Attributes.DeletedGeometry |> List.map (fun delPair -> 
                     { InteropTypes.EmptyModData with
-                        InteropTypes.ModData.modType = 5
-                        primType = 4
-                        refVertCount = delPair.VertCount
-                        refPrimCount = delPair.PrimCount
+                        InteropTypes.ModData.ModType = 5
+                        PrimType = 4
+                        RefVertCount = delPair.VertCount
+                        RefPrimCount = delPair.PrimCount
                     }
                 )
             )
-            |> List.concat          
+            |> List.concat
 
         member x.References = refObjects
         member x.Mods = modObjects
@@ -98,7 +98,7 @@ module ModDB =
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
         | "cpureplacement" -> ModType.CPUReplacement
-        | "gpureplacement" -> ModType.GPUReplacement        
+        | "gpureplacement" -> ModType.GPUReplacement
         | "reference" -> ModType.Reference
         | "deletion" -> ModType.Deletion
         | x -> failwithf "unsupported mod type: %A" x
@@ -164,7 +164,7 @@ module ModDB =
                 | ModType.Deletion -> None
                 | ModType.Reference 
                 | ModType.CPUReplacement
-                | ModType.GPUReplacement ->     
+                | ModType.GPUReplacement ->
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
                     Some (loadMesh (Path.Combine(basePath, meshPath),modType,CoreTypes.DefaultReadFlags))
@@ -274,7 +274,7 @@ module ModDB =
         // the rest is all binary vb data
         let vData = reader.ReadBytes(dat.Length - (int memStream.Position))
 
-        {   
+        {
             BinaryVertexData.NumVerts = numVerts
             Stride = stride
             Data = vData
@@ -323,7 +323,7 @@ module ModDB =
 
         let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
 
-        log.Info "Ref: %s: binary vertex data: %A" refName (if binVertData = None then false else true)
+        log.Info "Ref: %s: binary vertex data: %A" refName binVertData.IsSome
 
         MReference(
             { DBReference.Name = refName
@@ -403,11 +403,10 @@ module ModDB =
                     |> Seq.filter (fun modMapping ->
                         let active = modMapping |> Yaml.getOptionalValue "active" |> Yaml.toBool true
                         (not activeOnly) || active)
-                    |> Seq.map (fun (modMapping) ->
-                        modMapping |> Yaml.getValue "name" |> Yaml.toString)
+                    |> Seq.map (Yaml.getValue "name" >> Yaml.toString)
                     |> List.ofSeq
                 mods
-            | _ -> failwith "Expected data with 'type: \"Index\"' in %s"  filename
+            | _ -> failwithf "Expected data with 'type: \"Index\"' in %s"  filename
 
         // get a list of all the yaml files in all subdirectories beneath the index file.
         let searchRoot = Directory.GetParent(filename).FullName
@@ -452,7 +451,7 @@ module ModDB =
         // walk the file list again, loading the references this time
         let refFiles =
             allFiles |> Array.filter (fun diskFile -> 
-                    refsToLoad |> Seq.tryFind (fun loadRefFile -> nameMatches diskFile loadRefFile) <> None)   
+                    refsToLoad |> Seq.tryFind (fun loadRefFile -> nameMatches diskFile loadRefFile) <> None)
         let refObjects = refFiles |> Array.map (loadFile conf) |> List.concat
                                              
         // return a list of the refs and objects
@@ -511,7 +510,7 @@ module ModDB =
                 new MeshRelation(m, Option.get m.Ref)
             )
 
-        new ModDB(refs,mods,meshRels)        
+        new ModDB(refs,mods,meshRels)
 
     /// Create a map of the elements by usage so that we can quickly look up the offset of a given usage.
     let createUsageOffsetLookupMap(elements:SDXVertexElement list) =
@@ -542,7 +541,7 @@ module ModDB =
 
         let offsetLookup = createUsageOffsetLookupMap elements
 
-        /// Return a reader into the binary data for the given vertex index and usage.  
+        /// Return a reader into the binary data for the given vertex index and usage.
         /// Caller should use the element type to determine how much data to read in what format.
         /// Caller must not dispose or close the reader.
         member x.BinaryReader(vertIdx:int,usage:SDXVertexDeclUsage) =
