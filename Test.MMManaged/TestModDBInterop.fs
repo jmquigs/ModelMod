@@ -18,7 +18,7 @@ let ``ModDBInterop: module functions``() =
     // have to trick SetPaths because we're running without modelmod.dll
     let fakeRoot = Path.Combine(Util.TestDataDir, "dummymodelmod.dll")
     ModDBInterop.setPaths fakeRoot "" |> ignore
-    let datapath = ModDBInterop.getDataPath()
+    let datapath = State.getBaseDataDir()
     Assert.IsTrue (datapath <> null, "null data path")
     Assert.AreEqual (Path.GetFullPath(datapath), Path.GetFullPath(Util.TestDataDir), "incorrect data path")
 

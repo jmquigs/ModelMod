@@ -32,15 +32,11 @@ module MMNative =
     type SetPathsCB = 
         delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
 
-    type GetDataPathCB = 
-        delegate of unit -> [<MarshalAs(UnmanagedType.LPWStr)>] string
-
     type LoadModDBCB = delegate of unit -> int
 
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]
     type ManagedCallbacks = {
         SetPaths: SetPathsCB
-        GetDataPath: GetDataPathCB
         LoadModDB: LoadModDBCB
         GetModCount: InteropTypes.GetModCountCB
         GetModData: InteropTypes.GetModDataCB
@@ -121,7 +117,6 @@ type Main() =
 
             let (mCallbacks:MMNative.ManagedCallbacks) = {
                 SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.setPaths))
-                GetDataPath = phandle (new MMNative.GetDataPathCB(ModDBInterop.getDataPath))
                 LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.loadFromDataPath));
                 GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.getModCount));
                 GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.getModData));

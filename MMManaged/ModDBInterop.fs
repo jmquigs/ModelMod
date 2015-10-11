@@ -57,16 +57,6 @@ module ModDBInterop =
                 InputProfile = CoreTypes.DefaultRunConfig.InputProfile
             }
 
-    /// Returns the data root.  Note, this is NOT the exe-specific data directory; it is the parent of that directory.
-    /// TODO: is this even needed?
-    let getDataPath() = 
-        try
-            State.getBaseDataDir()
-        with 
-        | e -> 
-            log.Error "%A" e
-            null
-
     /// Loads the exe-specific data.  Requires a ModIndex.yaml file to exist in the exe's data directory.
     let loadFromDataPath() =
         try

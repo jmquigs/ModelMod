@@ -92,7 +92,6 @@ struct ConfData {
 
 typedef int (__stdcall *InitCallback) (int);
 typedef ConfData* (__stdcall *SetPathsCB) (WCHAR*, WCHAR*);
-typedef WCHAR* (__stdcall *GetDataPathCB) ();
 typedef int (__stdcall *LoadModDBCB) ();
 typedef int (__stdcall *GetModCountCB) ();
 typedef ModData* (__stdcall *GetModDataCB) (int modIndex);
@@ -102,7 +101,6 @@ typedef int (__stdcall *TakeSnapshotCB) (IDirect3DDevice9* device, SnapshotData*
 #pragma pack(push,8)
 typedef struct {
 	SetPathsCB SetPaths;
-	GetDataPathCB GetDataPath;
 	LoadModDBCB LoadModDB;
 	GetModCountCB GetModCount;
 	GetModDataCB GetModData;
