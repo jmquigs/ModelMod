@@ -16,9 +16,19 @@
 
 namespace MMLaunch
 
+open System
 open System.IO
 open System.Diagnostics
 open System.Threading
+
+open System.Runtime.InteropServices
+
+module DllCheck = 
+    [<DllImport("kernel32", SetLastError=true, CharSet = CharSet.Ansi)>]
+    extern IntPtr LoadLibrary([<MarshalAs(UnmanagedType.LPStr)>]string lpFileName);
+
+    [<DllImport("kernel32.dll", SetLastError=true)>]
+    extern [<return: MarshalAs(UnmanagedType.Bool)>]bool FreeLibrary(IntPtr hModule);
 
 module ProcessUtil =
     let LoaderExitReasons = 
@@ -168,6 +178,15 @@ module ProcessUtil =
         with 
             | e -> 
                 Err(e)
+
+    let openWebBrowser (url:string) = 
+        try
+            let proc = new Process()
+            proc.StartInfo.UseShellExecute <- true
+            proc.StartInfo.FileName <- url
+            proc.Start() |> ignore
+        with | e -> 
+            ()
 
     let openTextFile (filepath:string): Result<unit,System.Exception> =
         try
