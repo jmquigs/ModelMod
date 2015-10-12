@@ -58,7 +58,7 @@ type BlenderViewModel() =
         let lastScriptDir = defaultArg scriptdir (RegConfig.getGlobalValue RegKeys.LastScriptInstallDir "" :?> string)
 
         match lastScriptDir with
-        | "" -> "Unknown"
+        | "" -> "Unknown: likely not installed, or was installed manually."
         | s when not (Directory.Exists(s)) -> "Unknown"
         | s ->
             match BlenderUtil.checkScriptStatus s with
