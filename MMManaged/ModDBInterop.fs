@@ -96,6 +96,12 @@ module ModDBInterop =
         | GPUReplacement -> 3
         | Deletion -> 5
         | Reference -> failwith "A mod has type set to reference"
+    let intToModType ival = 
+        match ival with
+        | 2 -> CPUReplacement
+        | 3 -> GPUReplacement
+        | 5 -> Deletion
+        | _ -> failwithf "value cannot be converted into a mod type: %A" ival
 
     /// Get the MeshRel mod at the specified index.
     let private getMeshRelationMod i = 
@@ -371,7 +377,7 @@ module ModDBInterop =
             let moddb = State.Data.Moddb
 
             let md = getModData modIndex
-            if md.ModType <> 3 then // TODO: maybe mod type should be an enum after all
+            if (intToModType md.ModType) <> GPUReplacement then 
                 failwithf "unsupported mod type: %d" md.ModType
 
             // grab more stuff that we'll need
