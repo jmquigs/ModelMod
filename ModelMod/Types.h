@@ -43,10 +43,6 @@ enum ModType {
 	Deletion
 };
 
-// TODO: can these be removed? does native code need them?
-ModType GetType(std::string sType);
-std::string GetTypeString(ModType type);
-
 // ---------------------------------------------------------------------------
 // ConstantData
 template <class T, Uint32 elCount> class ConstantData {

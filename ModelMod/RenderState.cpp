@@ -59,15 +59,6 @@ void RenderState::shutdown() {
 	}
 }
 
-// TODO, refactor if I move to VS2013 and get lambdas
-static size_t findLastSlash(string str) {
-	size_t slashIdx = str.find_last_of("\\");
-	if (slashIdx == string::npos) {
-		slashIdx = str.find_last_of("/");
-	}
-	return slashIdx;
-}
-
 void RenderState::clearLoadedMods() {
 	for (ManagedModMap::iterator iter = _managedMods.begin();
 		iter != _managedMods.end();
@@ -196,7 +187,7 @@ void RenderState::loadMods() {
 				_managedMods[hashCode] = nModData; // structwise-copy is ok
 			}
 
-			delete [] declData; // TODO: ok to delete this, or does d3d decl reference it?
+			delete [] declData; // the docs don't say it, but I'm pretty sure that CreateVertexDeclaration copies this data, so ok to delete
 		}
 	}
 
@@ -326,12 +317,12 @@ static const bool SnapWholeScene = false;
 static const ULONGLONG SnapMS = 250;
 
 void RenderState::beginScene(IDirect3DDevice9* dev) {
-	// TODO (renderstate) re-init when device changes (re-create resources)
 	if (!_initted)
 		init(dev);
 
 	if (dev != _dev) {
-		MM_LOG_INFO("Warning: device changed in beginScene");
+		MM_LOG_INFO("Warning: device changed in beginScene; render state may not handle this case");
+		// Never seen this happen, but if it does at some point, then we need to re-create resources and track the new device.
 	}
 
 	// process input only when the d3d window is in the foreground.  this style of processing creates issues for keyup processing, 
@@ -528,7 +519,8 @@ void RenderState::textureCreated(IDirect3DTexture9* tex) {
 }
 
 void RenderState::textureDeleted() {
-	// TODO (hook) delete texture
+	// Not required right now since we just let our texture handles go stale, and the active list can be cleared easily.
+	// Anyway we don't even have a hook object for textures, and we can't hook the deletion without that.
 }
 
 void RenderState::setTextureStageState(DWORD Stage,D3DTEXTURESTAGESTATETYPE Type, DWORD Value) {
