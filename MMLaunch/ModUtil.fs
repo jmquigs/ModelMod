@@ -27,7 +27,7 @@ open ViewModelUtil
 module ModUtil =
 
     type YamlRef = {
-        Type: string
+        Type: string // type of the yaml file (mod, reference, index)
         MeshPath: string
         VertDeclPath: string
         ExpectedPrimCount: int
@@ -35,9 +35,9 @@ module ModUtil =
     }
 
     type YamlMod = {
-        Type: string
+        Type: string // type of the yaml file (mod, reference, index)
         Ref: string
-        MeshType: string
+        ModType: string // subtype of the mod (gpureplacement, etc)
         MeshPath: string
     }
 
@@ -198,7 +198,7 @@ mods:"""
                 let modYamlFile = Path.Combine(modOutDir, modBasename + ".yaml")
                 let modObj = { 
                     YamlMod.Type = "Mod"
-                    MeshType = "GPUReplacement"
+                    ModType = "GPUReplacement"
                     Ref = refBasename
                     MeshPath = Path.GetFileName(modMMObjFile)
                 }

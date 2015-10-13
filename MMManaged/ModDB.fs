@@ -119,8 +119,7 @@ module ModDB =
         let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
 
         let mesh,modType,weightMode,attrs =
-            // TODO: should also support "modtype" here
-            let sType = (node |> Yaml.getValue "meshtype" |> Yaml.toString).ToLower().Trim()
+            let sType = (node |> Yaml.getFirstValue ["modtype"; "meshtype"] |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
             match modType with
             | ModType.Reference -> failwithf "Illegal mod mesh: type is set to reference: %A" node

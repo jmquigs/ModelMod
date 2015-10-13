@@ -62,16 +62,24 @@ module Yaml =
 
         let nValue = mapNode.Children |> Seq.tryFind (fun (pair) -> pair.Key.ToString().ToLower() = key ) 
         match nValue with 
-            | None -> None
-            | Some(s) -> Some (s.Value)
+        | None -> None
+        | Some(s) -> Some (s.Value)
 
     /// Returns a value form the mapping, or throws exception if the key is not found.
     let getValue (key:string) (mapNode:YamlMappingNode) = 
         let key = key.ToLower()
         let nValue = getOptionalValue key mapNode
         match nValue with 
-            | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
-            | Some v -> v
+        | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
+        | Some v -> v
+
+    /// Walks the list of keys and returns the first value found in the mapping.
+    /// Throws exception if none found.
+    let getFirstValue (keys:string list) (mapNode:YamlMappingNode) = 
+        let found = keys |> List.tryPick (fun key -> getOptionalValue key mapNode)
+        match found with
+        | None -> failwithf "No value found for any key in '%A' in node type '%A'" keys mapNode
+        | Some v -> v
     
     /// Convert the node to Some(YamlSequenceNode)), or returns None if node is None.
     /// Throws exception if the node is Some but the conversion fails.
