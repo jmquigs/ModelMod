@@ -22,7 +22,6 @@ MMData
 TestData/monolith.OUT.mmobj
 TestData/monolith.TestWrite.mmobj
 TestData/monolith.TestWrite.mtl
-Docs/
 ipch/
 MMManaged/TestFSI.fsx
 Logs/
