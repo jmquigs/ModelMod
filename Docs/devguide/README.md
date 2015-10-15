@@ -25,11 +25,11 @@ are difficult to mod, because the basic geometry is reused for many kinds of
 particle effects.
 
 The program is essentially an alternate asset load pipeline.  Other than
-input processing, it does not do any per-frame input processing.  Some future
+input processing, it does not do any per-frame operations.  Some future
 mod types may require that, however, specifically support for software-animated
 meshes (common in older games.)
 
-The remainder of this document describes the different phases of ModelMod.
+The remainder of this document describes build setup and the different phases of ModelMod.
 
 ## Injection
 ## Object Selection
