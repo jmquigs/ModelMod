@@ -1,8 +1,19 @@
 # The Dev Guide
 
-## Overview
+## Development environment setup
 
-This document describes some of the technical details of ModelMod for
+Install the following:
+
+* June 2010 DirectX SDK: http://www.microsoft.com/en-us/download/details.aspx?id=6812
+(I hope to eliminate this eventually, but right now it is required for some legacy d3dx code)
+* Visual Studio 2015 Community (or any 2015 variant):
+https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
+* Visual F# power tools (optional but recommended) https://fsprojects.github.io/VisualFSharpPowerTools/
+(can be installed via Visual Studio Extensions menu)
+
+## Technical Overview
+
+This section describes some of the technical details of ModelMod for
 programmers and advanced users.  If you haven't already done so, its a
 good idea to read the User's Guide first.
 
@@ -29,7 +40,7 @@ input processing, it does not do any per-frame operations.  Some future
 mod types may require that, however, specifically support for software-animated
 meshes (common in older games.)
 
-The remainder of this document describes build setup and the different phases of ModelMod.
+The remainder of this document describes the different phases of ModelMod.
 
 ## Injection
 ## Object Selection

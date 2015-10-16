@@ -27,7 +27,6 @@ If you want to write an exporter for something else, See Contributing (link).
 Installation
 ------------
 
-
 Non-programmers should install the binary version: link
 
 You will also need the visual C++ runtime: link
@@ -39,14 +38,7 @@ ModelMod is written in a combination of C++ and F#.  Most of the core code
 is in F#, so hacking on it can be easier than you might think, assuming you
 know or are willing to learn F#.
 
-Install the following:
-
-* June 2010 DirectX SDK: http://www.microsoft.com/en-us/download/details.aspx?id=6812
-(I hope to eliminate this eventually, but right now it is required for some legacy d3dx code)
-* Visual Studio 2015 Community:
-https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
-* Visual F# power tools (optional but recommended) https://fsprojects.github.io/VisualFSharpPowerTools/
-(can be installed via Visual Studio Extensions menu)
+For install & build instructions, [check out the dev guide](Docs/devguide/README.md).
 
 License
 -------
