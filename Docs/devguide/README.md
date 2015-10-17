@@ -2,7 +2,7 @@
 
 ## Development environment setup
 
-Install the following:
+### Install
 
 * June 2010 DirectX SDK: http://www.microsoft.com/en-us/download/details.aspx?id=6812
 (I hope to eliminate this eventually, but right now it is required for some legacy d3dx code)
@@ -10,6 +10,16 @@ Install the following:
 https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
 * Visual F# power tools (optional but recommended) https://fsprojects.github.io/VisualFSharpPowerTools/
 (can be installed via Visual Studio Extensions menu)
+
+### Setup
+* Run "installdeps.bat" to install nuget packages
+* Choose a solution:
+  * MMDotNot.sln: contains managed code and UI tools.  
+  * ModelMod.sln: contains native library and injection tool.  If you are not
+  modifying the interop layer, you may not need to build this, and can probably
+  just use the binaries (MMLoader.exe,ModelMod.dll) from a release package.
+  Build the MMDotNet.sln first, then copy the native binaries into the
+  "Release" directory.
 
 ## Technical Overview
 
