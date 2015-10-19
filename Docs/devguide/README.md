@@ -52,7 +52,44 @@ meshes (common in older games.)
 
 The remainder of this document describes the different phases of ModelMod.
 
+## Components
+
+ModelMod has the following binary components:
+* MMManaged.dll: contains the core F# snapshot and mod loading code
+* ModelMod.dll: contains c++ native code, including wrappers for D3D COM,
+and code for initializing the CLR and loading MMManaged.dll.
+* MMLoader.exe: watches for appearance of the target program in OS process
+list, and ensures that ModelMod.dll is loaded into that program.
+* MMLaunch: WPF application that allows you to configure ModelMod for use
+with a target game.  It directly executes MMLoader and manages the loader
+life cycle.
+
 ## Injection
+
+The first phase of ModelMod is injection.  The native code in ModelMod.dll must
+be inserted into the target process.  It used to be that one could simply
+launch the target process directly with all threads suspended, and then patch
+up certain core functions so that they load your target DLL.  With the advent of
+Steam games and other self-updating technologies, this approach no longer works,
+because the game will often re-launch itself and you lose your patched code.
+
+The MMLoader program works around this problem.  It
+continuously monitors the OS process
+list, looking for a target process by executable name.  Once found, the monitor
+immediately suspends the program.  It them patches the code to load ModelMod.dll
+and resumes thread execution.  Usually this works, but since the process is
+inherently racey, it can fail; in the event of failure, ModelMod just lets the
+target run unpatched to avoid data corruption.  The user must restart the game
+to try again.
+
+Another way to do this style of DLL injection is to rename the injected dll
+to something used by the game (e.g, "D3D9.dll"), export certain key functions
+from the DLL, and make sure that modified DLL is on the load path, usually by
+copying it into the game directory.  ModelMod does not currently support this
+method, but it would be useful to add it, since certain games require it.
+Specifically, any game that creates D3D9 from a secondary DLL, not the main
+executable, cannot currently be patched by the hook code in ModelMod.dll.
+
 ## Object Selection
 ## Snapshot
 ## Mod file creation
