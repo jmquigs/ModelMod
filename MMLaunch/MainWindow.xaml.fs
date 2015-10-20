@@ -342,11 +342,6 @@ type LoaderState =
     | Started of (Process * GameExePath)
     | Stopped of (Process * GameExePath)
 
-type CRTState =
-    | NotChecked
-    | Found
-    | Missing
-
 type ProfileModelConverter() =
     inherit Converter<ProfileModel option, obj>(
         (fun value cparams ->
@@ -368,7 +363,6 @@ type MainViewModel() as self =
 
     let mutable selectedProfile:ProfileModel option = None
     let mutable loaderState = NotStarted
-    let mutable crtState = NotChecked
 
     do
         RegConfig.init() // reg config requires init to set hive root
@@ -395,18 +389,6 @@ type MainViewModel() as self =
 
     member x.PeriodicUpdate() = 
 
-        if crtState = NotChecked then
-            let lib = DllCheck.LoadLibrary("MSVCP140.dll")
-            if (int lib) > 0 then
-                DllCheck.FreeLibrary(lib) |> ignore
-                crtState <- Found
-            else
-                crtState <- Missing
-                match (ViewModelUtil.pushOkCancelDialog LocStrings.Errors.NoCRuntime) with
-                | MessageBoxResult.Yes -> 
-                    ProcessUtil.openWebBrowser "http://www.microsoft.com/en-us/download/details.aspx?id=48145"
-                | _ -> () 
-
         x.UpdateLoaderState <|
             match loaderState with
             | NotStarted 
@@ -419,20 +401,16 @@ type MainViewModel() as self =
 
     member x.LoaderStateText 
         with get() = 
-            match crtState with
-            | NotChecked -> ""
-            | Missing -> LocStrings.Errors.NoCRuntimeRestart
-            | Found -> 
-                match loaderState with
-                | NotStarted -> LocStrings.Misc.LoaderNotStarted 
-                | StartPending(_) -> LocStrings.Misc.LoaderStartPending 
-                | StartFailed (e,exe) -> sprintf LocStrings.Errors.LoaderStartFailed e.Message exe 
-                | Stopped (proc,exe) -> 
-                    let exitReason = 
-                        ProcessUtil.getLoaderExitReason proc (sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode)
+            match loaderState with
+            | NotStarted -> LocStrings.Misc.LoaderNotStarted 
+            | StartPending(_) -> LocStrings.Misc.LoaderStartPending 
+            | StartFailed (e,exe) -> sprintf LocStrings.Errors.LoaderStartFailed e.Message exe 
+            | Stopped (proc,exe) -> 
+                let exitReason = 
+                    ProcessUtil.getLoaderExitReason proc (sprintf LocStrings.Errors.LoaderUnknownExit proc.ExitCode)
                     
-                    sprintf LocStrings.Misc.LoaderStopped exitReason exe
-                | Started (_,exe) -> sprintf LocStrings.Misc.LoaderStarted exe 
+                sprintf LocStrings.Misc.LoaderStopped exitReason exe
+            | Started (_,exe) -> sprintf LocStrings.Misc.LoaderStarted exe 
 
     member x.Profiles = 
         if ViewModelUtil.DesignMode then
@@ -603,16 +581,12 @@ type MainViewModel() as self =
 
     member x.LoaderIsStartable
         with get() = 
-            match crtState with
-            | NotChecked
-            | Missing -> false
-            | Found ->
-                match loaderState with
-                StartPending(_)
-                | Started (_) -> false
-                | StartFailed (_) 
-                | Stopped (_) 
-                | NotStarted -> true
+            match loaderState with
+            StartPending(_)
+            | Started (_) -> false
+            | StartFailed (_) 
+            | Stopped (_) 
+            | NotStarted -> true
 
     member x.NewProfile = 
         new RelayCommand (
