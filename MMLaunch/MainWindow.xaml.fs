@@ -104,8 +104,8 @@ module ProfileText =
             ";"; 
             ","; "."; "/"; "-"]
         let FKeys = ["F1"; "F2";
-            "F7";
-            "F3"; "F4"; "F6"; "F9"]
+            "F6";
+            "F3"; "F4"; "F7"; "F10"]
     
         let Descriptions =
             let makeInputDesc keys = 

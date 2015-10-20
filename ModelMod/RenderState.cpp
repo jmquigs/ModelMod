@@ -269,11 +269,11 @@ void RenderState::init(IDirect3DDevice9* dev) {
 	// If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
 	_fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
 	_fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
-	_fKeyMap[DIK_F7] = [&]() { this->clearTextureLists(); };
+	_fKeyMap[DIK_F6] = [&]() { this->clearTextureLists(); };
 	_fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
 	_fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
-	_fKeyMap[DIK_F6] = [&]() { this->requestSnap(); };
-	_fKeyMap[DIK_F9] = [&]() { this->loadEverything(); };
+	_fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
+	_fKeyMap[DIK_F10] = [&]() { this->loadEverything(); };
 
 	_pCurrentKeyMap = &_fKeyMap;
 	
