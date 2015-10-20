@@ -307,7 +307,7 @@ module RegConfig =
                 | Some profName -> 
                     loadFromProfileKey profName
 
-            if runConfig.ExePath <> exePath then
+            if not (runConfig.ExePath.Equals(exePath,StringComparison.InvariantCultureIgnoreCase)) then
                 failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
             runConfig
 
