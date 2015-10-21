@@ -131,14 +131,19 @@ type Main() =
         with 
             e ->
                 // uncomment to debug problems with this code
-                //Main.WriteToFailLog e
+                Main.WriteToFailLog e
                 
                 Interop.log.Error "%A" e
                 InteropTypes.GenericFailureCode
 
     static member Main(ignoredArgument:string) = 
-        let ret = Main.InitLogging()
-        if ret <> 0 then
-            ret
-        else
-            Main.InitCallbacks()
+        try
+            let ret = Main.InitLogging()
+            if ret <> 0 then
+                ret
+            else
+                Main.InitCallbacks()
+        with 
+            e -> 
+                Main.WriteToFailLog e
+                -666

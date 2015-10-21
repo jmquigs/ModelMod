@@ -33,6 +33,8 @@ using namespace std;
 
 const string LogCategory="DllMain";
 
+void LazyInit();
+
 void SpinWhileFileExists(HMODULE dllModule) {
 	// look for spin file in module directory
 	char thisFilePath[8192];
@@ -75,6 +77,7 @@ typedef HMODULE (WINAPI *LoadLibraryAProc)(__in LPCSTR lpLibFileName);
 LoadLibraryAProc Real_LoadLibraryA = NULL;
 HMODULE WINAPI Hook_LoadLibraryA(__in LPCSTR lpLibFileName) {
 	MM_LOG_INFO(format("LoadLibraryA called: {}", lpLibFileName));
+	//LazyInit();
 	if (Real_LoadLibraryA) {
 		return Real_LoadLibraryA(lpLibFileName);
 	}
@@ -231,10 +234,35 @@ void LazyInit() {
 
 	MM_LOG_INFO(format("Starting Lazy Init"));
 
-	PrepCLR();
+	//PrepCLR();
+	const int PathSize = 65536;
+	WCHAR mmDllPath[PathSize];
+	GetModuleFileNameW(gDllModule, mmDllPath, sizeof(mmDllPath));
+	WCHAR* lastBS = wcsrchr(mmDllPath, '\\');
+	if (lastBS != NULL) {
+		*lastBS = 0;
+	}
+
+	int ret = Interop::InitCLR(mmDllPath);
+	MM_LOG_INFO(format("Init CLR returned: {:x}", ret));
 
 	MM_LOG_INFO(format("Finished Lazy Init"));
 }
+
+typedef HMODULE (WINAPI *GetModuleHandleWProc)(LPCWSTR lpModuleName);
+GetModuleHandleWProc Real_GetModuleHandleW = NULL;
+
+//HMODULE Hook_GetModuleHandleW(LPCWSTR lpModuleName) {
+//	//MM_LOG_INFO("GetModuleHandle --");
+//	//if (Real_GetModuleHandleW) {
+//	//	LazyInit();
+//	//	MM_LOG_INFO("invoking real gmh");
+//	//	return Real_GetModuleHandleW(lpModuleName);
+//	//}
+//	//else {
+//	//	return NULL;
+//	//}
+//}
 
 struct IDirect3D9;
 
@@ -246,7 +274,7 @@ IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT SDKVersion) {
 	IDirect3D9* rd3d9 = NULL;
 	if (Real_Direct3DCreate9) {
 		MM_LOG_INFO(format("Direct3DCreate9 called"));
-		LazyInit();
+		//LazyInit();
 
 		MM_LOG_INFO(format("Replacing d3d9 with hook interface"));
 		rd3d9 = Real_Direct3DCreate9(SDKVersion);
@@ -271,6 +299,7 @@ typedef FARPROC (WINAPI *GetProcAddressProc) (__in HMODULE hModule, __in LPCSTR 
 GetProcAddressProc Real_GetProcAddress = NULL;
 FARPROC WINAPI Hook_GetProcAddress(__in HMODULE hModule, __in LPCSTR lpProcName) {
 	MM_LOG_INFO(format("GetProcAddress: {}", lpProcName));
+	//LazyInit();
 	string sProc(lpProcName);
 	if (sProc == "Direct3DCreate9") {
 		Real_Direct3DCreate9 = (Direct3DCreate9Proc)Real_GetProcAddress(hModule,lpProcName);
@@ -282,7 +311,14 @@ FARPROC WINAPI Hook_GetProcAddress(__in HMODULE hModule, __in LPCSTR lpProcName)
 	return NULL;
 };
 
+bool inInit = false;
+
 void Init(HMODULE dllModule) {
+	if (inInit) {
+		return;
+	}
+	inInit = true;
+
 	Log::get().init(dllModule);
 	MM_LOG_INFO("Log Initialized");
 
@@ -296,6 +332,7 @@ void Init(HMODULE dllModule) {
 	hooker.add("kernel32.dll", "LoadLibraryA", (DWORD)Hook_LoadLibraryA);
 	hooker.add("kernel32.dll", "LoadLibraryW", (DWORD)Hook_LoadLibraryW);
 	hooker.add("kernel32.dll", "GetProcAddress", (DWORD)Hook_GetProcAddress);
+	//hooker.add("kernel32.dll", "GetModuleHandleW", (DWORD)Hook_GetModuleHandleW);
 	hooker.hook();
 
 	const ImpFunctionData* data = hooker.get("dinput8.dll", "DirectInput8Create");
@@ -318,9 +355,15 @@ void Init(HMODULE dllModule) {
 	if (data && data->origAddress) {
 		Real_Direct3DCreate9 = (Direct3DCreate9Proc)data->origAddress;
 	}
+	//data = hooker.get("kernel32.dll", "GetModuleHandleW");
+	//if (data && data->origAddress) {
+	//	Real_GetModuleHandleW = (GetModuleHandleWProc)data->origAddress;
+	//}
 
 	FlushInstructionCache(GetCurrentProcess(), NULL, 0);
+
 	MM_LOG_INFO("DLL Init complete");
+	inInit = false;
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,

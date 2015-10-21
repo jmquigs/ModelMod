@@ -83,6 +83,11 @@ void RenderState::clearLoadedMods() {
 
 }
 void RenderState::loadManagedAssembly() {
+	if (!Interop::OK()) {
+		MM_LOG_INFO("Interop Not ok, re-prepping");
+		PrepCLR();
+	}
+
 	clearLoadedMods();
 
 	Interop::ReloadAssembly();
@@ -92,6 +97,11 @@ void RenderState::loadManagedAssembly() {
 }
 
 void RenderState::loadMods() {
+	if (!Interop::OK()) {
+		MM_LOG_INFO("Interop Not ok, re-prepping");
+		PrepCLR();
+	}
+
 	clearLoadedMods();
 
 	DWORD start,elapsed;
@@ -196,6 +206,11 @@ void RenderState::loadMods() {
 }
 
 void RenderState::loadEverything() {
+	if (!Interop::OK()) {
+		MM_LOG_INFO("Interop Not ok, re-prepping");
+		PrepCLR();
+	}
+
 	loadManagedAssembly();
 	loadMods();
 }
@@ -275,7 +290,8 @@ void RenderState::init(IDirect3DDevice9* dev) {
 	_fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
 	_fKeyMap[DIK_F10] = [&]() { this->loadEverything(); };
 
-	_pCurrentKeyMap = &_fKeyMap;
+	_pCurrentKeyMap = &_punctKeyMap;
+	MM_LOG_INFO("using punct keys");
 	
 	if (Interop::OK()) {
 		if (Interop::Conf().LoadModsOnStart) {

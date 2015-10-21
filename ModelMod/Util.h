@@ -20,6 +20,10 @@ using namespace std;
 
 #include"Types.h"
 
+extern "C" {
+	void PrepCLR();
+};
+
 namespace ModelMod {
 
 class Util

@@ -114,7 +114,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 					// during the time it takes you to attach.
 					// 100 attempts at 500 timeout = about 50 seconds of waiting.
 					// Don't use waitTimeout INFINITE as above, it will deadlock.
-					MaxHookAttempts = 25; 
+					MaxHookAttempts = 2500; 
 				}
 					 
 				int attempt = 0;

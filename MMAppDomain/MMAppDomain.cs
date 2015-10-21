@@ -42,11 +42,23 @@ namespace MMAppDomain
     [GuidAttribute("05A26D5C-430A-4351-9FF1-52762B680716")]
     public class MMAppDomainManager : AppDomainManager, IMMAppDomainMananger
     {
+        static MMAppDomainManager()
+        {
+            WriteLog("Static Init Called");
+        }
         private AppDomainSetup _appDomainInfo;
         private AppDomain _currentDomain;
 
+        public static void WriteLog(String msg)
+        {
+            var logFile = @"C:\Dev\Temp\AppDomainLog.txt";
+            File.AppendAllText(logFile, msg + @"\r\n");
+        }
+
         public override void InitializeNewDomain(AppDomainSetup appDomainInfo) 
         {
+            WriteLog("InitNewDomain");
+            WriteLog(appDomainInfo.ToString());
             base.InitializeNewDomain(appDomainInfo);
             base.InitializationFlags = AppDomainManagerInitializationOptions.RegisterWithHost;
             _appDomainInfo = appDomainInfo;
@@ -57,6 +69,8 @@ namespace MMAppDomain
         // likely then fail because it can't find FSharp.Core (unless it happens to be installed on the system).
         private static void LoaderCB()
         {
+            WriteLog("LoaderCB");
+
             var myBase = AppDomain.CurrentDomain.BaseDirectory;
             var myDomain = AppDomain.CurrentDomain;
 
@@ -84,7 +98,9 @@ namespace MMAppDomain
                 // Missing assembly is one of those cases.  
                 // Another case where the callback can fail is if a native entry point (referenced by Interop.fs)
                 // cannot be found.
+                WriteLog("Invoking SM");
                 staticMain.Invoke(null, args);
+                WriteLog("Done");
             }
 
             catch (Exception e)
@@ -101,6 +117,8 @@ namespace MMAppDomain
 
         public String Load(String assembly)
         {
+            WriteLog("Load asm: " + assembly);
+
             String domainBase = "unknown";
             try
             {

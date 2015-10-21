@@ -16,6 +16,9 @@
 
 #include "stdafx.h"
 #include "Interop.h"
+
+#include "mscoree.h"
+
 #include <metahost.h>
 #include "HostControl.h"
 #include <comutil.h>
@@ -51,136 +54,43 @@ const int RetFailGotManager = 4;
 
 namespace Interop {
 
-int InitCLR(WCHAR* mmPath) {
-	if (gDomainManager) {
-		MM_LOG_INFO("Error: Domain manager already initialized; don't call InitCLR() again");
-		return RetFailGotManager;
+int InitCoreCLR() {
+	BOOL res = SetCurrentDirectoryW(L"C:\\Users\\JohnPWin\\.dnx\\runtimes\\dnx-coreclr-win-x86.1.0.0-rc1-15838\\bin");
+	if (!res) {
+		return 1;
 	}
 
-	// Note, this function allocate a bunch of COM pointers and then essentially 
-	// leaks them (in both success and failure cases).  However this function is 
-	// just executed once and the resulting objects
-	// are all singletons anyway, so process-exit style cleanup is fine here.
-	// IF we ever switch to invoking this more than once, however, we'll need 
-	// to track and clean up those objects.
+	HMODULE hCoreCLRModule = ::LoadLibraryExW(L"C:\\Users\\JohnPWin\\.dnx\\runtimes\\dnx-coreclr-win-x86.1.0.0-rc1-15838\\bin\\coreclr.dll", NULL, 0);
 
-	if (!mmPath) {
-		MM_LOG_INFO("Error: No path specified, can't load managed assembly");
-		return RetFailNoPath;
-	}
-	swprintf_s(gMMPath, sizeof(gMMPath)/sizeof(gMMPath[0]), mmPath);
 
-	MM_LOG_INFO("Searching for CLR");
+	// Get the factory function to create and instance of a runtime host
+	FnGetCLRRuntimeHost pfnGetCLRRuntimeHost = (FnGetCLRRuntimeHost) ::GetProcAddress(hCoreCLRModule, "GetCLRRuntimeHost");
 
+	// Declare pointer to runtime host
+	ICLRRuntimeHost2* pCLRRuntimeHost = nullptr;
 	HRESULT hr;
-	ICLRMetaHost* metaHost;
-	hr = CLRCreateInstance(CLSID_CLRMetaHost,  IID_ICLRMetaHost, (LPVOID*)&metaHost);
+
+	// Call the factory function to create a new instance of a runtime host
+	pfnGetCLRRuntimeHost(IID_ICLRRuntimeHost2, (IUnknown**)&pCLRRuntimeHost);
+
+	hr = pCLRRuntimeHost->Authenticate(CORECLR_HOST_AUTHENTICATION_KEY);
 	if (FAILED(hr)) {
-		MM_LOG_INFO("Failed to create clr meta host instance");
-		return hr;
-	}
-
-	IEnumUnknown *runtimeEnum;
-	hr = metaHost->EnumerateInstalledRuntimes((IEnumUnknown **)&runtimeEnum);
-	if (FAILED(hr)) {
-		MM_LOG_INFO("Failed to enumerate installed clr runtimes");
-		return hr;
-	}
-
-	ICLRRuntimeInfo* rt = NULL;
-	ULONG fetched = 0;
-	ICLRRuntimeInfo* targetRuntime = NULL;
-	WCHAR wvStr[1024];
-	DWORD wvStrsize = 1024;
-	while (targetRuntime == NULL && SUCCEEDED(runtimeEnum->Next(1, (IUnknown**) &rt, &fetched)) && rt != NULL) {
-		
-		hr = rt->GetVersionString(wvStr, &wvStrsize);
-		if (SUCCEEDED(hr)) {
-			BOOL loadable = false;
-			hr = rt->IsLoadable(&loadable);
-			if (FAILED(hr)) {
-				MM_LOG_INFO("Failed to check whether a clr runtime is loadable");
-			}
-			// lets target v4.0 for now
-			if (wcsstr(wvStr, L"v4.0") == wvStr) {
-				if (loadable) {
-					targetRuntime = rt;
-				}
-			}
-		}
-	}
-
-	runtimeEnum->Release();
-	
-	if (!targetRuntime) {
-		MM_LOG_INFO("Failed to locate a loadable clr runtime for target version");
-		return hr;
-	}
-
-	// log version of discovered runtime; wait until after we create it to log its installation directory,
-	// since that doesn't appear to be available yet.
-	{
-		char* rtVer = Util::convertToMB(L"Unknown");
-
-		WCHAR wStr[8192];
-		DWORD wStrsize = 8192;
-		HRESULT hr = targetRuntime->GetVersionString(wStr, &wStrsize);
-		if (FAILED(hr)) {
-			MM_LOG_INFO("Failed to get target runtime version string");
-		}
-		else {
-			rtVer = Util::convertToMB(wStr);
-		}
-
-		MM_LOG_INFO(fmt::format("Found CLR runtime version {}", rtVer));
-		delete[] rtVer;
-	}
-
-	ICLRRuntimeInfo* runtime = NULL;
-	hr = metaHost->GetRuntime(wvStr,  IID_ICLRRuntimeInfo, (LPVOID*)&runtime);
-	if (FAILED(hr) || runtime == NULL) {
-		MM_LOG_INFO("Failed to obtain a runtime for loaded clr");
-		return hr;
-	}
-
-	// log the runtime's installation directory
-	{
-		char* rtDir = Util::convertToMB(L"Unknown");
-
-		WCHAR wStr[8192];
-		DWORD wStrsize = 8192;
-		hr = runtime->GetRuntimeDirectory(wStr, &wStrsize);
-		if (FAILED(hr)) {
-			MM_LOG_INFO("Failed to get target runtime directory");
-		}
-		else {
-			rtDir = Util::convertToMB(wStr);
-		}
-
-		MM_LOG_INFO(fmt::format("Found CLR in directory {}", rtDir));
-		delete[] rtDir;
+		return 1;
 	}
 
 	// The domain manager dll must be in the same directory as the executable, apparently.
 	PCWSTR pszAppDomainAssemblyName = L"ModelModCLRAppDomain"; 
 	PCWSTR pszAppDomainClass = L"MMAppDomain.MMAppDomainManager";
 
-	ICLRRuntimeHost* rHost = NULL;
-	hr = runtime->GetInterface(CLSID_CLRRuntimeHost,  IID_ICLRRuntimeHost, (LPVOID*) &rHost);
-	if (FAILED(hr) || rHost == NULL) {
-		MM_LOG_INFO("Failed to get the interface for the clr runtime host");
-		return hr;
-	}
-
 	HostControl* mmHostControl = new HostControl();
 
 	ICLRControl* clrControl = NULL;
-	hr = rHost->GetCLRControl(&clrControl);
+	hr = pCLRRuntimeHost->GetCLRControl(&clrControl);
 	if (FAILED(hr)) {
 		MM_LOG_INFO("Failed to get the interface for the clr control");
 		return hr;
 	}
-	hr = rHost->SetHostControl(mmHostControl);
+	hr = pCLRRuntimeHost->SetHostControl(mmHostControl);
 	if (FAILED(hr)) {
 		MM_LOG_INFO("Failed to set host control");
 		return hr;
@@ -191,39 +101,205 @@ int InitCLR(WCHAR* mmPath) {
 		return hr;
 	}
 
-	MM_LOG_INFO("Starting CLR");
-	hr = rHost->Start();
+	// Start the runtime
+	hr = pCLRRuntimeHost->Start();
 	if (FAILED(hr)) {
-		MM_LOG_INFO("Failed to start the clr");
-		switch (hr) {
-		case HOST_E_CLRNOTAVAILABLE: 
-			MM_LOG_INFO("clr is not available");
-			break;
-		case HOST_E_TIMEOUT:
-			MM_LOG_INFO("call timed out");
-			break;
-		case HOST_E_NOT_OWNER:
-			MM_LOG_INFO("caller does not own the lock");
-			break;
-		case HOST_E_ABANDONED:
-			MM_LOG_INFO("event was canceled while a blocked thread was waiting");
-			break;
-		case E_FAIL:
-			MM_LOG_INFO("unknown catastrophic error");
-			break;
-		default:
-			MM_LOG_INFO(fmt::format("unknown error {}; offset from HOST_E_CLRNOTAVAILABLE: {}", hr, (hr - HOST_E_CLRNOTAVAILABLE)));
-			break;
-		}
-		return hr;
+		return 1;
 	}
 
-	// now should be able to get the app domain manager
-	gDomainManager = mmHostControl->GetDomainMananger();
-	if (!gDomainManager) {
-		MM_LOG_INFO("Failed to obtain the clr domain manager");
-		return hr;
+	return 0;
+}
+
+int InitCLR(WCHAR* mmPath) {
+	InitCoreCLR();
+	return RetFailGotManager;
+
+	if (gDomainManager) {
+		MM_LOG_INFO("Error: Domain manager already initialized; don't call InitCLR() again");
+		return RetFailGotManager;
 	}
+
+	//HRESULT hr;
+	//hr = CoInitialize(NULL);
+	//switch (hr) {
+	//case S_OK:
+	//	MM_LOG_INFO("COM initialized");
+	//	break;
+	//case S_FALSE:
+	//	MM_LOG_INFO("COM already initialized");
+	//	break;
+	//default:
+	//	MM_LOG_INFO(fmt::format("Unknown com initialization code: {}", hr));
+	//	break;
+	//}
+
+	// Note, this function allocate a bunch of COM pointers and then essentially 
+	// leaks them (in both success and failure cases).  However this function is 
+	// just executed once and the resulting objects
+	// are all singletons anyway, so process-exit style cleanup is fine here.
+	// IF we ever switch to invoking this more than once, however, we'll need 
+	// to track and clean up those objects.
+
+	//if (!mmPath) {
+	//	MM_LOG_INFO("Error: No path specified, can't load managed assembly");
+	//	return RetFailNoPath;
+	//}
+	//swprintf_s(gMMPath, sizeof(gMMPath)/sizeof(gMMPath[0]), mmPath);
+
+	//MM_LOG_INFO("Searching for CLR");
+
+	//
+	//ICLRMetaHost* metaHost;
+	//hr = CLRCreateInstance(CLSID_CLRMetaHost,  IID_ICLRMetaHost, (LPVOID*)&metaHost);
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to create clr meta host instance");
+	//	return hr;
+	//}
+
+	//IEnumUnknown *runtimeEnum;
+	//hr = metaHost->EnumerateInstalledRuntimes((IEnumUnknown **)&runtimeEnum);
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to enumerate installed clr runtimes");
+	//	return hr;
+	//}
+
+	//ICLRRuntimeInfo* rt = NULL;
+	//ULONG fetched = 0;
+	//ICLRRuntimeInfo* targetRuntime = NULL;
+	//WCHAR wvStr[1024];
+	//DWORD wvStrsize = 1024;
+	//while (targetRuntime == NULL && SUCCEEDED(runtimeEnum->Next(1, (IUnknown**) &rt, &fetched)) && rt != NULL) {
+	//	hr = rt->GetVersionString(wvStr, &wvStrsize);
+	//	if (SUCCEEDED(hr)) {
+	//		BOOL loadable = false;
+	//		hr = rt->IsLoadable(&loadable);
+	//		if (FAILED(hr)) {
+	//			MM_LOG_INFO("Failed to check whether a clr runtime is loadable");
+	//		}
+	//		// lets target v4.0 for now
+	//		if (wcsstr(wvStr, L"v4.0") == wvStr) {
+	//			if (loadable) {
+	//				targetRuntime = rt;
+	//				break;
+	//			}
+	//		}
+	//	}
+	//}
+
+	//runtimeEnum->Release();
+	//
+	//if (!targetRuntime) {
+	//	MM_LOG_INFO("Failed to locate a loadable clr runtime for target version");
+	//	return hr;
+	//}
+
+	// log version of discovered runtime; wait until after we create it to log its installation directory,
+	// since that doesn't appear to be available yet.
+	//{
+	//	char* rtVer = Util::convertToMB(L"Unknown");
+
+	//	WCHAR wStr[8192];
+	//	DWORD wStrsize = 8192;
+	//	HRESULT hr = targetRuntime->GetVersionString(wStr, &wStrsize);
+	//	if (FAILED(hr)) {
+	//		MM_LOG_INFO("Failed to get target runtime version string");
+	//	}
+	//	else {
+	//		rtVer = Util::convertToMB(wStr);
+	//	}
+
+	//	MM_LOG_INFO(fmt::format("Found CLR runtime version {}", rtVer));
+	//	delete[] rtVer;
+	//}
+
+	//ICLRRuntimeInfo* runtime = NULL;
+	//hr = metaHost->GetRuntime(wvStr,  IID_ICLRRuntimeInfo, (LPVOID*)&runtime);
+	//if (FAILED(hr) || runtime == NULL) {
+	//	MM_LOG_INFO("Failed to obtain a runtime for loaded clr");
+	//	return hr;
+	//}
+
+	// log the runtime's installation directory
+	//{
+	//	char* rtDir = Util::convertToMB(L"Unknown");
+
+	//	WCHAR wStr[8192];
+	//	DWORD wStrsize = 8192;
+	//	hr = runtime->GetRuntimeDirectory(wStr, &wStrsize);
+	//	if (FAILED(hr)) {
+	//		MM_LOG_INFO("Failed to get target runtime directory");
+	//	}
+	//	else {
+	//		rtDir = Util::convertToMB(wStr);
+	//	}
+
+	//	MM_LOG_INFO(fmt::format("Found CLR in directory {}", rtDir));
+	//	delete[] rtDir;
+	//}
+
+	// The domain manager dll must be in the same directory as the executable, apparently.
+	//PCWSTR pszAppDomainAssemblyName = L"ModelModCLRAppDomain"; 
+	//PCWSTR pszAppDomainClass = L"MMAppDomain.MMAppDomainManager";
+
+	//ICLRRuntimeHost* rHost = NULL;
+	//hr = runtime->GetInterface(CLSID_CLRRuntimeHost,  IID_ICLRRuntimeHost, (LPVOID*) &rHost);
+	//if (FAILED(hr) || rHost == NULL) {
+	//	MM_LOG_INFO("Failed to get the interface for the clr runtime host");
+	//	return hr;
+	//}
+
+	//HostControl* mmHostControl = new HostControl();
+
+	//ICLRControl* clrControl = NULL;
+	//hr = rHost->GetCLRControl(&clrControl);
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to get the interface for the clr control");
+	//	return hr;
+	//}
+	//hr = rHost->SetHostControl(mmHostControl);
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to set host control");
+	//	return hr;
+	//}
+	//hr = clrControl->SetAppDomainManagerType(pszAppDomainAssemblyName, pszAppDomainClass);
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to set the app domain manager type");
+	//	return hr;
+	//}
+
+	//MM_LOG_INFO("Starting CLR");
+	//hr = rHost->Start();
+	//if (FAILED(hr)) {
+	//	MM_LOG_INFO("Failed to start the clr");
+	//	switch (hr) {
+	//	case HOST_E_CLRNOTAVAILABLE: 
+	//		MM_LOG_INFO("clr is not available");
+	//		break;
+	//	case HOST_E_TIMEOUT:
+	//		MM_LOG_INFO("call timed out");
+	//		break;
+	//	case HOST_E_NOT_OWNER:
+	//		MM_LOG_INFO("caller does not own the lock");
+	//		break;
+	//	case HOST_E_ABANDONED:
+	//		MM_LOG_INFO("event was canceled while a blocked thread was waiting");
+	//		break;
+	//	case E_FAIL:
+	//		MM_LOG_INFO("unknown catastrophic error");
+	//		break;
+	//	default:
+	//		MM_LOG_INFO(fmt::format("unknown error {}; offset from HOST_E_CLRNOTAVAILABLE: {}", hr, (hr - HOST_E_CLRNOTAVAILABLE)));
+	//		break;
+	//	}
+	//	return hr;
+	//}
+
+	// now should be able to get the app domain manager
+	//gDomainManager = mmHostControl->GetDomainMananger();
+	//if (!gDomainManager) {
+	//	MM_LOG_INFO("Failed to obtain the clr domain manager");
+	//	return hr;
+	//}
 
 	return ReloadAssembly();
 }
