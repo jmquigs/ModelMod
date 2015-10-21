@@ -90,6 +90,24 @@ method, but it would be useful to add it, since certain games require it.
 Specifically, any game that creates D3D9 from a secondary DLL, not the main
 executable, cannot currently be patched by the hook code in ModelMod.dll.
 
+## CLR Initialization
+
+When the game creates a graphics device, ModelMod.dll will perform
+"Lazy initialization".  The primary task here is to load a .Net CLR and
+load the MMManaged assembly.
+
+In order to control the CLR, ModelMod requires a custom app domain host.  
+The managed code for this file is copied into the game directory
+(it has a very unique name, so is unlikely to collide with any game files).
+Note however that this does mean that the user running the game must have
+write-access to the game folder.  The PrepCLR() function handles this copy.
+
+Once this is complete, the Interop::InitCLR function will attempt to
+initialize a CLR.  Upon success, the MMManaged dll will be loaded into the new CLR and its "Main" entry point will be called.
+
+It has be observed that in some games, CLR initialization
+will fail with an E_FAIL ("unknown catastrophic failure") return code.  It is currenty unknown whether this is due to a bug in the code, or some aspect of game configuration, possibly DRM code.  
+
 ## Object Selection
 ## Snapshot
 ## Mod file creation
