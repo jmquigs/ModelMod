@@ -101,6 +101,7 @@ module Snapshot =
             | SDXVertexDeclType.Float3 -> 
                 outputFn (Extractors.xNrmFromFloat3 reader)
             | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 -> 
                 outputFn (Extractors.xNrmFromUbyte4 reader)
             | _ -> failwithf "Unsupported type for %s: %A" name el.Type
