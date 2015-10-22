@@ -556,6 +556,9 @@ module ModDBInterop =
                         | SDXVertexDeclUsage.Color ->
                             // TODO: if/when snapshot & import/export write this out, will need to populate it here
                             match el.Type with
+                            | SDXVertexDeclType.Color ->
+                                let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                bw.Write(bytes);
                             | SDXVertexDeclType.Float4 ->
                                 bw.Write(1.f)
                                 bw.Write(1.f)

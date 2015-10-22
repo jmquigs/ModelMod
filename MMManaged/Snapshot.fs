@@ -140,9 +140,11 @@ module Snapshot =
                     fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
                 | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
             | SDXVertexDeclUsage.Color ->
+                // TODO: currently ignored, but should probably keep this as baggage.
                 match el.Type with
+                | SDXVertexDeclType.Color -> 
+                    reader.ReadBytes(4) |> ignore
                 | SDXVertexDeclType.Float4 ->
-                    // TODO: currently ignored, but should probably keep this as baggage.
                     reader.ReadSingle() |> ignore
                     reader.ReadSingle() |> ignore
                     reader.ReadSingle() |> ignore
