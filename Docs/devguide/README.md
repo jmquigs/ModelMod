@@ -105,8 +105,16 @@ write-access to the game folder.  The PrepCLR() function handles this copy.
 Once this is complete, the Interop::InitCLR function will attempt to
 initialize a CLR.  Upon success, the MMManaged dll will be loaded into the new CLR and its "Main" entry point will be called.
 
-It has be observed that in some games, CLR initialization
-will fail with an E_FAIL ("unknown catastrophic failure") return code.  It is currenty unknown whether this is due to a bug in the code, or some aspect of game configuration, possibly DRM code.  
+It has be observed that in some games, CLR initialization of the CLR 4.0
+will fail with an E_FAIL ("unknown catastrophic failure") return code.  The
+CLR 2.0 works, but is not compatible with F#, and so cannot be used.
+It is currenty unknown whether this failure is due to a bug in the code, or some aspect of game configuration.  
+
+The .Net CoreCLR includes a new COM
+interface for starting the CLR (ICLRRuntimeHost2), and preliminary testing
+shows that it is not affected by this issue.  It may be worth supporting
+the CoreCLR as an alternate runtime once it reaches 1.0 and has full support
+for F#.
 
 ## Object Selection
 ## Snapshot
