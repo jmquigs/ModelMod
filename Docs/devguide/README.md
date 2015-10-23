@@ -90,6 +90,15 @@ method, but it would be useful to add it, since certain games require it.
 Specifically, any game that creates D3D9 from a secondary DLL, not the main
 executable, cannot currently be patched by the hook code in ModelMod.dll.
 
+## Renderer & input hook
+
+One injected, the ModelMod.dll will look for certain imported functions in the PE executable table and patch them.  It will patch any
+D3D9 related calls so that it can inject the modelmod hook device.  
+It will also create and initialize DirectInput so that modelmod can
+receive input commands.
+
+While modelmod tracks certain kinds of renderer state changes as they happen, most processing occurs when the game calls beginScene() on the device, which should happen once per frame at least.
+
 ## CLR Initialization
 
 When the game creates a graphics device, ModelMod.dll will perform
@@ -105,7 +114,7 @@ write-access to the game folder.  The PrepCLR() function handles this copy.
 Once this is complete, the Interop::InitCLR function will attempt to
 initialize a CLR.  Upon success, the MMManaged dll will be loaded into the new CLR and its "Main" entry point will be called.
 
-It has be observed that in some games, CLR initialization of the CLR 4.0
+In some games, CLR initialization of the CLR 4.0
 will fail with an E_FAIL ("unknown catastrophic failure") return code.  The
 CLR 2.0 works, but is not compatible with F#, and so cannot be used.
 It is currenty unknown whether this failure is due to a bug in the code, or some aspect of game configuration.  
@@ -117,8 +126,180 @@ the CoreCLR as an alternate runtime once it reaches 1.0 and has full support
 for F#.
 
 ## Object Selection
+
+To faciliate object selection, modelmod maintains a list of recently used textures in the hook renderer, and allows the user to page through them.
+Whenever the game renders something with the selected texture, modelmod
+substitutes a green texture so that the art is (usually) highlighted
+on the display.  
+
+Although selection is done by texture, actual mod snapshotting (and replacement) is done by _geometry_; that is, ModelMod does not support replacing textures based on a checksum or other texture-specific information.
+
 ## Snapshot
+
+Snapshotting is initiated by native code when the snapshot key is pressed,
+but the core of the logic is in managed code.  One benefit of this approach
+is that it is possible to interactively work on the snapshot code without
+restarting the game.
+
+The snapshot function (Snapshot.take) is passed the device and some other
+snapshot data created by native code.  Certain buffers need to be created
+from native code because the managed device interface does not have them.
+
+The snapshot function is very careful about managing COM reference counts for any resources it requires; given the interop layer, this is tricky
+business.  Be careful when adding code to the snapshot module that acquires new D3D resources from the device.  It is easy to introduce leaks or crashes.
+
+Snapshot will apply a series of transforms to the model data prior to saving it to disk.  The intention here is to get the geometry into a reasonable
+format for editing in a 3D tool.  Unless otherwise specified, all extant
+profiles assume Blender as the 3D tool; additional profiles will be needed
+for other tools.  Currently this requires editing the F# code; ultimately
+it would be nice to have them be specified in a data file so that
+non-programmers can edit them.
+
+One case that the current snapshot system doesn't handle is game-specific profiles.  For instance, if a game uses 4 byte normals, the snapshot system assumes that they are in a certain format; if different games use the
+same 4 byte format but different semantics (for instance, different
+XYZW ordering), snapshot cannot handle it.  This issue has not yet
+been observed in practice, but if it occurs, a different game-specific profile system will need to be implemented to capture these semantic variations.
+
+#### Output format
+
+Snapshot produces various types of files.  
+
+".dat" files are binary files
+that are intended to be loaded directly by modelmod later; the vertex
+declaration format is a prime example of this.  These files are not
+intended to be modded.
+
+".dds" files are snapshotted textures.  ModelMod can only read
+texture data if the texture data is stored in an accessible memory location
+in the device; some games do not do this by default.  For these games, it
+may be worth implementing an option that forces all textures to be created
+in managed memory so that they can be accssed during snapshot.
+
+".mmobj" files contain geometry.  These are basically .obj files, but
+contain additional ModelMod specific data that is required to set up
+animation properly.  The additional data is written in comment lines
+(e.g: "#vbld ..."), so a regular .obj import can still import the file.  However an exported .obj file will not work.  The use of this nonstandard
+format requires an import/exporter pair for each supported 3D tool.
+
+#### Shaders
+
+ModelMod currently does not capture shaders or shader-related data; it
+would be nice to support this at some point so that custom shaders can be used.  This may present some technical challenges since only the shader
+disassembly can be captured (the original HLSL code is lost), and modding
+that is not exactly simple.  The shader author may be able to simply drop
+in a new shader based on new HLSL code, but care must be taken to make
+sure the shade uses the same inputs, and produces the same output,
+as the original shader, which again requires inspecting the disassembly.
+
+Similarly, you cannot simply snapshot a set of shader constants and then
+inject them back in for mod playback; the original constants will contain
+data specific to the render state at time of snapshot
+(such as world/projection matrices and bone animation data), that data
+will cause the mod to display incorrectly if reused.  Only a set
+of "whitelisted" constants from the original snapshot can be used or modded;
+the rest must come from the game's render state.
+
 ## Mod file creation
-## Blender import
-## Blender export
+
+The "raw" files that are written to the snapshot directory
+need some post-processing is needed to get them in to a usable format and
+give them a name.  
+
+The launcher tool has a Create Mod command that automates this process.  
+The tool moves and renames the mod files, and produces the ".yaml"
+metadata files that ModelMod will use later to load the raw data.  It can
+also add the ModIndex.yaml file. see "Mod Loading" below for more information about these files.
+
+This tool works well enough for most use cases, but notably
+it only produces one type of mod (GPUReplacement)
+If you want a different type you must hand-edit the output yaml files.
+
+## Blender import & export
+
+The MMOBJ blender import/exporter is simply a modification of the existing .obj importer.  These scripts are copies of the originals, so the MMObj
+code is not dependant on a particular version of the .obj scripts in the
+same blender install.  It may, however, be affected by changes in the
+blender python API.
+
+At some point the mmobj format will be documented so that one can write
+an importer/exporter from the spec.  For the moment, writing a new
+importer/exporter requires spelunking in the blender scripts and/or
+github history to see what needs to be done.
+
 ## Mod loading
+
+ModelMod maintains a game "data" directory each game.  Each mod usualy is located in its own directory within the data directory.  The ModIndex.yaml file controls which mods are actually loaded by the game; each game has
+its own ModIndex file located in that game's directory.
+
+Each mod consists of both "Mod" and "Ref" files.  Reference files contain data that is not usually changed as part of the modding process, but must
+be present in order to load and display the mod correctly.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# blank
