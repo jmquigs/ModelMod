@@ -9,6 +9,27 @@ game-specific way.  In the "Troubleshooting ModelMod compatibility" section
 below, you will find information on how to determine if ModelMod can work
 with your game.
 
+# Determining compatibility
+
+Here is a step-by-step guide to determine if your game is
+compatible with ModelMod.
+
+1) Use the ModelMod launcher to create a launch profile for your game.
+When constructing a profile, make sure the exe path is the actual game
+executable and not some intermediate launcher app.  It may take some
+trial and error to determine this.  
+2) If the game does use an intermediate launcher, you may need to
+increase the launch window timeout in the ModelMod profile so that
+the injector has time to attach to the game.
+3) Start the game using the ModelMod launcher.  After it starts,
+use the launcher to view the ModelMod log:
+* You should see lines like this in the log.  If you don't see exactly
+these lines, most likely the CLR failed to initialize.  
+TODO: lines
+4) While in game, try using the next/previous texture keys.  You should see some artwork "flash green" while in game.  If you don't, that probably means ModelMod isn't hooking the renderer properly.  
+5) Try selecting some artwork and snapshotting it.  
+
+
 ## Troubleshooting ModelMod compatibility problems
 
 You have some options if ModelMod doesn't work out of the box with your game.
