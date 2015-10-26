@@ -27,8 +27,10 @@ use the launcher to view the ModelMod log:
 these lines, most likely the CLR failed to initialize.  
 TODO: lines
 4) While in game, try using the next/previous texture keys.  You should see some artwork "flash green" while in game.  If you don't, that probably means ModelMod isn't hooking the renderer properly.  
-5) Try selecting some artwork and snapshotting it.  
-
+5) Try selecting some artwork and snapshotting it.  If you can't see the
+selection texture, that may imply that the game is not using D3D9 for rendering, or that the hook renderer was not created successfully.
+6) If the snapshot fails with an exception, the game is not supported yet, but
+potentially can be supported with some programming effort.
 
 ## Troubleshooting ModelMod compatibility problems
 
@@ -55,9 +57,8 @@ If you are a programmer or want to learn programming, you can try taking a crack
 
 Either way, you may want to file a bug in the ModelMod source repository.  
 Include as much information as you know about the failure.  For instance,
-if a snapshot fails, include the relevant sections of the ModelMod log including the stack trace.  This will allow the developers to assess the difficulty of porting the game and suggest.
+if a snapshot fails, include the relevant sections of the ModelMod log including the stack trace.  This will allow the developers to assess the difficulty of porting the game and suggest strategies.
 
-3) Or, you can create a ticket in the ModelMod repo noting that.
 
 
 ### MORE STUFF TO TALK ABOUT:
@@ -73,52 +74,3 @@ originally displayed by the game.  The only valid change that you may
 make to this file is to group certain
 
 The name of a mod (or reference) is its base file name.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# stuff
