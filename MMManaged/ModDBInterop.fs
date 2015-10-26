@@ -311,6 +311,7 @@ module ModDBInterop =
         let modmNormal (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
             | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 ->
                 // convert normal to 4 byte rep
                 let srcNrm = modm.Normals.[modNrmIndex]
@@ -349,6 +350,7 @@ module ModDBInterop =
                     t
             match el.Type with
             | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 ->
                 write4ByteVector vec bw
             | SDXVertexDeclType.Float3 ->
@@ -554,6 +556,9 @@ module ModDBInterop =
                         | SDXVertexDeclUsage.Color ->
                             // TODO: if/when snapshot & import/export write this out, will need to populate it here
                             match el.Type with
+                            | SDXVertexDeclType.Color ->
+                                let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                bw.Write(bytes);
                             | SDXVertexDeclType.Float4 ->
                                 bw.Write(1.f)
                                 bw.Write(1.f)

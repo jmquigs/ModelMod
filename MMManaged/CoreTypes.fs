@@ -33,8 +33,9 @@ type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
 module SnapshotProfiles =
     let Profile1 = "Profile1"
     let Profile2 = "Profile2"
+    let Profile3 = "Profile3"
 
-    let ValidProfiles = [ Profile1; Profile2 ]
+    let ValidProfiles = [ Profile1; Profile2; Profile3 ]
 
     let DefaultProfile = Profile1
 

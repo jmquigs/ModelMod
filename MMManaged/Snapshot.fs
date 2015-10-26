@@ -58,11 +58,13 @@ module SnapshotTransforms =
             // list, which means the exporter/import needs to pass them through appropriately.
             SnapshotProfiles.Profile1, ["rot x 90"; "rot y 180"; "scale 0.1"] 
             SnapshotProfiles.Profile2, ["rot x 90"; "rot z 180"; "scale 0.1"] 
+            SnapshotProfiles.Profile3, ["rot x 90"; "rot z 180"; "scale 5.0"]
         ]
     let UV =
         Map.ofList [
             SnapshotProfiles.Profile1, ["flip y"]
             SnapshotProfiles.Profile2, ["flip y"]
+            SnapshotProfiles.Profile3, ["flip y"]
         ]
 
 /// Utilities for calling out to the ModelMod dll to have it do some work for us.
@@ -101,6 +103,7 @@ module Snapshot =
             | SDXVertexDeclType.Float3 -> 
                 outputFn (Extractors.xNrmFromFloat3 reader)
             | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 -> 
                 outputFn (Extractors.xNrmFromUbyte4 reader)
             | _ -> failwithf "Unsupported type for %s: %A" name el.Type
@@ -139,9 +142,11 @@ module Snapshot =
                     fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
                 | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
             | SDXVertexDeclUsage.Color ->
+                // TODO: currently ignored, but should probably keep this as baggage.
                 match el.Type with
+                | SDXVertexDeclType.Color -> 
+                    reader.ReadBytes(4) |> ignore
                 | SDXVertexDeclType.Float4 ->
-                    // TODO: currently ignored, but should probably keep this as baggage.
                     reader.ReadSingle() |> ignore
                     reader.ReadSingle() |> ignore
                     reader.ReadSingle() |> ignore
