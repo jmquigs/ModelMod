@@ -48,6 +48,9 @@ module Yaml =
         | :? YamlScalarNode as scalar -> 
             Convert.ToInt32 scalar.Value
         | _ -> failwithf "Cannot extract string from node %A" node
+
+    let toOptionalInt (node:YamlNode option) =
+        node |> Option.map (fun n -> toInt(n))
         
     /// Convert the node to a boolean.  If node is None, returns the default value.  If some,
     /// returns the converted boolean, or throws exception if it cannot be converted.

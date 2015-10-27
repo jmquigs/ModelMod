@@ -272,6 +272,8 @@ module CoreTypes =
     type DBReference = {
         Name : string
         Mesh : Mesh
+        PrimCount: int
+        VertCount: int
     }
 
     /// Storage for a Deletion mod.
