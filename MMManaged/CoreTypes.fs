@@ -132,6 +132,8 @@ module CoreTypes =
         GameProfile: string
         /// Doc root for this profile.  Currently ignored.
         DocRoot: string 
+        /// Period of time that the Loader will wait for the game to start before exiting.
+        LaunchWindow: int
     } 
 
     /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot 
@@ -146,6 +148,7 @@ module CoreTypes =
         SnapshotProfile = ""
         GameProfile = ""
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
+        LaunchWindow = 15
     }
 
     // ------------------------------------------------------------------------

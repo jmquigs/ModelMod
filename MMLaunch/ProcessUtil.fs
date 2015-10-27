@@ -103,7 +103,7 @@ module ProcessUtil =
             | None -> defReason
             | Some (reason) -> reason
                     
-    let launchWithLoader (exePath:string):Result<Process,System.Exception> =
+    let launchWithLoader (exePath:string) (waitperiod:int) :Result<Process,System.Exception> =
         try 
             if not (File.Exists(exePath)) then
                 failwithf "Exe does not exist: %s" exePath
@@ -136,7 +136,6 @@ module ProcessUtil =
                 getInjectionLog exePath
 
             // tell loader to exit if it hasn't attached in n seconds
-            let waitperiod = 5
             proc.StartInfo.Arguments <- sprintf "\"%s\" -waitperiod %d -logfile \"%s\"" exePath waitperiod logfile
             let res = proc.Start ()
             if not res then 

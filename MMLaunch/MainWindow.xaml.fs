@@ -183,6 +183,12 @@ type ProfileModel(config:CoreTypes.RunConfig) =
             config <- { config with SnapshotProfile = value }
             save()
 
+    member x.LaunchWindow
+        with get() = config.LaunchWindow
+        and set value = 
+            config <- { config with LaunchWindow = value }
+            save()
+
     member x.LoadModsOnStart
         with get() = config.LoadModsOnStart
         and set value = 
@@ -334,6 +340,10 @@ module MainViewUtil =
 type SubProfileModel(name:string) =
     member x.Name with get() = name
 
+type LaunchWindowModel(name:string,time:int) =
+    member x.Name with get() = name
+    member x.Time with get() = time
+
 type GameExePath = string
 type LoaderState = 
     NotStarted
@@ -377,6 +387,8 @@ type MainViewModel() as self =
         timer.Interval <- new TimeSpan(0,0,1)
         timer.Tick.Add(fun (args) -> self.PeriodicUpdate())
         timer.Start()
+
+    let launchWindows = [new LaunchWindowModel("5 Seconds", 5); new LaunchWindowModel("15 Seconds", 15); new LaunchWindowModel("30 Seconds", 30); new LaunchWindowModel("45 Seconds", 45);]
 
     let getSelectedProfileField (getter:ProfileModel -> 'a) (devVal:'a) = 
          match selectedProfile with
@@ -426,6 +438,9 @@ type MainViewModel() as self =
         new ObservableCollection<SubProfileModel>
             (InputProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
 
+    member x.LaunchWindows = 
+        new ObservableCollection<LaunchWindowModel>(launchWindows)
+
     member x.SelectedProfile 
         with get () = selectedProfile
         and set value = 
@@ -436,6 +451,7 @@ type MainViewModel() as self =
             x.RaisePropertyChanged("SelectedProfileName") 
             x.RaisePropertyChanged("SelectedProfileExePath") 
             x.RaisePropertyChanged("SelectedProfileLoadModsOnStart") 
+            x.RaisePropertyChanged("SelectedProfileLaunchWindow") 
             x.RaisePropertyChanged("SelectedInputProfile") 
             x.RaisePropertyChanged("SelectedSnapshotProfile") 
             x.RaisePropertyChanged("ProfileAreaVisibility") 
@@ -459,6 +475,17 @@ type MainViewModel() as self =
     member x.SelectedProfileLoadModsOnStart
         with get () = getSelectedProfileField (fun profile -> profile.LoadModsOnStart) CoreTypes.DefaultRunConfig.LoadModsOnStart
         and set (value:bool) = setSelectedProfileField (fun profile -> profile.LoadModsOnStart <- value)
+
+    member x.SelectedProfileLaunchWindow 
+        with get() = 
+            let time = getSelectedProfileField (fun profile -> profile.LaunchWindow) CoreTypes.DefaultRunConfig.LaunchWindow
+            let found = launchWindows |> List.tryFind (fun lt -> lt.Time = time)
+            match found with
+            | None -> launchWindows.Head.Time
+            | Some (lw) -> lw.Time
+
+        and set (value:int) = 
+            setSelectedProfileField (fun profile -> profile.LaunchWindow <- value)
 
     member x.SelectedInputProfile 
         with get () = getSelectedProfileField (fun profile -> profile.InputProfile) CoreTypes.DefaultRunConfig.InputProfile
@@ -707,9 +734,11 @@ type MainViewModel() as self =
                         if dir <> "" && not (Directory.Exists dir) then
                             Directory.CreateDirectory(dir) |> ignore
 
+                        let launchWindow = selectedProfile.LaunchWindow
+
                         // start it 
                         x.UpdateLoaderState <|
-                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath) with 
+                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath launchWindow) with 
                             | Ok(p) -> Started(p,selectedProfile.ExePath)
                             | Err(e) -> 
                                 MainViewUtil.failValidation e.Message

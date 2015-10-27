@@ -35,6 +35,7 @@ module RegKeys =
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
     let ProfGameProfile = "GameProfile"
+    let ProfLaunchWindow = "LaunchWindow"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -222,6 +223,7 @@ module RegConfig =
                 SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
                 GameProfile = profSave RegKeys.ProfGameProfile conf.GameProfile
                 DocRoot = "" // custom doc root not yet supported
+                LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
             })
 
     /// Remove a profile.  Uses the profile key name in the config to locate the 
@@ -270,6 +272,7 @@ module RegConfig =
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
             GameProfile = regget(profPath,RegKeys.ProfGameProfile, DefaultRunConfig.GameProfile) :?> string
+            LaunchWindow = regget(profPath,RegKeys.ProfLaunchWindow, DefaultRunConfig.LaunchWindow) :?> int
         }
 
         setDefaultProfileName rc 

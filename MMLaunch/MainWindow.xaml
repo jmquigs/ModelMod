@@ -57,6 +57,13 @@
                       SelectedValuePath="Name"
                       SelectedValue="{Binding Path=SelectedSnapshotProfile}"
                       HorizontalAlignment="Left" Margin="108,98,0,0" VerticalAlignment="Top" Width="120"/>
+            <Label x:Name="label" Content="Launch Time" Margin="233,62,279,319"/>
+            <ComboBox x:Name="comboBox" Margin="315,66,174,324" 
+                ItemsSource="{Binding LaunchWindows}" 
+                DisplayMemberPath="Name"
+                SelectedValuePath="Time"
+                SelectedValue="{Binding SelectedProfileLaunchWindow}">
+            </ComboBox>
             <Button Command="{Binding Path=BrowseExe}" 
                     CommandParameter="{Binding ElementName=MainWindow}"
                     Content="Browse" HorizontalAlignment="Left" Margin="486,35,0,0" VerticalAlignment="Top" Width="75" IsDefault="True"/>
@@ -71,12 +78,12 @@
             <Button 
                 Command="{Binding Path=CreateMod}"
                 CommandParameter="{Binding ElementName=MainWindow}"
-                Content="Create Mod" Margin="124,418,325,-37" Height="22" RenderTransformOrigin="0.582,0.682"/>
+                Content="Create Mod" Margin="142,422,307,-32" Height="22" RenderTransformOrigin="0.582,0.682"/>
             <Button 
                 Command="{Binding Path=OpenMods}"
-                Content="Open Mods Folder" Margin="251,418,198,-37" Width="122" Height="22"/>
+                Content="Open Mods Folder" Margin="287,422,180,-32" Width="122" Height="22"/>
         </Grid>
-        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="465" Margin="-124,1,-387,-321" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
+        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="465" Margin="-124,1,-369,-312" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
         <Grid HorizontalAlignment="Left" Height="84" Margin="-124,471,-387,-410" VerticalAlignment="Top" Width="737">
             <Button Command="{Binding StartInSnapshotMode}"
         		Content="Start" HorizontalAlignment="Left" Margin="9,10,0,0" VerticalAlignment="Top" Width="102" RenderTransformOrigin="0.51,0.955"/>
