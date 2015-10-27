@@ -34,6 +34,7 @@ module RegKeys =
     let ProfLoadModsOnStart = "LoadModsOnStart"
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
+    let ProfLoadProfile = "LoadProfile"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -219,6 +220,7 @@ module RegConfig =
                 LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
                 InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
                 SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
+                LoadProfile = profSave RegKeys.ProfLoadProfile conf.LoadProfile
                 DocRoot = "" // custom doc root not yet supported
             })
 
@@ -258,8 +260,7 @@ module RegConfig =
         let mmHiveRoot = regLoc.HiveRoot
 
         let mutable rc = { 
-            // eventually this may come from the profile as well, right now it is global
-            DocRoot = getDocRoot()
+            DocRoot = getDocRoot() // eventually this may come from the profile as well, right now it is global
 
             ProfileKeyName = profileKeyName
             ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string
@@ -268,6 +269,7 @@ module RegConfig =
             LoadModsOnStart = dwordAsBool ( regget(profPath,RegKeys.ProfLoadModsOnStart, (boolAsDword DefaultRunConfig.LoadModsOnStart)) :?> int)
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
+            LoadProfile = regget(profPath,RegKeys.ProfLoadProfile, DefaultRunConfig.LoadProfile) :?> string
         }
 
         setDefaultProfileName rc 

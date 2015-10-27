@@ -207,11 +207,17 @@ module ModDBInterop =
 
         //if debugLogEnabled() then debugLog (sprintf "computed vec: %A %A %A %A from %A" x y z w v)
 
-        // write in reverse order (is this valid for all games?)
-        bw.Write(z)
-        bw.Write(y)
-        bw.Write(x)
-        bw.Write(w)
+        // So far, W in last position seems to be the "common" pattern, even if other components are reversed
+        if State.Data.LoadProfile.ReverseNormals then 
+            bw.Write(z)
+            bw.Write(y)
+            bw.Write(x)
+            bw.Write(w)
+        else
+            bw.Write(x)
+            bw.Write(y)
+            bw.Write(z)
+            bw.Write(w)
 
     let writeF3Vector (v:Vector3) (bw:BinaryWriter) =
         bw.Write(v.X)

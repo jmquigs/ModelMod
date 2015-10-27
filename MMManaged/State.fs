@@ -70,6 +70,9 @@ module State =
         member x.Conf
             with get() = _conf
 
+        member x.LoadProfile 
+            with get() = LoadProfiles.ProfileDefs.[_conf.LoadProfile]
+
     /// Contains all publically accessible data in the State module.
     let Data = new StateDateAccessor()
 
@@ -89,9 +92,18 @@ module State =
                 log.Info "Unrecognized snapshot profile: %A; using %A" conf.SnapshotProfile def
                 def
             
+        let loadProfile = 
+            match conf.LoadProfile with
+            | profile when LoadProfiles.isValid(profile) -> profile
+            | _ -> 
+                let def = LoadProfiles.DefaultProfile
+                log.Info "Unrecognized load profile: %A; using %A" conf.LoadProfile def
+                def
+
         let conf = 
             { conf with
                 SnapshotProfile = snapProfile
+                LoadProfile = loadProfile
             }
         log.Info "Root dir: %A" (Path.GetFullPath(_rootDir))
         log.Info "Conf: %A" conf

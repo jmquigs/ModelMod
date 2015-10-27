@@ -42,6 +42,30 @@ module SnapshotProfiles =
     let isValid (profile:string) =
         ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
 
+type LoadProfile = {
+    ReverseNormals: bool
+}
+module LoadProfiles =
+    let Profile1 = "Profile1"
+    let Profile2 = "Profile2"
+
+    let ValidProfiles = [ Profile1; Profile2 ]
+
+    let DefaultProfile = Profile1
+
+    let isValid (profile:string) =
+        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
+
+    let ProfileDefs = 
+        Map.ofList [
+            Profile1, {
+                ReverseNormals = false
+            };
+            Profile2, {
+                ReverseNormals = true
+            }
+        ]
+
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for 
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that 
 /// ModelMod doesn't interfere too much with the game.  Some games make heavy use of the F keys, for instance,
@@ -104,6 +128,8 @@ module CoreTypes =
         InputProfile: string 
         /// Snapshot profile to use (i.e.: model transforms for snapshot) 
         SnapshotProfile: string 
+        /// Load profile to use
+        LoadProfile: string
         /// Doc root for this profile.  Currently ignored.
         DocRoot: string 
     } 
@@ -118,6 +144,7 @@ module CoreTypes =
         LoadModsOnStart = true
         InputProfile = ""
         SnapshotProfile = ""
+        LoadProfile = ""
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
     }
 
@@ -151,6 +178,7 @@ module CoreTypes =
         /// weighted in the 3d tool.  This can be tedious, especially with symmetric parts, so this 
         /// mode is primarily here for advanced users and control freaks.
         Mod 
+
         /// Get blend data from the ref.  This is the default and easiest mode to use.
         | Ref 
         /// Get blend data from the binary ref data.  This is mostly a developer debug mode - it doesn't 
