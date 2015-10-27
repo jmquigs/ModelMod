@@ -42,10 +42,10 @@ module SnapshotProfiles =
     let isValid (profile:string) =
         ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
 
-type LoadProfile = {
+type GameProfile = {
     ReverseNormals: bool
 }
-module LoadProfiles =
+module GameProfiles =
     let Profile1 = "Profile1"
     let Profile2 = "Profile2"
 
@@ -128,8 +128,8 @@ module CoreTypes =
         InputProfile: string 
         /// Snapshot profile to use (i.e.: model transforms for snapshot) 
         SnapshotProfile: string 
-        /// Load profile to use
-        LoadProfile: string
+        /// Game profile to use
+        GameProfile: string
         /// Doc root for this profile.  Currently ignored.
         DocRoot: string 
     } 
@@ -144,7 +144,7 @@ module CoreTypes =
         LoadModsOnStart = true
         InputProfile = ""
         SnapshotProfile = ""
-        LoadProfile = ""
+        GameProfile = ""
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
     }
 

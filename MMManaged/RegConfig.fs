@@ -34,7 +34,7 @@ module RegKeys =
     let ProfLoadModsOnStart = "LoadModsOnStart"
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
-    let ProfLoadProfile = "LoadProfile"
+    let ProfGameProfile = "GameProfile"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -220,7 +220,7 @@ module RegConfig =
                 LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
                 InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
                 SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
-                LoadProfile = profSave RegKeys.ProfLoadProfile conf.LoadProfile
+                GameProfile = profSave RegKeys.ProfGameProfile conf.GameProfile
                 DocRoot = "" // custom doc root not yet supported
             })
 
@@ -269,7 +269,7 @@ module RegConfig =
             LoadModsOnStart = dwordAsBool ( regget(profPath,RegKeys.ProfLoadModsOnStart, (boolAsDword DefaultRunConfig.LoadModsOnStart)) :?> int)
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
-            LoadProfile = regget(profPath,RegKeys.ProfLoadProfile, DefaultRunConfig.LoadProfile) :?> string
+            GameProfile = regget(profPath,RegKeys.ProfGameProfile, DefaultRunConfig.GameProfile) :?> string
         }
 
         setDefaultProfileName rc 
