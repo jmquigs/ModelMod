@@ -173,8 +173,10 @@ module BlenderUtil =
                 if not (Directory.Exists srcDir) then
                     failwithf "Source script directory does not exist: %s" srcDir
 
-                let srcFiles = Directory.GetFiles(srcDir,"*.*", SearchOption.AllDirectories)
-                let currFiles = srcFiles |> Array.map (fun f -> f.Replace(srcDir,currInstallDir))
+                let noPyCache (fn:string) = not (fn.Contains("__pycache__"))
+
+                let srcFiles = Directory.GetFiles(srcDir,"*.*", SearchOption.AllDirectories) |> Array.filter noPyCache
+                let currFiles = srcFiles |> Array.map (fun f -> f.Replace(srcDir,currInstallDir)) 
 
                 let diffFound = 
                     Array.zip srcFiles currFiles 
