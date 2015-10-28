@@ -680,7 +680,7 @@ def write_file(filepath, objects, scene,
                         
                         if gname.startswith(blendGroupPrefix):
                             # ignore zero weight groups
-                            if float(g.weight) < 0.01:
+                            if float(g.weight) < 0.0001:
                                 continue
                             # the actual index value could get out of sync with the blender group index,
                             # so extract the index from the group name
