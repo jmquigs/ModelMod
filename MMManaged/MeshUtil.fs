@@ -306,6 +306,12 @@ module MeshUtil =
         log.Info "  %d position transforms; %d uv transforms" postransforms.Count uvtransforms.Count
         log.Info "  %d named vertex groups; %d vertex/group associations " vgnames.Count groupsForVertex.Length
 
+        // warn if mesh vert count differs from blend index or weight count
+        if blendindices.Count > 0 && blendindices.Count <> positions.Count then
+            log.Warn "Mesh vert count of '%A' differs from mesh blend index count '%A'; if this mesh is used as a blend data source, it will likely cause a rendering error" positions.Count blendindices.Count
+        if blendweights.Count > 0 && blendweights.Count <> positions.Count then
+            log.Warn "Mesh vert count of '%A' differs from mesh blend weight count '%A'; if this mesh is used as a blend data source, it will likely cause a rendering error" positions.Count blendweights.Count
+
         if groupsForVertex.Length > 0 && positions.Count > groupsForVertex.Length then
             // this may be an art bug
             let diff = positions.Count - groupsForVertex.Length

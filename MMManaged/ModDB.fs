@@ -320,15 +320,6 @@ module ModDB =
         // for determining mod substitution
         let pCount = defaultArg (node |> Yaml.getOptionalValue "ExpectedPrimCount" |> Yaml.toOptionalInt) mesh.Triangles.Length
         let vCount = defaultArg (node |> Yaml.getOptionalValue "ExpectedVertCount" |> Yaml.toOptionalInt) mesh.Positions.Length
-        // ...TODO: except there is a bug with this.  The problem is that if the vertex position array differs in size
-        // from the blend index/weight array, then the blend data no longer lines up with what was originally exported, and
-        // the animation wil be broken.  I've seen blender change the vertex count on some meshes but not others; could be
-        // an issue with snapshot or with blender import.  either way, until this is fixed, the ref vert count can't be 
-        // usually be changed.  Spew some warnings about it for now.
-        if mesh.BlendIndices.Length > 0 && mesh.BlendIndices.Length <> vCount then
-            log.Warn "Specified vert count of '%A' differs from mesh blend index count '%A'; if 'Ref' weight mode is used with this Ref, it will likely cause a rendering error"  vCount mesh.BlendIndices.Length
-        if mesh.BlendWeights.Length > 0 && mesh.BlendWeights.Length <> vCount then
-            log.Warn "Specified vert count of '%A' differs from mesh blend weight count '%A'; if 'Ref' weight mode is used with this Ref, it will likely cause a rendering error"  vCount mesh.BlendWeights.Length
 
 //        let sw = new Util.StopwatchTracker("apply transforms: " + filename)
 //        let mesh = applyMeshTransforms (getMeshTransforms node) mesh
