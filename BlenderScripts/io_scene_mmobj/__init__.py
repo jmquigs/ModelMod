@@ -80,15 +80,18 @@ class ImportOBJ(bpy.types.Operator, ImportHelper):
             default=True,
             )
 
+    # MMObj: splitting is always disabled because it split_mesh doesn't properly handle the 
+    # weight groups stuff that I added 
+    # (and snapshot never generates more than one OBJ object and it doesn't generate groups)
     use_split_objects = BoolProperty(
             name="Object",
             description="Import OBJ Objects into Blender Objects",
-            default=True,
+            default=False,
             )
     use_split_groups = BoolProperty(
             name="Group",
             description="Import OBJ Groups into Blender Objects",
-            default=True,
+            default=False,
             )
 
     use_groups_as_vgroups = BoolProperty(
@@ -106,8 +109,9 @@ class ImportOBJ(bpy.types.Operator, ImportHelper):
 
     split_mode = EnumProperty(
             name="Split",
-            items=(('ON', "Split", "Split geometry, omits unused verts"),
-                   ('OFF', "Keep Vert Order", "Keep vertex order from file"),
+            items=(
+                   ('OFF', "Keep Vert Order", "Keep vertex order from file"), # MMObj: reorder because we want this to be default (never split)
+                   ('ON', "Split", "Split geometry, omits unused verts"),
                    ),
             )
 
@@ -178,17 +182,18 @@ class ImportOBJ(bpy.types.Operator, ImportHelper):
 
         layout.prop(self, "use_smooth_groups")
 
-        box = layout.box()
-        row = box.row()
-        row.prop(self, "split_mode", expand=True)
+        # MMObj: don't show the split UI since it can mess up import
+        #box = layout.box()
+        #row = box.row()
+        #row.prop(self, "split_mode", expand=True)
 
-        row = box.row()
-        if self.split_mode == 'ON':
-            row.label(text="Split by:")
-            row.prop(self, "use_split_objects")
-            row.prop(self, "use_split_groups")
-        else:
-            row.prop(self, "use_groups_as_vgroups")
+        #row = box.row()
+        #if self.split_mode == 'ON':
+        #    row.label(text="Split by:")
+        #    row.prop(self, "use_split_objects")
+        #    row.prop(self, "use_split_groups")
+        #else:
+        #    row.prop(self, "use_groups_as_vgroups")
 
         row = layout.split(percentage=0.67)
         row.prop(self, "global_clamp_size")

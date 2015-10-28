@@ -1174,6 +1174,10 @@ def load(operator, context, filepath,
         SPLIT_OB_OR_GROUP = False
 
     for verts_loc_split, faces_split, unique_materials_split, dataname in split_mesh(verts_loc, faces, unique_materials, filepath, SPLIT_OB_OR_GROUP):
+        # MMObj: split_mesh doesn't know how to split the weight groups, so if the array counts mismatch, then the groups will point at the wrong verts
+        if len(verts_loc_split) != verts_blenddata_idx:
+            raise Exception("split changed vertex count and thus blend weights are invalid: retry with mesh split options disabled (orig vert count: %i, new count: %i)" % (verts_blenddata_idx, len(verts_loc_split)))
+            
         # Create meshes from the data, warning 'vertex_groups' wont support splitting
         create_mesh(new_objects,
                     has_ngons,
