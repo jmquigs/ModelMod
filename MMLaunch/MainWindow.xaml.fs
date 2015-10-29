@@ -237,6 +237,12 @@ module MainViewUtil =
         let vm = view.Root.DataContext :?> PreferencesViewModel
         (view,vm)
 
+    let makeGameProfileWindow (parentWin:Window) =
+        let view = new GameProfileView()
+        view.Root.Owner <- parentWin
+        let vm = view.Root.DataContext :?> GameProfileViewModel
+        (view,vm)
+
     let makeConfirmDialog (parentWin:Window) =
         let view = new ConfirmDialogView()
         view.Root.Owner <- parentWin
@@ -702,6 +708,17 @@ type MainViewModel() as self =
             (fun mainWin ->
                 let mainWin = mainWin :?> Window
                 let view,_ = MainViewUtil.makePreferencesWindow(mainWin)
+                view.Root.ShowDialog() |> ignore
+            ))
+
+    member x.OpenGameProfile = 
+        new RelayCommand (
+            (fun canExecute -> true),
+            (fun mainWin ->
+                let mainWin = mainWin :?> Window
+                let view,vm = MainViewUtil.makeGameProfileWindow(mainWin)
+                vm.ProfileChangedCb <- (fun profile ->
+                    printfn "%A" profile)
                 view.Root.ShowDialog() |> ignore
             ))
 

@@ -66,6 +66,8 @@
     <Compile Include="BlenderWindow.xaml.fs" />
     <Resource Include="PreferencesWindow.xaml" />
     <Compile Include="PreferencesWindow.xaml.fs" />
+    <Resource Include="GameProfileWindow.xaml" />
+    <Compile Include="GameProfileWindow.xaml.fs" />
     <Resource Include="MainWindow.xaml" />
     <Compile Include="MainWindow.xaml.fs" />
     <Resource Include="App.xaml" />

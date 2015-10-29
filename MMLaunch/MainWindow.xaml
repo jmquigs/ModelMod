@@ -82,6 +82,10 @@
             <Button 
                 Command="{Binding Path=OpenMods}"
                 Content="Open Mods Folder" Margin="287,422,180,-32" Width="122" Height="22"/>
+            <Button x:Name="gameProfileButton" 
+                    Command="{Binding Path=OpenGameProfile}"
+                    CommandParameter="{Binding ElementName=MainWindow}"
+                    Content="Game Profile..." HorizontalAlignment="Left" Margin="315,98,0,0" VerticalAlignment="Top" Width="100"/>
         </Grid>
         <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="465" Margin="-124,1,-369,-312" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
         <Grid HorizontalAlignment="Left" Height="84" Margin="-124,471,-387,-410" VerticalAlignment="Top" Width="737">
