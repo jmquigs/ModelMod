@@ -247,7 +247,7 @@ module MeshUtil =
         // restructuring the code so that the last-successfully matched pattern is run
         // first (using an MRU array or whatever) dramatically reduces the misses and 
         // improves performance by about 10%.  However, it made this code a lot uglier,
-        // so I didn't commit it.
+        // so I didn't commit it.  The mesh cache is more effective at reducing reload time.
         for line in lines do
             match line with 
                 | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt ->

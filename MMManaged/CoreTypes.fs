@@ -108,7 +108,7 @@ module CoreTypes =
     // ------------------------------------------------------------------------
     // Configuration types
 
-    /// A run config for modelmod.  Usually this is created from registry data.
+    /// A run config for modelmod.  These are stored in the registry.
     type RunConfig = {
         /// Reg key that this profile is stored under, e.g "Profile0000"
         ProfileKeyName: string 
