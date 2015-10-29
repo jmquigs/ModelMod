@@ -42,30 +42,6 @@ module SnapshotProfiles =
     let isValid (profile:string) =
         ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
 
-type GameProfile = {
-    ReverseNormals: bool
-}
-module GameProfiles =
-    let Profile1 = "Profile1"
-    let Profile2 = "Profile2"
-
-    let ValidProfiles = [ Profile1; Profile2 ]
-
-    let DefaultProfile = Profile1
-
-    let isValid (profile:string) =
-        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
-
-    let ProfileDefs = 
-        Map.ofList [
-            Profile1, {
-                ReverseNormals = false
-            };
-            Profile2, {
-                ReverseNormals = true
-            }
-        ]
-
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for 
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that 
 /// ModelMod doesn't interfere too much with the game.  Some games make heavy use of the F keys, for instance,
@@ -108,6 +84,18 @@ module CoreTypes =
     // ------------------------------------------------------------------------
     // Configuration types
 
+    /// Contains settings specific to a particular game.  Usually these settings relate to how a game lays out geometry data
+    /// in D3D memory.
+    type GameProfile = {
+        /// Controls the order in which normal vector components are written to D3D buffers.
+        /// False: XYZW; True: ZYXW
+        ReverseNormals: bool
+    }
+
+    let DefaultGameProfile = {
+        ReverseNormals = false
+    }
+
     /// A run config for modelmod.  These are stored in the registry.
     type RunConfig = {
         /// Reg key that this profile is stored under, e.g "Profile0000"
@@ -124,12 +112,12 @@ module CoreTypes =
         /// slightly more efficient by disabling certain things, like shader constant tracking,
         /// when we know we are only playing back mods).
         RunModeFull: bool 
-        /// Input profile to use
+        /// Input profile (i.e.: input key layout)
         InputProfile: string 
-        /// Snapshot profile to use (i.e.: model transforms for snapshot) 
+        /// Snapshot profile (i.e.: model transforms for snapshot) 
         SnapshotProfile: string 
-        /// Game profile to use
-        GameProfile: string
+        /// Game profile 
+        GameProfile: GameProfile
         /// Doc root for this profile.  Currently ignored.
         DocRoot: string 
         /// Period of time that the Loader will wait for the game to start before exiting.
@@ -146,7 +134,7 @@ module CoreTypes =
         LoadModsOnStart = true
         InputProfile = ""
         SnapshotProfile = ""
-        GameProfile = ""
+        GameProfile = DefaultGameProfile
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
         LaunchWindow = 15
     }

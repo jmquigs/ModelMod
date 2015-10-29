@@ -34,8 +34,9 @@ module RegKeys =
     let ProfLoadModsOnStart = "LoadModsOnStart"
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
-    let ProfGameProfile = "GameProfile"
     let ProfLaunchWindow = "LaunchWindow"
+    // Game profile settings are currently exploded out into individual keys
+    let ProfGPReverseNormals = "GameProfileReverseNormals"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -221,9 +222,13 @@ module RegConfig =
                 LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
                 InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile 
                 SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile 
-                GameProfile = profSave RegKeys.ProfGameProfile conf.GameProfile
+                
                 DocRoot = "" // custom doc root not yet supported
                 LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
+                GameProfile = 
+                    { 
+                        ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
+                    }
             })
 
     /// Remove a profile.  Uses the profile key name in the config to locate the 
@@ -271,8 +276,12 @@ module RegConfig =
             LoadModsOnStart = dwordAsBool ( regget(profPath,RegKeys.ProfLoadModsOnStart, (boolAsDword DefaultRunConfig.LoadModsOnStart)) :?> int)
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
-            GameProfile = regget(profPath,RegKeys.ProfGameProfile, DefaultRunConfig.GameProfile) :?> string
             LaunchWindow = regget(profPath,RegKeys.ProfLaunchWindow, DefaultRunConfig.LaunchWindow) :?> int
+            GameProfile =
+                {
+                    ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)
+                }
+            
         }
 
         setDefaultProfileName rc 

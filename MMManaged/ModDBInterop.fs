@@ -208,7 +208,7 @@ module ModDBInterop =
         //if debugLogEnabled() then debugLog (sprintf "computed vec: %A %A %A %A from %A" x y z w v)
 
         // So far, W in last position seems to be the "common" pattern, even if other components are reversed
-        if State.Data.LoadProfile.ReverseNormals then 
+        if State.Data.Conf.GameProfile.ReverseNormals then 
             bw.Write(z)
             bw.Write(y)
             bw.Write(x)

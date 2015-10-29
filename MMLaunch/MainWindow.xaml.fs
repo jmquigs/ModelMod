@@ -195,6 +195,12 @@ type ProfileModel(config:CoreTypes.RunConfig) =
             config <- { config with LoadModsOnStart = value }
             save()
 
+    member x.GameProfile 
+        with get() = config.GameProfile
+        and set value = 
+            config <- { config with GameProfile = value }
+            save()
+
 module MainViewUtil = 
     let pushSelectExecutableDialog(currentExe:string option) = 
         let initialDir = 
@@ -717,8 +723,13 @@ type MainViewModel() as self =
             (fun mainWin ->
                 let mainWin = mainWin :?> Window
                 let view,vm = MainViewUtil.makeGameProfileWindow(mainWin)
-                vm.ProfileChangedCb <- (fun profile ->
-                    printfn "%A" profile)
+                if x.SelectedProfile.IsSome then
+                    vm.Profile <- x.SelectedProfile.Value.GameProfile
+
+                vm.ProfileChangedCb <- (fun gameProfile ->
+                    x.SelectedProfile |> Option.iter (fun profile ->
+                        profile.GameProfile <- gameProfile
+                    ))
                 view.Root.ShowDialog() |> ignore
             ))
 

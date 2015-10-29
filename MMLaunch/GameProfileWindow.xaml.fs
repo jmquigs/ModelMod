@@ -32,13 +32,14 @@ open FsXaml
 
 open ViewModelUtil
 open ModelMod
+open ModelMod.CoreTypes
 
 type GameProfileView = XAML<"GameProfileWindow.xaml", true>
 
 type GameProfileViewModel() = 
     inherit ViewModelBase()
 
-    // This view is also the actual Model for the GameProfile
+    // The viewmodel is also the actual Model for the GameProfile
     let mutable profile = { 
         GameProfile.ReverseNormals = false
     }
@@ -50,7 +51,9 @@ type GameProfileViewModel() =
 
     member x.Profile 
         with get() = profile
-        and set value = profile <- value
+        and set value = 
+            profile <- value
+            x.RaisePropertyChanged(String.Empty)
 
     member x.ProfileChangedCb 
         with get() = profileChangedCb
