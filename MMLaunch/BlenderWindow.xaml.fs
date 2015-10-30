@@ -85,6 +85,7 @@ type BlenderViewModel() =
         and set (value:string) = 
             if File.Exists value then
                 RegConfig.setGlobalValue RegKeys.LastSelectedBlender value |> ignore
+                selectedBlender <- Some(value)
 
             x.RaisePropertyChanged("SelectedBlender")
 
