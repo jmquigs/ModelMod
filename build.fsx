@@ -11,7 +11,7 @@ let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "1.0.0.3"  // or retrieve from CI server
+let version = "1.0.0.4"  // or retrieve from CI server
 
 let updateRcVersions rcFile =
     let lines = File.ReadAllLines(rcFile)
