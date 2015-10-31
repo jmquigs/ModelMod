@@ -17,6 +17,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8243DEC4-F2FA-4893-B51B-4D4481253070}"
 	ProjectSection(SolutionItems) = preProject
 		build.fsx = build.fsx
+		BlenderScripts\install.py = BlenderScripts\install.py
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfInteropSample", "MMLaunch\WpfInteropSample\WpfInteropSample.csproj", "{B7751FAB-AE42-457F-8D69-51BEE5DC080A}"
