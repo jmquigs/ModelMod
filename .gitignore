@@ -30,3 +30,6 @@ Data/
 test/
 build/
 deploy/
+.vs/MMDotNet/v14/.suo
+.paket/paket.exe
+.vs/
