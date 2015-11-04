@@ -8,7 +8,21 @@ about the types of mods you can do, and some of the limitations of the system.
 
 ModelMod is not compatible with all games.  This is because it makes
 assumptions about how games render data, and right now these assumptions
-are fairly specific.  To see if a game you are interested in will work, you can use this video as a guide:
+are fairly specific.  
+
+The top three limiting factors are as follows, all of these may improve over
+time:
+
+1) It requires GPU-based animated meshes.  This is common in modern
+games, but older games primarily use CPU-animation.  
+
+2) It requires D3D9 for rendering.  
+
+3) It uses DLL injection, which can be a temperamental process.
+
+#### Testing compatibility
+
+To see if a game you are interested in will work, you can use this video as a guide:
 
 https://www.youtube.com/watch?v=3Mvqcv3-OPs
 
@@ -43,6 +57,57 @@ indicate that the game is not compatible.
 * With some games, the F key layout is incompatible.  Try the punctuation key
 layout if you have problems.  In the future, input layouts will hopefully
 be customizable from the UI.
+
+## Snapshots and Mods
+
+ModelMod writes out several files with each snapshot.  The launcher tool has a
+"Create Mod" button that lets you turn these into mods.  This tool also adds
+the mod to the "ModIndex" file for the game, so that it will be loaded.
+
+The two most important files of a mod are the XXMod.mmobj and XXRef.mmobj files.
+Here "XX" is the name of the mod that you set when creating it via the launcher.
+
+Normally, you only edit the XXMod.mmobj file.  Import it into blender, then
+export out the same file.  Use the reload key in game to load the mod.  
+
+#### Showing Mods
+
+ModelMod uses the base primitive and vertex count of the original snapshotted
+data in order to figure out when to display the mod.  For example, if your
+original snapshot had 500 primitives and 1000 verts, and you load a mod for it,
+_any_ time something with that primitive and vert count is rendered, your mod
+will be rendered instead.
+
+Beware that this means low poly count geometry may have false positives.  Also,
+you don't have control over instancing; e.g. if the game draws all character
+heads with the same base model, you can't modify just one head.  Future versions
+of ModelMod may add support for additional constraints, such as texture
+checksums, which should allow for some control over instancing.  
+
+At any time during the game, you can use the input keys to toggle mod display.
+This is helpful if some mod is causing a rendering glitch.
+
+#### Textures
+
+ModelMod will attempt to snapshot the textures in use so that they are available
+in Blender.  However, it assumes that you don't normally want to change the
+texture for the mod.  So changing the texture in blender won't change it in game.
+
+If you want to use different textures, you can edit the XXMod.yaml
+file and set textures as follows:
+```
+Type: Mod
+...
+Tex0Path: mybasetex.dds
+Tex1Path: mynormalmap.dds
+```
+
+The number in each path is the "texture stage" on which the texture should be
+set.  These should match what was originally produced by the snapshot.
+
+#### Shaders
+
+ModelMod does not currently support shader modding.
 
 ## Mesh animation
 
