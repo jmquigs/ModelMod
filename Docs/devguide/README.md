@@ -1,6 +1,13 @@
-# The Dev Guide
+# Dev Guide
+
+## Demo video
+
+This video is a live coding exercise showing how to make some (admittedly simple) changes to ModelMod to support a new game.  
+
+(link)
 
 ## Development environment setup
+
 
 ### Install
 
@@ -15,11 +22,34 @@ https://www.visualstudio.com/en-us/products/vs-2015-product-editions.aspx
 * Run "installdeps.bat" to install nuget packages
 * Choose a solution:
   * MMDotNot.sln: contains managed code and UI tools.  
-  * ModelMod.sln: contains native library and injection tool.  If you are not
-  modifying the interop layer, you may not need to build this, and can probably
+  * ModelMod.sln: contains native library and injection tool.  
+
+
+  If you are not
+  modifying the interop layer, you may not need to build ModelMod.sln, and can probably
   just use the binaries (MMLoader.exe,ModelMod.dll) from a release package.
   Build the MMDotNet.sln first, then copy the native binaries into the
-  "Release" directory.
+  "Release" directory.  Be certain that your binary distribution is
+  compatible with the source code you have checked out, otherwise the game
+  may crash in the interop layer.  It is recommended that you build the
+  native code if you are able, even if you don't intend to modify it.
+
+  Generally you should build both projects in "Release" configuration.  
+  The two projects must be set to the same configuration.  Debug is mostly
+  useful for hunting memory problems in C++ code, or attaching the debugger
+  to the native or managed code.
+
+### Test cases
+
+There are test cases for the core Managed code.  These have some fairly decent coverage of the core, but don't delve into
+game compatibility much.  Over time I want to make these tests more
+authoritative in that area, to avoid the need of doing a big regression test across M people and N games each time there are major changes.
+
+There are no test cases for the UI, or the native code.  Both could use them.
+
+To run the tests, install the Nunit 2 test runner for visual studio from the
+Extensions menu.  You should then be able to run with Test->Run->All Tests.
+Use the "Test Explorer" window to view status.
 
 ## Technical Overview
 
@@ -32,23 +62,23 @@ The ModelMod renderer watches all the geometry that is being drawn by the game;
 when a particular draw call triggers a match with a loaded mod, the system
 substitutes the mod for the original geometry.  
 
-Currently a match is anything
-that matches the defined primitive and vertex count of the mod; this can lead
-to some false-positives, however, for things like character meshes, the
-vertex + primitive is fairly unique.  However, this does have some consequences:
-* Anything that matches the vert/prim count will be replaced.  Therefore
-all instances of that thing in the game (if drawn multiple times) will be
-replaced, and there is no way to control this.
-* It is not possible to modify a single object that is some basic primitive,
-like a cube.  You wouldn't be able to avoid changing all the cubes in the game.
-* Objects that have very regular geometry patterns (such as particle emitters)
-are difficult to mod, because the basic geometry is reused for many kinds of
-particle effects.
-
 The program is essentially an alternate asset load pipeline.  Other than
 input processing, it does not do any per-frame operations.  Some future
 mod types may require that, however, specifically support for software-animated
 meshes (common in older games.)
+
+Currently a match is anything
+that matches the exact primitive and vertex count of the reference used by the mod; this can lead
+to some false-positives, however, for things like character meshes,
+vertex & primitive count can be fairly unique.  However, this does have some consequences:
+* Anything that matches the vert/prim count will be replaced.  Therefore
+all instances of that thing in the game (if drawn multiple times) will be
+replaced, and there is no way to control this right now.
+* It is not possible to modify a single object that is some basic primitive,
+like a cube.  You wouldn't be able to avoid changing all the cubes in the game.
+* Objects that have very regular mesh patterns (such as particle emitters)
+are difficult to mod, because the basic mesh is reused for many kinds of
+particle effects.
 
 The remainder of this document describes the different phases of ModelMod.
 
@@ -127,7 +157,7 @@ for F#.
 
 ## Object Selection
 
-To faciliate object selection, modelmod maintains a list of recently used textures in the hook renderer, and allows the user to page through them.
+To facilitate object selection, modelmod maintains a list of recently used textures in the hook renderer, and allows the user to page through them.
 Whenever the game renders something with the selected texture, modelmod
 substitutes a green texture so that the art is (usually) highlighted
 on the display.  
@@ -234,72 +264,25 @@ its own ModIndex file located in that game's directory.
 Each mod consists of both "Mod" and "Ref" files.  Reference files contain data that is not usually changed as part of the modding process, but must
 be present in order to load and display the mod correctly.  
 
+# Miscellanea
 
+### This can't be the best way to make art mods.
 
+Right, it isn't.  If a game supplies a built-in asset pipeline, that is
+almost certainly superior to what ModelMod lets you do.  ModelMod is good for cases where such a pipeline doesn't exist, is too hard to use or requires expensive tools.
 
+### Why F#?
 
+You may wonder why this project use a split-language
+implementation (C++/F#), rather than all C++.  
 
+TL;DR: it mostly reflects the author's preferences.
 
+ModelMod was
+entirely c++ in the beginning.  At some point it was badly in need of refactor, so I did a spike to investigate whether F#/CLR integration was
+feasible (including the overhead of the requisite "interop hell").  This
+worked out pretty well, so I decide to rewrite the whatever I could in F#.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# blank
+Despite the overhead of interop, this has turned out to be a good decision.  
+The F# code is much easier to modify than the original C++; its safer since its not as easy to trash process memory; and its easier to get the code working.  Its also a lot more fun to code in, and hot reload is a plus.  
+There more reasons, but suffice to say that without F#, this project would be a half-broken and forgotten unfinished mess sitting in some directory on the author's hard drive.

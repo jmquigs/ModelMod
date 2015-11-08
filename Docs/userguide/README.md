@@ -26,8 +26,8 @@ To see if a game you are interested in will work, you can use this video as a gu
 
 https://www.youtube.com/watch?v=3Mvqcv3-OPs
 
-Here is a summary of that video:
-* ModelMod uses DLL injection to get its renderer into the game.  Some games
+Here is a checklist from that video:
+* Did the DLL inject properly? Some games
 are not compatible with the injection method used.  
 * Is the game using D3D9 for rendering?  You can check this by starting the game under modelmod and checking the log.  If you see "Direct3DCreate9 called"
 there is a good chance that it is using D3D9 rendering.
@@ -41,18 +41,23 @@ probably not compatible.
 ## The Launcher
 
 The ModelMod launcher allows you to create a profile for each game you
-want to run, and change the settings for each.
+want to run, and change the settings for each.  It also is the easiest way to
+create mods from snapshots, though this can be done manually.
 
 Some tips for using the launcher:
 
 * Make sure the exe path is the actual game
-executable and not some its own launcher app.  It may take some
-trial and error to determine this.  
+executable and not some launcher app.  It may take some
+trial and error to determine; the actual game process is usually the one
+consuming the most CPU (as measured by Task Manager) after the game starts.
 * If the game uses its own launcher, you may need to
 increase the "Launch Time" setting in the ModelMod profile so that
-the injector has time to attach to the game.
+the injector has time to attach to the game.  If the game requires an
+intermediate process (e.g. Steam), its best to start that process first to
+reduce the chance that injection times out due to slow startup.
 * DLL injection can fail intermittently because it is sensitive to race conditions;
-if it fails once, try running from ModelMod again. Repeated failures likely
+if it fails once, try stopping the game and starting from ModelMod again.
+Repeated failures likely
 indicate that the game is not compatible.
 * With some games, the F key layout is incompatible.  Try the punctuation key
 layout if you have problems.  In the future, input layouts will hopefully
@@ -64,17 +69,25 @@ ModelMod writes out several files with each snapshot.  The launcher tool has a
 "Create Mod" button that lets you turn these into mods.  This tool also adds
 the mod to the "ModIndex" file for the game, so that it will be loaded.
 
-The two most important files of a mod are the XXMod.mmobj and XXRef.mmobj files.
-Here "XX" is the name of the mod that you set when creating it via the launcher.
+The CreateMod tool provides a rudimentary preview of the snapshot files; however
+you can also import them into blender for a better view.
 
-Normally, you only edit the XXMod.mmobj file.  Import it into blender, then
+Once a mod is created, the two most important files of a mod are the XXMod.mmobj and XXRef.mmobj files.
+Here, "XX" is the name you give the mod when creating it in the launcher.
+
+For basic mods, you only edit the XXMod.mmobj file.  Import it into blender, then
 export out the same file.  Use the reload key in game to load the mod.  
 
-#### Showing Mods
+#### Using Mods in game
 
-ModelMod uses the base primitive and vertex count of the original snapshotted
+ModelMod will load all mods that are listed in the ModIndex.yaml file in the game's
+mod directory.  An easy way to prevent load is to simply comment a line out
+by adding a '#' to the beginning of the line.
+
+The program uses the base primitive and vertex count of the original snapshotted
 data in order to figure out when to display the mod.  For example, if your
-original snapshot had 500 primitives and 1000 verts, and you load a mod for it,
+original snapshot (the ref file) had 500 primitives and 1000 verts,
+and you load a mod for it,
 _any_ time something with that primitive and vert count is rendered, your mod
 will be rendered instead.
 
@@ -87,10 +100,18 @@ checksums, which should allow for some control over instancing.
 At any time during the game, you can use the input keys to toggle mod display.
 This is helpful if some mod is causing a rendering glitch.
 
+You can reload mods at any time using the CTRL-F1 key (in the F key layout).
+To speed up reload time, this only reloads mods whose mmobj timestamps have been
+updated since the last load.  Keep this in mind if you are renaming files to
+  test something: renaming doesn't change the timestamp, so the cache can get stale.
+    To force a full reload, or to reload configuration
+changes made in the launcher, use CTRL-F10.
+
 #### Textures
 
 ModelMod will attempt to snapshot the textures in use so that they are available
-in Blender.  However, it assumes that you don't normally want to change the
+in Blender.
+However, it assumes that you don't normally want to change the
 texture for the mod.  So changing the texture in blender won't change it in game.
 
 If you want to use different textures, you can edit the XXMod.yaml
@@ -103,11 +124,15 @@ Tex1Path: mynormalmap.dds
 ```
 
 The number in each path is the "texture stage" on which the texture should be
-set.  These should match what was originally produced by the snapshot.
+set.  These should match what was originally produced by the snapshot, because
+the shader expects certain textures on certain stages.
+
+In some games, ModelMod is currently unable to snapshot textures.
 
 #### Shaders
 
-ModelMod does not currently support shader modding.
+ModelMod does not currently support shader modding.  There are a lot of issues
+that need to be dealt with here; see the Dev guide for more details.
 
 ## Mesh animation
 
@@ -115,7 +140,7 @@ If you've done 3D animation before, you may be used to rigging a skeleton
 to your mesh in order to animate it.
 
 ModelMod animation doesn't quite work like this.  We don't have access to the
-actual skeleton; we only have indirect access to it, via the geometry that the
+actual skeleton; we only have indirect access to it, via the mesh that the
 game is rendering.  When you make a mod and use "Ref" weight mode
 (the default), ModelMod will determine how to weight each mod vertex at load
 time by using weighting data from the nearest ref vert.  This works well for
@@ -135,7 +160,7 @@ armor pauldron piece that extends far out from the mesh, the nearest vert for
 weighting purposes may not be the shoulder; it may, for instance, be somewhere
 on the elbow.  This can lead the the piece twisting incorrectly in game.  
 ModelMod provides some control over this process using named vertex groups,
-discussed below.
+discussed below, and also demonstrated in the intro video.
 
 ### Named vertex groups
 
@@ -146,7 +171,8 @@ process.  You can use this feature in two ways:
 completely exclude them by adding them to a vertex group called "Exclude".
 Alternatively, you can add the vertices to a named group in the Ref, "RightElbow",
 then create a corresponding group in the mod containing verts that you don't
-want affected, and add those to a group called "Exclude.RightElbow".
+want to be affected by the RightElbow, and name that group
+"Exclude.RightElbow".
 
 2) Similarly, you can force inclusion of certain verts.  Suppose you have a long
 pauldron as described above that is being influenced by verts on the elbow.  
@@ -161,6 +187,9 @@ available to the modelmod loader.  The process generally involves going back
 and forth between the ref and the mod, updating the groups and re-exporting
 both as needed.
 
+It is an error to have a mod "Include" a group that doesn't exist in the ref.
+The mod will fail to load.  
+
 ### "Mod" weight mode
 
 You can configure a mod to use "mod" weight mode instead of relying on a Ref.
@@ -169,9 +198,13 @@ mod vert must be assigned to an appropriate "Index.XX" vertex group.
 
 While this mode doesn't require a Ref, it is much more difficult to use, for
 the following reasons:
+
 1) You generally can't use symmetry tools provided by blender, because the
 weight groups are usually not symmetric (e.g left arm might be in Index.15, and
 right arm might be in Index.9).
-2) You must make sure that each new vert you add is properly weighted.
 
-For these reasons, this weight mode is not recommended for most users.
+2) You must make sure that each new vert you add is assigned to one of the
+Index.NN groups with a valid weight.
+
+For these reasons, this weight mode is not recommended for most users.  The
+main reason its documented here is to explain the problems with it.  
