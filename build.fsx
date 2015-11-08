@@ -131,6 +131,10 @@ Target "CopyStuff" (fun _ ->
         |> CopyFiles (buildDir + "/BlenderScripts")
     !! ("./BlenderScripts/io_scene_mmobj/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts/io_scene_mmobj")
+    !! ("./LICENSE.txt")
+        |> CopyFiles (buildDir)
+    !! ("./Docs/binpackage/README.md")
+        |> CopyFiles (buildDir)
 
     !! (buildBin + "/ModelMod.exe")
         |> CopyFiles buildDir
