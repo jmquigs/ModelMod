@@ -4,7 +4,7 @@
 
 This video is a live coding exercise showing how to make some (admittedly simple) changes to ModelMod to support a new game.  
 
-(link)
+https://www.youtube.com/watch?v=KGN7MSjSx_U
 
 ## Development environment setup
 

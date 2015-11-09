@@ -7,18 +7,16 @@ and draws the original model, ModelMod transparently swaps in your modified
 version, and renders that in place of the original.
 
 Demos
------------
-Crude Snapshot (I'm no artist)
+-----
 
-(link)
+Screenshot of a basic mod from the demo videos:
 
-Videos:
+### Videos
 
-* Intro and features: (link)
-
-* Testing a game for compatibility: (link)
-
-* Extending it to support new games: (link)
+* Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
+* Longer intro video with commentary: https://www.youtube.com/watch?v=ijmLTTzCGuU
+* Testing a game for compatibility: https://www.youtube.com/watch?v=ijmLTTzCGuU
+* For developers, guide to making changes to support a new game: https://www.youtube.com/watch?v=KGN7MSjSx_U
 
 Requirements
 ------------
