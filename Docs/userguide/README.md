@@ -4,6 +4,21 @@ This document outlines how to use ModelMod.  First it covers some
 important game-compatibility information.  Later sections go into more detail
 about the types of mods you can do, and some of the limitations of the system.
 
+## Caution / Disclaimer
+
+ModelMod is a back-door method of getting alternate art into a game.
+Many games specifically prohibit use of this kind of program in
+their terms of service.  That's the one that you "agreed" to when you
+installed the game.  
+
+The risk is greatest with MMOs; depending
+on the attitude of the game developer and/or publisher, using
+ModelMod may be totally fine, or it may get your account banned.  The developer can detect the
+use of ModelMod, provided they are willing to make changes to their
+game to do so.
+
+In other words, use at your own risk.  I don't recommend using ModelMod with any game that has onerous T.O.S., which includes most MMOs, without prior consent of the copyright holder.
+
 ## Game compatibility
 
 ModelMod is not compatible with all games.  This is because it makes
