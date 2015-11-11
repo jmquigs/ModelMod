@@ -26,11 +26,12 @@ Screenshot of a simple mod from the demo videos:
 Requirements
 ------------
 
-* Windows.
+* Windows.  
+* 32-bit only games at the moment.
+* The game must use D3D9 for rendering.  Support for other versions is possible,
+but has not been implemented.
 * Only a few games have been tested.  Programming effort is usually required
 to get new games to work.
-* The target game must use D3D9 for rendering.  Support for other versions is possible,
-but has not been implemented.
 * For animated models, the target game
 must use GPU based animation.  Support for CPU animation, common in older games, is
 known to be possible but is not currently implemented.
