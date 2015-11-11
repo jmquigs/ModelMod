@@ -20,7 +20,7 @@ Screenshot of a simple mod from the demo videos:
 
 * Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
 * Longer intro video with commentary: https://www.youtube.com/watch?v=ijmLTTzCGuU
-* Testing a game for compatibility: https://www.youtube.com/watch?v=ijmLTTzCGuU
+* Testing a game for compatibility: https://www.youtube.com/watch?v=3Mvqcv3-OPs
 * For developers, guide to making changes to support a new game: https://www.youtube.com/watch?v=KGN7MSjSx_U
 
 Requirements
