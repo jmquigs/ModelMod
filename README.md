@@ -6,10 +6,15 @@ This snapshot can then be edited in a 3D modeling tool.  When the game runs
 and draws the original model, ModelMod transparently swaps in your modified
 version, and renders that in place of the original.
 
+[![Join the chat at https://gitter.im/jmquigs/ModelMod](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmquigs/ModelMod?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Demos
 -----
 
-Screenshot of a basic mod from the demo videos:
+Screenshot of a simple mod from the demo videos:
+
+![skyrim](https://raw.githubusercontent.com/jmquigs/ModelMod-demo/master/screenshots/skyrimebony.jpg)
+
 
 ### Videos
 
