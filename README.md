@@ -40,14 +40,14 @@ If you want to write an exporter for something else, See [Contributing](#Contrib
 Installation
 ------------
 
-Non-programmers should use the binary package: https://github.com/jmquigs/ModelMod/releases
+Non-programmers should use the binary package: link
 
 Also, [look at the User's Guide](Docs/userguide/README.md).
 
 Development
 -----------
 
-ModelMod is written in a combination of C++ and F#.  Most of the core code
+ModelMod is written in a combination of C++ and [F#](http://fsharp.org/).  Most of the core code
 is in F#, so hacking on it can be easier than you might think, assuming you
 know or are willing to learn F#.
 
