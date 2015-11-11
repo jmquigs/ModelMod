@@ -40,7 +40,7 @@ If you want to write an exporter for something else, See [Contributing](#Contrib
 Installation
 ------------
 
-Non-programmers should use the binary package: link
+Non-programmers should use the binary package: https://github.com/jmquigs/ModelMod/releases
 
 Also, [look at the User's Guide](Docs/userguide/README.md).
 
