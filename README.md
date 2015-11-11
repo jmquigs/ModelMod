@@ -1,10 +1,10 @@
 ModelMod is a system for modifying art in games.  
 It works by replacing 3D models (and textures, optionally) at the renderer level.
 
-You start by selecting and snapshotting some model in the target game.
-This snapshot can then be edited in a 3D modeling tool.  When the game runs
-and draws the original model, ModelMod transparently swaps in your modified
-version, and renders that in place of the original.
+You start by selecting and snapshotting a model in the game.
+This snapshot can then be edited in a 3D modeling tool and re-exported.  
+Then you can load it back into the game, where it will be transparently
+rendered in place of the original.
 
 [![Join the chat at https://gitter.im/jmquigs/ModelMod](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmquigs/ModelMod?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
