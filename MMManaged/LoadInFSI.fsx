@@ -15,8 +15,8 @@ This file contains the basic structure of the project, so it is in
 version control - don't put test code here.
 *)
 
-#I @"..\packages\MonoGame.Framework.WindowsDX.3.3.0.0\lib\net40\"
-//#I @"..\packages\YamlDotNet.3.5.1\lib\portable-net45+netcore45+wpa81+wp8+MonoAndroid1+MonoTouch1\"
+#I @"..\packages\MonoGame.Framework.WindowsDX\lib\net40\"
+//#I @"..\packages\YamlDotNet\lib\portable-net45+netcore45+wpa81+wp8+MonoAndroid1+MonoTouch1\"
 #r @"SharpDX.dll"
 #r @"SharpDX.Direct3D9.dll"
 #r @"MonoGame.Framework.dll"

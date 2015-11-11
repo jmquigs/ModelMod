@@ -2,8 +2,8 @@
 
 before_build: 
 - installdeps.bat nopause
-- dir packages
-- dir packages\MonoGame.Framework.WindowsDX.3.3.0.0\lib\net40
+#- dir packages
+
 
 # let fake handle this
 build_script: build.bat nopause
