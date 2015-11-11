@@ -13,7 +13,7 @@ installed the game.
 
 The risk is greatest with MMOs; depending
 on the attitude of the game developer and/or publisher, using
-ModelMod may be totally fine, or it may get your account banned.  The developer can detect the
+ModelMod may be totally fine, or it may [get your account banned](http://arstechnica.com/gaming/2015/08/is-it-just-a-game-mod-or-is-it-facilitating-piracy/).  The developer can detect the
 use of ModelMod, provided they are willing to make changes to their
 game to do so.
 
