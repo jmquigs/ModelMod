@@ -1,0 +1,4 @@
+# http://www.appveyor.com/docs/appveyor-yml
+
+# let fake handle this
+build_script: build.bat
