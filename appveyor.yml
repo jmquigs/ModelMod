@@ -1,6 +1,9 @@
 # http://www.appveyor.com/docs/appveyor-yml
 
-before_build: installdeps.bat nopause
+before_build: 
+- installdeps.bat nopause
+- dir packages
+- dir packages\MonoGame.Framework.WindowsDX.3.3.0.0\lib\net40
 
 # let fake handle this
 build_script: build.bat nopause
