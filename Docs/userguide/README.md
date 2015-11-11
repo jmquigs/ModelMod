@@ -19,6 +19,12 @@ game to do so.
 
 In other words, use at your own risk.  I don't recommend using ModelMod with any game that has onerous T.O.S., which includes most MMOs, without prior consent of the copyright holder.
 
+## Requirements
+
+* .Net Runtime 4.5 or newer (this may already be installed on your machine): https://www.microsoft.com/en-us/download/details.aspx?id=30653
+* D3D9 end user runtime (if you have a game installed that uses D3D9, this may
+  already be installed): https://www.microsoft.com/en-us/download/details.aspx?id=34429
+
 ## Game compatibility
 
 ModelMod is not compatible with all games.  This is because it makes
