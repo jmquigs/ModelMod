@@ -1,4 +1,6 @@
 # http://www.appveyor.com/docs/appveyor-yml
 
+before_build: ./.paket/paket.bootstrapper.exe    
+
 # let fake handle this
 build_script: build.bat
