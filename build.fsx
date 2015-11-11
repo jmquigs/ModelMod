@@ -152,23 +152,40 @@ Target "UpdateVersions" (fun _ ->
     trace ("Version updated to: " + version)
 )
 
+Target "FullBuild" (fun _ -> 
+    Run "AppveyorBuild"
+    Run "AppveyorTest"
+    Run "AppveyorPackage"
+)
+
+Target "Package" ignore
+Target "AppveyorBuild" ignore
+Target "AppveyorTest" ignore
+Target "AppveyorPackage" ignore
 
 // Dependencies
 "MakeAssInfo"
-==> "UpdateRcVersions"
-==> "UpdateVersions"
+    ==> "UpdateRcVersions"
+    ==> "UpdateVersions"
 
+"CopyNative"
+    ==> "CopyStuff"
+    ==> "Zip"
+    ==> "Package"
+    
 "UpdateVersions"
-  ==> "Clean"
-  ==> "BuildCS"
-  ==> "BuildFS"
-  ==> "BuildTest"
-  ==> "Test"
-  ==> "BuildNative"
-  ==> "CopyNative"
-  ==> "CopyStuff"
-  ==> "Zip"
-  ==> "Default"
+    ==> "Clean"
+    ==> "BuildCS"
+    ==> "BuildFS"
+    ==> "BuildNative"
+    ==> "AppveyorBuild"
+
+"BuildTest"
+    ==> "Test"
+    ==> "AppveyorTest"
+
+"Package"
+    ==> "AppveyorPackage"
 
 // start build
 RunTargetOrDefault "UpdateVersions"

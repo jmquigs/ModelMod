@@ -4,5 +4,11 @@ before_build:
 - installdeps.bat nopause
 #- dir packages
 
-# let fake handle this
-build_script: build.bat Default nopause
+build_script: build.bat AppveyorBuild nopause
+
+test_script: build.bat AppveyorTest nopause
+
+after_test: build.bat AppveyorPackage nopause
+
+artifacts:
+  - path: deploy/*.zip

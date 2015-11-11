@@ -1,5 +1,5 @@
 @echo off
-SET TARGET="Default"
+SET TARGET="FullBuild"
 
 IF NOT [%1]==[] (set TARGET="%1")
 
