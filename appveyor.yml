@@ -3,4 +3,4 @@
 before_build: installdeps.bat nopause
 
 # let fake handle this
-build_script: build.bat
+build_script: build.bat nopause
