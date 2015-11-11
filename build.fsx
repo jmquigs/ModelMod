@@ -11,19 +11,19 @@ let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "1.0.0.5"  // or retrieve from CI server
+let version = "1.0.0.6"  // or retrieve from CI server
 
 let updateRcVersions rcFile =
     let lines = File.ReadAllLines(rcFile)
-    let replVer (vSearch:string) (formatter:unit -> string) (l:string) = 
+    let replVer (vSearch:string) (formatter:unit -> string) (l:string) =
         if l.TrimStart().ToUpperInvariant().StartsWith(vSearch.ToUpperInvariant()) then
             let vidx = l.ToUpperInvariant().IndexOf(vSearch.ToUpperInvariant())
             l.Substring(0,vidx) + vSearch + formatter()
         else
             l
 
-    let fn = 
-        (replVer "VALUE \"FileVersion\", " (fun _ -> (sprintf "\"%s\"" version) )) 
+    let fn =
+        (replVer "VALUE \"FileVersion\", " (fun _ -> (sprintf "\"%s\"" version) ))
         >> (replVer "VALUE \"ProductVersion\", " (fun _ -> (sprintf "\"%s\"" version)))
         >> (replVer "FILEVERSION " (fun _ -> (sprintf "%s" (version.Replace(".",",") ))))
         >> (replVer "PRODUCTVERSION " (fun _ -> (sprintf "%s" (version.Replace(".",",") ))))
@@ -152,9 +152,9 @@ Target "UpdateVersions" (fun _ ->
     trace ("Version updated to: " + version)
 )
 
-  
+
 // Dependencies
-"MakeAssInfo"  
+"MakeAssInfo"
 ==> "UpdateRcVersions"
 ==> "UpdateVersions"
 
