@@ -2,7 +2,7 @@ ModelMod is a system for modifying art in games.
 It works by replacing 3D models (and textures, optionally) at the renderer level.
 
 You start by selecting and snapshotting a model in the game.
-This snapshot can then be edited in a 3D modeling tool and re-exported.  Then you can load it back into the game, where it will be transparently
+This snapshot can then be edited in a 3D modeling tool and re-exported.  Then you can load it back into the game, where it will be automatically
 rendered in place of the original.
 
 [![appveyor](https://ci.appveyor.com/api/projects/status/gqsf2f001h46q1tn?svg=true)](https://ci.appveyor.com/project/jmquigs/modelmod)
