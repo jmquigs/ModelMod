@@ -152,6 +152,78 @@ Target "UpdateVersions" (fun _ ->
     trace ("Version updated to: " + version)
 )
 
+// Signing stuff
+Target "SignBuild" (fun _ ->
+    // TODO: download last build from appveyor
+    let signDir = "./sign"
+
+    let files = Directory.GetFiles(signDir, "*.zip")
+    if files.Length <> 1 then
+        failwithf "expected only one zip in signDir, but got: %A" files
+
+    let targetZip = files.[0]
+
+    let zipTemp = Path.Combine(signDir, "ziptemp")
+    if (Directory.Exists zipTemp) then
+        Directory.Delete(zipTemp,true)
+
+    Directory.CreateDirectory zipTemp |> ignore
+
+    Unzip zipTemp targetZip 
+
+    let files = 
+        [
+            "ModelMod.exe";
+            "Bin\ModelMod.exe";
+            "Bin\ModelMod.dll";
+            "Bin\MMLoader.exe";
+            "Bin\MeshView.exe";
+            "Bin\WpfInteropSample.exe";
+            "Bin\MMLaunch.exe";
+            "Bin\MMManaged.dll";
+            "Bin\ModelModCLRAppDomain.dll";
+        ] |> List.map (fun p -> Path.Combine(zipTemp,p))
+        
+    files |> List.iter (fun f ->
+        if not (File.Exists f) then
+            failwithf "File does not exist: %A" f
+    )
+    
+    let certPathFile = "certpath.txt"
+    if not (File.Exists certPathFile) then
+        failwithf "PK path file not found: %s" certPathFile
+
+    let certPath = File.ReadAllText(certPathFile).Trim()
+
+    printfn "Signing %A" files
+    printfn "Enter cert key password (shhhhh):"
+    let pass = System.Console.ReadLine().Trim()
+
+    let passFile = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),sprintf "__temp__pass_%s.txt" (System.Guid.NewGuid().ToString()))
+
+    try
+        File.WriteAllText(passFile,pass)
+        SignTool @"C:\Program Files (x86)\Windows Kits\8.1\bin\x64" certPath passFile files
+        File.Delete passFile
+    with
+        | e ->
+            File.Delete passFile
+            raise e
+
+    let outDir = @".\deploy\signed"
+    if (Directory.Exists outDir) then
+        Directory.Delete (outDir,true)
+    Directory.CreateDirectory outDir |> ignore
+    
+    let outZip = Path.Combine(outDir, Path.GetFileName(targetZip))
+
+    CreateZip zipTemp outZip "modelmod" 9 false (Directory.GetFiles(zipTemp,"*.*",SearchOption.AllDirectories))
+
+    printfn "Created zip with signed files: %A" outZip
+)
+
+// Top level targets
+
 Target "FullBuild" (fun _ -> 
     Run "AppveyorBuild"
     Run "AppveyorTest"

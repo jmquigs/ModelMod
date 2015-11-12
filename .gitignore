@@ -33,3 +33,5 @@ deploy/
 .vs/MMDotNet/v14/.suo
 .paket/paket.exe
 .vs/
+certpath.txt
+sign/
