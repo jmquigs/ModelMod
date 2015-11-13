@@ -1,4 +1,4 @@
-﻿# this script is executed by mmlaunch to enable the mmobj plugin
+# this script is executed by mmlaunch to enable the mmobj plugin
 
 import addon_utils
 import bpy
