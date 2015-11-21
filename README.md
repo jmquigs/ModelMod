@@ -46,7 +46,9 @@ Installation
 
 Non-programmers should use the [release package](https://github.com/jmquigs/ModelMod/releases).
 
-Also, [look at the User's Guide](Docs/userguide/README.md).
+
+
+Also, check out the [game compatibility list](https://github.com/jmquigs/ModelMod/wiki/Game-Compatibility-List), and [look at the User's Guide](Docs/userguide/README.md).
 
 Development
 -----------
