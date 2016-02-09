@@ -552,12 +552,14 @@ void RenderState::setTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture) {
 	_selectedOnStage[Stage] = isSelected;
 }
 
-void RenderState::saveTexture(int i, WCHAR* path) {
+bool RenderState::saveTexture(int i, WCHAR* path) {
 	LPDIRECT3DBASETEXTURE9 texture = NULL;
 	if (FAILED(getDevice()->GetTexture(i, &texture))) {
 		MM_LOG_INFO(format("Failed to query texture for stage: {}", i));
+		return false;
 	} else if (!texture) {
 		MM_LOG_INFO(format("Failed to obtain texture for stage {}; texture is null", i));
+		return false;
 	} else {
 		LPDIRECT3DBASETEXTURE9 snaptex = texture;
 		if (texture == getSelectionTexture()) {
@@ -567,14 +569,18 @@ void RenderState::saveTexture(int i, WCHAR* path) {
 
 		// TODO: this will fail for textures in the default pool that are dynamic.  will probably need to force managed
 		// pool when in snapshot mode for games that are affected by this.
-		if (FAILED(D3DXSaveTextureToFileW(
+		bool ok = SUCCEEDED(D3DXSaveTextureToFileW(
 			path,
 			D3DXIFF_DDS,
 			snaptex,
-			NULL))) {
-				MM_LOG_INFO(format("Failed to save texture {}", i));
+			NULL));
+
+		if (!ok) {
+			MM_LOG_INFO(format("Failed to save texture {}", i));
 		}
 		texture->Release();
+
+		return ok;		
 	}
 }
 

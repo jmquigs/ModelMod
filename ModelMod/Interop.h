@@ -113,7 +113,7 @@ INTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
 INTEROP_API void LogInfo(char* category, char* message);
 INTEROP_API void LogWarn(char* category, char* message);
 INTEROP_API void LogError(char* category, char* message);
-INTEROP_API void SaveTexture(int index, WCHAR* path);
+INTEROP_API bool SaveTexture(int index, WCHAR* path);
 
 };
 

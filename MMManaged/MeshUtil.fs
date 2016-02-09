@@ -345,16 +345,27 @@ module MeshUtil =
 newmtl (null)
 map_Kd $$filename
 """
-    
-
     /// Write a mesh to the specified path in MMObj format.
     let writeObj (md:Mesh) outpath =
         let lines = new ResizeArray<string>()
-    
-        // currently we only write materials for texture 0
-        match md.Tex0Path.Trim() with
-        | "" -> ()
-        | p -> 
+
+        // write material file
+
+        // so, we could have up to four textures, but we have no idea how they are actually used.  often, the lowest-number
+        // texture is the diffuse map, but that is not always the case.  For now just assume so, but this can 
+        // cause problems when multiple textures were snapped.
+        // TODO: modify the create mod utility to allow the user to sort out this ambiguity; display each texture to them
+        // and let them select the type.  Create mod would then need to patch up the generated .mtl file.
+
+        // use first non-empty texture as the map_Kd
+        let nonEmptyTextures = 
+            [ md.Tex0Path; md.Tex1Path; md.Tex2Path; md.Tex3Path ] |> List.map (fun s -> s.Trim()) |> List.filter (fun n -> n <> "" )
+
+        log.Info "non empty tex: %A" nonEmptyTextures
+
+        match nonEmptyTextures with
+        | [] -> ()
+        | p::xs -> 
             let dir = Path.GetDirectoryName(outpath)
             let file = Path.GetFileNameWithoutExtension(outpath) + ".mtl"
             // omit dir to use same directory as obj for mlt and texture file (makes files easily movable)

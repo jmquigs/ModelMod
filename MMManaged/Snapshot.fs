@@ -72,7 +72,7 @@ module private SSInterop =
     [< DllImport("ModelMod.dll") >]
     /// Saves a dds texture from the specified texture stage.  This is handled by native code, which has 
     /// direct access to the D3DX library; no easy equivalent here in managed land.
-    extern void SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
 
 /// Snapshot utilities.
 module Snapshot =
@@ -330,6 +330,7 @@ module Snapshot =
             // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be 
             // useful.
             let maxStage = 7 // 8 textures ought to be enough for anybody.
+            
             let texturePaths = 
                 [0..maxStage] 
                 |> List.filter (fun i -> 
@@ -344,8 +345,13 @@ module Snapshot =
                 |> List.map (fun i ->
                     let texName = sprintf "%s_texture%d.dds" sbasename i
                     let texPath = Path.Combine(baseDir, texName)
-                    SSInterop.SaveTexture(i, texPath)
-                    texName,texPath)
+                    if SSInterop.SaveTexture(i, texPath) then
+                        i,(texName,texPath)
+                    else
+                        // failed save; native code should have logged it
+                        i,("","") )
+                |> List.filter (fun (i,(tName,tPath)) -> tName <> "")
+                |> Map.ofList
 
             // get list of applied transforms, if enabled
             let doTransforms = true
@@ -369,10 +375,7 @@ module Snapshot =
             let appliedUVTransforms = lookupTransforms SnapshotTransforms.UV
 
             // use the first texture (if available) as the mesh material
-            let matPath = 
-                match texturePaths with
-                | [] -> ""
-                | (x::xs) -> fst x
+            let texName idx = if texturePaths.ContainsKey idx then (fst <| texturePaths.Item idx) else ""
 
             let mesh = { 
                 Mesh.Type = Reference
@@ -386,10 +389,10 @@ module Snapshot =
                 BinaryVertexData = None
                 AppliedPositionTransforms = Array.ofList appliedPosTransforms
                 AppliedUVTransforms = Array.ofList appliedUVTransforms
-                Tex0Path = matPath
-                Tex1Path = ""
-                Tex2Path = ""
-                Tex3Path = ""
+                Tex0Path = texName 0
+                Tex1Path = texName 1
+                Tex2Path = texName 2
+                Tex3Path = texName 3
                 AnnotatedVertexGroups = [||]
             }
 

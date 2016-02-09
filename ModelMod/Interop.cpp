@@ -314,6 +314,6 @@ INTEROP_API void LogError(char* category, char* message) {
 	ModelMod::Log::get().info(message,newcat);
 }
 
-INTEROP_API void SaveTexture(int index, WCHAR* path) {
-	RenderState::get().saveTexture(index,path);
+INTEROP_API bool SaveTexture(int index, WCHAR* path) {
+	return RenderState::get().saveTexture(index,path);
 }

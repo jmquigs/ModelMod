@@ -256,7 +256,7 @@ public:
 		return _snapRequested && _doingSnap && selectedTextureStage() >= 0;
 	}
 
-	void saveTexture(int index, WCHAR* path);
+	bool saveTexture(int index, WCHAR* path);
 
 	// ---------------------------------------
 	// ID3DResourceTracker
