@@ -584,4 +584,73 @@ bool RenderState::saveTexture(int i, WCHAR* path) {
 	}
 }
 
+// Invoke a function when this class goes out of scope.
+// Bah, there are probably one or more "standard" ways to do this.
+class InvokeOnDrop {
+	std::function<void()> _fn;
+public:
+	InvokeOnDrop(std::function<void()> fn) {
+		this->_fn = fn;
+	}
+
+	virtual ~InvokeOnDrop() {
+		this->_fn();
+	}
+};
+
+bool RenderState::savePixelShader(WCHAR* path) {
+	LPDIRECT3DPIXELSHADER9 shader = NULL;
+	HANDLE out = INVALID_HANDLE_VALUE;
+	Uint8* data = NULL;
+	UINT size = 0;
+
+	InvokeOnDrop drop([&]() {
+		if (shader) {
+			MM_LOG_INFO("disposing shader");
+		}
+		SAFE_RELEASE(shader);
+		if (out != INVALID_HANDLE_VALUE) {
+			MM_LOG_INFO("closing shader output file");
+			CloseHandle(out);
+		}
+		if (data) {
+			MM_LOG_INFO("deleting data");
+		}
+		delete[] data;
+	});
+
+	if (FAILED(getDevice()->GetPixelShader(&shader))) {
+		MM_LOG_INFO(format("Failed to save pixel shader"));
+		return false;
+	}
+
+	if (FAILED(shader->GetFunction(NULL, &size))) {
+		MM_LOG_INFO(format("Failed to get pixel shader size"));
+		return false;
+	}
+	
+	data = new Uint8[size];
+	if (FAILED(shader->GetFunction(data, &size))) {
+		MM_LOG_INFO(format("Failed to get pixel shader data"));
+		return false;
+	}
+
+	out = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (out == INVALID_HANDLE_VALUE) {
+		MM_LOG_INFO(format("Failed to open output pixel shader file: {}", GetLastError()));
+		return false;
+	}
+	DWORD written = 0;
+	if (!WriteFile(out, data, size, &written, NULL)) {
+		MM_LOG_INFO(format("Failed to write output pixel shader file: {}", GetLastError()));
+		return false;
+	}
+	if (written != size) {
+		MM_LOG_INFO(format("Failed to write pixel shader: expected {} bytes, but only wrote {}", size, written));
+		return false;
+	}
+
+	return true;
+}
+
 };

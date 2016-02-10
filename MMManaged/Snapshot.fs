@@ -74,6 +74,10 @@ module private SSInterop =
     /// direct access to the D3DX library; no easy equivalent here in managed land.
     extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
 
+    [< DllImport("ModelMod.dll") >]
+    /// Save the current pixel shader to the specified file in binary format.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SavePixelShader([<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+
 /// Snapshot utilities.
 module Snapshot =
 
@@ -446,7 +450,11 @@ module Snapshot =
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
 
             // TODO: vertex shader & constants
+            
             // TODO: pixel shaders & constants
+            let pixName = sprintf "%s_pixelshader.dat" sbasename 
+            let pixPath = Path.Combine(baseDir, pixName)
+            ignore <| SSInterop.SavePixelShader(pixPath) 
             
             ib.Unlock()
             vb.Unlock()

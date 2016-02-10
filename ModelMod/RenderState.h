@@ -257,6 +257,7 @@ public:
 	}
 
 	bool saveTexture(int index, WCHAR* path);
+	bool savePixelShader(WCHAR* path);
 
 	// ---------------------------------------
 	// ID3DResourceTracker
