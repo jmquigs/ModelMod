@@ -61,6 +61,8 @@ module InteropTypes =
         Tex2Path: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         Tex3Path: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        PixelShaderPath: string
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
@@ -79,6 +81,7 @@ module InteropTypes =
         Tex1Path = ""
         Tex2Path = ""
         Tex3Path = ""
+        PixelShaderPath = ""
     }
     
     [<StructLayout(LayoutKind.Sequential, Pack=8)>]

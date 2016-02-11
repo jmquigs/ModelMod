@@ -57,4 +57,55 @@ char* Util::convertToMB(wchar_t* src) {
 	wcstombs_s(&numConverted, out, maxSize, src, maxSize);
 	return out;
 }
+
+Uint8* Util::slurpFile(LPCWSTR filename, Uint32& outSize) {
+	// read file data
+	HANDLE in = INVALID_HANDLE_VALUE;
+	bool readOk = false;
+	Uint8* data = NULL;
+
+	InvokeOnDrop drop([&]() {
+		if (in != INVALID_HANDLE_VALUE) {
+			CloseHandle(in);
+		}
+		if (!readOk) {
+			delete[] data;
+		}
+	});
+
+	in = CreateFileW(filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (in == INVALID_HANDLE_VALUE) {
+		MM_LOG_INFO(format("Failed to open input file: {}", GetLastError()));
+		return NULL;
+	}
+
+	LARGE_INTEGER fsize; // windows has funny type names
+	if (!GetFileSizeEx(in, &fsize)) {
+		MM_LOG_INFO(format("Failed to get input file size: {}", GetLastError()));
+		return NULL;
+	}
+
+	if (fsize.QuadPart > MAXDWORD) {
+		MM_LOG_INFO(format("File too large!"));
+		return NULL;
+	}
+
+	outSize = (DWORD)fsize.QuadPart;
+	data = new Uint8[outSize];
+
+	DWORD numRead = 0;
+	if (!ReadFile(in, data, outSize, &numRead, NULL)) {
+		MM_LOG_INFO(format("Failed to read file: {}", GetLastError()));
+		return NULL;
+	}
+
+	if (numRead != outSize) {
+		MM_LOG_INFO(format("Failed to read file: expected {} bytes, but only got {}", outSize, numRead));
+		return NULL;
+	}
+
+	readOk = true;
+	return data;
+}
+
 }

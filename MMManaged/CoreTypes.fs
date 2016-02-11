@@ -286,6 +286,7 @@ module CoreTypes =
         Name: string
         Mesh: Mesh option
         WeightMode: WeightMode
+        PixelShader: string
         Attributes: ModAttributes
     }
 

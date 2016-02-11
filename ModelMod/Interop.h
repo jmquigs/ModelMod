@@ -33,10 +33,11 @@ struct IDirect3DIndexBuffer9;
 struct IDirect3DVertexDeclaration9;
 struct IDirect3DIndexBuffer9;
 struct IDirect3DBaseTexture9;
+struct IDirect3DPixelShader9;
 
 #define MaxModTextures 4
 #define MaxModTexPathLen 8192 // Must match SizeConst attribute in managed code
-typedef WCHAR ModTexPath[MaxModTexPathLen];
+typedef WCHAR ModPath[MaxModTexPathLen];
 
 #pragma pack(push,8)
 struct ModData {
@@ -50,7 +51,8 @@ struct ModData {
 	int declSizeBytes;
 	int vertSizeBytes;
 	int indexElemSizeBytes;
-	ModTexPath texPath[MaxModTextures];
+	ModPath texPath[MaxModTextures];
+	ModPath pixelShaderPath;
 
 	ModData() {
 		memset(this, 0, sizeof(ModData));
@@ -130,6 +132,7 @@ struct NativeModData {
 	IDirect3DIndexBuffer9* ib;
 	IDirect3DVertexDeclaration9* decl;
 	IDirect3DBaseTexture9* texture[MaxModTextures];
+	IDirect3DPixelShader9* pixelShader;
 
 	NativeModData() {
 		memset(this,0,sizeof(NativeModData));

@@ -535,6 +535,9 @@ public:
 		if (_hookRenderState.getShowModMesh() && ((mod = _hookRenderState.findMod(NumVertices, primCount)) != NULL)) {
 			if (mod->decl && mod->vb) {
 				_hookRenderState.saveRenderState(this);
+				if (mod->pixelShader) {
+					_dev->SetPixelShader(mod->pixelShader);
+				}
 				_dev->SetVertexDeclaration(mod->decl);
 				_dev->SetStreamSource(0, mod->vb, 0, mod->modData.vertSizeBytes);
 				_dev->SetIndices(NULL); // no indices? yeah, gross.  if modding the whole world, this will be an issue.

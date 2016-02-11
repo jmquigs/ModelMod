@@ -73,6 +73,9 @@ void RenderState::clearLoadedMods() {
 		if (mod.decl) {
 			release(mod.decl);
 		}
+		if (mod.pixelShader) {
+			release(mod.pixelShader);
+		}
 		for (Uint32 i = 0; i < MaxModTextures; ++i) {
 			if (mod.texture[i]) {
 				release(mod.texture[i]);
@@ -180,6 +183,41 @@ void RenderState::loadMods() {
 							nModData.texture[i] = tex;
 							this->add(tex);
 						}
+					}
+				}
+
+				// create pixel shader if present
+				if (wcslen(nModData.modData.pixelShaderPath) > 0) {
+
+					Uint32 sizeBytes = 0;
+					Uint8* psBytes = Util::slurpFile(nModData.modData.pixelShaderPath, sizeBytes);
+					if (psBytes == NULL) {
+						MM_LOG_INFO("Failed to read pixel shader file");
+					}
+					else {
+						hr = _dev->CreatePixelShader((const DWORD *)psBytes, &nModData.pixelShader);
+						if (FAILED(hr)) {
+							MM_LOG_INFO("Failed to create pixel shader");
+						}
+						else {
+							MM_LOG_INFO(format("Created pixel shader of size {}", sizeBytes));
+							this->add(nModData.pixelShader);
+
+							// disassembly and log for debugging
+							//LPD3DXBUFFER buf;
+
+							//if (FAILED(D3DXDisassembleShader((const DWORD *)psBytes, FALSE, NULL, &buf))) {
+							//	MM_LOG_INFO("failed to disassemble loaded shader");
+							//}
+							//else {
+							//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
+							//	MM_LOG_INFO("Loaded shader:");
+							//	MM_LOG_INFO(format("{}", s));
+							//}
+						}
+
+						// TODO: I _think_ that CreatePixelShader is copying the data, so this is safe.  wish the docs spelled it out.
+						delete[] psBytes;
 					}
 				}
 
@@ -584,20 +622,6 @@ bool RenderState::saveTexture(int i, WCHAR* path) {
 	}
 }
 
-// Invoke a function when this class goes out of scope.
-// Bah, there are probably one or more "standard" ways to do this.
-class InvokeOnDrop {
-	std::function<void()> _fn;
-public:
-	InvokeOnDrop(std::function<void()> fn) {
-		this->_fn = fn;
-	}
-
-	virtual ~InvokeOnDrop() {
-		this->_fn();
-	}
-};
-
 bool RenderState::savePixelShader(WCHAR* path) {
 	LPDIRECT3DPIXELSHADER9 shader = NULL;
 	HANDLE out = INVALID_HANDLE_VALUE;
@@ -634,6 +658,18 @@ bool RenderState::savePixelShader(WCHAR* path) {
 		MM_LOG_INFO(format("Failed to get pixel shader data"));
 		return false;
 	}
+
+	// Disassemble and log for debugging		
+	//LPD3DXBUFFER buf;
+
+	//if (FAILED(D3DXDisassembleShader((const DWORD *)data, FALSE, NULL, &buf))) {
+	//	MM_LOG_INFO("failed to disassemble snapshot shader");
+	//}
+	//else {
+	//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
+	//	MM_LOG_INFO("Snapshot shader:");
+	//	MM_LOG_INFO(format("{}", s));
+	//}
 
 	out = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (out == INVALID_HANDLE_VALUE) {

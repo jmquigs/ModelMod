@@ -15,12 +15,32 @@
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
+
+#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+// Windows Header Files:
+#include <windows.h>
+
 #include <string>
+#include <functional>
 using namespace std;
 
 #include"Types.h"
 
 namespace ModelMod {
+
+// Invoke a function when this class goes out of scope.
+// Bah, there are probably one or more "standard" ways to do this.
+class InvokeOnDrop {
+	std::function<void()> _fn;
+public:
+	InvokeOnDrop(std::function<void()> fn) {
+		this->_fn = fn;
+	}
+
+	virtual ~InvokeOnDrop() {
+		this->_fn();
+	}
+};
 
 class Util
 {
@@ -29,6 +49,8 @@ public:
 
 	static bool startsWith (std::string const &fullString, std::string const &starting);
 	static bool endsWith (std::string const &fullString, std::string const &ending);
+
+	static Uint8* slurpFile(LPCWSTR filename, Uint32& outSize);
 
 	// convert a wide string to multibyte.  Caller must delete[] the memory after use.
 	// Result max size (in bytes) is 16384.  This function is intended only for one-off logging.

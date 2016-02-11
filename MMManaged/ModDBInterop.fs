@@ -144,6 +144,7 @@ module ModDBInterop =
             Tex1Path = modm.Tex1Path
             Tex2Path = modm.Tex2Path
             Tex3Path = modm.Tex3Path
+            PixelShaderPath = meshrel.DBMod.PixelShader
         }
        
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.
