@@ -103,3 +103,30 @@ module Util =
         let proc = Process.GetCurrentProcess();
         let procMemMB = float32 proc.PrivateMemorySize64 / 1024.f / 1024.f
         log.Info "Memory: (clr: %3.2fMB; process: %3.2f MB)" manangedMemory procMemMB
+
+// Source: https://gist.github.com/haf/8140280
+module CRC32 = 
+  let IEEE = 0xedb88320u
+
+  /// The seed value default: all ones, CRC depends fully on its input.
+  let seed = 0xffffffffu
+
+  let inline (!!) v = v ^^^ 0xFFFFFFFFu
+
+  let crc_table = Array.init 256 (fun i ->
+    (uint32 i, [0..7])
+    ||> List.fold (fun value _ ->
+      match value &&& 1u with
+      | 0u -> value >>> 1
+      | _  -> (value >>> 1) ^^^ IEEE))
+
+  let step state buffer =
+    (state, buffer)
+    ||> Array.fold (fun crc byt -> crc_table.[int(byt ^^^ byte crc)] ^^^ (crc >>> 8))
+
+  let finalise (state : uint32) : byte [] =
+    !! state |> BitConverter.GetBytes
+
+  let single_step = finalise << step seed
+
+  let toU32 (x:byte[]) = BitConverter.ToUInt32(x,0)
