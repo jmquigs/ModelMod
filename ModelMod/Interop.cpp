@@ -318,6 +318,12 @@ INTEROP_API bool SaveTexture(int index, WCHAR* path) {
 	return RenderState::get().saveTexture(index,path);
 }
 
-INTEROP_API bool SavePixelShader(WCHAR* path) {
-	return RenderState::get().savePixelShader(path);
+INTEROP_API bool GetPixelShader(NativeMemoryBuffer* outBuf) {
+	if (!outBuf) {
+		return false;
+	}
+	else {
+		*outBuf = RenderState::get().getPixelShader();
+		return true;
+	}
 }

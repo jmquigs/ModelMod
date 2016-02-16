@@ -24,6 +24,8 @@
 
 INTEROP_API int GetMMVersion();
 
+#include "Types.h"
+
 extern "C" {
 
 struct IDirect3D9;
@@ -111,14 +113,38 @@ typedef struct {
 } ManagedCallbacks;
 #pragma pack(pop)
 
+#pragma pack(push,8)
+struct NativeMemoryBuffer {
+	ModelMod::Uint8* data;
+	ModelMod::Int32 size;
+};
+#pragma pack(pop)
+
+// Native memory buffer functions.
+// Would prefer to define these as members, but that makes the struct have a non-standard layout and 
+// thus unsafe to return over a C-style interop interface.
+// Note that Init must be called manually on any buffer prior to calling alloc.
+inline void InitNMB(NativeMemoryBuffer& nmb) {
+	nmb.data = NULL;
+	nmb.size = 0;
+}
+inline void ReleaseNMB(NativeMemoryBuffer& nmb) {
+	delete[] nmb.data;
+	nmb.data = NULL;
+	nmb.size = 0;
+}
+inline void AllocNMB(NativeMemoryBuffer& nmb, ModelMod::Int32 size_) {
+	ReleaseNMB(nmb);
+	nmb.data = new ModelMod::Uint8[size_];
+	nmb.size = size_;
+}
+
 INTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
 INTEROP_API void LogInfo(char* category, char* message);
 INTEROP_API void LogWarn(char* category, char* message);
 INTEROP_API void LogError(char* category, char* message);
 INTEROP_API bool SaveTexture(int index, WCHAR* path);
-//INTEROP_API bool SaveVertexShader(WCHAR* path);
-INTEROP_API bool SavePixelShader(WCHAR* path);
-
+INTEROP_API bool GetPixelShader(NativeMemoryBuffer* outBuf);
 
 };
 

@@ -39,6 +39,13 @@ module InteropTypes =
         InputProfile: string
     }
 
+    /// A struct containing a pointer to unmanaged memory and the size of the data.
+    [<Struct>]
+    [<StructLayout(LayoutKind.Sequential, Pack=8)>] 
+    type NativeMemoryBuffer =         
+        val mutable Data:System.IntPtr
+        val mutable Size:int32 
+
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
     [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Unicode)>]
     type ModData = {

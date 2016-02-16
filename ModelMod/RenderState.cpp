@@ -40,12 +40,15 @@ RenderState::RenderState(void) :
 		_focusWindow(NULL),
 		_selectionTexture(NULL),
 		_currHookVB0(NULL),
-		_pCurrentKeyMap(NULL) 
+		_pCurrentKeyMap(NULL)
+
 	{
 		_sCurrentRenderState = this;
 
 		memset(_selectedOnStage, 0, sizeof(bool) * MM_MAX_STAGE);
 		memset(_stageEnabled, 0, sizeof(bool) * MM_MAX_STAGE);
+
+		InitNMB(_lastPixelShader);
 	}
 
 RenderState::~RenderState(void) {
@@ -57,6 +60,8 @@ void RenderState::shutdown() {
 	while (_d3dResources.size() > 0) {
 		release(_d3dResources.begin()->first);
 	}
+
+	ReleaseNMB(_lastPixelShader);
 }
 
 void RenderState::clearLoadedMods() {
@@ -622,41 +627,46 @@ bool RenderState::saveTexture(int i, WCHAR* path) {
 	}
 }
 
-bool RenderState::savePixelShader(WCHAR* path) {
+NativeMemoryBuffer RenderState::getPixelShader() {
 	LPDIRECT3DPIXELSHADER9 shader = NULL;
-	HANDLE out = INVALID_HANDLE_VALUE;
-	Uint8* data = NULL;
 	UINT size = 0;
+
+	ReleaseNMB(_lastPixelShader);
 
 	InvokeOnDrop drop([&]() {
 		if (shader) {
 			MM_LOG_INFO("disposing shader");
 		}
 		SAFE_RELEASE(shader);
-		if (out != INVALID_HANDLE_VALUE) {
-			MM_LOG_INFO("closing shader output file");
-			CloseHandle(out);
-		}
-		if (data) {
-			MM_LOG_INFO("deleting data");
-		}
-		delete[] data;
 	});
 
 	if (FAILED(getDevice()->GetPixelShader(&shader))) {
 		MM_LOG_INFO(format("Failed to save pixel shader"));
-		return false;
+		return _lastPixelShader;
+	}
+
+	if (shader == NULL) {
+		MM_LOG_INFO(format("No pixel shader present"));
+		return _lastPixelShader;
 	}
 
 	if (FAILED(shader->GetFunction(NULL, &size))) {
 		MM_LOG_INFO(format("Failed to get pixel shader size"));
-		return false;
+		return _lastPixelShader;
 	}
-	
-	data = new Uint8[size];
-	if (FAILED(shader->GetFunction(data, &size))) {
+
+	// Just to prevent overflow, but of course, its not reasonable to allocate a 2GB array for a pixel shader
+	if (size > INT_MAX) { 
+		MM_LOG_INFO(format("Failed to get pixel shader data; size is too large: {}", size));
+		return _lastPixelShader;
+	}
+
+	AllocNMB(_lastPixelShader, size);
+
+	if (FAILED(shader->GetFunction(_lastPixelShader.data, &size))) {
 		MM_LOG_INFO(format("Failed to get pixel shader data"));
-		return false;
+		ReleaseNMB(_lastPixelShader);
+		return _lastPixelShader;
 	}
 
 	// Disassemble and log for debugging		
@@ -671,22 +681,7 @@ bool RenderState::savePixelShader(WCHAR* path) {
 	//	MM_LOG_INFO(format("{}", s));
 	//}
 
-	out = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (out == INVALID_HANDLE_VALUE) {
-		MM_LOG_INFO(format("Failed to open output pixel shader file: {}", GetLastError()));
-		return false;
-	}
-	DWORD written = 0;
-	if (!WriteFile(out, data, size, &written, NULL)) {
-		MM_LOG_INFO(format("Failed to write output pixel shader file: {}", GetLastError()));
-		return false;
-	}
-	if (written != size) {
-		MM_LOG_INFO(format("Failed to write pixel shader: expected {} bytes, but only wrote {}", size, written));
-		return false;
-	}
-
-	return true;
+	return _lastPixelShader;
 }
 
 };

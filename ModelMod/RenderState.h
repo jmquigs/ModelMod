@@ -136,6 +136,8 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 
 	Hook_IDirect3DVertexBuffer9* _currHookVB0; // track hook vb only for stream 0
 
+	NativeMemoryBuffer _lastPixelShader;
+
 public:
 	RenderState(void);
 
@@ -257,7 +259,7 @@ public:
 	}
 
 	bool saveTexture(int index, WCHAR* path);
-	bool savePixelShader(WCHAR* path);
+	NativeMemoryBuffer getPixelShader();
 
 	// ---------------------------------------
 	// ID3DResourceTracker

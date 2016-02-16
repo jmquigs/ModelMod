@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
+// Using interop makes the IL unverifiable, disable warning.
+#nowarn "9"
+#nowarn "51"
+
 namespace ModelMod
 
 open System.IO
@@ -22,6 +26,8 @@ open System.Runtime.InteropServices
 open SharpDX.Direct3D9 
 
 open CoreTypes
+
+open FSharp.Core
      
 /// Utilities for reading types from binary vertex data.
 module Extractors = 
@@ -75,8 +81,11 @@ module private SSInterop =
     extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
 
     [< DllImport("ModelMod.dll") >]
-    /// Save the current pixel shader to the specified file in binary format.
-    extern [<MarshalAs(UnmanagedType.U1)>]bool SavePixelShader([<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    /// Fills in the specified NativeMemoryBuffer with the current pixel shader code.
+    /// WARNING: the argument must be an address of a NativeMemoryBuffer.  Otherwise it will crash.
+    /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().  
+    /// If you call this function twice in succession and then use the results from the first call, it will crash.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
 
 /// Snapshot utilities.
 module Snapshot =
@@ -447,15 +456,26 @@ module Snapshot =
                     bw.Write(bytes)
                     ())
 
-            log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
 
             // TODO: vertex shader & constants
             
-            // TODO: pixel shaders & constants
-            let pixName = sprintf "%s_pixelshader.dat" sbasename 
-            let pixPath = Path.Combine(baseDir, pixName)
-            ignore <| SSInterop.SavePixelShader(pixPath) 
-            
+            // TODO: pixel shader constants
+            let mutable psDat = InteropTypes.NativeMemoryBuffer()
+
+            if SSInterop.GetPixelShader(NativeInterop.NativePtr.toNativeInt &&psDat) && psDat.Size > 0 then
+                let pixName = sprintf "%s_pixelshader.dat" sbasename 
+                let pixPath = Path.Combine(baseDir, pixName)
+
+                let data:byte[] = Array.zeroCreate psDat.Size
+                Marshal.Copy(psDat.Data, data, 0, psDat.Size)
+                let crc = CRC32.single_step data |> CRC32.toU32
+                File.WriteAllBytes(pixPath, data)
+                let crcPath = Path.Combine(baseDir, sprintf "%s_pixelshader_crc32.txt" sbasename )
+                File.WriteAllText(crcPath, sprintf "%d" crc)
+                log.Info "Wrote pixel shader of size %A with crc %d to %s" psDat.Size crc crcPath
+
+            log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
+
             ib.Unlock()
             vb.Unlock()
 

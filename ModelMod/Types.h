@@ -32,6 +32,7 @@ namespace ModelMod {
 typedef unsigned char Uint8;
 typedef unsigned short Uint16;
 typedef unsigned int Uint32;
+typedef signed int Int32;
 
 // Be sure to add new types to GetType as well as here
 enum ModType {
