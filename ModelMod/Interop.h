@@ -26,6 +26,11 @@ INTEROP_API int GetMMVersion();
 
 #include "Types.h"
 
+#define Code_AsyncLoadNotStarted 51
+#define Code_AsyncLoadPending 52
+#define Code_AsyncLoadInProgress 53
+#define Code_AsyncLoadComplete 54
+
 extern "C" {
 
 struct IDirect3D9;
@@ -96,6 +101,7 @@ struct ConfData {
 
 typedef int (__stdcall *InitCallback) (int);
 typedef ConfData* (__stdcall *SetPathsCB) (WCHAR*, WCHAR*);
+typedef int (__stdcall *GetLoadingStateCB) ();
 typedef int (__stdcall *LoadModDBCB) ();
 typedef int (__stdcall *GetModCountCB) ();
 typedef ModData* (__stdcall *GetModDataCB) (int modIndex);
@@ -110,6 +116,7 @@ typedef struct {
 	GetModDataCB GetModData;
 	FillModDataCB FillModData;
 	TakeSnapshotCB TakeSnapshot;
+	GetLoadingStateCB GetLoadingState;
 } ManagedCallbacks;
 #pragma pack(pop)
 

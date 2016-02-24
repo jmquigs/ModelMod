@@ -42,6 +42,7 @@ module MMNative =
         GetModData: InteropTypes.GetModDataCB
         FillModData: InteropTypes.FillModDataCB
         TakeSnapshot: InteropTypes.TakeSnapshotCB
+        GetLoadingState: InteropTypes.GetLoadingStateCB
     }
 
     /// Called by managed code to provide native code with the callback interface.
@@ -117,11 +118,12 @@ type Main() =
 
             let (mCallbacks:MMNative.ManagedCallbacks) = {
                 SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.setPaths))
-                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.loadFromDataPath));
+                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.loadFromDataPathAsync));
                 GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.getModCount));
                 GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.getModData));
                 FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.fillModData));
                 TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.take));
+                GetLoadingState = phandle (new InteropTypes.GetLoadingStateCB(ModDBInterop.getLoadingState))
             }
 
             let ret = MMNative.OnInitialized(mCallbacks)

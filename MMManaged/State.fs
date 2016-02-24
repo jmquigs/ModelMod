@@ -61,6 +61,7 @@ module State =
     let mutable private _rootDir = "."
     let mutable private _conf = CoreTypes.DefaultRunConfig
     let mutable private _locator = DirLocator(_rootDir,_conf)
+    let mutable private _loadState = InteropTypes.AsyncLoadState.NotStarted
 
     // access to the muties out side of the module goes through this, via the "Data" field below.
     type StateDateAccessor() = 
@@ -69,6 +70,9 @@ module State =
             and set value = _moddb <- value
         member x.Conf
             with get() = _conf
+        member x.LoadState 
+            with get() = _loadState
+            and set value = _loadState <- value
 
     /// Contains all publically accessible data in the State module.
     let Data = new StateDateAccessor()

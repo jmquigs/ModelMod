@@ -23,6 +23,47 @@ open Microsoft.Xna.Framework
 open CoreTypes
 open InteropTypes
 
+/// Utility module with various locking functions, used in asynchronous mod load.
+/// Originally based on code from Expert F#, with some additions.
+module private Locking = 
+    let private log = Logging.getLogger("Locking")
+
+    open System.Threading
+
+    let private rwlock = new ReaderWriterLockSlim()
+
+    let read f = 
+        try
+            rwlock.EnterReadLock()
+            try 
+                f() 
+            finally 
+                rwlock.ExitReadLock()
+        with 
+            | e -> log.Error "Failed to acquire read lock or in lock function %A" e
+
+    let write f = 
+        try
+            rwlock.EnterWriteLock()
+            try 
+                f() 
+                Thread.MemoryBarrier() 
+            finally 
+                rwlock.ExitWriteLock()
+        with 
+            | e -> log.Error "Failed to acquire write lock or in lock function %A" e
+
+    let upgradeRead f = 
+        try
+            rwlock.EnterUpgradeableReadLock()
+            try
+                f()
+                Thread.MemoryBarrier()
+            finally
+                rwlock.ExitUpgradeableReadLock()
+        with 
+            | e -> log.Error "Failed to acquire upgradeRead lock or in lock function %A" e
+
 /// Provides a ModDB interface to native code.
 module ModDBInterop =
     let private log = Logging.getLogger("ModDBInterop")
@@ -77,7 +118,8 @@ module ModDBInterop =
                 StartConf.Conf.AppSettings = None
             }
 
-            State.Data.Moddb <- ModDB.loadModDB conf
+            let mdb =  ModDB.loadModDB conf
+            Locking.write (fun _ -> State.Data.Moddb <- mdb)
 
             Util.reportMemoryUsage()
             0
@@ -85,6 +127,48 @@ module ModDBInterop =
         | e -> 
             log.Error "%A" e
             InteropTypes.GenericFailureCode
+
+    let getLoadingState() = 
+        match State.Data.LoadState with
+        | NotStarted -> AsyncLoadNotStarted
+        | Complete -> AsyncLoadComplete
+        | Pending -> AsyncLoadPending
+        | InProgress -> AsyncLoadInProgress
+
+    let loadFromDataPathAsync() =
+        Locking.upgradeRead (fun _ -> 
+            match State.Data.LoadState with 
+            | Pending | InProgress -> () // no-op
+            | NotStarted | Complete -> 
+                Locking.write (fun _ -> State.Data.LoadState <- Pending)
+
+                async {
+                    // now running from thread pool
+                    let mutable canLoad = false
+                    Locking.write (fun _ -> 
+                        match State.Data.LoadState with
+                        | NotStarted ->
+                            log.Info("Async loading state is NotStarted prior to task pool load, WTF?")  
+                        | InProgress | Complete -> () // no-op
+                        | Pending -> 
+                            State.Data.LoadState <- InProgress
+                            canLoad <- true
+                    )
+
+                    if canLoad then
+                        log.Info("Async load started")
+                        loadFromDataPath() |> ignore
+                        log.Info("Async load complete")
+
+                        Locking.write (fun _ -> 
+                            if not (State.Data.LoadState = InProgress) then
+                                log.Error "WHOA unexpected loading state: %A" State.Data.LoadState
+                            State.Data.LoadState <- Complete)
+                } |> Async.Start
+        )
+
+        getLoadingState()
+
 
     /// Get the loaded mod count.
     let getModCount() = State.Data.Moddb.MeshRelations.Length + State.Data.Moddb.DeletionMods.Length

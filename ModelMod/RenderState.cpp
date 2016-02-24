@@ -36,6 +36,7 @@ RenderState::RenderState(void) :
 		_initted(false),
 		_showModMesh(false),
 		_dipActive(false),
+		_loadInProgress(false),
 		_dev(NULL),
 		_focusWindow(NULL),
 		_selectionTexture(NULL),
@@ -100,142 +101,175 @@ void RenderState::loadManagedAssembly() {
 }
 
 void RenderState::loadMods() {
-	clearLoadedMods();
+	if (!Interop::OK())
+		return;
 
-	DWORD start,elapsed;
-	start = GetTickCount();
-	if (Interop::OK()) {
-		Interop::Callbacks().LoadModDB();
-
-		int modCount = Interop::Callbacks().GetModCount();
-		for (int i = 0; i < modCount; ++i) {
-			ModData* mdat = Interop::Callbacks().GetModData(i);
-			if (!mdat) {
-				MM_LOG_INFO(format("Null mod data for index {}", i));
-				continue;
-			}
-			if (mdat->modType != GPUReplacement && mdat->modType != Deletion) {
-				MM_LOG_INFO(format("Unsupported type: {}", mdat->modType));
-				continue;
-			}
-
-			NativeModData nModData;
-			nModData.modData = *mdat;
-
-			if (mdat->modType == Deletion) {
-				int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
-				_managedMods[hashCode] = nModData; // structwise-copy is ok
-				// thats all we need to do for these.
-				continue;
-			}
-
-			int declSize = mdat->declSizeBytes;
-			char* declData = declSize > 0 ? new char[declSize] : NULL;
-
-			int vbSize = mdat->primCount * 3 * mdat->vertSizeBytes;
-			char* vbData = NULL;
-
-			// index buffers not currently supported
-			int ibSize = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
-			char* ibData = NULL;
-
-			HRESULT hr;
-			hr = _dev->CreateVertexBuffer(vbSize, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &nModData.vb, NULL);
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to create vertex buffer");
-				return;
-			}
-			this->add(nModData.vb);
-
-			hr = nModData.vb->Lock(0, 0, (void**)&vbData, 0);
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to lock vertex buffer");
-				return;
-
-			}
-
-			int ret = Interop::Callbacks().FillModData(i, declData, declSize, vbData, vbSize, ibData, ibSize);
-
-			hr = nModData.vb->Unlock();
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to unlock vb");
-				return;
-			}
-
-			if (ret == 0) {
-				// fill was ok
-
-				// create vertex declaration
-				_dev->CreateVertexDeclaration((D3DVERTEXELEMENT9*)declData, &nModData.decl);
-				if (nModData.decl) {
-					this->add(nModData.decl);
-				}
-
-				int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
-
-				// create textures 
-				for (Uint32 i = 0; i < MaxModTextures; ++i) {
-					if (wcslen(nModData.modData.texPath[i]) > 0) {
-						IDirect3DTexture9 * tex = NULL;
-						HRESULT hr = D3DXCreateTextureFromFileW(_dev, nModData.modData.texPath[i], &tex);
-						if (FAILED(hr)) {
-							MM_LOG_INFO(fmt::format("Error: failed to create mod texture for stage {}", i));
-						}
-						else {
-							//char* mbName = Util::convertToMB(nModData.modData.texPath[i]);
-							//MM_LOG_INFO(fmt::format("Created texture for stage {} from path {}", i, mbName));
-							//delete[] mbName;
-							nModData.texture[i] = tex;
-							this->add(tex);
-						}
-					}
-				}
-
-				// create pixel shader if present
-				if (wcslen(nModData.modData.pixelShaderPath) > 0) {
-
-					Uint32 sizeBytes = 0;
-					Uint8* psBytes = Util::slurpFile(nModData.modData.pixelShaderPath, sizeBytes);
-					if (psBytes == NULL) {
-						MM_LOG_INFO("Failed to read pixel shader file");
-					}
-					else {
-						hr = _dev->CreatePixelShader((const DWORD *)psBytes, &nModData.pixelShader);
-						if (FAILED(hr)) {
-							MM_LOG_INFO("Failed to create pixel shader");
-						}
-						else {
-							MM_LOG_INFO(format("Created pixel shader of size {}", sizeBytes));
-							this->add(nModData.pixelShader);
-
-							// disassembly and log for debugging
-							//LPD3DXBUFFER buf;
-
-							//if (FAILED(D3DXDisassembleShader((const DWORD *)psBytes, FALSE, NULL, &buf))) {
-							//	MM_LOG_INFO("failed to disassemble loaded shader");
-							//}
-							//else {
-							//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
-							//	MM_LOG_INFO("Loaded shader:");
-							//	MM_LOG_INFO(format("{}", s));
-							//}
-						}
-
-						// TODO: I _think_ that CreatePixelShader is copying the data, so this is safe.  wish the docs spelled it out.
-						delete[] psBytes;
-					}
-				}
-
-				// store in mod DB
-				_managedMods[hashCode] = nModData; // structwise-copy is ok
-			}
-
-			delete [] declData; // the docs don't say it, but I'm pretty sure that CreateVertexDeclaration copies this data, so ok to delete
-		}
+	if (_loadInProgress) {
+		return;
 	}
 
+	int state = Interop::Callbacks().GetLoadingState();
+	if (state == Code_AsyncLoadPending || state == Code_AsyncLoadInProgress) {
+		return;
+	}
+
+	state = Interop::Callbacks().LoadModDB();
+	if (state == Code_AsyncLoadPending || state == Code_AsyncLoadInProgress) {
+		_loadInProgress = true;
+		return;
+	}
+	else {
+		setupModData();
+	}
+}
+
+void RenderState::setupModData() {
+	if (!Interop::OK()) {
+		return;
+	}
+
+	int state = Interop::Callbacks().GetLoadingState();
+	if (state != Code_AsyncLoadComplete) {
+		MM_LOG_INFO(format("Error: setupModData called when loading state is not complete ({})", state));
+		return;
+	}
+
+	_loadInProgress = false;
+
+	clearLoadedMods();
+
+	DWORD start, elapsed;
+	start = GetTickCount();
+
+	int modCount = Interop::Callbacks().GetModCount();
+	for (int i = 0; i < modCount; ++i) {
+		ModData* mdat = Interop::Callbacks().GetModData(i);
+		if (!mdat) {
+			MM_LOG_INFO(format("Null mod data for index {}", i));
+			continue;
+		}
+		if (mdat->modType != GPUReplacement && mdat->modType != Deletion) {
+			MM_LOG_INFO(format("Unsupported type: {}", mdat->modType));
+			continue;
+		}
+
+		NativeModData nModData;
+		nModData.modData = *mdat;
+
+		if (mdat->modType == Deletion) {
+			int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
+			_managedMods[hashCode] = nModData; // structwise-copy is ok
+			// thats all we need to do for these.
+			continue;
+		}
+
+		int declSize = mdat->declSizeBytes;
+		char* declData = declSize > 0 ? new char[declSize] : NULL;
+
+		int vbSize = mdat->primCount * 3 * mdat->vertSizeBytes;
+		char* vbData = NULL;
+
+		// index buffers not currently supported
+		int ibSize = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
+		char* ibData = NULL;
+
+		HRESULT hr;
+		hr = _dev->CreateVertexBuffer(vbSize, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &nModData.vb, NULL);
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to create vertex buffer");
+			return;
+		}
+		this->add(nModData.vb);
+
+		hr = nModData.vb->Lock(0, 0, (void**)&vbData, 0);
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to lock vertex buffer");
+			return;
+
+		}
+
+		int ret = Interop::Callbacks().FillModData(i, declData, declSize, vbData, vbSize, ibData, ibSize);
+
+		hr = nModData.vb->Unlock();
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to unlock vb");
+			return;
+		}
+
+		if (ret == 0) {
+			// fill was ok
+
+			// create vertex declaration
+			_dev->CreateVertexDeclaration((D3DVERTEXELEMENT9*)declData, &nModData.decl);
+			if (nModData.decl) {
+				this->add(nModData.decl);
+			}
+
+			int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
+
+			// create textures 
+			for (Uint32 i = 0; i < MaxModTextures; ++i) {
+				if (wcslen(nModData.modData.texPath[i]) > 0) {
+					IDirect3DTexture9 * tex = NULL;
+					HRESULT hr = D3DXCreateTextureFromFileW(_dev, nModData.modData.texPath[i], &tex);
+					if (FAILED(hr)) {
+						MM_LOG_INFO(fmt::format("Error: failed to create mod texture for stage {}", i));
+					}
+					else {
+						//char* mbName = Util::convertToMB(nModData.modData.texPath[i]);
+						//MM_LOG_INFO(fmt::format("Created texture for stage {} from path {}", i, mbName));
+						//delete[] mbName;
+						nModData.texture[i] = tex;
+						this->add(tex);
+					}
+				}
+			}
+
+			// create pixel shader if present
+			if (wcslen(nModData.modData.pixelShaderPath) > 0) {
+
+				Uint32 sizeBytes = 0;
+				Uint8* psBytes = Util::slurpFile(nModData.modData.pixelShaderPath, sizeBytes);
+				if (psBytes == NULL) {
+					MM_LOG_INFO("Failed to read pixel shader file");
+				}
+				else {
+					hr = _dev->CreatePixelShader((const DWORD *)psBytes, &nModData.pixelShader);
+					if (FAILED(hr)) {
+						MM_LOG_INFO("Failed to create pixel shader");
+					}
+					else {
+						MM_LOG_INFO(format("Created pixel shader of size {}", sizeBytes));
+						this->add(nModData.pixelShader);
+
+						// disassembly and log for debugging
+						//LPD3DXBUFFER buf;
+
+						//if (FAILED(D3DXDisassembleShader((const DWORD *)psBytes, FALSE, NULL, &buf))) {
+						//	MM_LOG_INFO("failed to disassemble loaded shader");
+						//}
+						//else {
+						//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
+						//	MM_LOG_INFO("Loaded shader:");
+						//	MM_LOG_INFO(format("{}", s));
+						//}
+					}
+
+					// TODO: I _think_ that CreatePixelShader is copying the data, so this is safe.  wish the docs spelled it out.
+					delete[] psBytes;
+				}
+			}
+
+			// store in mod DB
+			_managedMods[hashCode] = nModData; // structwise-copy is ok
+		}
+
+		delete [] declData; // the docs don't say it, but I'm pretty sure that CreateVertexDeclaration copies this data, so ok to delete
+	}
+
+
 	elapsed = GetTickCount() - start;
-	MM_LOG_INFO(format("Mod Load time (Native+Managed): {}", elapsed));
+	MM_LOG_INFO(format("Mod Data Setup time (Native+Managed): {}", elapsed));
 }
 
 void RenderState::loadEverything() {
@@ -412,6 +446,12 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 				//		break;
 				//}
 			}
+		}
+	}
+
+	if (Interop::OK()) {
+		if (_loadInProgress && Interop::Callbacks().GetLoadingState() == Code_AsyncLoadComplete) {
+			setupModData();
 		}
 	}
 

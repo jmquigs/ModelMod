@@ -112,6 +112,7 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	bool _initted;
 	bool _showModMesh;
 	bool _dipActive;
+	bool _loadInProgress;
 	
 	Input _input;
 
@@ -164,6 +165,7 @@ public:
 	// load the mods 
 	void loadMods(); 
 	void loadEverything(); 
+	void setupModData(); 
 
 	void clearLoadedMods();
 

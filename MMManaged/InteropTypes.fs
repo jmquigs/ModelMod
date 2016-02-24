@@ -111,6 +111,10 @@ module InteropTypes =
 
     /// Get the mod count (native -> managed callback)
     type GetModCountCB = delegate of unit -> int 
+
+    /// Get the current loading state
+    type GetLoadingStateCB = delegate of unit -> int 
+
     /// Get the mod data for the mod at specified index, where index is in range 0..(modcount-1).
     /// (native -> managed callback).  If index is out of range, EmptyModData is returned.
     type GetModDataCB = delegate of int -> ModData
@@ -135,6 +139,14 @@ module InteropTypes =
             device: nativeint *
             snapData: SnapshotData -> int
 
+    /// Current load state.  Mod data is loaded asynchronously to minimize blocking of the 
+    /// render thread.
+    type AsyncLoadState = 
+        NotStarted
+        | Pending
+        | InProgress
+        | Complete
+
     /// Generic return value for failure.  Not much detail here because generally native code can't do anything 
     /// about failures, but this is useful
     /// to help it avoid crashing.  Managed code should typically log detailed exception information when 
@@ -145,3 +157,9 @@ module InteropTypes =
     /// we have a special return code for it.
     let LogInitFailed = 50
 
+    /// Integer representation of AsyncLoadState for native code use.
+    /// Must match #defines in Interop.h
+    let AsyncLoadNotStarted = 51
+    let AsyncLoadPending = 52
+    let AsyncLoadInProgress = 53
+    let AsyncLoadComplete = 54
