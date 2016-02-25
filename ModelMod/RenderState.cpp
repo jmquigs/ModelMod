@@ -242,7 +242,7 @@ void RenderState::setupModData() {
 						MM_LOG_INFO(format("Created pixel shader of size {}", sizeBytes));
 						this->add(nModData.pixelShader);
 
-						// disassembly and log for debugging
+						// disassemble and log for debugging
 						//LPD3DXBUFFER buf;
 
 						//if (FAILED(D3DXDisassembleShader((const DWORD *)psBytes, FALSE, NULL, &buf))) {
@@ -264,7 +264,7 @@ void RenderState::setupModData() {
 			_managedMods[hashCode] = nModData; // structwise-copy is ok
 		}
 
-		delete [] declData; // the docs don't say it, but I'm pretty sure that CreateVertexDeclaration copies this data, so ok to delete
+		delete [] declData; // TODO: another case where the docs don't specify if the declaration copies this.  I think it does.
 	}
 
 
