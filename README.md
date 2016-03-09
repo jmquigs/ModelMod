@@ -71,6 +71,10 @@ Pull Requests are welcome!  In particular, these things are desirable:
 
 * Support for other 3D tools (port MMObj format code, new Snapshot profiles)
 
+#### DMCA & Copy Protection
+
+Due to the [Digital Millennium Copyright Act](https://en.wikipedia.org/wiki/Digital_Millennium_Copyright_Act), I cannot accept code contributions that circumvent copy-protection systems built into any game.  
+
 License
 -------
 
