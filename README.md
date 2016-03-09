@@ -79,7 +79,7 @@ License
 -------
 
 Unless otherwise noted here, ModelMod code is licensed under the terms of the
-GNU GPL version 3.
+GNU LGPL version 2.1.
 
 The included c++ format library (format.h/format.cc) is licensed under its
 author's license - see format.h for details.
