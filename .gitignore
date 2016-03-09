@@ -35,3 +35,5 @@ deploy/
 .vs/
 certpath.txt
 sign/
+ModelMod.VC.opendb
+MMDotNet.sdf
