@@ -419,7 +419,16 @@ type MainViewModel() as self =
             | StartPending(_) 
             | StartFailed (_) -> loaderState
             | Stopped (proc,exe) -> loaderState
-            | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
+            | Started (proc,exe) -> 
+                if proc.HasExited 
+                then 
+                    try
+                        File.Delete(Path.Combine(Path.GetDirectoryName(exe), @"ModelModCLRAppDomain.dll"))
+                    with 
+                        | e -> ()
+
+                    Stopped (proc,exe) 
+                else loaderState
 
         x.UpdateProfileButtons()
 
