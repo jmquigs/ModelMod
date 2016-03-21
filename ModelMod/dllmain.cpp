@@ -34,6 +34,7 @@ using namespace std;
 const string LogCategory="DllMain";
 
 void SpinWhileFileExists(HMODULE dllModule) {
+#ifdef _DEBUG
 	// look for spin file in module directory
 	char thisFilePath[8192];
 	GetModuleFileName(dllModule, thisFilePath, sizeof(thisFilePath));
@@ -59,6 +60,7 @@ void SpinWhileFileExists(HMODULE dllModule) {
 		Sleep(1);
 	}
 	while (fp != NULL);	
+#endif
 }
 
 DInputProc Real_DirectInput8Create = NULL;
