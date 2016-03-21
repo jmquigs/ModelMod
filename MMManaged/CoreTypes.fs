@@ -24,24 +24,6 @@ type SDXVertexElement = SharpDX.Direct3D9.VertexElement
 type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage
 type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
 
-/// Contains the names of all available snapshot profiles.  A snapshot profile controls what types of data transformations
-/// (typically vertex position and uv coordinates) that are applied by the snapshotter.  These are typically used to 
-/// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may 
-/// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is 
-/// in the correct space for the game.
-/// The snapshot module controls which transforms are associated with each of these names.
-module SnapshotProfiles =
-    let Profile1 = "Profile1"
-    let Profile2 = "Profile2"
-    let Profile3 = "Profile3"
-
-    let ValidProfiles = [ Profile1; Profile2; Profile3 ]
-
-    let DefaultProfile = Profile1
-
-    let isValid (profile:string) =
-        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
-
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for 
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that 
 /// ModelMod doesn't interfere too much with the game.  Some games make heavy use of the F keys, for instance,

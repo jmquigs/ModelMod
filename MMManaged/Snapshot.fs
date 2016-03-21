@@ -54,25 +54,6 @@ module Extractors =
         let a,b,c,d = br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
         a,b,c,d
 
-/// Defines the actual transforms associated with each snapshot transform profile.
-// NOTE: probably want to push this out to configuration at some point, since these are both game and 3d-tool specific.
-module SnapshotTransforms = 
-    let Position = 
-        Map.ofList [ 
-            // Transforms are specified as strings; this lets them be written out during the snapshot.  These transforms
-            // need to be undone on model load; prior to establishing the mesh relation.  It is assumed that the .mmobj file will preserve this
-            // list, which means the exporter/import needs to pass them through appropriately.
-            SnapshotProfiles.Profile1, ["rot x 90"; "rot y 180"; "scale 0.1"] 
-            SnapshotProfiles.Profile2, ["rot x 90"; "rot z 180"; "scale 0.1"] 
-            SnapshotProfiles.Profile3, ["rot x 90"; "rot z 180"; "scale 5.0"]
-        ]
-    let UV =
-        Map.ofList [
-            SnapshotProfiles.Profile1, ["flip y"]
-            SnapshotProfiles.Profile2, ["flip y"]
-            SnapshotProfiles.Profile3, ["flip y"]
-        ]
-
 /// Utilities for calling out to the ModelMod dll to have it do some work for us.
 module private SSInterop =
     [< DllImport("ModelMod.dll") >]
@@ -366,26 +347,19 @@ module Snapshot =
                 |> List.filter (fun (i,(tName,tPath)) -> tName <> "")
                 |> Map.ofList
 
-            // get list of applied transforms, if enabled
-            let doTransforms = true
-
-            let lookupTransforms map =
-                if doTransforms then
-                    let profileKey = State.Data.Conf.SnapshotProfile
-
-                    let xforms = map |> Map.tryFind profileKey
-                    match xforms with 
+            let snapProfile = 
+                State.Data.SnapshotProfiles 
+                |> Map.tryFind State.Data.Conf.SnapshotProfile 
+                |> function 
                     | None -> 
-                        log.Warn "No transforms found for profile: %A" profileKey
-                        []
-                    | Some xforms -> 
-                        log.Info "applying transforms: %A" xforms
-                        xforms
-                else
-                    []
-
-            let appliedPosTransforms = lookupTransforms SnapshotTransforms.Position
-            let appliedUVTransforms = lookupTransforms SnapshotTransforms.UV
+                        log.Warn "No transforms found for profile: %A" State.Data.Conf.SnapshotProfile 
+                        SnapshotProfile.EmptyProfile
+                    | Some s -> 
+                        log.Info "Applying transforms: %A" s
+                        s
+            
+            let appliedPosTransforms = snapProfile.PosXForm()
+            let appliedUVTransforms = snapProfile.UVXForm()
 
             // use the first texture (if available) as the mesh material
             let texName idx = if texturePaths.ContainsKey idx then (fst <| texturePaths.Item idx) else ""

@@ -1,0 +1,11 @@
+# this file should always contain "Profile1" at a minimum.
+
+Profile1: 
+  pos: ["rot x 90", "rot y 180", "scale 0.1"]
+  uv: ["flip y"]
+Profile2:
+  pos: ["rot x 90", "rot z 180", "scale 0.1"]
+  uv: ["flip y"]
+Profile3: 
+  pos: ["rot x 90", "rot z 180", "scale 5.0"]
+  uv: ["flip y"]

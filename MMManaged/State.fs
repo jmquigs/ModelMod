@@ -55,6 +55,7 @@ module State =
             with get() = Path.Combine(x.BaseDataDir,x.ExeBaseName)
         member x.ExeSnapshotDir
             with get() = Path.Combine(x.ExeDataDir,"snapshots")
+        member x.RootDir = rootDir
 
     // various muties
     let mutable private _moddb = new ModDB.ModDB([],[],[]) 
@@ -62,6 +63,7 @@ module State =
     let mutable private _conf = CoreTypes.DefaultRunConfig
     let mutable private _locator = DirLocator(_rootDir,_conf)
     let mutable private _loadState = InteropTypes.AsyncLoadState.NotStarted
+    let mutable private _snapProfiles:Map<string,SnapshotProfile.Profile> = Map.ofList []
 
     // access to the muties out side of the module goes through this, via the "Data" field below.
     type StateDateAccessor() = 
@@ -73,6 +75,8 @@ module State =
         member x.LoadState 
             with get() = _loadState
             and set value = _loadState <- value
+        member x.SnapshotProfiles
+            with get() = _snapProfiles
 
     /// Contains all publically accessible data in the State module.
     let Data = new StateDateAccessor()
@@ -86,12 +90,19 @@ module State =
         _rootDir <- rootDir
 
         let snapProfile = 
-            match conf.SnapshotProfile with
-            | profile when SnapshotProfiles.isValid(profile) -> profile
-            | _ ->
-                let def = SnapshotProfiles.DefaultProfile
-                log.Info "Unrecognized snapshot profile: %A; using %A" conf.SnapshotProfile def
-                def
+            try 
+                let sprofiles = SnapshotProfile.GetAll(_rootDir)
+                _snapProfiles <- sprofiles
+                if not (sprofiles |> Map.containsKey conf.SnapshotProfile) then
+                    log.Error "Unrecognized snapshot profile: %A; no snapshot transforms will be applied" conf.SnapshotProfile
+                    log.Info "The following snapshot profiles are available: %A" _snapProfiles
+                    ""
+                else
+                    conf.SnapshotProfile
+            with 
+            | e -> 
+                log.Error "Error loading snapshot profiles: %A; no snapshot transforms will be applied" e
+                ""
 
         let conf = 
             { conf with
@@ -114,3 +125,5 @@ module State =
     /// Returns the executable-specific directory snapshot storage.
     /// (e.g. "<MyDocuments>\ModelMod\Awesome\snapshots")
     let getExeSnapshotDir() = _locator.ExeSnapshotDir
+    /// Returns the root directory of the ModelMod installation ("c:\modelmod" or whatever)
+    let getRootDir() = _locator.RootDir

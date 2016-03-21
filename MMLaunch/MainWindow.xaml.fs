@@ -124,8 +124,8 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
     // set defaults for empty profile values
     let mutable config = 
-        if config.SnapshotProfile.Trim() = "" || not (SnapshotProfiles.isValid config.SnapshotProfile)
-            then { config with SnapshotProfile = SnapshotProfiles.DefaultProfile} else config
+        if config.SnapshotProfile.Trim() = ""
+            then { config with SnapshotProfile = SnapshotProfile.DefaultProfileName } else config
     let mutable config = 
         if config.InputProfile.Trim() = "" || not (InputProfiles.isValid config.InputProfile)
             then { config with InputProfile = InputProfiles.DefaultProfile} else config
@@ -389,6 +389,14 @@ type MainViewModel() as self =
     do
         RegConfig.init() // reg config requires init to set hive root
 
+    let snapshotProfileDefs,snapshotProfileNames = 
+        try 
+            let defs = SnapshotProfile.GetAll (ProcessUtil.getMMRoot())
+            let names = defs |> Map.toList |> List.map fst
+            defs,names
+        with 
+            | e -> Map.ofList [],[]
+
     let observableProfiles = 
         new ObservableCollection<ProfileModel>(
             RegConfig.loadAll() |> 
@@ -453,7 +461,7 @@ type MainViewModel() as self =
 
     member x.SnapshotProfiles = 
         new ObservableCollection<SubProfileModel>
-            (SnapshotProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
+            (snapshotProfileNames |> List.map (fun p -> SubProfileModel(p)))
 
     member x.InputProfiles = 
         new ObservableCollection<SubProfileModel>
@@ -533,17 +541,17 @@ type MainViewModel() as self =
                 let snapshotText = 
                     let makeStringList (xforms:string list) =  String.Join(", ", xforms)
 
-                    let pxforms = 
-                        match (SnapshotTransforms.Position |> Map.tryFind profile.SnapshotProfile) with
-                        | None -> LocStrings.Errors.NoSnapshotDescription
-                        | Some (xforms) -> makeStringList xforms
+                    let stext = 
+                        snapshotProfileDefs
+                        |> Map.tryFind profile.SnapshotProfile 
+                        |> function
+                            | None -> LocStrings.Errors.NoSnapshotDescription
+                            | Some profile -> 
+                                LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + (makeStringList <| profile.PosXForm()) + "\n" 
+                                + LocStrings.Snapshot.UVLabel + (makeStringList <| profile.UVXForm())
+                                    
+                    LocStrings.Snapshot.Header + "\n" + stext
 
-                    let uvxforms = 
-                        match (SnapshotTransforms.UV |> Map.tryFind profile.SnapshotProfile) with
-                        | None -> LocStrings.Errors.NoSnapshotDescription
-                        | Some (xforms) -> makeStringList xforms
-                    LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
-                    + LocStrings.Snapshot.UVLabel + uvxforms
                 inputText + "\n" + snapshotText
 
     member x.LauncherProfileIcon 

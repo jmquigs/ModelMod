@@ -67,6 +67,7 @@
     <Compile Include="MeshRelation.fs" />
     <Compile Include="MemoryCache.fs" />
     <Compile Include="ModDB.fs" />
+    <Compile Include="SnapshotProfile.fs" />
     <Compile Include="State.fs" />
     <Compile Include="ModDBInterop.fs" />
     <Compile Include="Snapshot.fs" />
