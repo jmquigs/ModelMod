@@ -129,6 +129,8 @@ Target "CopyStuff" (fun _ ->
 
     !! ("./BlenderScripts/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts")
+    !! ("./SnapshotProfiles/*.*")
+        |> CopyFiles (buildDir + "/SnapshotProfiles")
     !! ("./BlenderScripts/io_scene_mmobj/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts/io_scene_mmobj")
     !! ("./LICENSE.txt")
