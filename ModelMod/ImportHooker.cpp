@@ -125,7 +125,9 @@ void ImportHooker::hook() {
 			strIibn = Util::toLowerCase(strIibn);
 
 			if (fd.find(strIibn) == fd.end()) {
+#ifdef _DEBUG // spammy
 				MM_LOG_INFO(format("Ignoring function: {}", (const char*)iibn->Name));
+#endif
 			} else {
 				MM_LOG_INFO(format("Found function: {}", (const char*)iibn->Name));
 				DWORD thunkAddress = (DWORD)(tdIAT);

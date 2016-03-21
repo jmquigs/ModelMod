@@ -272,7 +272,9 @@ IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT SDKVersion) {
 typedef FARPROC (WINAPI *GetProcAddressProc) (__in HMODULE hModule, __in LPCSTR lpProcName);
 GetProcAddressProc Real_GetProcAddress = NULL;
 FARPROC WINAPI Hook_GetProcAddress(__in HMODULE hModule, __in LPCSTR lpProcName) {
-	MM_LOG_INFO(format("GetProcAddress: {}", lpProcName));
+#ifdef _DEBUG // spammy
+	MM_LOG_INFO(format("GetProcAddress: {}", lpProcName)); 
+#endif
 	string sProc(lpProcName);
 	if (sProc == "Direct3DCreate9") {
 		Real_Direct3DCreate9 = (Direct3DCreate9Proc)Real_GetProcAddress(hModule,lpProcName);
