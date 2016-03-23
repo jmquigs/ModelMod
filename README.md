@@ -10,6 +10,8 @@ Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
 [![appveyor](https://ci.appveyor.com/api/projects/status/gqsf2f001h46q1tn?svg=true)](https://ci.appveyor.com/project/jmquigs/modelmod)
 [![Join the chat at https://gitter.im/jmquigs/ModelMod](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmquigs/ModelMod?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
+Reddit: https://www.reddit.com/r/ModelMod/
+
 
 
 Demos
