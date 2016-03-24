@@ -6,10 +6,10 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescriptionAttribute("")]
 [assembly: GuidAttribute("7b59b7f1-5876-4dd3-abc5-ee380144983d")]
 [assembly: AssemblyProductAttribute("ModelMod")]
-[assembly: AssemblyVersionAttribute("1.0.0.9")]
-[assembly: AssemblyFileVersionAttribute("1.0.0.9")]
+[assembly: AssemblyVersionAttribute("1.0.0.10")]
+[assembly: AssemblyFileVersionAttribute("1.0.0.10")]
 namespace System {
     internal static class AssemblyVersionInformation {
-        internal const string Version = "1.0.0.9";
+        internal const string Version = "1.0.0.10";
     }
 }
