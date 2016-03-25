@@ -295,7 +295,9 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 	// clean up
 	CloseHandle(procInfo.hProcess);
-	CloseHandle(procInfo.hThread);
+	if (procInfo.hThread > 0) {
+		CloseHandle(procInfo.hThread);
+	}
 
 	return ret;
 }
