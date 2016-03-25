@@ -143,6 +143,8 @@ void ShowError(const string& doh) {
 	Util::DisplayMessageBox(doh.c_str(), "Crap");
 }
 
+// CodeAnalysis reports ~65K of stack used by this function (probably "err" below), but its not 
+// recursive so I'm ignoring that for now.
 int StartInjection(bool launch, string processName, string dllPath, int waitPeriod) {
 	DWORD targetProcessId = 0;
 
