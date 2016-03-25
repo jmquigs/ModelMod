@@ -351,7 +351,7 @@ int _tmain(int argc, const char* argv[])
 
 	// process command line
 	//Util::Log("Args:\n");
-	for (int i = 0; i < argc; ++i) {
+	for (int i = 1; i < argc; ++i) {
 		//Util::Log("  %s\n", argv[i]);
 		string arg = string(argv[i]);
 		if (arg == "-waitperiod") {
@@ -372,9 +372,6 @@ int _tmain(int argc, const char* argv[])
 	if (targetExe.empty()) {
 		Util::DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
 		return -1;
-	}
-	else {
-		targetExe = argv[1];
 	}
 
 	// we always use poll mode rather than launch, this is just here for debug launches
