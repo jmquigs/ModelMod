@@ -176,7 +176,8 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 			}
 				
 
-			VirtualFreeEx(process, (LPVOID)hookBase, 8192, MEM_RELEASE);
+			// the size parameter must be 0 when using MEM_RELEASE (CodeAnalysis C6333)
+			VirtualFreeEx(process, (LPVOID)hookBase, 0, MEM_RELEASE);
 		}
 		else
 			_injectError = "Process::InstallHook: couldn't allocate memory in target process";
