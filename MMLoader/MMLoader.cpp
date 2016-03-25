@@ -212,7 +212,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		}
 		isFirstSearch = FALSE;
 		
-		DWORD startTime = GetTickCount();
+		ULONGLONG startTime = GetTickCount64();
 
 		// enter find and suspend loop
 		do {
@@ -226,7 +226,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 			if (waitPeriod != -1 && targetProcessId == 0) {
 				// check for timed exit
-				DWORD elapsed = GetTickCount() - startTime;
+				ULONGLONG elapsed = GetTickCount64() - startTime;
 				unsigned int waitMax = waitPeriod * 1000;
 				if (elapsed >= waitMax) {
 					Util::Log("Wait period expired, exiting\n");
