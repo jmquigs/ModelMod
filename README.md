@@ -17,7 +17,11 @@ Reddit: https://www.reddit.com/r/ModelMod/
 Demos
 -----
 
-Screenshot of a simple mod from the demo videos:
+#### Blogs:
+* https://medium.com/@jmquigs/exploring-modelmod-part-the-first-b6edb0d36ce5
+* https://medium.com/@jmquigs/exploring-modelmod-part-secundus-bb29925c3518
+
+Here is a screenshot of a simple mod from the demo videos:
 
 ![skyrim](https://raw.githubusercontent.com/jmquigs/ModelMod-demo/master/screenshots/skyrimebony.jpg)
 
