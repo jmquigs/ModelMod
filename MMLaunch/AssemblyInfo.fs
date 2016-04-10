@@ -6,9 +6,9 @@ open System.Runtime.InteropServices
 [<assembly: AssemblyDescriptionAttribute("")>]
 [<assembly: GuidAttribute("2ce8e338-7143-4f97-ab39-3e90ca50bdf2")>]
 [<assembly: AssemblyProductAttribute("ModelMod")>]
-[<assembly: AssemblyVersionAttribute("1.0.0.10")>]
-[<assembly: AssemblyFileVersionAttribute("1.0.0.10")>]
+[<assembly: AssemblyVersionAttribute("1.0.0.11")>]
+[<assembly: AssemblyFileVersionAttribute("1.0.0.11")>]
 do ()
 
 module internal AssemblyVersionInformation =
-    let [<Literal>] Version = "1.0.0.10"
+    let [<Literal>] Version = "1.0.0.11"
