@@ -80,6 +80,11 @@ module MeshTransform =
         let fnName = parts.[0].ToLowerInvariant()
         fnName, parts
 
+    // https://github.com/jmquigs/ModelMod/issues/11
+    // blender scripts output floats in US format, so we need to parse them in that format.
+    let enUsCulture = new System.Globalization.CultureInfo(0x0409)
+    let convertSingle s = Single.Parse(s, enUsCulture)
+
     /// Parse a string representing a position or normal transform function, and return a three-tuple of the fn name, the F# function 
     /// that the transform and the associated quantity required to do it.
     /// Calling code has an opportunity to change the amount, if needed (for example, to reverse the transform).
@@ -99,14 +104,14 @@ module MeshTransform =
             if parts.Length <> 2 
                 then log.Error "Illegal scale, separate args by spaces(ex: 'scale 0.1'): supplied value: %A" xname; dummyRet
                 else
-                    let amount = parts.[1].Trim() |> Convert.ToSingle
+                    let amount = parts.[1].Trim() |> convertSingle
                     fnName,uniformScale isNormal,amount
         | "rot" ->
             if parts.Length <> 3 
                 then log.Error "Illegal rotation, separate axis and angle by spaces (ex: 'rot x 90'): supplied value: %A" xname; dummyRet
                 else
                     let axis = parts.[1].Trim().ToLowerInvariant()
-                    let angDeg = parts.[2].Trim() |> Convert.ToSingle
+                    let angDeg = parts.[2].Trim() |> convertSingle
                     match axis with 
                     | "x" -> fnName,rotX isNormal,angDeg
                     | "y" -> fnName,rotY isNormal,angDeg
