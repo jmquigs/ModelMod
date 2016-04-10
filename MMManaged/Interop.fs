@@ -101,6 +101,8 @@ type Main() =
         // return a code to indicate log failure.
         try
             Interop.setupLogging()
+            let asm = System.Reflection.Assembly.GetExecutingAssembly()
+            Interop.log.Info "Managed asm: %s" asm.FullName
             Interop.log.Info "Initializing managed code"
             0
         with 
