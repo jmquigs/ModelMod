@@ -37,7 +37,7 @@ Requirements
 
 * Windows.  
 * 32-bit only games at the moment.
-* The game must use D3D9 for rendering.  Make sure you have the D3D9 runtime installed.  This is an especially true for Windows 10 systems: https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.  Developers can skip this since you need the DX SDK instead.
+* The game must use D3D9 for rendering.  Make sure you have the D3D9 runtime installed.  This is an especially true for Windows 10 systems.  Developers can skip this since you need the DX SDK instead.  https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.  
 * Only a few games have been tested.  Programming effort is usually required
 to get new games to work.
 * For animated models, the target game
