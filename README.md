@@ -37,8 +37,7 @@ Requirements
 
 * Windows.  
 * 32-bit only games at the moment.
-* The game must use D3D9 for rendering.  Support for other versions is possible,
-but has not been implemented.
+* The game must use D3D9 for rendering.  Make sure you have the D3D9 runtime installed.  This is an especially true for Windows 10 systems: https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.  Developers can skip this since you need the DX SDK instead.
 * Only a few games have been tested.  Programming effort is usually required
 to get new games to work.
 * For animated models, the target game
@@ -46,6 +45,7 @@ must use GPU based animation.  Support for CPU animation, common in older games,
 known to be possible but is not currently implemented.
 * Blender is the only 3D modeling tool supported at this time.  
 If you want to write an exporter for something else, See [Contributing](#Contributing).
+* .Net Runtime 4.5 or newer (this may already be installed on your machine): https://www.microsoft.com/en-us/download/details.aspx?id=30653.  Developers can skip this.
 
 Installation
 ------------
