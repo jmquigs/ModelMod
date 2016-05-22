@@ -103,7 +103,7 @@ module ProcessUtil =
             | None -> defReason
             | Some (reason) -> reason
                     
-    let launchWithLoader (exePath:string) (waitperiod:int) :Result<Process,System.Exception> =
+    let launchWithLoader (exePath:string) (args:string) (waitperiod:int) :Result<Process,System.Exception> =
         try 
             if not (File.Exists(exePath)) then
                 failwithf "Exe does not exist: %s" exePath
@@ -166,6 +166,7 @@ module ProcessUtil =
             let proc = new Process()
             proc.StartInfo.UseShellExecute <- false
             proc.StartInfo.FileName <- exePath
+            proc.StartInfo.Arguments <- args
             let res = proc.Start()
             if not res then 
                 // bummer, kill the loader

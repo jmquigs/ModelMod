@@ -42,6 +42,7 @@ type GameProfileViewModel() =
     // The viewmodel is also the actual Model for the GameProfile
     let mutable profile = { 
         GameProfile.ReverseNormals = false
+        CommandLineArguments = ""
     }
     let mutable profileChangedCb: GameProfile -> unit = ignore
 
@@ -62,3 +63,7 @@ type GameProfileViewModel() =
     member x.ReverseNormals
         with get () = profile.ReverseNormals
         and set (value:bool) = updateProfile { profile with ReverseNormals = value }
+
+    member x.CommandLineArguments
+        with get () = profile.CommandLineArguments
+        and set (value:string) = updateProfile { profile with CommandLineArguments = value}

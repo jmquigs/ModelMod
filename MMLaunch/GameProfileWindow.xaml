@@ -3,7 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Preferences" Height="135.541" Width="300.894"
+    Title="Preferences" Height="155.541" Width="300.894"
     ResizeMode="NoResize">
     <Window.DataContext>
         <local:GameProfileViewModel/>
@@ -12,5 +12,7 @@
         <CheckBox x:Name="checkBox"
                   IsChecked="{Binding Path=ReverseNormals}"
                   Content="Reverse Normal Components" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="184"/>
+        <Label x:Name="label" Content="Command line arguments:&#xD;&#xA;" HorizontalAlignment="Left" Margin="10,34,0,-9" VerticalAlignment="Top" Width="174" Height="33"/>
+        <TextBox x:Name="commandLine" HorizontalAlignment="Left" Height="23" Margin="10,72,-80,-37" TextWrapping="Wrap" Text="{Binding Path=CommandLineArguments}" VerticalAlignment="Top" Width="264"/>
     </Grid>
 </Window>

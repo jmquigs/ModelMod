@@ -37,6 +37,7 @@ module RegKeys =
     let ProfLaunchWindow = "LaunchWindow"
     // Game profile settings are currently exploded out into individual keys
     let ProfGPReverseNormals = "GameProfileReverseNormals"
+    let ProfGPCommandLineArguments = "GameProfileCommandLineArguments"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -228,6 +229,7 @@ module RegConfig =
                 GameProfile = 
                     { 
                         ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
+                        CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
                     }
             })
 
@@ -280,6 +282,7 @@ module RegConfig =
             GameProfile =
                 {
                     ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)
+                    CommandLineArguments = regget(profPath, RegKeys.ProfGPCommandLineArguments, DefaultGameProfile.CommandLineArguments) :?> string
                 }
             
         }

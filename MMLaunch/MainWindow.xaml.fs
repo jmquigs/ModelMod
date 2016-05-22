@@ -783,7 +783,7 @@ type MainViewModel() as self =
 
                         // start it 
                         x.UpdateLoaderState <|
-                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath launchWindow) with 
+                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath selectedProfile.GameProfile.CommandLineArguments launchWindow) with 
                             | Ok(p) -> Started(p,selectedProfile.ExePath)
                             | Err(e) -> 
                                 MainViewUtil.failValidation e.Message

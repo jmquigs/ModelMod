@@ -72,10 +72,13 @@ module CoreTypes =
         /// Controls the order in which normal vector components are written to D3D buffers.
         /// False: XYZW; True: ZYXW
         ReverseNormals: bool
+        /// Command line arguments that should be passed to the game when launched.
+        CommandLineArguments: string
     }
 
     let DefaultGameProfile = {
         ReverseNormals = false
+        CommandLineArguments = ""
     }
 
     /// A run config for modelmod.  These are stored in the registry.
