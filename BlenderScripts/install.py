@@ -18,7 +18,11 @@ def wline(line):
 def install_mmobj():
     enabled,_ = addon_utils.check('io_scene_mmobj')
     if not enabled:
-        addon_utils.enable('io_scene_mmobj', True)
+        try:
+            # this interface changed in 2.77+, try old way first
+            addon_utils.enable('io_scene_mmobj', True)
+        except TypeError:
+            addon_utils.enable('io_scene_mmobj', default_set=True, persistent=True)
         enabled,_ = addon_utils.check('io_scene_mmobj')
         if enabled:
             bpy.ops.wm.save_userpref()
