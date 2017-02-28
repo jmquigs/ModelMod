@@ -76,13 +76,28 @@ module BlenderUtil =
 
     let getExe (idir:string) = Path.Combine(idir,BlenderExe)
 
-    let detectInstallPath():(string) option = 
+    let detectBlenderInFS():string option = 
+        // hardcode some obvious places
+        let drives = ["C:"; "D:"]
+        let paths = [
+            @"\Program Files\Blender Foundation\Blender\blender.exe";
+            @"\Program Files (x86)\Blender Foundation\Blender\blender.exe"]
+
+        paths |> List.tryPick (fun p ->
+            drives |> List.tryPick (fun d ->
+                let fp = d + p
+                if File.Exists(fp) then Some(Directory.GetParent(fp).ToString()) else None
+        ))
+
+    let detectInstallPath():string option = 
         // look in registry.  use 64-bit registry first
         let views = [RegistryView.Registry64; RegistryView.Registry32]
         let found = views |> List.tryPick (fun view ->
             let idir = queryKey view "Install_Dir" ""
             match idir with
-            | "" -> None
+            | "" -> 
+                // as of 2.75 they don't seem to write Install_Dir anymore
+                detectBlenderInFS()
             | path ->
                 Some(idir)
         )
