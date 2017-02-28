@@ -120,16 +120,27 @@ module BlenderUtil =
             failwithf "Can't find setup script: %s" pySetup
 
         let proc = new Process()
+
+        // blender 2.77+ explodes if we try to redirect its stdout.  so have it write to a temp file instead.
+        // unfortunately this means we can no longer display the blender error in a message box
+        // if it fails. (this may be a bug in the embedded python and since its 3.x, maybe they 
+        // will fix it eventually)
+        let pyOut = Path.GetTempFileName()
+
         proc.StartInfo.UseShellExecute <- false 
         proc.StartInfo.FileName <- exe
-        proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- %s" pySetup cmd
-        proc.StartInfo.RedirectStandardOutput <- true
-        proc.StartInfo.RedirectStandardError <- true
+        proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- %s \"%s\"" pySetup cmd pyOut
+//        proc.StartInfo.RedirectStandardOutput <- false
+//        proc.StartInfo.RedirectStandardError <- false
         proc.Start() |> ignore
         proc.WaitForExit()
-        let rawOut = proc.StandardOutput.ReadToEnd()
-        let rawErr = proc.StandardError.ReadToEnd()
-        rawOut,rawErr
+//        let rawOut = proc.StandardOutput.ReadToEnd()
+//        let rawErr = proc.StandardError.ReadToEnd()
+
+        let fullCMD = sprintf "%s %s" proc.StartInfo.FileName proc.StartInfo.Arguments
+        let out = File.ReadAllText(pyOut);
+        File.Delete(pyOut);
+        fullCMD,out //,rawOut,rawErr
         
     let getAddonsPath (exe:string):Result<string,string> =
         try
@@ -138,7 +149,7 @@ module BlenderUtil =
             // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
             // install dir path (so that we get the correct version, etc), and return that.
             // (we need to use an appdata path, because otherwise we likely need admin privs to install)
-            let rawOut,rawErr = runBlender exe "paths"
+            let cmd,rawOut = runBlender exe "paths"
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
@@ -149,7 +160,7 @@ module BlenderUtil =
                 |> Array.map (fun line -> line.Substring(pathLine.Length).Trim())
 
             if paths.Length = 0 then
-                let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
                 failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
             let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
@@ -163,7 +174,7 @@ module BlenderUtil =
                 let path = 
                     match found with
                     | None -> 
-                        let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                        let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut "<unknown>"
                         failwithf "Unable to locate a suitable addon path:%s" rawMsg
                     | Some path -> path
                 let path = path.Substring(path.IndexOf(relRoot))
@@ -240,13 +251,13 @@ module BlenderUtil =
             directoryCopy srcDir dest true
 
             // run the python script to make sure they are registered with blender
-            let rawOut,rawErr = runBlender exe "install"
+            let cmd, rawOut = runBlender exe "install"
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
             let failed = outLines |> Array.tryFind (fun line -> line.StartsWith(PyFailLine))
 
-            let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+            let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
 
             match failed with
             | Some (line) ->
