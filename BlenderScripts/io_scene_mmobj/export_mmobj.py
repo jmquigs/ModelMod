@@ -267,6 +267,10 @@ def write_file(filepath, objects, scene,
     write( 'c:\\test\\foobar.obj', Blender.Object.GetSelected() ) # Using default options.
     """
 
+    # Modelmod: always export tangent space.  Note that this makes the resulting output 
+    # file incompatible with obj, because we need to change the face format
+    EXPORT_TANGENT_SPACE = True
+
     if EXPORT_GLOBAL_MATRIX is None:
         EXPORT_GLOBAL_MATRIX = mathutils.Matrix()
 
@@ -314,6 +318,7 @@ def write_file(filepath, objects, scene,
 
     # Initialize totals, these are updated each object
     totverts = totuvco = totno = 1
+    totbn = tottn = 1
 
     face_vert_index = 1
 
@@ -478,6 +483,8 @@ def write_file(filepath, objects, scene,
             for v in me_verts:
                 fw('v %.6f %.6f %.6f\n' % v.co[:])
 
+            print("v_count: {}".format(len(me_verts)))                
+
             # UV
             if faceuv:
                 # in case removing some of these dont get defined.
@@ -499,25 +506,60 @@ def write_file(filepath, objects, scene,
                             uv_unique_count += 1
                         uv_ls.append(uv_val)
 
+                print("uv_unique_count: {}".format(uv_unique_count))
                 del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val
                 # Only need uv_unique_count and uv_face_mapping
 
             # NORMAL, Smooth/Non smoothed.
+            bi_unique_count = 0
+            tn_unique_count = 0
+
             if EXPORT_NORMALS:
-                no_key = no_val = None
+                me.calc_tangents() # maybe do this earlier instead of calc_normals?
+
                 normals_to_idx = {}
-                no_get = normals_to_idx.get
+                binormals_to_idx = {}
+                tangents_to_idx = {}
+
                 loops_to_normals = [0] * len(loops)
+                loops_to_binormals = [0] * len(loops)
+                loops_to_tangents = [0] * len(loops)
+
                 for f, f_index in face_index_pairs:
                     for l_idx in f.loop_indices:
-                        no_key = veckey3d(loops[l_idx].normal)
-                        no_val = no_get(no_key)
-                        if no_val is None:
-                            no_val = normals_to_idx[no_key] = no_unique_count
-                            fw('vn %.6f %.6f %.6f\n' % no_key)
-                            no_unique_count += 1
-                        loops_to_normals[l_idx] = no_val
-                del normals_to_idx, no_get, no_key, no_val
+                        if True:
+                            no_key = veckey3d(loops[l_idx].normal)
+                            no_val = normals_to_idx.get(no_key)
+                            if no_val is None:
+                                no_val = normals_to_idx[no_key] = no_unique_count
+                                fw('vn %.6f %.6f %.6f\n' % no_key)
+                                no_unique_count += 1
+                            loops_to_normals[l_idx] = no_val
+
+                        if True:
+                            bi_key = veckey3d(loops[l_idx].bitangent)
+                            bi_val = binormals_to_idx.get(bi_key)
+                            if bi_val is None:
+                                bi_val = binormals_to_idx[bi_key] = bi_unique_count
+                                fw('#bn %.6f %.6f %.6f\n' % bi_key)
+                                bi_unique_count += 1
+                            loops_to_binormals[l_idx] = bi_val
+
+                        if True:    
+                            tn_key = veckey3d(loops[l_idx].tangent)
+                            tn_val = tangents_to_idx.get(tn_key)
+                            if tn_val is None:
+                                tn_val = tangents_to_idx[tn_key] = tn_unique_count
+                                fw('#tn %.6f %.6f %.6f\n' % tn_key)
+                                tn_unique_count += 1
+                            loops_to_tangents[l_idx] = tn_val
+
+                print("no_uniq_count: {}".format(no_unique_count))
+                print("bi_unique_count: {}".format(bi_unique_count))
+                print("tn_unique_count: {}".format(tn_unique_count))
+                del normals_to_idx #, no_get, no_key, no_val
+                del binormals_to_idx
+                del tangents_to_idx
             else:
                 loops_to_normals = []
 
@@ -618,9 +660,22 @@ def write_file(filepath, objects, scene,
                 #f_v = [(vi, me_verts[v_idx]) for vi, v_idx in enumerate(f.vertices)]
                 f_v = [(vi, me_verts[v_idx], l_idx) for vi, (v_idx, l_idx) in enumerate(zip(f.vertices, f.loop_indices))]
 
-                fw('f')
+                if EXPORT_TANGENT_SPACE:
+                    fw("#fx")
+                else:
+                    fw("f")
+                    
                 if faceuv:
-                    if EXPORT_NORMALS:
+                    if EXPORT_TANGENT_SPACE:
+                        for vi, v, li in f_v:
+                            fw(" %d/%d/%d/%d/%d" %
+                                       (totverts + v.index,
+                                        totuvco + uv_face_mapping[f_index][vi],
+                                        totno + loops_to_normals[li],
+                                        totbn + loops_to_binormals[li],
+                                        tottn + loops_to_tangents[li]
+                                        ))  # vert, uv, normal, binormal, tangent
+                    elif EXPORT_NORMALS:
                         for vi, v, li in f_v:
                             fw(" %d/%d/%d" %
                                        (totverts + v.index,
@@ -741,6 +796,8 @@ def write_file(filepath, objects, scene,
             totverts += len(me_verts)
             totuvco += uv_unique_count
             totno += no_unique_count
+            totbn += bi_unique_count 
+            tottn += tn_unique_count
 
             # clean up
             bpy.data.meshes.remove(me)
