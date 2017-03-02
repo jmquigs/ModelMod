@@ -163,8 +163,36 @@ module BlenderUtil =
                 let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
                 failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
+            let isWritable (p:string) = 
+                try
+                    Directory.GetAccessControl(p) |> ignore
+                    true
+                with
+                    | _ -> false
+
+            let pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+            let pf = 
+                let pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                // on 32 bit, pf and pfx86 are the same, so we have to jump through a hoop to get the 64 bit path
+                if pf <> pfx86 then pf
+                else
+                    let ev = Environment.GetEnvironmentVariable("PROGRAMW6432")
+                    if ev = null then
+                        let lastidx = pf.LastIndexOf(" (x86)") // _maybe_ all languages end with this X_X
+                        if lastidx = -1 then pf else pf.Substring(0,lastidx)
+                    else
+                        ev
+
+            let isPFPath (p:string) = p.StartsWith(pf) || p.StartsWith(pfx86)
+
             let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-            let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
+
+            // find first writable addon path, use appdata path or program files as a last resort if it is writable
+            let paths = 
+                let pfs, npfs = paths |> Array.partition isPFPath 
+                let adps, npfs = npfs |> Array.partition (fun p -> p.Contains(appData))
+                Array.concat [npfs;adps;pfs]
+            let found = paths |> Array.tryFind (fun p -> isWritable(p) && not (isPFPath(p)))
             match found with
             | Some p -> Ok(p)
             | None ->
