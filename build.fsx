@@ -156,6 +156,10 @@ Target "UpdateVersions" (fun _ ->
 
 // Signing stuff
 Target "SignBuild" (fun _ ->
+    let certExpired = System.DateTime.Parse("11/10/2016")
+    if (System.DateTime.Now > certExpired) then
+        failwithf "cert expired, rewind the clock to before %A or renew the cert for $$$" certExpired
+
     // TODO: download last build from appveyor
     let signDir = "./sign"
 
