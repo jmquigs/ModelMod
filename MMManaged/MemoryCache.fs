@@ -40,6 +40,8 @@ module MemoryCache =
 
     let cache = new Dictionary<string,CacheEntry>()
 
+    let clear() = cache.Clear()
+
     let get (path, (modType:ModType), flags):Mesh option =
         let ok,entry = cache.TryGetValue path
         if ok then

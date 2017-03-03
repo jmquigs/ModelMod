@@ -690,7 +690,7 @@ module ModDBInterop =
                 (getBinaryWriter destIbData destIbSize) destIbSize
 
     // For FSI testing...
-    let private testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
+    let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
         fillModDataInternalHelper 
             modIndex
             (new BinaryWriter(new MemoryStream(destDecl))) destDecl.Length
