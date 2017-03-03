@@ -421,12 +421,13 @@ module ModDBInterop =
                 bw.Write(br.ReadBytes(4))
             | _ -> failwithf "Unsupported type for raw normal: %A" el.Type
 
-        /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
-        let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
-            // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point, 
-            // but this produces good enough results in most cases.
-            // see: http://www.geeks3d.com/20130122/normal-mapping-without-precomputed-tangent-space-vectors/
+        let stubTSVec (modm:Mesh) (modNrmIndex: int) (el:SDXVertexElement) =
+            // compute a stub binormal/tangent from the normal vector.  looks tolerable at low detail settings,
+            // but doesn't look good at higher details.  the 3d tool should export these instead. we could
+            // compute real values for these here, but its expensive, so we'd need to cache the results on disk
+            // so that they can be used on subsequent loads.  
+            // see also: Issue #10 
+
             let srcNrm = modm.Normals.[modNrmIndex]
             let v1 = Vector3.Cross(srcNrm, Vector3(0.f, 0.f, 1.f))
             let v2 = Vector3.Cross(srcNrm, Vector3(0.f, 1.f, 0.f))
@@ -439,6 +440,9 @@ module ModDBInterop =
                     b
                 else
                     t
+            vec
+
+        let writeTSVec (el:SDXVertexElement) (bw:BinaryWriter) vec =
             match el.Type with
             | SDXVertexDeclType.Color 
             | SDXVertexDeclType.UByte4N
@@ -447,6 +451,17 @@ module ModDBInterop =
             | SDXVertexDeclType.Float3 ->
                 writeF3Vector vec bw
             | _ -> failwithf "Unsupported type for mod binormal/tangent: %A" el.Type
+
+        /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
+        let modmStubBinormalTangent (modm:Mesh) (modNrmIndex: int) (unusedVertIndex: int) (unusedBnmOrTanIndex:int) (el:SDXVertexElement) (bw:BinaryWriter) =
+            stubTSVec modm modNrmIndex el |> writeTSVec el bw
+
+        /// Write a binormal from the mod mesh
+        let modmBinormal (modm:Mesh) (modNrmIndex: int) (unusedVertIndex: int) (bnmIndex:int) (el:SDXVertexElement) (bw:BinaryWriter) =
+            modm.Binormals.[bnmIndex] |> writeTSVec el bw
+        /// Write a tangent from the mod mesh
+        let modmTangent (modm:Mesh) (modNrmIndex: int) (unusedVertIndex: int) (tanIndex:int) (el:SDXVertexElement) (bw:BinaryWriter) =
+            modm.Tangents.[tanIndex] |> writeTSVec el bw
 
         /// Write a binormal or tangent vector extracted from raw binary data.
         let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
@@ -509,9 +524,8 @@ module ModDBInterop =
                 // will otherwise produces screwy results if the mod mesh is different enough.
                 let useModNormals = true
 
-                // true: compute the binormal and tangent from the mod normal
-                // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
-                let computeBinormalTangent = true
+                // use binormals and tangents from mod if available, otherwise stub in placeholders
+                let computeBinormalTangent = not (modm.Binormals.Length > 0 && modm.Tangents.Length > 0)
                                                 
                 let srcVbSize = md.PrimCount * 3 * md.VertSizeBytes
                 if (destVbSize <> srcVbSize) then
@@ -602,21 +616,26 @@ module ModDBInterop =
                         let nrmw = DataWriters.rbNormal binDataLookup vertRels
                         nrmw
 
-                let binormalTangentWriter =
+                let binormalWriter,tangentWriter =
                     if computeBinormalTangent then
-                        DataWriters.modmBinormalTangent modm
+                        DataWriters.modmStubBinormalTangent modm,DataWriters.modmStubBinormalTangent modm
                     else
-                        let binDataLookup = 
-                            match refBinDataLookup with
-                            | None -> failwith "Binary vertex data is required to write binormal" 
-                            | Some bvd -> bvd
-                        DataWriters.rbBinormalTangent binDataLookup vertRels
+                        DataWriters.modmBinormal modm,DataWriters.modmTangent modm
+                        // this is old code that read it from a binary snapshot.  this is likely not useful
+                        // anymore so there isn't a code path that enables it.
+//                        let binDataLookup = 
+//                            match refBinDataLookup with
+//                            | None -> failwith "Binary vertex data is required to write binormal" 
+//                            | Some bvd -> bvd
+//                        DataWriters.rbBinormalTangent binDataLookup vertRels
 
                 // Write part of a vertex.  The input element controls which 
                 // part is written.
-                let writeElement (v:PTNIndex) (el:SDXVertexElement) =
+                let writeElement (v:VertIndex) (el:SDXVertexElement) =
                     let modVertIndex = v.Pos
                     let modNrmIndex = v.Nrm
+                    let modBnmIndex = v.Bnm
+                    let modTanIndex = v.Tan
 
                     match el.Usage with
                         | SDXVertexDeclUsage.Position ->
@@ -640,8 +659,8 @@ module ModDBInterop =
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
                             | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
                         | SDXVertexDeclUsage.Normal -> normalWriter modNrmIndex modVertIndex el bw
-                        | SDXVertexDeclUsage.Binormal 
-                        | SDXVertexDeclUsage.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
+                        | SDXVertexDeclUsage.Binormal -> binormalWriter modNrmIndex modBnmIndex modVertIndex el bw
+                        | SDXVertexDeclUsage.Tangent -> tangentWriter modNrmIndex modTanIndex modVertIndex el bw
                         | SDXVertexDeclUsage.BlendIndices -> blendIndexWriter modVertIndex el bw
                         | SDXVertexDeclUsage.BlendWeight -> blendWeightWriter modVertIndex el bw
                         | SDXVertexDeclUsage.Color ->
@@ -659,7 +678,7 @@ module ModDBInterop =
                         | _ -> failwithf "Unsupported usage: %A" el.Usage
 
                 // Write a full vertex to the buffer.
-                let writeVertex (v:PTNIndex) = 
+                let writeVertex (v:VertIndex) = 
                     let writeToVert = writeElement v
                     declElements |> List.iter writeToVert
                     if (bw.BaseStream.Position % (int64 md.VertSizeBytes) <> 0L) then
@@ -690,7 +709,7 @@ module ModDBInterop =
                 (getBinaryWriter destIbData destIbSize) destIbSize
 
     // For FSI testing...
-    let private testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
+    let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
         fillModDataInternalHelper 
             modIndex
             (new BinaryWriter(new MemoryStream(destDecl))) destDecl.Length

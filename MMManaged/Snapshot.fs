@@ -298,10 +298,10 @@ module Snapshot =
                 let c = int (ibReader.ReadInt16())
 
                 // since vert,normal,texture arrays are all the same size, use the same index for each.
-                let verts:PTNIndex[] = Array.zeroCreate 3
-                verts.[0] <- { Pos = a; Tex = a; Nrm = a }
-                verts.[1] <- { Pos = b; Tex = b; Nrm = b }
-                verts.[2] <- { Pos = c; Tex = c; Nrm = c }
+                let verts:VertIndex[] = Array.zeroCreate 3
+                verts.[0] <- { DefaultVertIndex with Pos = a; Tex = a; Nrm = a }
+                verts.[1] <- { DefaultVertIndex with Pos = b; Tex = b; Nrm = b }
+                verts.[2] <- { DefaultVertIndex with Pos = c; Tex = c; Nrm = c }
                 triangles.Add({ Verts = verts})
 
             [1..(int sd.PrimCount)] |> List.iter processTriangle
@@ -370,6 +370,8 @@ module Snapshot =
                 Positions = positions.ToArray()
                 UVs = uvs.ToArray()
                 Normals = normals.ToArray()
+                Binormals = [||]
+                Tangents = [||]
                 BlendIndices = blendIndices.ToArray()
                 BlendWeights = blendWeights.ToArray()
                 Declaration = None

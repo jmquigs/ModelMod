@@ -60,11 +60,11 @@ module MeshUtil =
 
     /// Returns a string representation of a face in obj format (PTN; indices are 1-based,
     /// e.g.: "1/4/10")
-    let faceToString(face: PTNIndex[]) =
+    let faceToString(face: VertIndex[]) =
         let inc x = x + 1
 
         let sb = new StringBuilder()
-        Array.iter (fun (v: PTNIndex) ->
+        Array.iter (fun (v: VertIndex) ->
             if sb.Length <> 0 then ignore(sb.Append(" "))
             ignore(sb.Append(sprintf "%d/%d/%d" (inc v.Pos) (inc v.Tex) (inc v.Nrm)))
         ) face
@@ -119,10 +119,26 @@ module MeshUtil =
             | Some v when v.Length = 3 -> Some (Vec3F(v.[0], v.[1], v.[2])) 
             | _ -> None
 
-        let make3PTNIndex (components:int32[] option) =
+        let make3VertIndex (components:int32[] option) =
             match components with
             | Some v when v.Length = 9 -> 
-                Some( [| {Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]}; {Pos=v.[3]; Tex=v.[4]; Nrm=v.[5]}; {Pos=v.[6]; Tex=v.[7]; Nrm=v.[8]} |] ) 
+                Some( 
+                    [| 
+                    {DefaultVertIndex with Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]}; 
+                    {DefaultVertIndex with Pos=v.[3]; Tex=v.[4]; Nrm=v.[5]}; 
+                    {DefaultVertIndex with Pos=v.[6]; Tex=v.[7]; Nrm=v.[8]} 
+                    |] ) 
+            | _ -> None
+
+        let make5VertIndex (components:int32[] option) =
+            match components with
+            | Some v when v.Length = 15 -> 
+                Some( 
+                    [| 
+                    {DefaultVertIndex with Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]; Bnm=v.[3]; Tan=v.[4]}; 
+                    {DefaultVertIndex with Pos=v.[5]; Tex=v.[6]; Nrm=v.[7]; Bnm=v.[8]; Tan=v.[9]}; 
+                    {DefaultVertIndex with Pos=v.[10]; Tex=v.[11]; Nrm=v.[12]; Bnm=v.[13]; Tan=v.[14]} 
+                    |] ) 
             | _ -> None
 
         let makeBlendVectors (components:(int32 * float32)[] option) =
@@ -190,7 +206,8 @@ module MeshUtil =
         let (|BlendPairs|_|) pattern str = REUtil.checkGroupMatch pattern 5 str |> REUtil.extract 1 extractBlendPair |> makeBlendVectors
         let (|VertexGroupName|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 id |> makeName
         let (|TransformFunctionList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractTransform |> makeTransform
-        let (|PTNIndex3|_|) pattern str = REUtil.checkGroupMatch pattern 10 str |> REUtil.extract 1 int32 |> sub1 |> make3PTNIndex
+        let (|VertIndex3|_|) pattern str = REUtil.checkGroupMatch pattern 10 str |> REUtil.extract 1 int32 |> sub1 |> make3VertIndex
+        let (|VertIndex5|_|) pattern str = REUtil.checkGroupMatch pattern 16 str |> REUtil.extract 1 int32 |> sub1 |> make5VertIndex
         let (|VertexGroupList|_|) pattern str = REUtil.checkGroupMatch pattern 2 str |> REUtil.extract 1 extractVGroups |> makeVGroupList
         let (|MtlLib|_|) pattern str = 
             if flags.ReadMaterialFile then
@@ -222,6 +239,8 @@ module MeshUtil =
         
         let positions = new ResizeArray<Vec3F>()
         let normals = new ResizeArray<Vec3F>()
+        let binormals = new ResizeArray<Vec3F>()
+        let tangents = new ResizeArray<Vec3F>()
         let uvs = new ResizeArray<Vec2F>()
 
         let blendindices = new ResizeArray<Vec4X>()
@@ -250,12 +269,16 @@ module MeshUtil =
         // so I didn't commit it.  The mesh cache is more effective at reducing reload time.
         for line in lines do
             match line with 
-                | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt ->
-                    uvs.Add(vt)
-                | Vec3f @"v\s+(\S+)\s+(\S+)\s+(\S+).*" v ->
+                | Vec2f @"vt\s+(\S+)\s+(\S+).*" vt -> 
+                    uvs.Add(vt) 
+                | Vec3f @"v\s+(\S+)\s+(\S+)\s+(\S+).*" v -> 
                     positions.Add(v) 
-                | Vec3f @"vn\s+(\S+)\s+(\S+)\s+(\S+).*" vn ->
+                | Vec3f @"vn\s+(\S+)\s+(\S+)\s+(\S+).*" vn -> 
                     normals.Add(vn)
+                | Vec3f @"#bn\s+(\S+)\s+(\S+)\s+(\S+).*" vn -> 
+                    binormals.Add(vn) // TODO PERF: don't read on ref files
+                | Vec3f @"#tn\s+(\S+)\s+(\S+)\s+(\S+).*" vn -> 
+                    tangents.Add(vn) // TODO PERF: don't read on ref files
                 | VertexGroupName @"#vgn\s+(\S+).*" (vgroup) ->
                     if not (vgnames.Contains(vgroup)) then 
                         vgnames.Add(vgroup)
@@ -275,7 +298,9 @@ module MeshUtil =
                     xforms |> List.iter (fun xf -> if not (postransforms.Contains(xf)) then  postransforms.Add(xf))
                 | TransformFunctionList @"#uv_xforms\s+(.*)$" (xforms) ->
                     xforms |> List.iter (fun xf -> if not (uvtransforms.Contains(xf)) then uvtransforms.Add(xf))
-                | PTNIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
+                | VertIndex5 @"#fx\s+(\S+)/(\S+)/(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)/(\S+)/(\S+).*" v ->
+                    triangles.Add({Verts=v})
+                | VertIndex3 @"f\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+)\s+(\S+)/(\S+)/(\S+).*" v ->
                     triangles.Add({Verts=v})
                 | MtlLib @"mtllib\s+(\S+).*" (mtlFile) ->
                     let path = Path.Combine(Path.GetDirectoryName(filename), mtlFile)
@@ -301,7 +326,7 @@ module MeshUtil =
         //groupsForVertex |> Array.iteri (fun i vlst -> if not (List.isEmpty vlst) then printfn "vert %d has annotated groups: %A" i vlst )
 
         log.Info "Loaded %s:" filename
-        log.Info "  %d triangles, %d positions, %d uvs, %d normals" triangles.Length positions.Count uvs.Count normals.Count 
+        log.Info "  %d triangles, %d positions, %d uvs, %d normals, %d binormals, %d tangents" triangles.Length positions.Count uvs.Count normals.Count binormals.Count tangents.Count
         log.Info "  %d blend indices, %d blend weights" blendindices.Count blendweights.Count
         log.Info "  %d position transforms; %d uv transforms" postransforms.Count uvtransforms.Count
         log.Info "  %d named vertex groups; %d vertex/group associations " vgnames.Count groupsForVertex.Length
@@ -324,6 +349,8 @@ module MeshUtil =
             Positions = positions.ToArray()
             UVs = uvs.ToArray()
             Normals = normals.ToArray()
+            Binormals = binormals.ToArray()
+            Tangents = tangents.ToArray()
             BlendIndices = blendindices.ToArray()
             BlendWeights = blendweights.ToArray()
             Declaration = None
@@ -535,7 +562,9 @@ map_Kd $$filename
     /// that the function name is stored in the AppliedPositionTransforms of the mesh.
     let applyNormalTransformation func (mesh:Mesh) =
         let newNormals = mesh.Normals |> Array.map func
-        { mesh with Normals = newNormals }
+        let newBnms = mesh.Binormals |> Array.map func
+        let newTans = mesh.Tangents |> Array.map func
+        { mesh with Normals = newNormals; Binormals = newBnms; Tangents = newTans }
 
     /// Apply the specified uv transformation func.  Calling code should ensure
     /// that the function name is stored in the AppliedUVTransforms of the mesh.

@@ -161,13 +161,14 @@ module CoreTypes =
         /// support vertex annotation group filtering, amongst other limitations.
         | BinaryRef
 
-    /// Record which contains indices for position, texture coordinate and normal.  Useful for obj-style meshes.
-    type PTNIndex = { Pos: int; Tex: int; Nrm: int }
+    /// Record which contains indices for position, texture coordinate normal and possibly binormal and tangent.
+    type VertIndex = { Pos: int; Tex: int; Nrm: int; Bnm: int; Tan: int}
+    let DefaultVertIndex = { Pos = -1; Tex = -1; Nrm = -1; Bnm = -1; Tan = -1}
 
-    /// A triangle composed of PTNIndex recrods.
+    /// A triangle composed of VertIndex recrods.
     type IndexedTri = {
         /// Always 3 elements long
-        Verts: PTNIndex[] 
+        Verts: VertIndex[] 
     }
 
     /// The vertex declaration specifies the D3D vertex layout; it is usually captured at snapshot
@@ -216,6 +217,10 @@ module CoreTypes =
         UVs: Vec2F[]
         /// Array of normals.  Assumed to be normalized (by the 3D tool hopefully).
         Normals: Vec3F[]
+        /// Array of binormals.  Assumed to be normalized (by the 3D tool hopefully).  May be missing.
+        Binormals: Vec3F[]
+        /// Array of tangents.  Assumed to be normalized (by the 3D tool hopefully).  May be missing.
+        Tangents: Vec3F[]
         /// Array of blend indices.
         BlendIndices: Vec4X[]
         /// Array of blend weights.
