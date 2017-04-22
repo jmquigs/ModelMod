@@ -113,6 +113,8 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	bool _showModMesh;
 	bool _dipActive;
 	bool _loadInProgress;
+	bool _preSnapTrackingEnabled;
+	ULONGLONG _preSnapTrackingStart;
 	
 	Input _input;
 
@@ -241,6 +243,10 @@ public:
 	}
 	bool isSnapRequested() {
 		return _snapRequested;
+	}
+
+	bool isPreSnapTrackingEnabled() {
+		return _preSnapTrackingEnabled;
 	}
 
 	bool isDoingSnap() {

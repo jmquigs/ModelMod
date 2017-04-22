@@ -31,6 +31,8 @@ RenderState::RenderState(void) :
 		_currentTextureIdx(-1),
 		_currentTexturePtr(NULL),
 		_snapRequested(false),
+		_preSnapTrackingEnabled(false),
+		_preSnapTrackingStart(0),
 		_doingSnap(false),
 		_snapStart(0),
 		_initted(false),
@@ -393,6 +395,8 @@ static const bool SnapWholeScene = false;
 // some objects may still be missed.  Some investigation to make this more reliable would be useful.
 static const ULONGLONG SnapMS = 250;
 
+static const ULONGLONG SnapWindow = 1000 * 180;
+
 void RenderState::beginScene(IDirect3DDevice9* dev) {
 	if (!_initted)
 		init(dev);
@@ -461,6 +465,14 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 	if (!isDoingSnap() && isSnapRequested())
 		startSnap();
 
+	if (_preSnapTrackingEnabled && !isSnapping()) {
+		if ((GetTickCount64() - _preSnapTrackingStart) > SnapWindow) {
+			MM_LOG_INFO("Snap timeout expired, clearing selected texture and texture lists");
+			_preSnapTrackingEnabled = false;
+			clearTextureLists();
+		}
+	}
+
 	for (Uint32 i = 0; i < _sceneNotify.size(); ++i) {
 		_sceneNotify[i]->onBeginScene();
 	}
@@ -482,6 +494,12 @@ void RenderState::endScene(IDirect3DDevice9* dev) {
 }
 
 void RenderState::selectNextTexture() {
+	if (!_preSnapTrackingEnabled) {
+		_preSnapTrackingEnabled = true;
+		_preSnapTrackingStart = GetTickCount64();
+		// no-op return since we likely have no active textures in list yet
+		return;
+	}
 	if (_activeTextureList.size() == 0) {
 		MM_LOG_INFO("No textures available");
 		return;
@@ -499,6 +517,12 @@ void RenderState::selectNextTexture() {
 }
 
 void RenderState::selectPrevTexture() {
+	if (!_preSnapTrackingEnabled) {
+		_preSnapTrackingEnabled = true;
+		_preSnapTrackingStart = GetTickCount64();
+		// no-op return since we likely have no active textures in list yet
+		return;
+	}
 	if (_activeTextureList.size() == 0) {
 		MM_LOG_INFO("No textures available");
 		return;
@@ -624,15 +648,17 @@ void RenderState::setTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture) {
 	}
 
 	_stageEnabled[Stage] = pTexture != NULL;
-	if (pTexture) {
-		if (!_activeTextureLookup[pTexture]) {
-			_activeTextureList.push_back(pTexture);
+	if (_preSnapTrackingEnabled) {
+		if (pTexture) {
+			if (!_activeTextureLookup[pTexture]) {
+				_activeTextureList.push_back(pTexture);
+			}
+			_activeTextureLookup[pTexture] = true;
 		}
-		_activeTextureLookup[pTexture] = true;
-	}
 
-	bool isSelected = _currentTextureIdx != -1 && pTexture == _activeTextureList[_currentTextureIdx];
-	_selectedOnStage[Stage] = isSelected;
+		bool isSelected = _currentTextureIdx != -1 && pTexture == _activeTextureList[_currentTextureIdx];
+		_selectedOnStage[Stage] = isSelected;
+	}
 }
 
 bool RenderState::saveTexture(int i, WCHAR* path) {
