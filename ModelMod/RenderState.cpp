@@ -281,8 +281,9 @@ void RenderState::loadEverything() {
 
 NativeModData* RenderState::findMod(int vertCount, int primCount) {
 	int hashCode = NativeModData::hashCode(vertCount, primCount);
-	if (_managedMods.count(hashCode)) {
-		return &_managedMods[hashCode];
+	ManagedModMap::iterator found = _managedMods.find(hashCode);
+	if (found != _managedMods.end()) {
+		return &found->second;
 	}
 	return NULL;
 }
