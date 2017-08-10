@@ -9,7 +9,7 @@ open ModelMod
 // This module is useful for running the managed code under a profiler or debugger.  
 // To use it, change the project type
 // to a "console application", then uncomment the entry point below.  You can then run it under 
-// the visual studio profiler or standlone.
+// the visual studio profiler or standalone.
 
 let targetDataDir = @"\E2ETestData"
 let searchPaths = ["."; ".."; @"..\.."; ] 

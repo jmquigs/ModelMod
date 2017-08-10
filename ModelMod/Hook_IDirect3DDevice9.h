@@ -25,8 +25,15 @@
 #include "Log.h"
 using namespace ModelMod;
 
-//#define D3D_CALL_LOG(s) MM_LOG_INFO(s)
+#define D3D_STATS
+
+#if defined(LOG_D3D)
+#define D3D_CALL_LOG(s) MM_LOG_INFO(s)
+#elseif defined(D3D_STATS)
 #define D3D_CALL_LOG(s)
+#else
+#define D3D_CALL_LOG(s) { _d3dCallCounts[s]++; }
+#endif
 
 // Its a significant CPU hit to track shader constants, and snapshot doesn't even 
 // write them out at the moment, so its wasted effort.  
@@ -40,6 +47,17 @@ using namespace ModelMod;
 /// also done in BeginScene (where we load mods and process input).
 class Hook_IDirect3DDevice9 : public IDirect3DDevice9 {
 	static const string LogCategory;
+
+#if defined(D3D_STATS)
+#include <map>
+	typedef std::map<const char*, uint64_t> CallCountMap;
+
+	CallCountMap _d3dCallCounts;
+
+	CallCountMap& getCallCounts() { return _d3dCallCounts; };
+	ULONGLONG lastCallLogDump = 0;
+
+#endif
 
 	IDirect3DDevice9* _dev;
 	IDirect3D9* _d3d9;
@@ -167,6 +185,38 @@ public:
 	}
 	STDMETHOD(Present)(THIS_ CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion) {
 		D3D_CALL_LOG("d3d Present");
+
+#ifdef D3D_STATS
+		ULONGLONG now = GetTickCount64();
+		if (lastCallLogDump == 0) {
+			lastCallLogDump = now;
+		}
+		else {
+			ULONGLONG elapsed = now - lastCallLogDump;
+			const ULONGLONG DumpFreq = 10 * 1000;
+			if (elapsed > DumpFreq) {
+				SYSTEMTIME time;
+				GetLocalTime(&time);
+
+				lastCallLogDump = now;
+				string msg = format("D3D Call Counts: {}/{}/{} {}{}:{}{}:{}{}\r\n",
+					time.wMonth, time.wDay, time.wYear,
+					time.wHour < 10 ? "0" : "", time.wHour,
+					time.wMinute < 10 ? "0" : "", time.wMinute,
+					time.wSecond < 10 ? "0" : "", time.wSecond);
+				for (CallCountMap::iterator iter = _d3dCallCounts.begin();
+				iter != _d3dCallCounts.end();
+					++iter) {
+					if (iter->second > 0) {
+						msg += format("{}: {}\r\n", iter->first, iter->second);
+					}
+				}
+				MM_LOG_INFO(msg);
+				_d3dCallCounts.clear();
+			}
+		}
+#endif
+
 		return _dev->Present(pSourceRect,pDestRect,hDestWindowOverride,pDirtyRegion);
 	}
 	STDMETHOD(GetBackBuffer)(THIS_ UINT iSwapChain,UINT iBackBuffer,D3DBACKBUFFER_TYPE Type,IDirect3DSurface9** ppBackBuffer) {
