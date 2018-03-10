@@ -10,6 +10,7 @@ extern crate lazy_static;
 
 use winapi::um::libloaderapi::{LoadLibraryW, GetProcAddress};
 
+mod dnclr;
 mod hookd3d9;
 mod util;
 
@@ -33,24 +34,10 @@ pub extern "system" fn Direct3DCreate9(
 }
 
 fn create_d3d(sdk_ver:u32) -> Result<*mut hookd3d9::IDirect3D9> {
-    use std::ffi::OsStr;
-    use std::iter::once;
-    use std::os::windows::ffi::OsStrExt;
-    use std::ffi::CString;
-    //use std::os::raw::c_void;
+    let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
+    let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
 
-    let msg = "c:\\windows\\system32\\d3d9.dll";  // TODO: use get system directory
-    let wide: Vec<u16> = OsStr::new(msg).encode_wide().chain(once(0)).collect();
     unsafe { 
-        let handle = LoadLibraryW(wide.as_ptr()) ;
-
-        let fname = CString::new("Direct3DCreate9").unwrap();
-        let addr = GetProcAddress(handle, fname.as_ptr());
-
-        let addr = addr as *const ();
-
-        //addr as *mut c_void as (extern fn(c: u32) -> u64)
-        //let fn: extern fn(sdkver: u32) -> u64 = std::ptr::null_mut();
         let create:Direct3DCreate9Fn = std::mem::transmute(addr);
 
         let direct3d9 = (create)(sdk_ver);
@@ -60,23 +47,11 @@ fn create_d3d(sdk_ver:u32) -> Result<*mut hookd3d9::IDirect3D9> {
         // get pointer to original vtable        
         let vtbl: *mut hookd3d9::IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
 
-        // todo: maybe will need to hook this
-        // let iuvtbl = Box::new(IUnknownVtbl {
-        //             AddRef: std::mem::transmute(std::ptr::null_mut()),
-        //             QueryInterface: std::mem::transmute(std::ptr::null_mut()),
-        //             Release: std::mem::transmute(std::ptr::null_mut())
-        //         });
-        // let iuvtbl = Box::into_raw(iuvtbl);
-
-        // save pointer to real functions
+        // save pointer to real function
         let real_create_device = (*vtbl).CreateDevice;
 
         // unprotect memory and slam the vtable
-        // let process = winapi::um::processthreadsapi::GetCurrentProcess();
-        // let protection = winapi::um::winnt::PAGE_READWRITE;
-        // let mut old_protection = winapi::um::winnt::PAGE_READWRITE;
         let vsize = std::mem::size_of::<hookd3d9::IDirect3D9Vtbl>();
-
         let old_prot = util::unprotect_memory(vtbl as *mut winapi::ctypes::c_void, vsize)?;
 
         (*vtbl).CreateDevice = hookd3d9::hook_create_device;
