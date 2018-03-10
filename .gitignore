@@ -40,3 +40,5 @@ MMDotNet.sdf
 E2ETestData/
 ModelMod.VC.VC.opendb
 ModelMod.VC.db
+ModelMod/Exports.cpp
+ModelMod/exports.h
