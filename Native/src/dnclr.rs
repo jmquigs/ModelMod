@@ -11,6 +11,7 @@ use std;
 use std::ptr::null_mut;
 use util::{write_log_file, load_lib, get_proc_address};
 use util::{HookError, Result};
+use util;
 
 DEFINE_GUID!{CLSID_CLR_META_HOST, 0x9280188d, 0xe8e, 0x4867, 0xb3, 0xc, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}
 DEFINE_GUID!{IID_ICLR_META_HOST, 0xD332DB9E, 0xB9B3, 0x4125, 0x82, 0x07, 0xA1, 0x48, 0x84, 0xF5, 0x32, 0x16}
@@ -88,12 +89,8 @@ pub fn init_clr() -> Result<()> {
 
         // skip the enumeration loop and just try creating v4.0 directly
         // TODO: but must enumerate since this specific version likely not found everywhere.
-        use std::ffi::OsStr;
-        use std::iter::once;
-        use std::os::windows::ffi::OsStrExt;
-
         let runtime_info:*mut ICLRRuntimeInfo = {
-            let wide: Vec<u16> = OsStr::new("v4.0.30319").encode_wide().chain(once(0)).collect();
+            let wide = util::to_wide_str("v4.0.30319");
             let mut p_runtime:*mut c_void = null_mut();
             let pp_runtime: *mut *mut c_void = &mut p_runtime;
             let hr = (*metahost).GetRuntime(wide.as_ptr(), &IID_ICLR_RUNTIME_INFO, pp_runtime);
@@ -137,11 +134,11 @@ pub fn init_clr() -> Result<()> {
         }        
 
         let path = "D:\\Dev\\ModelMod\\Release\\MMManaged.dll"; // TODO: unhardcode
-        let app: Vec<u16> = OsStr::new(path).encode_wide().chain(once(0)).collect();
+        let app = util::to_wide_str(path);
 
-        let typename: Vec<u16> = OsStr::new("ModelMod.Main").encode_wide().chain(once(0)).collect();
-        let method: Vec<u16> = OsStr::new("Main").encode_wide().chain(once(0)).collect();
-        let argument: Vec<u16> = OsStr::new("waa gwaan").encode_wide().chain(once(0)).collect();
+        let typename = util::to_wide_str("ModelMod.Main");
+        let method = util::to_wide_str("Main");
+        let argument = util::to_wide_str("waa gwaan");
         let mut ret:u32 = 0xFFFFFFFF;
         let hr = (*runtime_host).ExecuteInDefaultAppDomain(app.as_ptr(),
             typename.as_ptr(),

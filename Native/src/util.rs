@@ -57,11 +57,7 @@ pub unsafe fn unprotect_memory(target: *mut winapi::ctypes::c_void, size:usize) 
 }
 
 pub fn load_lib(name:&str) -> Result<HMODULE> {
-    use std::ffi::OsStr;
-    use std::iter::once;
-    use std::os::windows::ffi::OsStrExt;
-
-    let wide: Vec<u16> = OsStr::new(name).encode_wide().chain(once(0)).collect();
+    let wide: Vec<u16> = to_wide_str(name);
     let handle = unsafe { LoadLibraryW(wide.as_ptr()) };
     if handle == std::ptr::null_mut() {
         Err(HookError::LoadLibFailed(name.to_owned()))
