@@ -6,6 +6,7 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
 #[cfg(windows)] extern crate winapi;
 
 use winapi::um::libloaderapi::{LoadLibraryW, GetProcAddress};

@@ -10,6 +10,8 @@ use winapi::ctypes::c_void;
 use winapi::um::wingdi::{RGNDATA};
 use util::*;
 
+use dnclr::init_clr;
+
 use std;
 use std::fmt;
 use std::cell::RefCell;
@@ -82,7 +84,8 @@ impl HookDirect3D9Device {
 
 struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
-    pub hook_direct3d9device: Option<HookDirect3D9Device>
+    pub hook_direct3d9device: Option<HookDirect3D9Device>,
+    pub clr_pointer: Option<u64>
 }
 
 impl fmt::Display for HookState {
@@ -99,6 +102,7 @@ lazy_static! {
     static ref GLOBAL_STATE: std::sync::Mutex<HookState> = std::sync::Mutex::new(HookState {
         hook_direct3d9: None,
         hook_direct3d9device: None,
+        clr_pointer: None,
     });
 }
 
@@ -106,6 +110,7 @@ thread_local! {
     static STATE: RefCell<HookState> = RefCell::new(HookState {
         hook_direct3d9: None,
         hook_direct3d9device: None,
+        clr_pointer: None,
     });
 }
 
@@ -127,8 +132,8 @@ fn copy_state_to_tls() -> Result<()> {
             let mut lock = GLOBAL_STATE.lock();
             let cp_res = 
                 lock.as_mut()
-                .map(|hookdevice| {
-                    match (*hookdevice).hook_direct3d9device {
+                .map(|hookstate| {
+                    match (*hookstate).hook_direct3d9device {
                         Some(ref mut hookdevice) => {
                             (*state).hook_direct3d9device = Some(*hookdevice);
                         },
@@ -218,9 +223,19 @@ pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> H
     if let Err(e) = copy_state_to_tls() {
         write_log_file(format!("unexpected error: {:?}", e));
         return E_FAIL;
-    }    
+    }        
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
+
+        // TEMP
+        if state.clr_pointer.is_none() {
+            write_log_file(format!("creating clr"));
+            if let Ok(p) = init_clr() {
+                state.clr_pointer = Some(1);
+            } else {
+                state.clr_pointer = Some(666);
+            }
+        }
 
         state.hook_direct3d9device.as_ref().map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS))
     })

@@ -7,7 +7,7 @@ authors = ["John Quigley <jmquigs@gmail.com>"]
 lazy_static = "*"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "processthreadsapi", "memoryapi", "winerror"] }
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase", "processthreadsapi", "memoryapi", "winerror"] }
 
 [lib]
 crate_type = ["cdylib"]

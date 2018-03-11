@@ -11,6 +11,7 @@ pub enum HookError {
     ProtectFailed,
     LoadLibFailed(String),
     GetProcAddressFailed(String),
+    CLRInitFailed(String),
     NulError(std::ffi::NulError),
     GlobalStateCopyFailed,
 }

@@ -42,3 +42,4 @@ ModelMod.VC.VC.opendb
 ModelMod.VC.db
 ModelMod/Exports.cpp
 ModelMod/exports.h
+Native/rb.sh
