@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
-
+// this is here to silence the spammy warnings from the COM macro definitions in dnclr.
+// need to turn this on periodically to find the try dead code.
+#![allow(dead_code)]
 #![feature(test)]
 extern crate test;
 
@@ -9,14 +11,15 @@ extern crate lazy_static;
 #[macro_use]
 #[cfg(windows)] extern crate winapi;
 
-use winapi::um::libloaderapi::{LoadLibraryW, GetProcAddress};
-
 mod dnclr;
 mod hookd3d9;
 mod util;
+mod interop;
 
 use util::write_log_file;
 use util::Result;
+
+pub use interop::OnInitialized;
 
 type Direct3DCreate9Fn = unsafe extern "system" fn(sdk_ver: u32) -> *mut hookd3d9::IDirect3D9;
 
@@ -28,7 +31,7 @@ pub extern "system" fn Direct3DCreate9(
     match create_d3d(SDKVersion) {
         Ok(ptr) => ptr as *mut u64,
         Err(x) => {
-            write_log_file(format!("create_d3d failed: {:?}", x));
+            write_log_file(&format!("create_d3d failed: {:?}", x));
             std::ptr::null_mut()
         }
     }
@@ -43,7 +46,7 @@ fn create_d3d(sdk_ver:u32) -> Result<*mut hookd3d9::IDirect3D9> {
 
         let direct3d9 = (create)(sdk_ver);
         let direct3d9 = direct3d9 as *mut hookd3d9::IDirect3D9;
-        write_log_file(format!("created d3d: {:x}", direct3d9 as u64));
+        write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
 
         // get pointer to original vtable        
         let vtbl: *mut hookd3d9::IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);

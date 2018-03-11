@@ -1,10 +1,8 @@
 use std;
 use winapi;
 
-use winapi::shared::minwindef::HINSTANCE__;
 use winapi::um::libloaderapi::{LoadLibraryW, GetProcAddress, FreeLibrary};
 use winapi::shared::minwindef::{HMODULE,FARPROC};
-use winapi::ctypes::c_void;
 
 #[derive(Debug,Clone)]
 pub enum HookError {
@@ -24,7 +22,7 @@ impl std::convert::From<std::ffi::NulError> for HookError {
 
 pub type Result<T> = std::result::Result<T, HookError>;
 
-pub fn write_log_file(format:String) -> () {
+pub fn write_log_file(format:&str) -> () {
     use std::io::Write;
     use std::fs::OpenOptions;
 
@@ -93,6 +91,14 @@ pub fn get_proc_address(h:HMODULE, name:&str) -> Result<FARPROC> {
     } else {
         Ok(addr)
     }
+}
+
+pub fn to_wide_str(s:&str) -> Vec<u16> {
+    use std::ffi::OsStr;
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+
+    OsStr::new(s).encode_wide().chain(once(0)).collect()
 }
 
 #[cfg(test)]

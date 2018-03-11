@@ -127,7 +127,7 @@ fn copy_state_to_tls() -> Result<()> {
         let ref mut state = *state.borrow_mut();
 
         if state.hook_direct3d9device.is_none() {
-            write_log_file(format!("writing global device state into TLS on thread {:?}",  
+            write_log_file(&format!("writing global device state into TLS on thread {:?}",  
                 std::thread::current().id()));
             let mut lock = GLOBAL_STATE.lock();
             let cp_res = 
@@ -137,7 +137,7 @@ fn copy_state_to_tls() -> Result<()> {
                         Some(ref mut hookdevice) => {
                             (*state).hook_direct3d9device = Some(*hookdevice);
                         },
-                        None => write_log_file(format!("no hook device in global state"))
+                        None => write_log_file(&format!("no hook device in global state"))
                     };
                 });
 
@@ -155,7 +155,7 @@ pub unsafe extern "system" fn hook_present(THIS: *mut IDirect3DDevice9,
         pDirtyRegion: *const RGNDATA,
     ) -> HRESULT {
     // if let Err(e) = copy_state_to_tls() {
-    //     write_log_file(format!("unexpected error: {:?}", e));
+    //     write_log_file(&format!("unexpected error: {:?}", e));
     //     return E_FAIL;
     // }   
 
@@ -177,14 +177,14 @@ pub unsafe extern "system" fn hook_present(THIS: *mut IDirect3DDevice9,
 
                             let epocht = now.duration_since(std::time::UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(1)).as_secs()*1000;
 
-                            write_log_file(format!("{:?}: {} frames in {} secs ({} fps)",
+                            write_log_file(&format!("{:?}: {} frames in {} secs ({} fps)",
                                 epocht, hookdevice.frames, secs, fps ));
                             hookdevice.last_frame_log = now;
                             hookdevice.frames = 0;   
                         }
                     },
                     Err(e) => {
-                        write_log_file(format!("Error getting elapsed duration: {:?}", e))
+                        write_log_file(&format!("Error getting elapsed duration: {:?}", e))
                     }                        
                 }
             }
@@ -195,7 +195,7 @@ pub unsafe extern "system" fn hook_present(THIS: *mut IDirect3DDevice9,
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     if let Err(e) = copy_state_to_tls() {
-        write_log_file(format!("unexpected error: {:?}", e));
+        write_log_file(&format!("unexpected error: {:?}", e));
         return 0xFFFFFFFF; // TODO: check docs, may be wrong "error" value
     }    
     STATE.with(|state| {
@@ -207,12 +207,12 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             // from multiple threads and we store the counter in TLS.
             // may need to do AddRef/Release to get an accurate count.
             if hookdevice.ref_count == 1 {
-                write_log_file(format!("device may be destroyed: {}", THIS as u64));
+                write_log_file(&format!("device may be destroyed: {}", THIS as u64));
             }            
             let cnt = (hookdevice.real_release)(THIS);
             hookdevice.ref_count = cnt;
             if cnt == 0 {
-                write_log_file(format!("device released: {}", THIS as u64));
+                write_log_file(&format!("device released: {}", THIS as u64));
             }
             cnt
         })
@@ -221,7 +221,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
 pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> HRESULT {
     if let Err(e) = copy_state_to_tls() {
-        write_log_file(format!("unexpected error: {:?}", e));
+        write_log_file(&format!("unexpected error: {:?}", e));
         return E_FAIL;
     }        
     STATE.with(|state| {
@@ -229,8 +229,8 @@ pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> H
 
         // TEMP
         if state.clr_pointer.is_none() {
-            write_log_file(format!("creating clr"));
-            if let Ok(p) = init_clr() {
+            write_log_file(&format!("creating clr"));
+            if let Ok(_p) = init_clr() {
                 state.clr_pointer = Some(1);
             } else {
                 state.clr_pointer = Some(666);
@@ -254,7 +254,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         let ref mut state = *state.borrow_mut();
 
         let hookdevice = match state.hook_direct3d9device {
-            None => { write_log_file(format!("No state in DIP")); return E_FAIL }, // beginscene must do global->tls copy
+            None => { write_log_file(&format!("No state in DIP")); return E_FAIL }, // beginscene must do global->tls copy
             Some(ref mut hookdevice) => hookdevice
         };
         hookdevice.dip_calls += 1;
@@ -270,14 +270,14 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
                         let epocht = now.duration_since(std::time::UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(1)).as_secs()*1000;
 
-                        write_log_file(format!("{:?}: {} dip calls in {} secs ({} dips/sec)",
+                        write_log_file(&format!("{:?}: {} dip calls in {} secs ({} dips/sec)",
                             epocht, hookdevice.dip_calls, secs, dipsec ));
                         hookdevice.last_call_log = now;
                         hookdevice.dip_calls = 0;   
                     }
                 },
                 Err(e) => {
-                    write_log_file(format!("Error getting elapsed duration: {:?}", e))
+                    write_log_file(&format!("Error getting elapsed duration: {:?}", e))
                 }                        
             }
         }
@@ -292,12 +292,12 @@ fn set_hook_device(d3d9device:HookDirect3D9Device) {
         Ok(ref mut mtx) => {
             (*mtx).hook_direct3d9device = Some(d3d9device);
         },
-        Err(e) => write_log_file(format!("{:?} should never happen", e))
+        Err(e) => write_log_file(&format!("{:?} should never happen", e))
     };
 }
 
 unsafe fn hook_device(device:*mut IDirect3DDevice9) -> Result<HookDirect3D9Device> {
-    write_log_file(format!("hooking new device: {}", device as u64));
+    write_log_file(&format!("hooking new device: {}", device as u64));
     let vtbl: *mut IDirect3DDevice9Vtbl = std::mem::transmute((*device).lpVtbl);
     let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
@@ -331,32 +331,32 @@ pub unsafe extern "system" fn hook_create_device(THIS: *mut IDirect3D9,
         pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
         ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
         ) -> HRESULT {
-    //write_log_file(format!("hook_create_device called"));
+    //write_log_file(&format!("hook_create_device called"));
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
         match state.hook_direct3d9 {
             None => {
-                write_log_file(format!("no hook_direct3d9"));
+                write_log_file(&format!("no hook_direct3d9"));
                 E_FAIL
             },
             Some(ref hd3d9) => {
-                write_log_file(format!("calling real create device"));
+                write_log_file(&format!("calling real create device"));
                 let result = (hd3d9.real_create_device)(THIS, Adapter, DeviceType, hFocusWindow, 
                     BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
                 if result != S_OK {
-                    write_log_file(format!("create device FAILED: {}", result));
+                    write_log_file(&format!("create device FAILED: {}", result));
                     return result;
                 }                               
                 match hook_device(*ppReturnedDeviceInterface) {
                     Err(e) => {
-                        write_log_file(format!("error hooking device: {:?}", e));
+                        write_log_file(&format!("error hooking device: {:?}", e));
                         // return device anyway, since failing just because the hook failed is very rude.
                         S_OK
                     },
                     Ok(hook_d3d9device) => {
                         set_hook_device(hook_d3d9device);
 
-                        write_log_file(format!("hooked device on thread {:?}", std::thread::current().id()));
+                        write_log_file(&format!("hooked device on thread {:?}", std::thread::current().id()));
                         S_OK
                     }
                 }                
