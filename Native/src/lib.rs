@@ -1,3 +1,5 @@
+#![feature(const_fn)]
+
 #![allow(non_snake_case)]
 // this is here to silence the spammy warnings from the COM macro definitions in dnclr.
 // need to turn this on periodically to find the try dead code.

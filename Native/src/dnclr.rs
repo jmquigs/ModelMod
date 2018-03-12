@@ -12,6 +12,7 @@ use std::ptr::null_mut;
 use util::{write_log_file, load_lib, get_proc_address};
 use util::{HookError, Result};
 use util;
+use hookd3d9;
 
 DEFINE_GUID!{CLSID_CLR_META_HOST, 0x9280188d, 0xe8e, 0x4867, 0xb3, 0xc, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}
 DEFINE_GUID!{IID_ICLR_META_HOST, 0xD332DB9E, 0xB9B3, 0x4125, 0x82, 0x07, 0xA1, 0x48, 0x84, 0xF5, 0x32, 0x16}
@@ -138,7 +139,9 @@ pub fn init_clr() -> Result<()> {
 
         let typename = util::to_wide_str("ModelMod.Main");
         let method = util::to_wide_str("Main");
-        let argument = util::to_wide_str("waa gwaan");
+
+        let cookie = hookd3d9::get_global_state_ptr();
+        let argument = util::to_wide_str(&format!("{}", cookie as u64));
         let mut ret:u32 = 0xFFFFFFFF;
         let hr = (*runtime_host).ExecuteInDefaultAppDomain(app.as_ptr(),
             typename.as_ptr(),
@@ -162,10 +165,15 @@ mod tests {
 
     #[test]
     pub fn test_init_clr() {
-        let _r = init_clr()
-        .map_err(|err| {
-            assert!(false, "Expected Ok but got {:?}", err)
-         });
+        // TODO: fix this to use a generic test assembly
+        // init_clr()
+        // .map_err(|err| {
+        //     assert!(false, "Expected Ok but got {:?}", err)
+        // })
+        // .map(|r| {
+        //     hookd3d9::hook_begin_scene()
+
+        // });
     }
 }
 

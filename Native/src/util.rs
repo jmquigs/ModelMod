@@ -26,12 +26,14 @@ pub fn write_log_file(format:&str) -> () {
     use std::io::Write;
     use std::fs::OpenOptions;
 
+    let tid = std::thread::current().id();
+
     let w = || -> std::io::Result<()> {
         let mut f = OpenOptions::new()
             .create(true)
             .append(true)
             .open("D:\\Temp\\rd3dlog.txt")?; // TODO: duh, unhardcode
-        writeln!(f, "{}\r", format)?;
+        writeln!(f, "{:?}: {}\r", tid, format)?;
         Ok(())
     };
 

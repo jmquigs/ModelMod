@@ -10,8 +10,8 @@ use winapi::ctypes::c_void;
 use winapi::um::wingdi::{RGNDATA};
 use util::*;
 use util;
-
 use dnclr::init_clr;
+use interop::InteropState;
 
 use std;
 use std::fmt;
@@ -83,12 +83,27 @@ impl HookDirect3D9Device {
     }
 }
 
-struct HookState {
+pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
-    pub clr_pointer: Option<u64>
+    pub clr_pointer: Option<u64>,
+    pub interop_state: Option<InteropState>,
+    pub is_global: bool,
 }
 
+impl HookState {
+    pub fn new() -> HookState {
+        let tid = std::thread::current().id();
+        write_log_file(&format!("local hookstate created on thread {:?}", tid));
+        HookState {
+            hook_direct3d9: None,
+            hook_direct3d9device: None,
+            clr_pointer: None,
+            interop_state: None,
+            is_global: false,
+        }
+    }
+}
 impl fmt::Display for HookState {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "HookState (thread: {:?}): d3d9: {:?}, device: {:?}", 
@@ -97,22 +112,30 @@ impl fmt::Display for HookState {
     }
 }
 
+const fn new_global_hookstate() -> HookState {
+    HookState {
+        hook_direct3d9: None,
+        hook_direct3d9device: None,
+        clr_pointer: None,
+        interop_state: None,
+        is_global: true,
+    }
+}
+
 // global state is copied into TLS as needed.  Prefer TLS to avoid locking on 
 // global state.
 lazy_static! {
-    static ref GLOBAL_STATE: std::sync::Mutex<HookState> = std::sync::Mutex::new(HookState {
-        hook_direct3d9: None,
-        hook_direct3d9device: None,
-        clr_pointer: None,
-    });
+    pub static ref GLOBAL_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
+pub static mut GLOBAL_STATE: HookState = new_global_hookstate();
 
 thread_local! {
-    static STATE: RefCell<HookState> = RefCell::new(HookState {
-        hook_direct3d9: None,
-        hook_direct3d9device: None,
-        clr_pointer: None,
-    });
+    static STATE: RefCell<HookState> = RefCell::new(HookState::new());
+}
+
+pub fn get_global_state_ptr() -> *mut HookState {
+    let pstate: *mut HookState = unsafe{&mut GLOBAL_STATE};
+    pstate
 }
 
 pub fn set_hook_direct3d9(d3d9:HookDirect3D9) -> () {
@@ -128,25 +151,96 @@ fn copy_state_to_tls() -> Result<()> {
         let ref mut state = *state.borrow_mut();
 
         if state.hook_direct3d9device.is_none() {
-            write_log_file(&format!("writing global device state into TLS on thread {:?}",  
-                std::thread::current().id()));
-            let mut lock = GLOBAL_STATE.lock();
-            let cp_res = 
-                lock.as_mut()
-                .map(|hookstate| {
+            GLOBAL_STATE_LOCK.lock()
+                .map(|_ignored| {
+                    let hookstate = unsafe{&mut GLOBAL_STATE};
                     match (*hookstate).hook_direct3d9device {
                         Some(ref mut hookdevice) => {
+                            write_log_file(&format!("writing global device state into TLS on thread {:?}",  
+                                std::thread::current().id()));
+                            
                             (*state).hook_direct3d9device = Some(*hookdevice);
                         },
                         None => write_log_file(&format!("no hook device in global state"))
                     };
-                });
+                })
+                .map_err(|_err| HookError::GlobalStateCopyFailed)?;
+        } 
 
-            cp_res.map_err(|_err| HookError::GlobalStateCopyFailed)
-        } else {
-            Ok(())
+        if state.interop_state.is_none() {
+            GLOBAL_STATE_LOCK.lock().as_mut()
+                .map(|_ignored| {
+                    let hookstate = unsafe{&mut GLOBAL_STATE};
+                    match (*hookstate).interop_state {
+                        Some(ref mut interop_state) => {
+                        write_log_file(&format!("writing global interop state into TLS on thread {:?}",  
+                            std::thread::current().id()));
+                            
+                            (*state).interop_state = Some(*interop_state);
+                        }
+                        None => { write_log_file("no interop state"); () }
+                    };
+                })
+                .map_err(|_err| HookError::GlobalStateCopyFailed)?;
         }
+
+        Ok(())
     })
+}
+
+pub fn do_per_scene_operations() -> Result<()> {
+    copy_state_to_tls()?;
+
+    write_log_file(&format!("performing per-scene ops on thread {:?}",  
+            std::thread::current().id()));
+
+    STATE.with(|state| {
+        let ref mut state = *state.borrow_mut();
+
+        // TEMP/TODO: this should be in global state so that we only make it once
+        if state.clr_pointer.is_none() {
+            write_log_file("creating clr");
+            if let Ok(_p) = init_clr() {
+                state.clr_pointer = Some(1);
+            } else {
+                state.clr_pointer = Some(666);
+            }
+        }
+
+        state.interop_state.as_mut().map(|is| {
+            let AsyncLoadNotStarted = 51;
+            let AsyncLoadPending = 52;
+            let AsyncLoadInProgress = 53;
+            let AsyncLoadComplete = 54;  
+
+            if !is.loading_mods && !is.done_loading_mods && is.conf_data.LoadModsOnStart {
+                let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
+                if loadstate == AsyncLoadInProgress {
+                    is.loading_mods = true;    
+                    is.done_loading_mods = false;
+                } else if loadstate != AsyncLoadPending {
+                    let r = unsafe { (is.callbacks.LoadModDB)() };
+                    if r == AsyncLoadPending {
+                        is.loading_mods = true;
+                        is.done_loading_mods = false;
+                    }
+                    if r == AsyncLoadComplete {
+                        is.loading_mods = false;
+                        is.done_loading_mods = true;
+                    }
+                    write_log_file(&format!("mod db load returned: {}", r));
+                }
+            }
+
+            if is.loading_mods && unsafe { (is.callbacks.GetLoadingState)() } == AsyncLoadComplete {
+                write_log_file("mod loading complete");
+                is.loading_mods = false;
+                is.done_loading_mods = true;
+            }
+
+        });
+        Ok(())
+    })        
 }
 
 pub unsafe extern "system" fn hook_present(THIS: *mut IDirect3DDevice9,
@@ -221,23 +315,13 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 }
 
 pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> HRESULT {
-    if let Err(e) = copy_state_to_tls() {
+    if let Err(e) = do_per_scene_operations() {
         write_log_file(&format!("unexpected error: {:?}", e));
         return E_FAIL;
-    }        
+    }   
+
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
-
-        // TEMP
-        if state.clr_pointer.is_none() {
-            write_log_file(&format!("creating clr"));
-            if let Ok(_p) = init_clr() {
-                state.clr_pointer = Some(1);
-            } else {
-                state.clr_pointer = Some(666);
-            }
-        }
-
         state.hook_direct3d9device.as_ref().map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS))
     })
 }
@@ -288,10 +372,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 }
 
 fn set_hook_device(d3d9device:HookDirect3D9Device) {
-    let mut lock = GLOBAL_STATE.lock();
+    let lock = GLOBAL_STATE_LOCK.lock();
     match lock {
-        Ok(ref mut mtx) => {
-            (*mtx).hook_direct3d9device = Some(d3d9device);
+        Ok(_ignored) => {
+            let hookstate = unsafe{&mut GLOBAL_STATE};
+            hookstate.hook_direct3d9device = Some(d3d9device);
         },
         Err(e) => write_log_file(&format!("{:?} should never happen", e))
     };
@@ -481,13 +566,22 @@ mod tests {
     fn test_state_copy() {
         set_stub_device();
 
-        unsafe { 
-            let device = std::ptr::null_mut();
-            hook_begin_scene(device);
-            for _i in 0..10 {
-                hook_draw_indexed_primitive(device, D3DPT_TRIANGLESTRIP, 0, 0, 0, 0, 0);
-            }
-        };
+        // TODO: re-enable when per-scene ops creates clr in global state
+        // unsafe { 
+        //     let device = std::ptr::null_mut();
+        //     hook_begin_scene(device);
+        //     for _i in 0..10 {
+        //         hook_draw_indexed_primitive(device, D3DPT_TRIANGLESTRIP, 0, 0, 0, 0, 0);
+        //     }
+        // };
+    }
+
+    #[test]
+    fn test_all() {
+        for _sec in 0..25 {
+            do_per_scene_operations();
+            std::thread::sleep_ms(1000);
+        }
     }
 
     #[bench]
@@ -499,14 +593,16 @@ mod tests {
         // 111,695,214 ns/iter (+/- 2,909,577)
         // ~88K calls/millisecond
 
-        let device = std::ptr::null_mut();
-        unsafe { hook_begin_scene(device) };
-        b.iter(|| { 
-            let range = 0..5_000_000;
-            for _r in range {
-                unsafe { hook_draw_indexed_primitive(device,
-                    D3DPT_TRIANGLESTRIP, 0, 0, 0, 0, 0) };
-            }
-        });
+        // TODO: re-enable when per-scene ops creates clr in global state
+
+        // let device = std::ptr::null_mut();
+        // unsafe { hook_begin_scene(device) };
+        // b.iter(|| { 
+        //     let range = 0..10_000_000;
+        //     for _r in range {
+        //         unsafe { hook_draw_indexed_primitive(device,
+        //             D3DPT_TRIANGLESTRIP, 0, 0, 0, 0, 0) };
+        //     }
+        // });
     }
 }
