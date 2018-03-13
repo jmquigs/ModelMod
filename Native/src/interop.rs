@@ -59,6 +59,11 @@ pub unsafe extern "C" fn OnInitialized(callbacks: *mut ManagedCallbacks, cookie:
     // access to that global, or any rust global).  So we have to manufacture a pointer
     // to global state from the cookie and set the interop state directly.
     write_log_file(&format!("OnInitialized called with cookie: {}", cookie));
+    let local_gs_addr = hookd3d9::get_global_state_ptr() as u64;
+    if cookie != local_gs_addr {
+        write_log_file(&format!("WARNING: OnInitialized's global state address {:x} differs from cookie {:x}", local_gs_addr, cookie));
+    }
+    
     let global_hookstate: *mut hookd3d9::HookState = cookie as *mut hookd3d9::HookState;
 
     if callbacks == std::ptr::null_mut() {
