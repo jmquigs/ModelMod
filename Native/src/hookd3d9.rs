@@ -309,18 +309,16 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
         state.hook_direct3d9device.as_mut().map_or(0xFFFFFFFF, 
         |hookdevice| {
-            // TODO: this count is inaccurate because the device can be released
-            // from multiple threads and we store the counter in TLS.
-            // may need to do AddRef/Release to get an accurate count.
+       
+            hookdevice.ref_count = (hookdevice.real_release)(THIS);
+
             if hookdevice.ref_count == 1 {
-                write_log_file(&format!("device may be destroyed: {}", THIS as u64));
-            }            
-            let cnt = (hookdevice.real_release)(THIS);
-            hookdevice.ref_count = cnt;
-            if cnt == 0 {
-                write_log_file(&format!("device released: {}", THIS as u64));
-            }
-            cnt
+                // I am the last reference, release again to trigger destruction of the device
+                hookdevice.ref_count = (hookdevice.real_release)(THIS);
+                write_log_file(&format!("device released: {:x}, refcount: {}", THIS as u64, hookdevice.ref_count));
+                //write_log_file(&format!("device may be destroyed: {}", THIS as u64));
+            }     
+            hookdevice.ref_count
         })
     })    
 }
@@ -394,7 +392,7 @@ fn set_hook_device(d3d9device:HookDirect3D9Device) {
 }
 
 unsafe fn hook_device(device:*mut IDirect3DDevice9) -> Result<HookDirect3D9Device> {
-    write_log_file(&format!("hooking new device: {}", device as u64));
+    write_log_file(&format!("hooking new device: {:x}", device as u64));
     let vtbl: *mut IDirect3DDevice9Vtbl = std::mem::transmute((*device).lpVtbl);
     let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
@@ -412,12 +410,15 @@ unsafe fn hook_device(device:*mut IDirect3DDevice9) -> Result<HookDirect3D9Devic
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     
+    // Inc ref count on the device
+    (*device).AddRef();
+
     Ok(HookDirect3D9Device::new(
         real_draw_indexed_primitive,
         real_begin_scene,
         real_present,
         real_release
-    ))
+    ))    
 }
 
 pub unsafe extern "system" fn hook_create_device(THIS: *mut IDirect3D9,
