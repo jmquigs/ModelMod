@@ -83,6 +83,7 @@ impl HookDirect3D9Device {
     }
 }
 
+// TODO: maybe don't need TLS variant
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
@@ -178,7 +179,7 @@ fn copy_state_to_tls() -> Result<()> {
                             
                             (*state).interop_state = Some(*interop_state);
                         }
-                        None => { write_log_file("no interop state"); () }
+                        None => () 
                     };
                 })
                 .map_err(|_err| HookError::GlobalStateCopyFailed)?;
@@ -191,21 +192,31 @@ fn copy_state_to_tls() -> Result<()> {
 pub fn do_per_scene_operations() -> Result<()> {
     copy_state_to_tls()?;
 
-    write_log_file(&format!("performing per-scene ops on thread {:?}",  
-            std::thread::current().id()));
+    // init the clr if needed
+    {
+        let hookstate = unsafe{&mut GLOBAL_STATE};
+        if hookstate.clr_pointer.is_none() {
+            let lock = GLOBAL_STATE_LOCK.lock();
+            match lock {
+                Ok(_ignored) => {
+                    if hookstate.clr_pointer.is_none() {
+                        write_log_file("creating clr");
+                        if let Ok(_p) = init_clr() {
+                            hookstate.clr_pointer = Some(1);
+                        } else {
+                            hookstate.clr_pointer = Some(666);
+                        }
+                    }
+                },
+                Err(e) => write_log_file(&format!("{:?} should never happen", e))
+            };        
+        }
+    }
+    // write_log_file(&format!("performing per-scene ops on thread {:?}",  
+    //         std::thread::current().id()));
 
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
-
-        // TEMP/TODO: this should be in global state so that we only make it once
-        if state.clr_pointer.is_none() {
-            write_log_file("creating clr");
-            if let Ok(_p) = init_clr() {
-                state.clr_pointer = Some(1);
-            } else {
-                state.clr_pointer = Some(666);
-            }
-        }
 
         state.interop_state.as_mut().map(|is| {
             let AsyncLoadNotStarted = 51;
