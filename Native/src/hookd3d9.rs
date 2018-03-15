@@ -644,6 +644,56 @@ unsafe fn hook_device(
     ))
 }
 
+#[inline]
+unsafe fn create_and_hook_device(
+    THIS: *mut IDirect3D9,
+    Adapter: UINT,
+    DeviceType: D3DDEVTYPE,
+    hFocusWindow: HWND,
+    BehaviorFlags: DWORD,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+    ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
+) -> Result<()> {
+    let lock = GLOBAL_STATE_LOCK.lock().map_err(|_err| HookError::GlobalLockError)?;
+
+    match GLOBAL_STATE.hook_direct3d9 {
+        None => return Err(HookError::Direct3D9InstanceNotFound),
+        Some(ref hd3d9) => {
+            write_log_file(&format!("calling real create device"));
+            let result = (hd3d9.real_create_device)(
+                THIS,
+                Adapter,
+                DeviceType,
+                hFocusWindow,
+                BehaviorFlags,
+                pPresentationParameters,
+                ppReturnedDeviceInterface,
+            );
+            if result != S_OK {
+                write_log_file(&format!("create device FAILED: {}", result));
+                return Err(HookError::CreateDeviceFailed(result));
+            }
+            hook_device(*ppReturnedDeviceInterface, &lock)
+                .and_then(|hook_d3d9device| {
+                    GLOBAL_STATE.hook_direct3d9device = Some(hook_d3d9device);
+                    write_log_file(&format!(
+                        "hooked device on thread {:?}",
+                        std::thread::current().id()
+                    ));
+                    Ok(())
+                })
+                .or_else(|err| {
+                    if *ppReturnedDeviceInterface != null_mut() {
+                        (*(*ppReturnedDeviceInterface)).Release();
+                    }
+                    Err(err)
+                })?;
+        }
+    };
+
+    Ok(())
+}
+
 pub unsafe extern "system" fn hook_create_device(
     THIS: *mut IDirect3D9,
     Adapter: UINT,
@@ -653,52 +703,12 @@ pub unsafe extern "system" fn hook_create_device(
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
     ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
 ) -> HRESULT {
-    let lock = GLOBAL_STATE_LOCK.lock();
-    match lock {
-        Err(e) => {
-            write_log_file(&format!("global lock error: {}", e));
-            E_FAIL
-        }
-        Ok(guard) => {
-            write_log_file(&format!("hook_create_device called"));
-            match GLOBAL_STATE.hook_direct3d9 {
-                None => {
-                    write_log_file(&format!("no hook_direct3d9"));
-                    E_FAIL
-                }
-                Some(ref hd3d9) => {
-                    write_log_file(&format!("calling real create device"));
-                    let result = (hd3d9.real_create_device)(
-                        THIS,
-                        Adapter,
-                        DeviceType,
-                        hFocusWindow,
-                        BehaviorFlags,
-                        pPresentationParameters,
-                        ppReturnedDeviceInterface,
-                    );
-                    if result != S_OK {
-                        write_log_file(&format!("create device FAILED: {}", result));
-                        return result;
-                    }
-                    match hook_device(*ppReturnedDeviceInterface, &guard) {
-                        Err(e) => {
-                            write_log_file(&format!("error hooking device: {:?}", e));
-                            // return device anyway, since failing just because the hook failed is very rude.
-                            S_OK
-                        }
-                        Ok(hook_d3d9device) => {
-                            GLOBAL_STATE.hook_direct3d9device = Some(hook_d3d9device);
-                            write_log_file(&format!(
-                                "hooked device on thread {:?}",
-                                std::thread::current().id()
-                            ));
-                            S_OK
-                        }
-                    }
-                }
-            }
-        }
+    let res = create_and_hook_device(THIS, Adapter, DeviceType, hFocusWindow,
+        BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
+
+    match res {
+        Err(e) => { write_log_file(&format!("error creating/hooking device: {:?}", e)); E_FAIL },
+        Ok(_) => S_OK
     }
 }
 

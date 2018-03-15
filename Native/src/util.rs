@@ -12,8 +12,11 @@ pub enum HookError {
     CLRInitFailed(String),
     NulError(std::ffi::NulError),
     GlobalStateCopyFailed,
+    Direct3D9InstanceNotFound,
+    CreateDeviceFailed(i32),
     D3D9HookFailed,
     D3D9DeviceHookFailed,
+    GlobalLockError,
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
