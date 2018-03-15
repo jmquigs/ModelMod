@@ -10,8 +10,13 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
+extern crate fnv;
+
 #[macro_use]
 #[cfg(windows)] extern crate winapi;
+
+
+mod test_e2e;
 
 mod dnclr;
 mod hookd3d9;

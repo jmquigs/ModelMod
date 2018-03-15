@@ -24,8 +24,64 @@ pub struct ConfData {
 	pub InputProfile: [c_char;512],
 }
 
+pub enum ModType {
+	None = 0,
+	CPUAdditive,
+	CPUReplacement,
+	GPUReplacement,
+	GPUPertubation,
+	Deletion
+}
+
+// #define MaxModTextures 4
+// #define MaxModTexPathLen 8192 // Must match SizeConst attribute in managed code
+// typedef WCHAR ModPath[MaxModTexPathLen];
+
+const MAX_TEX_PATH_LEN:usize = 8192;
+
 #[repr(C)]
+#[derive(Debug)]
+#[derive(Copy,Clone)]
+pub struct ModNumbers {
+	pub mod_type:i32,
+	pub prim_type:i32,
+	pub vert_count:i32,
+	pub prim_count:i32,
+	pub index_count:i32,
+	pub ref_vert_count:i32,
+	pub ref_prim_count:i32,
+	pub decl_size_bytes:i32,
+	pub vert_size_bytes:i32,
+	pub index_elem_size_bytes:i32,
+}
+#[repr(C)]
+#[derive(Copy,Clone)]
 pub struct ModData {
+    pub numbers: ModNumbers,
+    pub texPath0: [WCHAR;MAX_TEX_PATH_LEN],
+    pub texPath1: [WCHAR;MAX_TEX_PATH_LEN],
+    pub texPath2: [WCHAR;MAX_TEX_PATH_LEN],
+    pub texPath3: [WCHAR;MAX_TEX_PATH_LEN],
+}
+
+pub struct NativeModData {
+	pub mod_data:ModData,
+	pub vb_data:*mut c_char,
+	pub ib_data:*mut c_char,
+	pub decl_data:*mut c_char,
+	pub vb:*mut hookd3d9::IDirect3DVertexBuffer9,
+	pub ib:*mut hookd3d9::IDirect3DIndexBuffer9,
+	pub decl:*mut hookd3d9::IDirect3DVertexDeclaration9,
+    // TODO:
+	//IDirect3DBaseTexture9* texture[MaxModTextures];
+	//IDirect3DPixelShader9* pixelShader;
+}
+
+impl NativeModData {
+    pub fn hash_code(vert_count:i32, prim_count:i32) -> i32 {
+        //https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
+        ( (vert_count + prim_count) * (vert_count + prim_count + 1) / 2 ) + prim_count
+    }
 }
 
 type SetPathsCB = unsafe extern "stdcall" fn(dllpath:*mut WCHAR, exemodule:*mut WCHAR) -> *mut ConfData;

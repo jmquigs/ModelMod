@@ -161,7 +161,7 @@ pub fn init_clr() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //use super::*;
 
     #[test]
     pub fn test_init_clr() {
