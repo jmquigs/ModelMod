@@ -654,11 +654,15 @@ unsafe fn create_and_hook_device(
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
     ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
 ) -> Result<()> {
-    let lock = GLOBAL_STATE_LOCK.lock().map_err(|_err| HookError::GlobalLockError)?;
+    let lock = GLOBAL_STATE_LOCK
+        .lock()
+        .map_err(|_err| HookError::GlobalLockError)?;
 
-    match GLOBAL_STATE.hook_direct3d9 {
-        None => return Err(HookError::Direct3D9InstanceNotFound),
-        Some(ref hd3d9) => {
+    GLOBAL_STATE
+        .hook_direct3d9
+        .as_mut()
+        .ok_or(HookError::Direct3D9InstanceNotFound)
+        .and_then(|hd3d9| {
             write_log_file(&format!("calling real create device"));
             let result = (hd3d9.real_create_device)(
                 THIS,
@@ -674,24 +678,21 @@ unsafe fn create_and_hook_device(
                 return Err(HookError::CreateDeviceFailed(result));
             }
             hook_device(*ppReturnedDeviceInterface, &lock)
-                .and_then(|hook_d3d9device| {
-                    GLOBAL_STATE.hook_direct3d9device = Some(hook_d3d9device);
-                    write_log_file(&format!(
-                        "hooked device on thread {:?}",
-                        std::thread::current().id()
-                    ));
-                    Ok(())
-                })
-                .or_else(|err| {
-                    if *ppReturnedDeviceInterface != null_mut() {
-                        (*(*ppReturnedDeviceInterface)).Release();
-                    }
-                    Err(err)
-                })?;
-        }
-    };
-
-    Ok(())
+        })
+        .and_then(|hook_d3d9device| {
+            GLOBAL_STATE.hook_direct3d9device = Some(hook_d3d9device);
+            write_log_file(&format!(
+                "hooked device on thread {:?}",
+                std::thread::current().id()
+            ));
+            Ok(())
+        })
+        .or_else(|err| {
+            if ppReturnedDeviceInterface != null_mut() && *ppReturnedDeviceInterface != null_mut() {
+                (*(*ppReturnedDeviceInterface)).Release();
+            }
+            Err(err)
+        })
 }
 
 pub unsafe extern "system" fn hook_create_device(
@@ -703,12 +704,22 @@ pub unsafe extern "system" fn hook_create_device(
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
     ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
 ) -> HRESULT {
-    let res = create_and_hook_device(THIS, Adapter, DeviceType, hFocusWindow,
-        BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
+    let res = create_and_hook_device(
+        THIS,
+        Adapter,
+        DeviceType,
+        hFocusWindow,
+        BehaviorFlags,
+        pPresentationParameters,
+        ppReturnedDeviceInterface,
+    );
 
     match res {
-        Err(e) => { write_log_file(&format!("error creating/hooking device: {:?}", e)); E_FAIL },
-        Ok(_) => S_OK
+        Err(e) => {
+            write_log_file(&format!("error creating/hooking device: {:?}", e));
+            E_FAIL
+        }
+        Ok(_) => S_OK,
     }
 }
 
