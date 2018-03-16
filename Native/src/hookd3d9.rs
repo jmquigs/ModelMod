@@ -137,7 +137,7 @@ const fn new_global_hookstate() -> HookState {
         interop_state: None,
         is_global: true,
         loaded_mods: None,
-        in_dip: false
+        in_dip: false,
     }
 }
 
@@ -378,8 +378,8 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         // create vertex declaration
         let mut out_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
         let pp_out_decl: *mut *mut IDirect3DVertexDeclaration9 = &mut out_decl;
-        let hr = (*device).CreateVertexDeclaration(
-            decl_data as *const D3DVERTEXELEMENT9, pp_out_decl);
+        let hr =
+            (*device).CreateVertexDeclaration(decl_data as *const D3DVERTEXELEMENT9, pp_out_decl);
         if hr != 0 {
             write_log_file(&format!("failed to create vertex declaration: {}", hr));
             (*vb).Release();
@@ -400,7 +400,11 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         );
         loaded_mods.insert(mod_key, native_mod_data);
 
-        println!("allocated vb/decl for mod data {}: {:?}", midx, (*mdat).numbers);
+        println!(
+            "allocated vb/decl for mod data {}: {:?}",
+            midx,
+            (*mdat).numbers
+        );
     }
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
@@ -611,14 +615,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         let mut drew_mod = false;
 
         // if there is a matching mod, render it
-        let modded =
-            GLOBAL_STATE.loaded_mods
+        let modded = GLOBAL_STATE
+            .loaded_mods
             .as_ref()
             .and_then(|mods| {
-                let mod_key = NativeModData::mod_key(
-                    NumVertices,
-                    primCount,
-                );
+                let mod_key = NativeModData::mod_key(NumVertices, primCount);
                 mods.get(&mod_key)
             })
             .and_then(|nmod| {
@@ -630,22 +631,24 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
                 let hr = (*THIS).GetVertexDeclaration(ppDecl);
                 if hr != 0 {
-                    write_log_file(
-                        &format!("failed to save vertex declaration when trying to render mod {} {}",
-                        NumVertices, primCount));
+                    write_log_file(&format!(
+                        "failed to save vertex declaration when trying to render mod {} {}",
+                        NumVertices, primCount
+                    ));
                     return None;
                 };
 
                 let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
                 let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
-                let mut offsetBytes:UINT = 0;
-                let mut stride:UINT = 0;
+                let mut offsetBytes: UINT = 0;
+                let mut stride: UINT = 0;
 
                 let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
                 if hr != 0 {
                     write_log_file(&format!(
                         "failed to save vertex data when trying to render mod {} {}",
-                        NumVertices, primCount));
+                        NumVertices, primCount
+                    ));
                     if pDecl != null_mut() {
                         (*pDecl).Release();
                     }
@@ -656,11 +659,18 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
                 // draw override
                 (*THIS).SetVertexDeclaration(nmod.decl);
-                (*THIS).SetStreamSource(0, nmod.vb, 0,
-                    nmod.mod_data.numbers.vert_size_bytes as u32);
+                (*THIS).SetStreamSource(
+                    0,
+                    nmod.vb,
+                    0,
+                    nmod.mod_data.numbers.vert_size_bytes as u32,
+                );
 
-                (*THIS).DrawPrimitive(nmod.mod_data.numbers.prim_type as u32,
-                    0, nmod.mod_data.numbers.prim_count as u32);
+                (*THIS).DrawPrimitive(
+                    nmod.mod_data.numbers.prim_type as u32,
+                    0,
+                    nmod.mod_data.numbers.prim_count as u32,
+                );
                 drew_mod = true;
 
                 // restore state
@@ -673,27 +683,25 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             });
 
         // draw input if not modded or if mod is additive
-        let draw_input =
-            match modded {
-                None => true,
-                Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
-                Some(_) => false
-            };
+        let draw_input = match modded {
+            None => true,
+            Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
+            Some(_) => false,
+        };
 
-        let dresult =
-            if draw_input {
-                (hookdevice.real_draw_indexed_primitive)(
-                        THIS,
-                        arg1,
-                        BaseVertexIndex,
-                        MinVertexIndex,
-                        NumVertices,
-                        startIndex,
-                        primCount,
-                )
-            } else {
-                S_OK
-            };
+        let dresult = if draw_input {
+            (hookdevice.real_draw_indexed_primitive)(
+                THIS,
+                arg1,
+                BaseVertexIndex,
+                MinVertexIndex,
+                NumVertices,
+                startIndex,
+                primCount,
+            )
+        } else {
+            S_OK
+        };
 
         // statistics
         hookdevice.dip_calls += 1;
