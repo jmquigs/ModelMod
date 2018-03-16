@@ -98,7 +98,8 @@ pub struct HookState {
     pub clr_pointer: Option<u64>,
     pub interop_state: Option<InteropState>,
     pub is_global: bool,
-    pub loaded_mods: Option<FnvHashMap<i32, interop::NativeModData>>,
+    pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
+    pub in_dip: bool,
 }
 
 impl HookState {
@@ -112,6 +113,7 @@ impl HookState {
             interop_state: None,
             is_global: false,
             loaded_mods: None,
+            in_dip: false,
         }
     }
 }
@@ -135,6 +137,7 @@ const fn new_global_hookstate() -> HookState {
         interop_state: None,
         is_global: true,
         loaded_mods: None,
+        in_dip: false
     }
 }
 
@@ -255,7 +258,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         return;
     }
 
-    let mut loaded_mods: FnvHashMap<i32, interop::NativeModData> =
+    let mut loaded_mods: FnvHashMap<u32, interop::NativeModData> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
 
     for midx in 0..mod_count {
@@ -288,9 +291,9 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         };
 
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
-            let hash_code = NativeModData::hash_code(
-                native_mod_data.mod_data.numbers.ref_vert_count,
-                native_mod_data.mod_data.numbers.ref_prim_count,
+            let hash_code = NativeModData::mod_key(
+                native_mod_data.mod_data.numbers.ref_vert_count as u32,
+                native_mod_data.mod_data.numbers.ref_prim_count as u32,
             );
 
             loaded_mods.insert(hash_code, native_mod_data);
@@ -315,6 +318,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         let ib_size = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
         let ib_data: *mut u8 = null_mut();
 
+        // create vb
         let mut out_vb: *mut IDirect3DVertexBuffer9 = null_mut();
         let out_vb: *mut *mut IDirect3DVertexBuffer9 = &mut out_vb;
         let hr = (*device).CreateVertexBuffer(
@@ -338,12 +342,14 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
 
         let vb = *out_vb;
 
+        // lock vb to obtain write buffer
         let hr = (*vb).Lock(0, 0, std::mem::transmute(&mut vb_data), 0);
         if hr != 0 {
             write_log_file(&format!("failed to lock vertex buffer: {:x}", hr));
             return;
         }
 
+        // fill all data buckets with managed code
         let ret = (callbacks.FillModData)(
             midx,
             decl_data,
@@ -357,23 +363,44 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         let hr = (*vb).Unlock();
         if hr != 0 {
             write_log_file(&format!("failed to unlock vertex buffer: {:x}", hr));
+            (*vb).Release();
             return;
         }
 
         if ret != 0 {
             write_log_file(&format!("failed to fill mod data: {}", ret));
+            (*vb).Release();
             return;
         }
 
         native_mod_data.vb = vb;
 
-        let hash_code = NativeModData::hash_code(
-            native_mod_data.mod_data.numbers.ref_vert_count,
-            native_mod_data.mod_data.numbers.ref_prim_count,
-        );
-        loaded_mods.insert(hash_code, native_mod_data);
+        // create vertex declaration
+        let mut out_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
+        let pp_out_decl: *mut *mut IDirect3DVertexDeclaration9 = &mut out_decl;
+        let hr = (*device).CreateVertexDeclaration(
+            decl_data as *const D3DVERTEXELEMENT9, pp_out_decl);
+        if hr != 0 {
+            write_log_file(&format!("failed to create vertex declaration: {}", hr));
+            (*vb).Release();
+            return;
+        }
+        if out_decl == null_mut() {
+            write_log_file("vertex declaration is null");
+            (*vb).Release();
+            return;
+        }
+        native_mod_data.decl = out_decl;
 
-        println!("allocated vb for mod data {}: {:?}", midx, (*mdat).numbers);
+        // TODO textures
+
+        let mod_key = NativeModData::mod_key(
+            native_mod_data.mod_data.numbers.ref_vert_count as u32,
+            native_mod_data.mod_data.numbers.ref_prim_count as u32,
+        );
+        loaded_mods.insert(mod_key, native_mod_data);
+
+        println!("allocated vb/decl for mod data {}: {:?}", midx, (*mdat).numbers);
     }
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
@@ -500,6 +527,11 @@ pub unsafe extern "system" fn hook_present(
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
+    // TODO: hack to work around Release on device while in DIP
+    if GLOBAL_STATE.in_dip {
+        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_release)(THIS);
+    }
+
     if let Err(e) = copy_state_to_tls() {
         write_log_file(&format!("unexpected error: {:?}", e));
         return 0xFFFFFFFF; // TODO: check docs, may be wrong "error" value
@@ -558,6 +590,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     startIndex: UINT,
     primCount: UINT,
 ) -> HRESULT {
+    // no re-entry please
+    if GLOBAL_STATE.in_dip {
+        write_log_file(&format!("ERROR: i'm in DIP already!"));
+        return S_OK;
+    }
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
 
@@ -568,6 +605,97 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             } // beginscene must do global->tls copy
             Some(ref mut hookdevice) => hookdevice,
         };
+
+        GLOBAL_STATE.in_dip = true;
+
+        let mut drew_mod = false;
+
+        // if there is a matching mod, render it
+        let modded =
+            GLOBAL_STATE.loaded_mods
+            .as_ref()
+            .and_then(|mods| {
+                let mod_key = NativeModData::mod_key(
+                    NumVertices,
+                    primCount,
+                );
+                mods.get(&mod_key)
+            })
+            .and_then(|nmod| {
+                if nmod.mod_data.numbers.mod_type == interop::ModType::Deletion as i32 {
+                    return Some(nmod.mod_data.numbers.mod_type);
+                }
+                // save state
+                let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
+                let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
+                let hr = (*THIS).GetVertexDeclaration(ppDecl);
+                if hr != 0 {
+                    write_log_file(
+                        &format!("failed to save vertex declaration when trying to render mod {} {}",
+                        NumVertices, primCount));
+                    return None;
+                };
+
+                let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
+                let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
+                let mut offsetBytes:UINT = 0;
+                let mut stride:UINT = 0;
+
+                let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
+                if hr != 0 {
+                    write_log_file(&format!(
+                        "failed to save vertex data when trying to render mod {} {}",
+                        NumVertices, primCount));
+                    if pDecl != null_mut() {
+                        (*pDecl).Release();
+                    }
+                    return None;
+                }
+
+                // Note: C++ code did not change StreamSourceFreq...may need it for some games.
+
+                // draw override
+                (*THIS).SetVertexDeclaration(nmod.decl);
+                (*THIS).SetStreamSource(0, nmod.vb, 0,
+                    nmod.mod_data.numbers.vert_size_bytes as u32);
+
+                (*THIS).DrawPrimitive(nmod.mod_data.numbers.prim_type as u32,
+                    0, nmod.mod_data.numbers.prim_count as u32);
+                drew_mod = true;
+
+                // restore state
+                (*THIS).SetVertexDeclaration(pDecl);
+                (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
+                (*pDecl).Release();
+                (*pStreamVB).Release();
+
+                Some(nmod.mod_data.numbers.mod_type)
+            });
+
+        // draw input if not modded or if mod is additive
+        let draw_input =
+            match modded {
+                None => true,
+                Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
+                Some(_) => false
+            };
+
+        let dresult =
+            if draw_input {
+                (hookdevice.real_draw_indexed_primitive)(
+                        THIS,
+                        arg1,
+                        BaseVertexIndex,
+                        MinVertexIndex,
+                        NumVertices,
+                        startIndex,
+                        primCount,
+                )
+            } else {
+                S_OK
+            };
+
+        // statistics
         hookdevice.dip_calls += 1;
         if hookdevice.dip_calls % 200_000 == 0 {
             let now = SystemTime::now();
@@ -594,15 +722,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             }
         }
 
-        (hookdevice.real_draw_indexed_primitive)(
-            THIS,
-            arg1,
-            BaseVertexIndex,
-            MinVertexIndex,
-            NumVertices,
-            startIndex,
-            primCount,
-        )
+        GLOBAL_STATE.in_dip = false;
+        dresult
     })
 }
 

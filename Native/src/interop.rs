@@ -77,7 +77,7 @@ pub struct NativeModData {
 }
 
 impl NativeModData {
-    pub fn hash_code(vert_count: i32, prim_count: i32) -> i32 {
+    pub fn mod_key(vert_count: u32, prim_count: u32) -> u32 {
         //https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
         ((vert_count + prim_count) * (vert_count + prim_count + 1) / 2) + prim_count
     }
