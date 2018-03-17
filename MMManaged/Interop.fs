@@ -129,7 +129,7 @@ type Main() =
             | "mm_native" ->
                 (NativeImportsAsMMNative.OnInitialized,
                     NativeLogging.factory NativeImportsAsMMNative.LogInfo NativeImportsAsMMNative.LogWarn NativeImportsAsMMNative.LogError)
-            | "d3d9.dll" ->
+            | "d3d9" ->
                 (NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
             | s ->
