@@ -183,10 +183,16 @@ pub fn init_clr() -> Result<()> {
 
         let global_state_ptr = hookd3d9::get_global_state_ptr();
         // can only pass one argument (a string), so delimit the arguments with pipe
-        write_log_file(&format!("using '{}' load context for CLR", get_run_context()));
+        write_log_file(&format!(
+            "using '{}' load context for CLR",
+            get_run_context()
+        ));
 
-        let argument = util::to_wide_str(
-            &format!("{}|{}", global_state_ptr as u64, get_run_context()));
+        let argument = util::to_wide_str(&format!(
+            "{}|{}",
+            global_state_ptr as u64,
+            get_run_context()
+        ));
         let mut ret: u32 = 0xFFFFFFFF;
         let hr = (*runtime_host).ExecuteInDefaultAppDomain(
             app.as_ptr(),
@@ -216,7 +222,6 @@ pub fn init_clr() -> Result<()> {
 
 //     let ssize = 65535;
 //     let mut mpath:Vec<u16> = Vec::with_capacity(ssize);
-
 
 //     let handle = GetModuleHandleW(std::ptr::null_mut());
 //     let r = GetModuleFileNameW(handle, mpath.as_mut_ptr(), ssize as DWORD);

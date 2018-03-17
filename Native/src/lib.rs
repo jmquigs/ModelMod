@@ -24,6 +24,6 @@ mod util;
 mod interop;
 
 pub use interop::OnInitialized;
-pub use interop::{LogInfo,LogWarn,LogError};
+pub use interop::{LogError, LogInfo, LogWarn};
 
 pub use hookd3d9::Direct3DCreate9;

@@ -71,8 +71,7 @@ pub struct NativeModData {
     pub vb: *mut hookd3d9::IDirect3DVertexBuffer9,
     pub ib: *mut hookd3d9::IDirect3DIndexBuffer9,
     pub decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
-    // TODO:
-    //IDirect3DBaseTexture9* texture[MaxModTextures];
+    // TODO: //IDirect3DBaseTexture9* texture[MaxModTextures];
     //IDirect3DPixelShader9* pixelShader;
 }
 
@@ -153,13 +152,11 @@ pub unsafe extern "C" fn LogInfo(category: *const c_char, message: *const c_char
     loggit("", category, message);
 }
 
-
 #[allow(unused)]
 #[no_mangle]
 pub unsafe extern "C" fn LogWarn(category: *const c_char, message: *const c_char) -> () {
     loggit("WARN", category, message);
 }
-
 
 #[allow(unused)]
 #[no_mangle]
@@ -169,15 +166,19 @@ pub unsafe extern "C" fn LogError(category: *const c_char, message: *const c_cha
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn OnInitialized(callbacks: *mut ManagedCallbacks,
-    global_state_pointer: u64) -> i32 {
+pub unsafe extern "C" fn OnInitialized(
+    callbacks: *mut ManagedCallbacks,
+    global_state_pointer: u64,
+) -> i32 {
     use std::ffi::CString;
     use std::ffi::CStr;
 
     // reinit global state pointer.  technically we only really need to do this for the
     // tests, where we can have multiple copies of globals (see rt.sh for details).
-    write_log_file(&format!("OnInitialized called with global state address: {}",
-        global_state_pointer));
+    write_log_file(&format!(
+        "OnInitialized called with global state address: {}",
+        global_state_pointer
+    ));
     let local_gs_addr = hookd3d9::get_global_state_ptr() as u64;
     if global_state_pointer != local_gs_addr {
         write_log_file(&format!(

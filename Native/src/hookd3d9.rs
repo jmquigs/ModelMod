@@ -337,8 +337,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             return;
         }
 
-        // TODO:
-        // this->add(nModData.vb);
+        // TODO: // this->add(nModData.vb);
 
         let vb = *out_vb;
 
