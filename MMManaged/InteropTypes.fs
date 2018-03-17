@@ -29,7 +29,7 @@ module InteropTypes =
     // but currently the unmanaged code doesn't need to know about paths other than the MM install dir, which it already knows.
 
     /// Run-time configuration data.  Mostly derived from RunConfig.
-    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Ansi  )>] 
+    [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi  )>] 
     type ConfData = {
         [<MarshalAs(UnmanagedType.U1)>]
         RunModeFull: bool
@@ -41,13 +41,13 @@ module InteropTypes =
 
     /// A struct containing a pointer to unmanaged memory and the size of the data.
     [<Struct>]
-    [<StructLayout(LayoutKind.Sequential, Pack=8)>] 
+    [<StructLayout(LayoutKind.Sequential)>] 
     type NativeMemoryBuffer =         
         val mutable Data:System.IntPtr
         val mutable Size:int32 
 
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
-    [<StructLayout(LayoutKind.Sequential, Pack=8, CharSet=CharSet.Unicode)>]
+    [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
     type ModData = {
         ModType: int 
         PrimType: int
@@ -91,7 +91,7 @@ module InteropTypes =
         PixelShaderPath = ""
     }
     
-    [<StructLayout(LayoutKind.Sequential, Pack=8)>]
+    [<StructLayout(LayoutKind.Sequential)>]
     /// Data provided by native code for snapshotting.  Most of these fields come from the DrawIndexedPrimitive() 
     /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them 
     /// from the SharpDX device.
@@ -163,3 +163,5 @@ module InteropTypes =
     let AsyncLoadPending = 52
     let AsyncLoadInProgress = 53
     let AsyncLoadComplete = 54
+
+    let Assplosion = 666
