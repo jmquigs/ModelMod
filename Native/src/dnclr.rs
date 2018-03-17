@@ -78,6 +78,15 @@ type CLRCreateInstanceFn =
     unsafe extern "stdcall" fn(clsid: REFCLSID, riid: REFIID, ppInterface: *mut *mut ICLRMetaHost)
         -> HRESULT;
 
+#[cfg(test)]
+pub fn get_run_context() -> &'static str {
+    return "mm_native";
+}
+#[cfg(not(test))]
+pub fn get_run_context() -> &'static str {
+    return "d3d9";
+}
+
 pub fn init_clr() -> Result<()> {
     let h = load_lib("mscoree.dll")?;
     let clr_create_instance = get_proc_address(h, "CLRCreateInstance")?;
@@ -172,8 +181,12 @@ pub fn init_clr() -> Result<()> {
         let typename = util::to_wide_str("ModelMod.Main");
         let method = util::to_wide_str("Main");
 
-        let cookie = hookd3d9::get_global_state_ptr();
-        let argument = util::to_wide_str(&format!("{}", cookie as u64));
+        let global_state_ptr = hookd3d9::get_global_state_ptr();
+        // can only pass one argument (a string), so delimit the arguments with pipe
+        write_log_file(&format!("using '{}' load context for CLR", get_run_context()));
+
+        let argument = util::to_wide_str(
+            &format!("{}|{}", global_state_ptr as u64, get_run_context()));
         let mut ret: u32 = 0xFFFFFFFF;
         let hr = (*runtime_host).ExecuteInDefaultAppDomain(
             app.as_ptr(),
@@ -196,12 +209,34 @@ pub fn init_clr() -> Result<()> {
     Ok(())
 }
 
+// unsafe fn get_module_name() {
+//     use winapi::um::libloaderapi::*;
+//     use std::ffi::OsString;
+//     use std::os::windows::prelude::*;
+
+//     let ssize = 65535;
+//     let mut mpath:Vec<u16> = Vec::with_capacity(ssize);
+
+
+//     let handle = GetModuleHandleW(std::ptr::null_mut());
+//     let r = GetModuleFileNameW(handle, mpath.as_mut_ptr(), ssize as DWORD);
+//     if r == 0 {
+//         println!("failed to get module file name");
+//     } else {
+//         let s = std::slice::from_raw_parts(mpath.as_mut_ptr(), r as usize);
+//         let string = OsString::from_wide(&s);
+//         println!("the handle is {:?}", &string);
+
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
     //use super::*;
 
     #[test]
     pub fn test_init_clr() {
+        //unsafe { get_module_name() };
         // TODO: fix this to use a generic test assembly
         // init_clr()
         // .map_err(|err| {

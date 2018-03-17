@@ -400,11 +400,11 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         );
         loaded_mods.insert(mod_key, native_mod_data);
 
-        println!(
+        write_log_file(&format!(
             "allocated vb/decl for mod data {}: {:?}",
             midx,
             (*mdat).numbers
-        );
+        ));
     }
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
