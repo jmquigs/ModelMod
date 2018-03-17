@@ -8,7 +8,8 @@ lazy_static = "*"
 fnv = "1.0.6"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase", "processthreadsapi", "memoryapi", "winerror", "winuser"] }
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+    "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg"] }
 
 [lib]
 crate_type = ["cdylib"]

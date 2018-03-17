@@ -91,6 +91,11 @@ module RegConfig =
         let TestRegLoc = new RegLoc(fun _ -> @"Software\ModelModTEST")
         let FailsauceRegLoc = new RegLoc(fun _ -> failwith "root is not set") // must call either Init() or InitForTest()
 
+    let testSetUnicodePath() = 
+        let rl = RegLocTypes.TestRegLoc;
+        Registry.SetValue(rl.HiveRoot, "MMRoot", "D:\Dev\モデルModディレクトリ");
+        ()
+
     // mutable so that unit test can change it, via Init functions below
     let mutable private regLoc = RegLocTypes.FailsauceRegLoc
 
@@ -304,13 +309,19 @@ module RegConfig =
     let loadAll (): RunConfig[] =
         getProfileKeyNames() |> Array.map loadFromProfileKey
 
+    let getExeRemappings (exePath:string) =
+        // include various potential variants (of the binary name 64 bit, 32 bit, etc).
+        [exePath; exePath.ToLowerInvariant().Replace("-64.exe", ".exe"); exePath.ToLowerInvariant().Replace(".exe", "-64.exe") ]
+
     /// Load a profile for the specified exe.  Returns a default profile if none found.
     let load (exePath:string):RunConfig = 
         let exePath = exePath.Trim()
 
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = findProfilePath exePath
+            let targetProfile = getExeRemappings exePath |> List.tryPick (fun remapExe -> 
+                log.Info "trying to find profile with exe name %A" remapExe
+                findProfilePath remapExe)
 
             let runConfig = 
                 match targetProfile with
@@ -324,8 +335,9 @@ module RegConfig =
                 | Some profName -> 
                     loadFromProfileKey profName
 
-            if not (runConfig.ExePath.Equals(exePath,StringComparison.InvariantCultureIgnoreCase)) then
-                failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
+            // due to potential exe name remapping, this is ok now
+            // if not (runConfig.ExePath.Equals(exePath,StringComparison.InvariantCultureIgnoreCase)) then
+            //    failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
             runConfig
 
         conf

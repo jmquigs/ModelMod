@@ -7,4 +7,4 @@
 # "duplicate globals" problem (which the code works around by passing a pointer to global
 # state in and out of managed code), I haven't seen other issues.  but this isn't an ideal
 # situation.
-cargo build && RUST_BACKTRACE=1 cargo test -- --nocapture --test-threads=1
+cargo build && RUST_BACKTRACE=1 cargo test -- --nocapture --test-threads=1 $1

@@ -25,35 +25,35 @@ open InteropTypes
 
 /// Utility module with various locking functions, used in asynchronous mod load.
 /// Originally based on code from Expert F#, with some additions.
-module private Locking = 
+module private Locking =
     let private log = Logging.getLogger("Locking")
 
     open System.Threading
 
     let private rwlock = new ReaderWriterLockSlim()
 
-    let read f = 
+    let read f =
         try
             rwlock.EnterReadLock()
-            try 
-                f() 
-            finally 
+            try
+                f()
+            finally
                 rwlock.ExitReadLock()
-        with 
+        with
             | e -> log.Error "Failed to acquire read lock or in lock function %A" e
 
-    let write f = 
+    let write f =
         try
             rwlock.EnterWriteLock()
-            try 
-                f() 
-                Thread.MemoryBarrier() 
-            finally 
+            try
+                f()
+                Thread.MemoryBarrier()
+            finally
                 rwlock.ExitWriteLock()
-        with 
+        with
             | e -> log.Error "Failed to acquire write lock or in lock function %A" e
 
-    let upgradeRead f = 
+    let upgradeRead f =
         try
             rwlock.EnterUpgradeableReadLock()
             try
@@ -61,26 +61,33 @@ module private Locking =
                 Thread.MemoryBarrier()
             finally
                 rwlock.ExitUpgradeableReadLock()
-        with 
+        with
             | e -> log.Error "Failed to acquire upgradeRead lock or in lock function %A" e
 
 /// Provides a ModDB interface to native code.
 module ModDBInterop =
     let private log = Logging.getLogger("ModDBInterop")
 
-    /// Initializes the system with a specific modelmod dll path and executable module.  Reads the 
+    /// Initializes the system with a specific modelmod dll path and executable module.  Reads the
     /// registry configuration for the specified executable (if any).
-    let setPaths (mmDllPath:string) (exeModule:string) =
+    let setPaths (rootOrDllPath:string) (exeModule:string) =
         try
             // check for valid paths
-            if mmDllPath.Contains("..") then failwithf "Illegal dll path, contains '..' : %A" mmDllPath
+            if rootOrDllPath.Contains("..") then failwithf "Illegal dll path, contains '..' : %A" rootOrDllPath
             if exeModule.Contains("..") then failwithf "Illegal exe module, contains '..' : %A" exeModule
 
+            log.Info "exe module: %A" exeModule
+
             // set the root path to the parent of the native ModelMod.dll.
-            let rootDir = Directory.GetParent(mmDllPath).ToString()
+            let rootDir =
+                if Directory.Exists(rootOrDllPath) then rootOrDllPath
+                else Directory.GetParent(rootOrDllPath).ToString()
+
+            if not (Directory.Exists rootDir) then
+                failwithf "root directory does not exist: %A" rootDir
 
             let conf = RegConfig.load exeModule
-            let conf = State.validateAndSetConf rootDir conf 
+            let conf = State.validateAndSetConf rootDir conf
 
             let ret = {
                 RunModeFull = conf.RunModeFull
@@ -89,8 +96,8 @@ module ModDBInterop =
             }
             //log.Info "Returning %A" ret
             ret
-        with 
-        | e -> 
+        with
+        | e ->
             log.Error "%A" e
             {
                 RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
@@ -106,7 +113,7 @@ module ModDBInterop =
 
             if not (Directory.Exists(exeDataDir)) then
                 failwithf "Cannot load data, dir does not exist: %A" exeDataDir
-            
+
             // look for ModIndex file
             let modIndexPath = Path.Combine(exeDataDir,"ModIndex.yaml")
             if not (File.Exists(modIndexPath)) then
@@ -124,11 +131,11 @@ module ModDBInterop =
             Util.reportMemoryUsage()
             0
         with
-        | e -> 
+        | e ->
             log.Error "%A" e
             InteropTypes.GenericFailureCode
 
-    let getLoadingState() = 
+    let getLoadingState() =
         match State.Data.LoadState with
         | NotStarted -> AsyncLoadNotStarted
         | Complete -> AsyncLoadComplete
@@ -136,21 +143,21 @@ module ModDBInterop =
         | InProgress -> AsyncLoadInProgress
 
     let loadFromDataPathAsync() =
-        Locking.upgradeRead (fun _ -> 
-            match State.Data.LoadState with 
+        Locking.upgradeRead (fun _ ->
+            match State.Data.LoadState with
             | Pending | InProgress -> () // no-op
-            | NotStarted | Complete -> 
+            | NotStarted | Complete ->
                 Locking.write (fun _ -> State.Data.LoadState <- Pending)
 
                 async {
                     // now running from thread pool
                     let mutable canLoad = false
-                    Locking.write (fun _ -> 
+                    Locking.write (fun _ ->
                         match State.Data.LoadState with
                         | NotStarted ->
-                            log.Info("Async loading state is NotStarted prior to task pool load, WTF?")  
+                            log.Info("Async loading state is NotStarted prior to task pool load, WTF?")
                         | InProgress | Complete -> () // no-op
-                        | Pending -> 
+                        | Pending ->
                             State.Data.LoadState <- InProgress
                             canLoad <- true
                     )
@@ -160,7 +167,7 @@ module ModDBInterop =
                         loadFromDataPath() |> ignore
                         log.Info("Async load complete")
 
-                        Locking.write (fun _ -> 
+                        Locking.write (fun _ ->
                             if not (State.Data.LoadState = InProgress) then
                                 log.Error "WHOA unexpected loading state: %A" State.Data.LoadState
                             State.Data.LoadState <- Complete)
@@ -174,13 +181,13 @@ module ModDBInterop =
     let getModCount() = State.Data.Moddb.MeshRelations.Length + State.Data.Moddb.DeletionMods.Length
 
     /// Converts a mod type to a native-enum compatible interger.
-    let modTypeToInt modType = 
+    let modTypeToInt modType =
         match modType with
         | CPUReplacement -> 2
         | GPUReplacement -> 3
         | Deletion -> 5
         | Reference -> failwith "A mod has type set to reference"
-    let intToModType ival = 
+    let intToModType ival =
         match ival with
         | 2 -> CPUReplacement
         | 3 -> GPUReplacement
@@ -188,19 +195,19 @@ module ModDBInterop =
         | _ -> failwithf "value cannot be converted into a mod type: %A" ival
 
     /// Get the MeshRel mod at the specified index.
-    let private getMeshRelationMod i = 
+    let private getMeshRelationMod i =
         let moddb = State.Data.Moddb
         let meshrel = List.nth (moddb.MeshRelations) i
         let refm = meshrel.RefMesh
         let modm = meshrel.ModMesh
 
-        let declElements,declSize = 
+        let declElements,declSize =
             match meshrel.GetVertDeclaration() with
             | None -> failwith "A vertex declaration must be set here, native code requires it."
             | Some (data,elements) -> elements,data.Length
 
         let vertSize = MeshUtil.getVertSize declElements
-                
+
         let modType = modTypeToInt modm.Type
 
         let primType = 4 //D3DPT_TRIANGLELIST
@@ -213,7 +220,7 @@ module ModDBInterop =
         let vertSizeBytes = vertSize
         let indexElemSizeBytes = 0
 
-        { 
+        {
             InteropTypes.ModData.ModType = modType
             PrimType = primType
             VertCount = vertCount
@@ -230,9 +237,9 @@ module ModDBInterop =
             Tex3Path = modm.Tex3Path
             PixelShaderPath = meshrel.DBMod.PixelShader
         }
-       
+
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.
-    let getModData(i) = 
+    let getModData(i) =
         // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
         // which does not allow null.  Can't use option type here because native code calls this.
         let emptyMod = InteropTypes.EmptyModData
@@ -245,8 +252,8 @@ module ModDBInterop =
             // the index is "virtualized".  the first n mods are the meshrelation mods.  after that are
             // the deletion mods.
 
-            let ret = 
-                match i with 
+            let ret =
+                match i with
                 | n when n >= maxMods ->
                     log.Error "Mod index out of range: %d" i
                     emptyMod
@@ -257,22 +264,22 @@ module ModDBInterop =
                     getMeshRelationMod n
                 | n when n >= moddb.MeshRelations.Length ->
                     let delIdx = (n - moddb.MeshRelations.Length)
-                    List.nth moddb.DeletionMods delIdx 
+                    List.nth moddb.DeletionMods delIdx
                 | n -> failwithf "invalid mod index: %A" i
 
             //log.Info "Returning mod %A for index %A" ret i
             ret
         with
-            | e -> 
+            | e ->
                 log.Error "%s" e.Message
                 log.Error "%s" e.StackTrace
                 emptyMod
 
     /// Return a binary writer for the specified unmanaged pointer.  If size parameter is less than the buffer size,
     /// this will probably explode when you write to it, if you're lucky.
-    let private getBinaryWriter (p:nativeptr<byte>) size = 
-        let bw = 
-            if size > 0 
+    let private getBinaryWriter (p:nativeptr<byte>) size =
+        let bw =
+            if size > 0
             then
                 let stream = new UnmanagedMemoryStream(p, int64 size, int64 size, FileAccess.Write)
                 let bw = new BinaryWriter(stream)
@@ -293,7 +300,7 @@ module ModDBInterop =
         //if debugLogEnabled() then debugLog (sprintf "computed vec: %A %A %A %A from %A" x y z w v)
 
         // So far, W in last position seems to be the "common" pattern, even if other components are reversed
-        if State.Data.Conf.GameProfile.ReverseNormals then 
+        if State.Data.Conf.GameProfile.ReverseNormals then
             bw.Write(z)
             bw.Write(y)
             bw.Write(x)
@@ -319,13 +326,13 @@ module ModDBInterop =
             | SDXVertexDeclType.Ubyte4 ->
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 let idx = br.ReadBytes(4)
-                bw.Write(idx) 
+                bw.Write(idx)
             | _ -> failwithf "Unsupported type for raw blend index: %A" el.Type
         /// Write a blend weight extracted from raw binary data as a 4-byte array.
         let rbBlendWeight (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
-            | SDXVertexDeclType.UByte4N -> 
+            | SDXVertexDeclType.Color
+            | SDXVertexDeclType.UByte4N ->
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))
             | _ -> failwithf "Unsupported type for raw blend weight: %A" el.Type
@@ -364,14 +371,14 @@ module ModDBInterop =
         /// Write a blend index from the mod mesh.
         let modmBlendIndex (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.Ubyte4 -> writeMeshBI modm modVertIndex bw
             | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
 
         /// Write a blend index from the ref mesh.
         let refmBlendIndex (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.Ubyte4 ->
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBI refm refVertIndex bw
@@ -380,7 +387,7 @@ module ModDBInterop =
         /// Write a blend weight from the mod mesh.
         let modmBlendWeight (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.UByte4N -> writeMeshBW modm modVertIndex bw
             | SDXVertexDeclType.Float4 ->
                 writeMeshBWF4 modm modVertIndex bw
@@ -389,8 +396,8 @@ module ModDBInterop =
         /// Write a blend weight from the ref mesh.
         let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
-            | SDXVertexDeclType.UByte4N -> 
+            | SDXVertexDeclType.Color
+            | SDXVertexDeclType.UByte4N ->
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBW refm refVertIndex bw
             | SDXVertexDeclType.Float4 ->
@@ -401,7 +408,7 @@ module ModDBInterop =
         /// Write a normal from the mod mesh.
         let modmNormal (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 ->
                 // convert normal to 4 byte rep
@@ -415,7 +422,7 @@ module ModDBInterop =
         /// Write a normal extracted from raw binary data.
         let rbNormal (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.Ubyte4 ->
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))
@@ -424,7 +431,7 @@ module ModDBInterop =
         /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
         let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
-            // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point, 
+            // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point,
             // but this produces good enough results in most cases.
             // see: http://www.geeks3d.com/20130122/normal-mapping-without-precomputed-tangent-space-vectors/
             let srcNrm = modm.Normals.[modNrmIndex]
@@ -432,7 +439,7 @@ module ModDBInterop =
             let v2 = Vector3.Cross(srcNrm, Vector3(0.f, 1.f, 0.f))
             let t = if (v1.Length() > v2.Length()) then v1 else v2
             t.Normalize()
-            let vec = 
+            let vec =
                 if (el.Usage = SDXVertexDeclUsage.Binormal) then
                     let b = Vector3.Cross(srcNrm,t)
                     b.Normalize()
@@ -440,7 +447,7 @@ module ModDBInterop =
                 else
                     t
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.UByte4N
             | SDXVertexDeclType.Ubyte4 ->
                 write4ByteVector vec bw
@@ -451,26 +458,26 @@ module ModDBInterop =
         /// Write a binormal or tangent vector extracted from raw binary data.
         let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color 
+            | SDXVertexDeclType.Color
             | SDXVertexDeclType.Ubyte4 ->
                 let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
                 bw.Write(br.ReadBytes(4))
             | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
 
     /// Fill the render buffers associated with the specified mod.
-    // Note: there is a lot of symmetry between this and the snapshot module (essentially they are the same 
-    // process in two different directions), but they have totally separate implementations right now.  Might be worth 
+    // Note: there is a lot of symmetry between this and the snapshot module (essentially they are the same
+    // process in two different directions), but they have totally separate implementations right now.  Might be worth
     // unifying them in some way.
-    let private fillModDataInternalHelper 
-        (modIndex:int) 
-        (destDeclBw:BinaryWriter) (destDeclSize:int) 
-        (destVbBw:BinaryWriter) (destVbSize:int) 
+    let private fillModDataInternalHelper
+        (modIndex:int)
+        (destDeclBw:BinaryWriter) (destDeclSize:int)
+        (destVbBw:BinaryWriter) (destVbSize:int)
         (destIbBw:BinaryWriter) (destIbSize:int) =
         try
             let moddb = State.Data.Moddb
 
             let md = getModData modIndex
-            if (intToModType md.ModType) <> GPUReplacement then 
+            if (intToModType md.ModType) <> GPUReplacement then
                 failwithf "unsupported mod type: %d" md.ModType
 
             // grab more stuff that we'll need
@@ -480,11 +487,11 @@ module ModDBInterop =
             let vertRels = meshrel.VertRelations
 
             // extract vertex declaration
-            let srcDeclData,declElements = 
+            let srcDeclData,declElements =
                 match meshrel.GetVertDeclaration() with
                 | None -> failwith "A vertex declaration must be set here, native code requires it."
                 | Some (data,elements) -> data,elements
-            
+
             // copy declaration data to destination
             if (destDeclSize > 0) then
                 if destDeclSize <> srcDeclData.Length then
@@ -512,11 +519,11 @@ module ModDBInterop =
                 // true: compute the binormal and tangent from the mod normal
                 // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
                 let computeBinormalTangent = true
-                                                
+
                 let srcVbSize = md.PrimCount * 3 * md.VertSizeBytes
                 if (destVbSize <> srcVbSize) then
                     failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcVbSize destVbSize
-   
+
                 let bw = destVbBw
                 // sort vertex elements in offset order ascending, so that we don't have to reposition the memory stream
                 // as we go
@@ -531,73 +538,73 @@ module ModDBInterop =
 //
 //                let loggedVectorsCount = ref 0
 //                let debugLogEnabled() = debugLogVectors && loggedVectorsCount.Value < maxLog
-//                let debugLog (s:string) = 
+//                let debugLog (s:string) =
 //                    log.Info "%A" s
 //                    incr loggedVectorsCount
 
                 // determine how we will write the data, depending on weight mode and available input data sources
 
-                let useRefBlendData,useRefBinaryData = 
+                let useRefBlendData,useRefBinaryData =
                     // if blending is required, fail unless specified weight source has the data.
                     // otherwise return the bool configuration tuple
                     let needsBlend = MeshUtil.hasBlendElements declElements
-                    let wm = meshrel.DBMod.WeightMode 
+                    let wm = meshrel.DBMod.WeightMode
 
                     // user friendly error message
                     let failMsg = sprintf "mod named %A specifies %A weight mode, but no blend index/weight data found; add the data or use a different weight mode" meshrel.DBMod.Name wm
 
-                    match needsBlend, wm with 
+                    match needsBlend, wm with
                     | true,BinaryRef ->
                         match refm.BinaryVertexData with
                         | None -> failwith failMsg
                         | _ -> true,true
-                    | true,WeightMode.Mod -> 
+                    | true,WeightMode.Mod ->
                         match modm.BlendIndices,modm.BlendWeights with
-                        | _,[||] 
+                        | _,[||]
                         | [||],_ -> failwith failMsg
                         | _ -> false,false
-                    | true,WeightMode.Ref -> 
+                    | true,WeightMode.Ref ->
                         match refm.BlendIndices,refm.BlendWeights with
-                        | _,[||] 
+                        | _,[||]
                         | [||],_ -> failwith failMsg
                         | _ -> true,false
                     | false,_ -> false,false
-                    
-                let refBinDataLookup = 
+
+                let refBinDataLookup =
                     match refm.BinaryVertexData with
                     | None -> None
                     | Some bvd -> Some (new ModDB.BinaryLookupHelper(bvd,declElements))
-                    
-                let blendIndexWriter,blendWeightWriter = 
+
+                let blendIndexWriter,blendWeightWriter =
                     if useRefBlendData then
-                        if useRefBinaryData then 
-                            let binDataLookup = 
+                        if useRefBinaryData then
+                            let binDataLookup =
                                 match refBinDataLookup with
-                                | None -> failwith "Binary vertex data is required to write blend index,blend weight" 
+                                | None -> failwith "Binary vertex data is required to write blend index,blend weight"
                                 | Some bvd -> bvd
 
                             let biw = DataWriters.rbBlendIndex binDataLookup vertRels modm
                             let bww = DataWriters.rbBlendWeight binDataLookup vertRels modm
-                            
+
                             biw,bww
                         else
                             let biw = DataWriters.refmBlendIndex vertRels refm
                             let bww = DataWriters.refmBlendWeight vertRels refm
-                            
-                            biw,bww 
+
+                            biw,bww
                     else
                         let biw = DataWriters.modmBlendIndex vertRels modm
                         let bww = DataWriters.modmBlendWeight vertRels modm
                         biw,bww
 
-                let normalWriter = 
+                let normalWriter =
                     if useModNormals then
                         let nrmw = DataWriters.modmNormal modm
                         nrmw
                     else
-                        let binDataLookup = 
+                        let binDataLookup =
                             match refBinDataLookup with
-                            | None -> failwith "Binary vertex data is required to write normal" 
+                            | None -> failwith "Binary vertex data is required to write normal"
                             | Some bvd -> bvd
                         let nrmw = DataWriters.rbNormal binDataLookup vertRels
                         nrmw
@@ -606,13 +613,13 @@ module ModDBInterop =
                     if computeBinormalTangent then
                         DataWriters.modmBinormalTangent modm
                     else
-                        let binDataLookup = 
+                        let binDataLookup =
                             match refBinDataLookup with
-                            | None -> failwith "Binary vertex data is required to write binormal" 
+                            | None -> failwith "Binary vertex data is required to write binormal"
                             | Some bvd -> bvd
                         DataWriters.rbBinormalTangent binDataLookup vertRels
 
-                // Write part of a vertex.  The input element controls which 
+                // Write part of a vertex.  The input element controls which
                 // part is written.
                 let writeElement (v:PTNIndex) (el:SDXVertexElement) =
                     let modVertIndex = v.Pos
@@ -620,9 +627,9 @@ module ModDBInterop =
 
                     match el.Usage with
                         | SDXVertexDeclUsage.Position ->
-                            match el.Type with 
+                            match el.Type with
                             | SDXVertexDeclType.Unused -> ()
-                            | SDXVertexDeclType.Float3 -> 
+                            | SDXVertexDeclType.Float3 ->
                                 let srcPos = srcPositions.[modVertIndex]
                                 bw.Write(srcPos.X)
                                 bw.Write(srcPos.Y)
@@ -630,7 +637,7 @@ module ModDBInterop =
                             | _ -> failwithf "Unsupported type for position: %A" el.Type
                         | SDXVertexDeclUsage.TextureCoordinate ->
                             match el.Type with
-                            | SDXVertexDeclType.Float2 -> 
+                            | SDXVertexDeclType.Float2 ->
                                 let srcTC = srcTex.[v.Tex]
                                 bw.Write(srcTC.X)
                                 bw.Write(srcTC.Y)
@@ -640,7 +647,7 @@ module ModDBInterop =
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
                             | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
                         | SDXVertexDeclUsage.Normal -> normalWriter modNrmIndex modVertIndex el bw
-                        | SDXVertexDeclUsage.Binormal 
+                        | SDXVertexDeclUsage.Binormal
                         | SDXVertexDeclUsage.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
                         | SDXVertexDeclUsage.BlendIndices -> blendIndexWriter modVertIndex el bw
                         | SDXVertexDeclUsage.BlendWeight -> blendWeightWriter modVertIndex el bw
@@ -659,7 +666,7 @@ module ModDBInterop =
                         | _ -> failwithf "Unsupported usage: %A" el.Usage
 
                 // Write a full vertex to the buffer.
-                let writeVertex (v:PTNIndex) = 
+                let writeVertex (v:PTNIndex) =
                     let writeToVert = writeElement v
                     declElements |> List.iter writeToVert
                     if (bw.BaseStream.Position % (int64 md.VertSizeBytes) <> 0L) then
@@ -672,26 +679,26 @@ module ModDBInterop =
                 modm.Triangles |> Array.iter writeTriangle
             0
         with
-            | e -> 
+            | e ->
                 log.Error "%s" e.Message
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
 
     /// Fill the render buffers associated with the specified mod.
-    let fillModData 
-        (modIndex:int) 
-        (destDeclData:nativeptr<byte>) (destDeclSize:int) 
-        (destVbData:nativeptr<byte>) (destVbSize:int) 
+    let fillModData
+        (modIndex:int)
+        (destDeclData:nativeptr<byte>) (destDeclSize:int)
+        (destVbData:nativeptr<byte>) (destVbSize:int)
         (destIbData:nativeptr<byte>) (destIbSize:int) =
-            fillModDataInternalHelper 
-                modIndex 
-                (getBinaryWriter destDeclData destDeclSize) destDeclSize 
+            fillModDataInternalHelper
+                modIndex
+                (getBinaryWriter destDeclData destDeclSize) destDeclSize
                 (getBinaryWriter destVbData destVbSize) destVbSize
                 (getBinaryWriter destIbData destIbSize) destIbSize
 
     // For FSI testing...
-    let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) = 
-        fillModDataInternalHelper 
+    let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) =
+        fillModDataInternalHelper
             modIndex
             (new BinaryWriter(new MemoryStream(destDecl))) destDecl.Length
             (new BinaryWriter(new MemoryStream(destVB))) destVB.Length

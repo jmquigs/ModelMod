@@ -876,6 +876,22 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         let direct3d9 = direct3d9 as *mut IDirect3D9;
         write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
 
+        match get_mm_conf_info() {
+            Ok((true,Some(_))) => {},
+            Ok((false, _)) => {
+                write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
+                return Ok(direct3d9);
+            },
+            Ok((true, None)) => {
+                write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
+                return Ok(direct3d9);
+            },
+            Err(e) => {
+                write_log_file(&format!("ModelMod not initializing due to conf error: {:?}", e));
+                return Ok(direct3d9);
+            },
+        }
+
         // let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
         // write_log_file(&format!("vtbl: {:x}", vtbl as u64));
 

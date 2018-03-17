@@ -173,6 +173,8 @@ pub unsafe extern "C" fn OnInitialized(
     use std::ffi::CString;
     use std::ffi::CStr;
 
+    let on_init_error_code = 666;
+
     // reinit global state pointer.  technically we only really need to do this for the
     // tests, where we can have multiple copies of globals (see rt.sh for details).
     write_log_file(&format!(
@@ -198,15 +200,36 @@ pub unsafe extern "C" fn OnInitialized(
         write_log_file("error: no callbacks specified");
         return 666;
     }
-    // TODO: unhardcode
-    let mut mmpath = util::to_wide_str("D:\\Dev\\ModelMod\\xx.dll");
-    let mut exemodule = util::to_wide_str("D:\\Guild Wars 2\\gw2.exe");
+
+    let mmpath = match util::get_mm_conf_info() {
+        Ok((true,Some(mmpath))) => mmpath,
+        Ok((a,b)) => {
+            write_log_file(&format!("Unexpected conf return: {:?} {:?}", a, b));
+            return on_init_error_code;
+        }
+        Err(e) => {
+            write_log_file(&format!("Unexpected conf error value: {:?}", e));
+            return on_init_error_code;
+        }
+    };
+
+    // get module path (exe that has loaded this dll).
+    let exemodule = match util::get_module_name() {
+        Err(e) => {
+            write_log_file(&format!("Unexpected error getting module handle name: {:?}", e));
+            return on_init_error_code;
+        },
+        Ok(s) => s
+    };
+
+    let mut mmpath = util::to_wide_str(&mmpath);
+    let mut exemodule = util::to_wide_str(&exemodule);
     let cd = ((*callbacks).SetPaths)(mmpath.as_mut_ptr(), exemodule.as_mut_ptr());
     if cd == std::ptr::null_mut() {
         write_log_file(&format!(
             "error calling setpaths, returned conf data is null"
         ));
-        return 666;
+        return on_init_error_code;
     }
 
     let is = InteropState {
