@@ -128,14 +128,13 @@ fn get_mm_reg_key() -> &'static str {
 fn get_mm_reg_key() -> &'static str {
     "Software\\ModelMod"
 }
-pub fn get_mm_conf_info() -> Result<(bool,Option<String>)> {
+pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
     unsafe {
         let reg_root = get_mm_reg_key();
         // find the MM install directory, this must be set in the registry by the launcher.
         // the launcher will also set whether MM is active.
         use winapi::um::winreg::*;
-        use winapi::um::winnt::{REG_SZ};
-        use winapi::shared::minwindef::{DWORD,BYTE};
+        use winapi::shared::minwindef::DWORD;
         use winapi::shared::winerror::ERROR_SUCCESS;
         use winapi::ctypes::c_void;
 
@@ -145,16 +144,23 @@ pub fn get_mm_conf_info() -> Result<(bool,Option<String>)> {
         {
             let sk = to_wide_str(reg_root);
             let kv = to_wide_str("Active");
-            let mut active:DWORD = 0;
-            let p_active:*mut c_void = std::mem::transmute(&mut active);
-            let mut out_active_sz:DWORD = std::mem::size_of::<DWORD>() as DWORD;
-            let res = RegGetValueW(HKEY_CURRENT_USER, sk.as_ptr(), kv.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(),
-                p_active, &mut out_active_sz);
+            let mut active: DWORD = 0;
+            let p_active: *mut c_void = std::mem::transmute(&mut active);
+            let mut out_active_sz: DWORD = std::mem::size_of::<DWORD>() as DWORD;
+            let res = RegGetValueW(
+                HKEY_CURRENT_USER,
+                sk.as_ptr(),
+                kv.as_ptr(),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                p_active,
+                &mut out_active_sz,
+            );
             if res as DWORD != ERROR_SUCCESS {
                 return Err(HookError::ConfReadFailed(format!("Error reading Active registry key: {}.  You must start ModelMod using its launcher.", res)));
             }
             if active != 1 {
-                return Ok((false,None));
+                return Ok((false, None));
             }
         }
 
@@ -168,10 +174,20 @@ pub fn get_mm_conf_info() -> Result<(bool,Option<String>)> {
 
             // max path input is in bytes
             max_path = max_path * 2;
-            let res = RegGetValueW(HKEY_CURRENT_USER, sk.as_ptr(), kv.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(),
-                out_buf.as_mut_ptr() as *mut c_void, &mut max_path);
+            let res = RegGetValueW(
+                HKEY_CURRENT_USER,
+                sk.as_ptr(),
+                kv.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                out_buf.as_mut_ptr() as *mut c_void,
+                &mut max_path,
+            );
             if res as DWORD != ERROR_SUCCESS {
-                return Err(HookError::ConfReadFailed(format!("Error reading MMRoot registry key: {}", res)));
+                return Err(HookError::ConfReadFailed(format!(
+                    "Error reading MMRoot registry key: {}",
+                    res
+                )));
             }
             //println!("bytes read from registry {}", max_path);
             // convert bytes read to chars and remove null terminator
@@ -183,11 +199,13 @@ pub fn get_mm_conf_info() -> Result<(bool,Option<String>)> {
 
             use std::path::Path;
             if !Path::new(&wpath).exists() {
-                return Err(HookError::ConfReadFailed(
-                    format!("ModelMod path read from registry, {}, does not exist", wpath)));
+                return Err(HookError::ConfReadFailed(format!(
+                    "ModelMod path read from registry, {}, does not exist",
+                    wpath
+                )));
             }
 
-            return Ok((true,Some(wpath)));
+            return Ok((true, Some(wpath)));
         }
     }
 }
@@ -204,16 +222,19 @@ pub fn get_module_name() -> Result<String> {
     use winapi::um::libloaderapi::*;
     use std::ffi::OsString;
     use std::os::windows::prelude::*;
-    use winapi::shared::minwindef::{DWORD};
+    use winapi::shared::minwindef::DWORD;
 
     unsafe {
         let ssize = 65535;
-        let mut mpath:Vec<u16> = Vec::with_capacity(ssize);
+        let mut mpath: Vec<u16> = Vec::with_capacity(ssize);
 
         let handle = GetModuleHandleW(std::ptr::null_mut());
         let r = GetModuleFileNameW(handle, mpath.as_mut_ptr(), ssize as DWORD);
         if r == 0 {
-            return Err(HookError::ModuleNameError(format!("failed to get module file name: {}", r)));
+            return Err(HookError::ModuleNameError(format!(
+                "failed to get module file name: {}",
+                r
+            )));
         } else {
             let s = std::slice::from_raw_parts(mpath.as_mut_ptr(), r as usize);
             let s = OsString::from_wide(&s).into_string()?;
@@ -233,10 +254,13 @@ mod tests {
         let res = get_mm_conf_info();
         match res {
             Err(e) => assert!(false, format!("conf test failed: {:?}", e)),
-            Ok((ref active,ref path)) if *active == false => assert!(false, format!("mm should be active")),
-            Ok((ref active,ref path)) if *active == true && path.is_none() =>
-                assert!(false, format!("if active, path must be set")),
-            Ok(_) => {},
+            Ok((ref active, ref path)) if *active == false => {
+                assert!(false, format!("mm should be active"))
+            }
+            Ok((ref active, ref path)) if *active == true && path.is_none() => {
+                assert!(false, format!("if active, path must be set"))
+            }
+            Ok(_) => {}
         }
     }
 

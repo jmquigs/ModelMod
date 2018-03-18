@@ -202,8 +202,8 @@ pub unsafe extern "C" fn OnInitialized(
     }
 
     let mmpath = match util::get_mm_conf_info() {
-        Ok((true,Some(mmpath))) => mmpath,
-        Ok((a,b)) => {
+        Ok((true, Some(mmpath))) => mmpath,
+        Ok((a, b)) => {
             write_log_file(&format!("Unexpected conf return: {:?} {:?}", a, b));
             return on_init_error_code;
         }
@@ -216,10 +216,13 @@ pub unsafe extern "C" fn OnInitialized(
     // get module path (exe that has loaded this dll).
     let exemodule = match util::get_module_name() {
         Err(e) => {
-            write_log_file(&format!("Unexpected error getting module handle name: {:?}", e));
+            write_log_file(&format!(
+                "Unexpected error getting module handle name: {:?}",
+                e
+            ));
             return on_init_error_code;
-        },
-        Ok(s) => s
+        }
+        Ok(s) => s,
     };
 
     let mut mmpath = util::to_wide_str(&mmpath);
