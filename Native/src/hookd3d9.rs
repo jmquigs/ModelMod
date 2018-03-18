@@ -100,6 +100,7 @@ pub struct HookState {
     pub is_global: bool,
     pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
     pub in_dip: bool,
+    pub mm_root: Option<String>,
 }
 
 impl HookState {
@@ -114,6 +115,7 @@ impl HookState {
             is_global: false,
             loaded_mods: None,
             in_dip: false,
+            mm_root: None,
         }
     }
 }
@@ -138,6 +140,7 @@ const fn new_global_hookstate() -> HookState {
         is_global: true,
         loaded_mods: None,
         in_dip: false,
+        mm_root: None,
     }
 }
 
@@ -420,12 +423,22 @@ pub fn do_per_scene_operations(device: *mut IDirect3DDevice9) -> Result<()> {
             match lock {
                 Ok(_ignored) => {
                     if hookstate.clr_pointer.is_none() {
-                        write_log_file("creating clr");
-                        if let Ok(_p) = init_clr() {
-                            hookstate.clr_pointer = Some(1);
-                        } else {
-                            hookstate.clr_pointer = Some(666);
-                        }
+                        // store something in clr_pointer even if it create fails,
+                        // so that we don't keep trying to create it.  clr_pointer is
+                        // really just a bool right now, it remains to be
+                        // seen whether storing anything related to clr in
+                        // global state is actually useful.
+                        write_log_file("creating CLR");
+                        init_clr(&hookstate.mm_root)
+                            .and_then(|_x| {
+                                hookstate.clr_pointer = Some(1);
+                                Ok(_x)
+                            })
+                            .map_err(|e| {
+                                write_log_file(&format!("Error creating CLR: {:?}", e));
+                                hookstate.clr_pointer = Some(666);
+                                e
+                            })?;
                     }
                 }
                 Err(e) => write_log_file(&format!("{:?} should never happen", e)),
@@ -876,8 +889,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         let direct3d9 = direct3d9 as *mut IDirect3D9;
         write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
 
-        match get_mm_conf_info() {
-            Ok((true, Some(_))) => {}
+        let mm_root = match get_mm_conf_info() {
+            Ok((true, Some(dir))) => dir,
             Ok((false, _)) => {
                 write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
                 return Ok(direct3d9);
@@ -893,7 +906,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 ));
                 return Ok(direct3d9);
             }
-        }
+        };
 
         // let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
         // write_log_file(&format!("vtbl: {:x}", vtbl as u64));
@@ -906,6 +919,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         if GLOBAL_STATE.hook_direct3d9.is_some() {
             return Ok(direct3d9);
         }
+
+        GLOBAL_STATE.mm_root = Some(mm_root);
 
         // get pointer to original vtable
         let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);

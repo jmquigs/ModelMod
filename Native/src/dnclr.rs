@@ -87,7 +87,14 @@ pub fn get_run_context() -> &'static str {
     return "d3d9";
 }
 
-pub fn init_clr() -> Result<()> {
+pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
+    let mm_root = mm_root
+        .as_ref()
+        .ok_or(HookError::UnableToLocatedManagedDLL(
+            "No MM Root has been set".to_owned(),
+        ))?;
+    let managed_dll = util::get_managed_dll_path(mm_root)?;
+
     let h = load_lib("mscoree.dll")?;
     let clr_create_instance = get_proc_address(h, "CLRCreateInstance")?;
 
@@ -175,9 +182,7 @@ pub fn init_clr() -> Result<()> {
             )));
         }
 
-        let path = "D:\\Dev\\ModelMod\\Release\\MMManaged.dll"; // TODO: unhardcode
-        let app = util::to_wide_str(path);
-
+        let app = util::to_wide_str(&managed_dll);
         let typename = util::to_wide_str("ModelMod.Main");
         let method = util::to_wide_str("Main");
 

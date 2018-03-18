@@ -19,6 +19,7 @@ pub enum HookError {
     ConfReadFailed(String),
     FailedToConvertString(OsString),
     ModuleNameError(String),
+    UnableToLocatedManagedDLL(String),
     D3D9HookFailed,
     D3D9DeviceHookFailed,
     GlobalLockError,
@@ -210,6 +211,41 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
     }
 }
 
+pub fn get_managed_dll_path(mm_root: &str) -> Result<String> {
+    use std::path::PathBuf;
+
+    let subdir_paths = ["", "Bin", "Release", "Debug"];
+    // save the full path list so that we can reference it in case of err
+    let full_paths: Vec<PathBuf> = subdir_paths
+        .iter()
+        .map(|spath| {
+            let mut path = PathBuf::from(mm_root);
+            path.push(spath);
+            path.push("MMManaged.dll");
+            path
+        })
+        .collect();
+    full_paths
+        .iter()
+        .filter(|p| p.as_path().exists())
+        .take(1)
+        .next()
+        .ok_or(HookError::UnableToLocatedManagedDLL(format!(
+            "Searched: {:?}",
+            full_paths
+        )))
+        .and_then(|found| {
+            found
+                .as_path()
+                .to_str()
+                .ok_or(HookError::UnableToLocatedManagedDLL(format!(
+                    "could not convert located path to string: {:?}",
+                    found
+                )))
+                .and_then(|spath| Ok(String::from(spath)))
+        })
+}
+
 pub fn to_wide_str(s: &str) -> Vec<u16> {
     use std::ffi::OsStr;
     use std::iter::once;
@@ -254,13 +290,25 @@ mod tests {
         let res = get_mm_conf_info();
         match res {
             Err(e) => assert!(false, format!("conf test failed: {:?}", e)),
-            Ok((ref active, ref path)) if *active == false => {
+            Ok((ref active, ref _path)) if *active == false => {
                 assert!(false, format!("mm should be active"))
             }
             Ok((ref active, ref path)) if *active == true && path.is_none() => {
                 assert!(false, format!("if active, path must be set"))
             }
             Ok(_) => {}
+        }
+    }
+
+    #[test]
+    pub fn test_get_managed_dll_path() {
+        if let Err(e) = get_managed_dll_path("C:\\Dev\\modelmod.new") {
+            // TODO unhardcode
+            assert!(false, format!("file should exist: {:?}", e))
+        }
+        if let Ok(f) = get_managed_dll_path("C:\\Dev\\modelmod.foo") {
+            // TODO unhardcode
+            assert!(false, format!("file should not exist: {:?}", f))
         }
     }
 
