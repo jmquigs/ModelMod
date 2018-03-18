@@ -27,7 +27,7 @@ DEFINE_GUID!{IID_ICLR_RUNTIME_HOST,
 
 RIDL!(#[uuid(0xD332DB9E, 0xB9B3, 0x4125, 0x82, 0x07, 0xA1, 0x48, 0x84, 0xF5, 0x32, 0x16)]
 interface ICLRMetaHost(ICLRMetaHostVtbl): IUnknown(IUnknownVtbl) {
-    fn GetRuntime(pwzVersion:LPCWSTR, riid:REFIID, ppRuntime:*mut *mut c_void,) -> HRESULT,
+    fn GetRuntime(pwzVersion:LPCWSTR, riid:REFIID, ppRuntime:*mut *mut ICLRRuntimeInfo,) -> HRESULT,
     fn GetVersionFromFile(pwzFilePath: LPCWSTR, pwzBuffer: LPWSTR, pcchBuffer: *mut DWORD,)
         -> HRESULT,
     fn EnumerateInstalledRuntimes(ppEnumerator: *mut *mut IEnumUnknown,) -> HRESULT,
@@ -102,39 +102,37 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
         let metahost: *mut ICLRMetaHost = {
             let create: CLRCreateInstanceFn = std::mem::transmute(clr_create_instance);
             let mut metahost: *mut ICLRMetaHost = null_mut();
-            let metahost: *mut *mut ICLRMetaHost = &mut metahost;
-            let hr = (create)(&CLSID_CLR_META_HOST, &IID_ICLR_META_HOST, metahost);
+            let hr = (create)(&CLSID_CLR_META_HOST, &IID_ICLR_META_HOST, &mut metahost);
             if hr != 0 {
                 return Err(HookError::CLRInitFailed(
                     "failed to create meta host".to_owned(),
                 ));
             }
-            if metahost == null_mut() || (*metahost) == null_mut() {
+            if metahost == null_mut() {
                 return Err(HookError::CLRInitFailed(
                     "meta host instance is null".to_owned(),
                 ));
             }
-            *metahost
+            metahost
         };
 
         // skip the enumeration loop and just try creating v4.0 directly
         // TODO: but must enumerate since this specific version likely not found everywhere.
-        let runtime_info: *mut ICLRRuntimeInfo = {
+        let runtime_info = {
             let wide = util::to_wide_str("v4.0.30319");
-            let mut p_runtime: *mut c_void = null_mut();
-            let pp_runtime: *mut *mut c_void = &mut p_runtime;
-            let hr = (*metahost).GetRuntime(wide.as_ptr(), &IID_ICLR_RUNTIME_INFO, pp_runtime);
+            let mut p_runtime: *mut ICLRRuntimeInfo = null_mut();
+            let hr = (*metahost).GetRuntime(wide.as_ptr(), &IID_ICLR_RUNTIME_INFO, &mut p_runtime);
             if hr != 0 {
                 return Err(HookError::CLRInitFailed(
                     "failed to create runtime".to_owned(),
                 ));
             }
-            if pp_runtime == null_mut() || (*pp_runtime) == null_mut() {
+            if p_runtime == null_mut() {
                 return Err(HookError::CLRInitFailed(
                     "runtime instance is null".to_owned(),
                 ));
             }
-            std::mem::transmute(*pp_runtime)
+            p_runtime
         };
 
         let mut loadable: BOOL = FALSE;
@@ -152,11 +150,10 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
 
         let runtime_host: *mut ICLRRuntimeHost = {
             let mut p_rhost: *mut c_void = null_mut();
-            let pp_rhost: *mut *mut c_void = &mut p_rhost;
             let hr = (*runtime_info).GetInterface(
                 &CLSID_CLR_RUNTIME_HOST,
                 &IID_ICLR_RUNTIME_HOST,
-                pp_rhost,
+                &mut p_rhost,
             );
 
             if hr != 0 {
@@ -164,12 +161,12 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
                     "failed to query runtime host".to_owned(),
                 ));
             }
-            if pp_rhost == null_mut() || (*pp_rhost) == null_mut() {
+            if p_rhost == null_mut() {
                 return Err(HookError::CLRInitFailed(
                     "runtime host instance is null".to_owned(),
                 ));
             }
-            std::mem::transmute(*pp_rhost)
+            std::mem::transmute(p_rhost)
         };
 
         // TODO: maybe use custom host control to support reloading
@@ -185,6 +182,8 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
         let app = util::to_wide_str(&managed_dll);
         let typename = util::to_wide_str("ModelMod.Main");
         let method = util::to_wide_str("Main");
+
+        write_log_file(&format!("Loading managed dll {} into CLR", managed_dll));
 
         let global_state_ptr = hookd3d9::get_global_state_ptr();
         // can only pass one argument (a string), so delimit the arguments with pipe
@@ -214,7 +213,7 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
         }
 
         // TODO: release things?
-        write_log_file(&format!("clr sortof initialized"));
+        write_log_file(&format!("clr initialized"));
     }
 
     Ok(())
@@ -242,16 +241,16 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    //use super::*;
+    use super::*;
 
     #[test]
     pub fn test_init_clr() {
         //unsafe { get_module_name() };
         // TODO: fix this to use a generic test assembly
-        // init_clr()
+        // init_clr(&Some("C:\\Dev\\modelmod.new".to_owned()))
         // .map_err(|err| {
         //     assert!(false, "Expected Ok but got {:?}", err)
-        // })
+        // });
         // .map(|r| {
         //     hookd3d9::hook_begin_scene()
 
