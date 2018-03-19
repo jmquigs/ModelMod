@@ -6,6 +6,10 @@ use winapi::shared::minwindef::{FARPROC, HMODULE};
 
 use std::ffi::OsString;
 
+lazy_static! {
+    static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+}
+
 #[derive(Debug, Clone)]
 pub enum HookError {
     ProtectFailed,
@@ -18,6 +22,7 @@ pub enum HookError {
     CreateDeviceFailed(i32),
     ConfReadFailed(String),
     FailedToConvertString(OsString),
+    WinApiError(String),
     ModuleNameError(String),
     UnableToLocatedManagedDLL(String),
     D3D9HookFailed,
@@ -39,22 +44,58 @@ impl std::convert::From<std::ffi::OsString> for HookError {
 
 pub type Result<T> = std::result::Result<T, HookError>;
 
-pub fn write_log_file(format: &str) -> () {
+pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
+    let lock = LOG_FILE_NAME.lock();
+    match lock {
+        Err(e) => Err(HookError::WinApiError(format!("lock error: {}", e))),
+        Ok(mut fname) => {
+            let mut p = path.to_owned();
+            p.push_str(name);
+            *fname = p;
+            Ok(())
+        }
+    }
+}
+
+pub fn write_log_file(msg: &str) -> () {
     use std::io::Write;
     use std::fs::OpenOptions;
+    use std::env::temp_dir;
 
-    let tid = std::thread::current().id();
+    let lock = LOG_FILE_NAME.lock();
+    match lock {
+        Err(e) => {
+            eprintln!(
+                "ModelMod: derp, can't write log file due to lock error: {}",
+                e
+            );
+        }
+        Ok(mut fname) => {
+            if (*fname).is_empty() {
+                let mut td = temp_dir();
+                td.push("ModelMod.log");
+                match td.as_path().to_str() {
+                    None => {
+                        eprintln!("ModelMod: error getting temp path");
+                        return;
+                    }
+                    Some(mut p) => {
+                        *fname = p.to_owned();
+                    }
+                }
+            }
 
-    let w = || -> std::io::Result<()> {
-        let mut f = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("D:\\Temp\\rd3dlog.txt")?; // TODO: duh, unhardcode
-        writeln!(f, "{:?}: {}\r", tid, format)?;
-        Ok(())
+            let tid = std::thread::current().id();
+
+            let w = || -> std::io::Result<()> {
+                let mut f = OpenOptions::new().create(true).append(true).open(&*fname)?;
+                writeln!(f, "{:?}: {}\r", tid, msg)?;
+                Ok(())
+            };
+
+            w().unwrap_or_else(|e| eprintln!("ModelMod: log file write error: {}", e));
+        }
     };
-
-    w().unwrap_or_else(|e| eprintln!("oops can't write log file: {}", e));
 }
 
 pub unsafe fn protect_memory(
