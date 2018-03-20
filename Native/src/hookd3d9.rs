@@ -882,31 +882,75 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
     let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
 
+    let make_it = || {
+        unsafe {
+            let create: Direct3DCreate9Fn = std::mem::transmute(addr);
+
+            let direct3d9 = (create)(sdk_ver);
+            let direct3d9 = direct3d9 as *mut IDirect3D9;
+            direct3d9
+        }
+    };
+
     unsafe {
-        let create: Direct3DCreate9Fn = std::mem::transmute(addr);
-
-        let direct3d9 = (create)(sdk_ver);
-        let direct3d9 = direct3d9 as *mut IDirect3D9;
-        write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
-
         let mm_root = match get_mm_conf_info() {
             Ok((true, Some(dir))) => dir,
             Ok((false, _)) => {
                 write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
-                return Ok(direct3d9);
+                return Ok(make_it());
             }
             Ok((true, None)) => {
                 write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
-                return Ok(direct3d9);
+                return Ok(make_it());
             }
             Err(e) => {
                 write_log_file(&format!(
                     "ModelMod not initializing due to conf error: {:?}",
                     e
                 ));
-                return Ok(direct3d9);
+                return Ok(make_it());
             }
         };
+
+        // try to create log file using module name and root dir.  if it fails then just
+        // let logging go to the temp dir file.
+        get_module_name()
+            .and_then(|mod_name| {
+                use std::path::PathBuf;
+
+                let stem = {
+                    let mut pb = PathBuf::from(&mod_name);
+                    let s = pb.file_stem().ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
+                    let s = s.to_str().ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
+                    (*s).to_owned()
+                };
+
+                let file_name = format!("ModelMod.{}.log", stem);
+
+                let mut tdir = mm_root.to_owned();
+                tdir.push_str("\\Logs\\");
+                let mut tname = tdir.to_owned();
+                tname.push_str(&file_name);
+
+                use std::io::Write;
+                use std::fs::OpenOptions;
+                let mut f = OpenOptions::new().create(true).append(true).open(&tname)?;
+                writeln!(f, "ModelMod initialized\r")?;
+
+                // if that succeeded then we can set the file name now
+                util::set_log_file_path(&tdir, &file_name)?;
+
+                eprintln!("Log File: {}", tname);
+
+                Ok(())
+            })
+            .map_err(|e| {
+                write_log_file(&format!("error setting custom log file name: {:?}", e));
+            })
+            .unwrap_or(());
+
+        let direct3d9 = make_it();
+        write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
 
         // let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
         // write_log_file(&format!("vtbl: {:x}", vtbl as u64));
@@ -927,10 +971,10 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
 
         // save pointer to real function
         let real_create_device = (*vtbl).CreateDevice;
-        println!(
-            "============= hooking rcd, hookfn: {:?}, realfn: {:?} ",
-            hook_create_device as u64, real_create_device as u64
-        );
+        // write_log_file(&format!(
+        //     "hooking real create device, hookfn: {:?}, realfn: {:?} ",
+        //     hook_create_device as u64, real_create_device as u64
+        // ));
 
         // unprotect memory and slam the vtable
         let vsize = std::mem::size_of::<IDirect3D9Vtbl>();

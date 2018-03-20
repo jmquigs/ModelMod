@@ -10,7 +10,7 @@ lazy_static! {
     static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum HookError {
     ProtectFailed,
     LoadLibFailed(String),
@@ -28,6 +28,7 @@ pub enum HookError {
     D3D9HookFailed,
     D3D9DeviceHookFailed,
     GlobalLockError,
+    IOError(std::io::Error)
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
@@ -39,6 +40,12 @@ impl std::convert::From<std::ffi::NulError> for HookError {
 impl std::convert::From<std::ffi::OsString> for HookError {
     fn from(error: std::ffi::OsString) -> Self {
         HookError::FailedToConvertString(error)
+    }
+}
+
+impl std::convert::From<std::io::Error> for HookError {
+    fn from(error: std::io::Error) -> Self {
+        HookError::IOError(error)
     }
 }
 
