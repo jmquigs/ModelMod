@@ -37,6 +37,7 @@ module InteropTypes =
         LoadModsOnStart: bool
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=512)>]
         InputProfile: string
+        MinimumFPS: int
     }
 
     /// A struct containing a pointer to unmanaged memory and the size of the data.

@@ -93,6 +93,7 @@ module ModDBInterop =
                 RunModeFull = conf.RunModeFull
                 LoadModsOnStart = conf.LoadModsOnStart
                 InputProfile = conf.InputProfile
+                MinimumFPS = conf.MinimumFPS
             }
             //log.Info "Returning %A" ret
             ret
@@ -103,6 +104,7 @@ module ModDBInterop =
                 RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
                 LoadModsOnStart = CoreTypes.DefaultRunConfig.LoadModsOnStart
                 InputProfile = CoreTypes.DefaultRunConfig.InputProfile
+                MinimumFPS = CoreTypes.DefaultRunConfig.MinimumFPS
             }
 
     /// Loads the exe-specific data.  Requires a ModIndex.yaml file to exist in the exe's data directory.

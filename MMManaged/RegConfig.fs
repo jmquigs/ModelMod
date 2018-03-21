@@ -35,6 +35,7 @@ module RegKeys =
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
     let ProfLaunchWindow = "LaunchWindow"
+    let ProfMinimumFPS = "MinimumFPS"
     // Game profile settings are currently exploded out into individual keys
     let ProfGPReverseNormals = "GameProfileReverseNormals"
     let ProfGPCommandLineArguments = "GameProfileCommandLineArguments"
@@ -231,6 +232,7 @@ module RegConfig =
                 
                 DocRoot = "" // custom doc root not yet supported
                 LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
+                MinimumFPS = profSave RegKeys.ProfMinimumFPS conf.MinimumFPS
                 GameProfile = 
                     { 
                         ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
@@ -284,6 +286,7 @@ module RegConfig =
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
             LaunchWindow = regget(profPath,RegKeys.ProfLaunchWindow, DefaultRunConfig.LaunchWindow) :?> int
+            MinimumFPS = regget(profPath,RegKeys.ProfMinimumFPS, DefaultRunConfig.MinimumFPS) :?> int
             GameProfile =
                 {
                     ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)

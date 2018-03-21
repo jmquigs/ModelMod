@@ -22,6 +22,7 @@ pub struct ConfData {
     pub RunModeFull: bool,
     pub LoadModsOnStart: bool,
     pub InputProfile: [c_char; 512],
+    pub MinimumFPS: i32,
 }
 
 pub enum ModType {

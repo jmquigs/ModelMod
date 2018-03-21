@@ -107,6 +107,8 @@ module CoreTypes =
         DocRoot: string 
         /// Period of time that the Loader will wait for the game to start before exiting.
         LaunchWindow: int
+        /// MinimumFPS desired.  Below this number, modelmod will temporarily shut off mod rendering in an effort to improve FPS.
+        MinimumFPS: int
     } 
 
     /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot 
@@ -122,6 +124,7 @@ module CoreTypes =
         GameProfile = DefaultGameProfile
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
         LaunchWindow = 15
+        MinimumFPS = 35
     }
 
     // ------------------------------------------------------------------------

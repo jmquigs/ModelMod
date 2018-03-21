@@ -68,6 +68,9 @@ pub struct HookDirect3D9Device {
     pub frames: u32,
     pub last_call_log: SystemTime,
     pub last_frame_log: SystemTime,
+    pub last_fps: f64,
+    pub last_fps_update: SystemTime,
+    pub low_framerate: bool,
 }
 
 impl HookDirect3D9Device {
@@ -87,6 +90,9 @@ impl HookDirect3D9Device {
             ref_count: 0,
             last_call_log: SystemTime::now(),
             last_frame_log: SystemTime::now(),
+            last_fps_update: SystemTime::now(),
+            last_fps: 120.0,
+            low_framerate: false,
         }
     }
 }
@@ -103,6 +109,19 @@ pub struct HookState {
     pub mm_root: Option<String>,
 }
 
+pub struct ThreadLocalState {
+    pub hook_direct3d9device: Option<HookDirect3D9Device>,
+    pub interop_state: Option<InteropState>,
+}
+
+impl ThreadLocalState {
+    pub fn new() -> Self {
+        ThreadLocalState {
+            hook_direct3d9device: None,
+            interop_state: None,
+        }
+    }
+}
 impl HookState {
     pub fn new() -> HookState {
         let tid = std::thread::current().id();
@@ -152,7 +171,7 @@ lazy_static! {
 pub static mut GLOBAL_STATE: HookState = new_global_hookstate();
 
 thread_local! {
-    static STATE: RefCell<HookState> = RefCell::new(HookState::new());
+    static STATE: RefCell<ThreadLocalState> = RefCell::new(ThreadLocalState::new());
 }
 
 enum AsyncLoadState {
@@ -500,35 +519,35 @@ pub unsafe extern "system" fn hook_present(
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
 
+        let min_fps = state.interop_state.map(|is| is.conf_data.MinimumFPS).unwrap_or(0) as f64;
+
         state
             .hook_direct3d9device
             .as_mut()
             .map_or(S_OK, |hookdevice| {
                 hookdevice.frames += 1;
-                if hookdevice.frames % 30 == 0 {
+                if hookdevice.frames % 90 == 0 {
                     let now = SystemTime::now();
-                    let elapsed = now.duration_since(hookdevice.last_frame_log);
-                    match elapsed {
-                        Ok(d) => {
-                            let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                            if secs >= 10.0 {
-                                let fps = hookdevice.frames as f64 / secs;
-
-                                let epocht = now.duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or(std::time::Duration::from_secs(1))
-                                    .as_secs() * 1000;
-
-                                write_log_file(&format!(
-                                    "{:?}: {} frames in {} secs ({} fps)",
-                                    epocht, hookdevice.frames, secs, fps
-                                ));
-                                hookdevice.last_frame_log = now;
-                                hookdevice.frames = 0;
-                            }
+                    let elapsed = now.duration_since(hookdevice.last_fps_update);
+                    if let Ok(d) = elapsed {
+                        let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+                        let fps = hookdevice.frames as f64 / secs;
+                        let smooth_fps = 0.3 * fps + 0.7 * hookdevice.last_fps;
+                        hookdevice.last_fps = smooth_fps;
+                        let min_off = min_fps * 1.1;
+                        if smooth_fps < min_fps && !hookdevice.low_framerate {
+                            hookdevice.low_framerate = true;
                         }
-                        Err(e) => {
-                            write_log_file(&format!("Error getting elapsed duration: {:?}", e))
+                        // don't turn back on until 10% above mininum
+                        else if hookdevice.low_framerate && smooth_fps > (min_off * 1.1) {
+                            hookdevice.low_framerate = false;
                         }
+                        // write_log_file(&format!(
+                        //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
+                        //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
+                        // ));
+                        hookdevice.last_fps_update = now;
+                        hookdevice.frames = 0;
                     }
                 }
                 (hookdevice.real_present)(
@@ -621,6 +640,18 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             } // beginscene must do global->tls copy
             Some(ref mut hookdevice) => hookdevice,
         };
+
+        if hookdevice.low_framerate {
+            return (hookdevice.real_draw_indexed_primitive)(
+                THIS,
+                arg1,
+                BaseVertexIndex,
+                MinVertexIndex,
+                NumVertices,
+                startIndex,
+                primCount,
+            );
+        }
 
         GLOBAL_STATE.in_dip = true;
 
