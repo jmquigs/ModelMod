@@ -124,7 +124,7 @@ module CoreTypes =
         GameProfile = DefaultGameProfile
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
         LaunchWindow = 15
-        MinimumFPS = 35
+        MinimumFPS = 28
     }
 
     // ------------------------------------------------------------------------
