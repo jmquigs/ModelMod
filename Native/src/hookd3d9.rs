@@ -616,6 +616,17 @@ pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> H
     })
 }
 
+struct ProfileBlock {
+    name: &'static str,
+    start: SystemTime,
+    elapsed: std::time::Duration,
+}
+struct ProfileBlockSummary {
+    total_time: f64
+}
+
+decl_profile_globals!(hdip);
+
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
     THIS: *mut IDirect3DDevice9,
     arg1: D3DPRIMITIVETYPE,
@@ -625,11 +636,21 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     startIndex: UINT,
     primCount: UINT,
 ) -> HRESULT {
+    let force_modding_off = false;
+
+    profile_blocks!(hook_draw_indexed_primitive);
+
+    profile_start!(hook_dip);
+
     // no re-entry please
+    profile_start!(dip_check);
     if GLOBAL_STATE.in_dip {
         write_log_file(&format!("ERROR: i'm in DIP already!"));
         return S_OK;
     }
+    profile_end!(dip_check);
+
+    profile_start!(state_begin);
     STATE.with(|state| {
         let ref mut state = *state.borrow_mut();
 
@@ -640,8 +661,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             } // beginscene must do global->tls copy
             Some(ref mut hookdevice) => hookdevice,
         };
+        profile_end!(state_begin);
 
-        if hookdevice.low_framerate {
+        if hookdevice.low_framerate || force_modding_off {
             return (hookdevice.real_draw_indexed_primitive)(
                 THIS,
                 arg1,
@@ -653,22 +675,30 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             );
         }
 
+        profile_start!(mod_key_prep);
+
         GLOBAL_STATE.in_dip = true;
 
         let mut drew_mod = false;
 
         // if there is a matching mod, render it
+        profile_start!(main_combinator);
         let modded = GLOBAL_STATE
             .loaded_mods
             .as_ref()
             .and_then(|mods| {
+                profile_end!(mod_key_prep);
+                profile_start!(mod_key_lookup);
                 let mod_key = NativeModData::mod_key(NumVertices, primCount);
-                mods.get(&mod_key)
+                let r = mods.get(&mod_key);
+                profile_end!(mod_key_lookup);
+                r
             })
             .and_then(|nmod| {
                 if nmod.mod_data.numbers.mod_type == interop::ModType::Deletion as i32 {
                     return Some(nmod.mod_data.numbers.mod_type);
                 }
+                profile_start!(mod_save_state);
                 // save state
                 let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
                 let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
@@ -697,9 +727,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     }
                     return None;
                 }
+                profile_end!(mod_save_state);
 
                 // Note: C++ code did not change StreamSourceFreq...may need it for some games.
-
+                profile_start!(mod_draw);
                 // draw override
                 (*THIS).SetVertexDeclaration(nmod.decl);
                 (*THIS).SetStreamSource(
@@ -715,16 +746,21 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     nmod.mod_data.numbers.prim_count as u32,
                 );
                 drew_mod = true;
+                profile_end!(mod_draw);
 
+                profile_start!(restore_state);
                 // restore state
                 (*THIS).SetVertexDeclaration(pDecl);
                 (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
                 (*pDecl).Release();
                 (*pStreamVB).Release();
+                profile_end!(restore_state);
 
                 Some(nmod.mod_data.numbers.mod_type)
             });
+        profile_end!(main_combinator);
 
+        profile_start!(real_dip);
         // draw input if not modded or if mod is additive
         let draw_input = match modded {
             None => true,
@@ -745,10 +781,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         } else {
             S_OK
         };
+        profile_end!(real_dip);
 
+        profile_start!(statistics);
         // statistics
         hookdevice.dip_calls += 1;
-        if hookdevice.dip_calls % 200_000 == 0 {
+        if hookdevice.dip_calls % 500_000 == 0 {
             let now = SystemTime::now();
             let elapsed = now.duration_since(hookdevice.last_call_log);
             match elapsed {
@@ -772,8 +810,15 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
             }
         }
+        profile_end!(statistics);
 
         GLOBAL_STATE.in_dip = false;
+        profile_end!(hook_dip);
+
+        profile_accum!();
+
+        profile_summarize!(hookdevice);
+
         dresult
     })
 }
