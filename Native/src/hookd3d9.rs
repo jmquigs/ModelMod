@@ -666,6 +666,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             );
         }
 
+        profile_start!(hdip,main_combinator);
         profile_start!(hdip,mod_key_prep);
 
         GLOBAL_STATE.in_dip = true;
@@ -673,7 +674,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         let mut drew_mod = false;
 
         // if there is a matching mod, render it
-        profile_start!(hdip,main_combinator);
         let modded = GLOBAL_STATE
             .loaded_mods
             .as_ref()
@@ -689,7 +689,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 if nmod.mod_data.numbers.mod_type == interop::ModType::Deletion as i32 {
                     return Some(nmod.mod_data.numbers.mod_type);
                 }
-                profile_start!(hdip,mod_save_state);
+                profile_start!(hdip,mod_render);
                 // save state
                 let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
                 let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
@@ -718,10 +718,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     }
                     return None;
                 }
-                profile_end!(hdip,mod_save_state);
 
                 // Note: C++ code did not change StreamSourceFreq...may need it for some games.
-                profile_start!(hdip,mod_draw);
                 // draw override
                 (*THIS).SetVertexDeclaration(nmod.decl);
                 (*THIS).SetStreamSource(
@@ -737,28 +735,28 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     nmod.mod_data.numbers.prim_count as u32,
                 );
                 drew_mod = true;
-                profile_end!(hdip,mod_draw);
 
-                profile_start!(hdip,restore_state);
                 // restore state
                 (*THIS).SetVertexDeclaration(pDecl);
                 (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
                 (*pDecl).Release();
                 (*pStreamVB).Release();
-                profile_end!(hdip,restore_state);
+                profile_end!(hdip,mod_render);
 
                 Some(nmod.mod_data.numbers.mod_type)
             });
         profile_end!(hdip,main_combinator);
 
-        profile_start!(hdip,real_dip);
+        profile_start!(hdip,draw_input_check);
         // draw input if not modded or if mod is additive
         let draw_input = match modded {
             None => true,
             Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
             Some(_) => false,
         };
+        profile_end!(hdip,draw_input_check);
 
+        profile_start!(hdip,real_dip);
         let dresult = if draw_input {
             (hookdevice.real_draw_indexed_primitive)(
                 THIS,
