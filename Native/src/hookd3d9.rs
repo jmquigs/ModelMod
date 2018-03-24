@@ -17,6 +17,7 @@ use dnclr::init_clr;
 use interop::InteropState;
 use interop::NativeModData;
 use interop;
+use input;
 
 use std;
 use std::fmt;
@@ -107,6 +108,7 @@ pub struct HookState {
     pub in_hook_release: bool,
     pub in_beginend_scene: bool,
     pub mm_root: Option<String>,
+    pub input: Option<input::Input>,
 }
 
 impl HookState {
@@ -124,6 +126,7 @@ impl HookState {
             in_hook_release: false,
             in_beginend_scene: false,
             mm_root: None,
+            input: None,
         }
     }
 
@@ -158,6 +161,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     in_hook_release: false,
     in_beginend_scene: false,
     mm_root: None,
+    input: None,
 };
 
 enum AsyncLoadState {
@@ -458,12 +462,13 @@ pub unsafe extern "system" fn hook_present(
         .map(|is| is.conf_data.MinimumFPS)
         .unwrap_or(0) as f64;
 
-    GLOBAL_STATE
+    let present_ret = GLOBAL_STATE
         .hook_direct3d9device
         .as_mut()
         .map_or(S_OK, |hookdevice| {
             hookdevice.frames += 1;
             if hookdevice.frames % 90 == 0 {
+                // enforce min fps
                 let now = SystemTime::now();
                 let elapsed = now.duration_since(hookdevice.last_fps_update);
                 if let Ok(d) = elapsed {
@@ -494,7 +499,11 @@ pub unsafe extern "system" fn hook_present(
                 hDestWindowOverride,
                 pDirtyRegion,
             )
-        })
+        });
+
+    GLOBAL_STATE.input.as_mut().map(|inp| inp.process() );
+
+    present_ret
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
@@ -853,6 +862,13 @@ pub unsafe extern "system" fn hook_create_device(
         pPresentationParameters,
         ppReturnedDeviceInterface,
     );
+
+    // create input, but don't fail everything if we can't (may be able to still use read-only mode)
+    input::Input::new()
+        .map(|inp| {
+            GLOBAL_STATE.input = Some(inp);
+        })
+        .unwrap_or_else(|e| write_log_file(&format!("failed to create input; only playback from existing mods will be possible: {:?}", e)));
 
     match res {
         Err(e) => {

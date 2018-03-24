@@ -20,6 +20,7 @@ mod test_e2e;
 #[macro_use]
 mod profile;
 
+mod input;
 mod dnclr;
 mod hookd3d9;
 mod util;
