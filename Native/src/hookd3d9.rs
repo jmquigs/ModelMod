@@ -933,7 +933,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
 
                 use std::io::Write;
                 use std::fs::OpenOptions;
-                let mut f = OpenOptions::new().create(true).append(true).open(&tname)?;
+                // don't open append first time so that log is cleared.
+                let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(&tname)?;
                 writeln!(f, "ModelMod initialized\r")?;
 
                 // if that succeeded then we can set the file name now
