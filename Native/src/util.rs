@@ -28,7 +28,7 @@ pub enum HookError {
     D3D9HookFailed,
     D3D9DeviceHookFailed,
     GlobalLockError,
-    IOError(std::io::Error)
+    IOError(std::io::Error),
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {

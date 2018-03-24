@@ -20,7 +20,6 @@ use interop;
 
 use std;
 use std::fmt;
-use std::cell::RefCell;
 use std::time::SystemTime;
 use std::ptr::null_mut;
 
@@ -97,7 +96,6 @@ impl HookDirect3D9Device {
     }
 }
 
-// TODO: maybe don't need TLS variant
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
@@ -106,22 +104,11 @@ pub struct HookState {
     pub is_global: bool,
     pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
     pub in_dip: bool,
+    pub in_hook_release: bool,
+    pub in_beginend_scene: bool,
     pub mm_root: Option<String>,
 }
 
-pub struct ThreadLocalState {
-    pub hook_direct3d9device: Option<HookDirect3D9Device>,
-    pub interop_state: Option<InteropState>,
-}
-
-impl ThreadLocalState {
-    pub fn new() -> Self {
-        ThreadLocalState {
-            hook_direct3d9device: None,
-            interop_state: None,
-        }
-    }
-}
 impl HookState {
     pub fn new() -> HookState {
         let tid = std::thread::current().id();
@@ -134,8 +121,14 @@ impl HookState {
             is_global: false,
             loaded_mods: None,
             in_dip: false,
+            in_hook_release: false,
+            in_beginend_scene: false,
             mm_root: None,
         }
+    }
+
+    pub fn in_any_hook_fn(&self) -> bool {
+        self.in_dip || self.in_hook_release || self.in_beginend_scene
     }
 }
 impl fmt::Display for HookState {
@@ -150,29 +143,22 @@ impl fmt::Display for HookState {
     }
 }
 
-const fn new_global_hookstate() -> HookState {
-    HookState {
-        hook_direct3d9: None,
-        hook_direct3d9device: None,
-        clr_pointer: None,
-        interop_state: None,
-        is_global: true,
-        loaded_mods: None,
-        in_dip: false,
-        mm_root: None,
-    }
-}
-
-// global state is copied into TLS as needed.  Prefer TLS to avoid locking on
-// global state.
 lazy_static! {
     pub static ref GLOBAL_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
-pub static mut GLOBAL_STATE: HookState = new_global_hookstate();
-
-thread_local! {
-    static STATE: RefCell<ThreadLocalState> = RefCell::new(ThreadLocalState::new());
-}
+// TODO: maybe create read/write accessors for this
+pub static mut GLOBAL_STATE: HookState = HookState {
+    hook_direct3d9: None,
+    hook_direct3d9device: None,
+    clr_pointer: None,
+    interop_state: None,
+    is_global: true,
+    loaded_mods: None,
+    in_dip: false,
+    in_hook_release: false,
+    in_beginend_scene: false,
+    mm_root: None,
+};
 
 enum AsyncLoadState {
     NotStarted = 51,
@@ -184,56 +170,6 @@ enum AsyncLoadState {
 pub fn get_global_state_ptr() -> *mut HookState {
     let pstate: *mut HookState = unsafe { &mut GLOBAL_STATE };
     pstate
-}
-
-#[inline]
-fn copy_state_to_tls() -> Result<()> {
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
-
-        if state.hook_direct3d9device.is_none() {
-            GLOBAL_STATE_LOCK
-                .lock()
-                .map(|_ignored| {
-                    let hookstate = unsafe { &mut GLOBAL_STATE };
-                    match (*hookstate).hook_direct3d9device {
-                        Some(ref mut hookdevice) => {
-                            write_log_file(&format!(
-                                "writing global device state into TLS on thread {:?}",
-                                std::thread::current().id()
-                            ));
-
-                            (*state).hook_direct3d9device = Some(*hookdevice);
-                        }
-                        None => write_log_file(&format!("no hook device in global state")),
-                    };
-                })
-                .map_err(|_err| HookError::GlobalStateCopyFailed)?;
-        }
-
-        if state.interop_state.is_none() {
-            GLOBAL_STATE_LOCK
-                .lock()
-                .as_mut()
-                .map(|_ignored| {
-                    let hookstate = unsafe { &mut GLOBAL_STATE };
-                    match (*hookstate).interop_state {
-                        Some(ref mut interop_state) => {
-                            write_log_file(&format!(
-                                "writing global interop state into TLS on thread {:?}",
-                                std::thread::current().id()
-                            ));
-
-                            (*state).interop_state = Some(*interop_state);
-                        }
-                        None => (),
-                    };
-                })
-                .map_err(|_err| HookError::GlobalStateCopyFailed)?;
-        }
-
-        Ok(())
-    })
 }
 
 unsafe fn clear_loaded_mods() {
@@ -432,8 +368,6 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
 }
 
 pub fn do_per_scene_operations(device: *mut IDirect3DDevice9) -> Result<()> {
-    copy_state_to_tls()?;
-
     // init the clr if needed
     {
         let hookstate = unsafe { &mut GLOBAL_STATE };
@@ -467,41 +401,39 @@ pub fn do_per_scene_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     // write_log_file(&format!("performing per-scene ops on thread {:?}",
     //         std::thread::current().id()));
 
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
+    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
 
-        state.interop_state.as_mut().map(|is| {
-            if !is.loading_mods && !is.done_loading_mods && is.conf_data.LoadModsOnStart {
-                let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
-                if loadstate == AsyncLoadState::InProgress as i32 {
+    interop_state.as_mut().map(|is| {
+        if !is.loading_mods && !is.done_loading_mods && is.conf_data.LoadModsOnStart {
+            let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
+            if loadstate == AsyncLoadState::InProgress as i32 {
+                is.loading_mods = true;
+                is.done_loading_mods = false;
+            } else if loadstate != AsyncLoadState::Pending as i32 {
+                let r = unsafe { (is.callbacks.LoadModDB)() };
+                if r == AsyncLoadState::Pending as i32 {
                     is.loading_mods = true;
                     is.done_loading_mods = false;
-                } else if loadstate != AsyncLoadState::Pending as i32 {
-                    let r = unsafe { (is.callbacks.LoadModDB)() };
-                    if r == AsyncLoadState::Pending as i32 {
-                        is.loading_mods = true;
-                        is.done_loading_mods = false;
-                    }
-                    if r == AsyncLoadState::Complete as i32 {
-                        is.loading_mods = false;
-                        is.done_loading_mods = true;
-                    }
-                    write_log_file(&format!("mod db load returned: {}", r));
                 }
+                if r == AsyncLoadState::Complete as i32 {
+                    is.loading_mods = false;
+                    is.done_loading_mods = true;
+                }
+                write_log_file(&format!("mod db load returned: {}", r));
             }
+        }
 
-            if is.loading_mods
-                && unsafe { (is.callbacks.GetLoadingState)() } == AsyncLoadState::Complete as i32
-            {
-                write_log_file("mod loading complete");
-                is.loading_mods = false;
-                is.done_loading_mods = true;
+        if is.loading_mods
+            && unsafe { (is.callbacks.GetLoadingState)() } == AsyncLoadState::Complete as i32
+        {
+            write_log_file("mod loading complete");
+            is.loading_mods = false;
+            is.done_loading_mods = true;
 
-                unsafe { setup_mod_data(device, is.callbacks) };
-            }
-        });
-        Ok(())
-    })
+            unsafe { setup_mod_data(device, is.callbacks) };
+        }
+    });
+    Ok(())
 }
 
 pub unsafe extern "system" fn hook_present(
@@ -511,109 +443,114 @@ pub unsafe extern "system" fn hook_present(
     hDestWindowOverride: HWND,
     pDirtyRegion: *const RGNDATA,
 ) -> HRESULT {
-    // if let Err(e) = copy_state_to_tls() {
-    //     write_log_file(&format!("unexpected error: {:?}", e));
-    //     return E_FAIL;
-    // }
+    if GLOBAL_STATE.in_any_hook_fn() {
+        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
+            THIS,
+            pSourceRect,
+            pDestRect,
+            hDestWindowOverride,
+            pDirtyRegion,
+        );
+    }
 
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
+    let min_fps = GLOBAL_STATE
+        .interop_state
+        .map(|is| is.conf_data.MinimumFPS)
+        .unwrap_or(0) as f64;
 
-        let min_fps = state.interop_state.map(|is| is.conf_data.MinimumFPS).unwrap_or(0) as f64;
-
-        state
-            .hook_direct3d9device
-            .as_mut()
-            .map_or(S_OK, |hookdevice| {
-                hookdevice.frames += 1;
-                if hookdevice.frames % 90 == 0 {
-                    let now = SystemTime::now();
-                    let elapsed = now.duration_since(hookdevice.last_fps_update);
-                    if let Ok(d) = elapsed {
-                        let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                        let fps = hookdevice.frames as f64 / secs;
-                        let smooth_fps = 0.3 * fps + 0.7 * hookdevice.last_fps;
-                        hookdevice.last_fps = smooth_fps;
-                        let min_off = min_fps * 1.1;
-                        if smooth_fps < min_fps && !hookdevice.low_framerate {
-                            hookdevice.low_framerate = true;
-                        }
-                        // don't turn back on until 10% above mininum
-                        else if hookdevice.low_framerate && smooth_fps > (min_off * 1.1) {
-                            hookdevice.low_framerate = false;
-                        }
-                        // write_log_file(&format!(
-                        //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
-                        //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
-                        // ));
-                        hookdevice.last_fps_update = now;
-                        hookdevice.frames = 0;
+    GLOBAL_STATE
+        .hook_direct3d9device
+        .as_mut()
+        .map_or(S_OK, |hookdevice| {
+            hookdevice.frames += 1;
+            if hookdevice.frames % 90 == 0 {
+                let now = SystemTime::now();
+                let elapsed = now.duration_since(hookdevice.last_fps_update);
+                if let Ok(d) = elapsed {
+                    let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+                    let fps = hookdevice.frames as f64 / secs;
+                    let smooth_fps = 0.3 * fps + 0.7 * hookdevice.last_fps;
+                    hookdevice.last_fps = smooth_fps;
+                    let min_off = min_fps * 1.1;
+                    if smooth_fps < min_fps && !hookdevice.low_framerate {
+                        hookdevice.low_framerate = true;
                     }
+                    // don't turn back on until 10% above mininum
+                    else if hookdevice.low_framerate && smooth_fps > (min_off * 1.1) {
+                        hookdevice.low_framerate = false;
+                    }
+                    // write_log_file(&format!(
+                    //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
+                    //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
+                    // ));
+                    hookdevice.last_fps_update = now;
+                    hookdevice.frames = 0;
                 }
-                (hookdevice.real_present)(
-                    THIS,
-                    pSourceRect,
-                    pDestRect,
-                    hDestWindowOverride,
-                    pDirtyRegion,
-                )
-            })
-    })
+            }
+            (hookdevice.real_present)(
+                THIS,
+                pSourceRect,
+                pDestRect,
+                hDestWindowOverride,
+                pDirtyRegion,
+            )
+        })
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // TODO: hack to work around Release on device while in DIP
-    if GLOBAL_STATE.in_dip {
-        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_release)(THIS);
+    if GLOBAL_STATE.in_hook_release {
+        (GLOBAL_STATE.hook_direct3d9device.unwrap().real_release)(THIS);
     }
 
-    if let Err(e) = copy_state_to_tls() {
-        write_log_file(&format!("unexpected error: {:?}", e));
-        return 0xFFFFFFFF; // TODO: check docs, may be wrong "error" value
-    }
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
+    GLOBAL_STATE.in_hook_release = true;
 
-        state
-            .hook_direct3d9device
-            .as_mut()
-            .map_or(0xFFFFFFFF, |hookdevice| {
+    let r = GLOBAL_STATE
+        .hook_direct3d9device
+        .as_mut()
+        .map_or(0xFFFFFFFF, |hookdevice| {
+            hookdevice.ref_count = (hookdevice.real_release)(THIS);
+
+            if hookdevice.ref_count == 1 {
+                // I am the last reference, unload any device-dependant state
+                // TODO: this doesn't work.  the d3d objects in mods will prevent the ref count from going to zero.
+                // will need to keep a count of the number of objects I have created that are dependant on the device,
+                // and release them all (and the device) when the ref count equals that count.
+                clear_loaded_mods();
+
+                // release again to trigger destruction of the device
                 hookdevice.ref_count = (hookdevice.real_release)(THIS);
-
-                if hookdevice.ref_count == 1 {
-                    // I am the last reference, unload any device-dependant state
-                    // TODO: this doesn't work.  the d3d objects in mods will prevent the ref count from going to zero.
-                    // will need to keep a count of the number of objects I have created that are dependant on the device,
-                    // and release them all (and the device) when the ref count equals that count.
-                    clear_loaded_mods();
-
-                    // release again to trigger destruction of the device
-                    hookdevice.ref_count = (hookdevice.real_release)(THIS);
-                    write_log_file(&format!(
-                        "device released: {:x}, refcount: {}",
-                        THIS as u64, hookdevice.ref_count
-                    ));
-                    //write_log_file(&format!("device may be destroyed: {}", THIS as u64));
-                }
-                //else { write_log_file(&format!("curr device ref count: {}", hookdevice.ref_count )) }
-                hookdevice.ref_count
-            })
-    })
+                write_log_file(&format!(
+                    "device released: {:x}, refcount: {}",
+                    THIS as u64, hookdevice.ref_count
+                ));
+                //write_log_file(&format!("device may be destroyed: {}", THIS as u64));
+            }
+            //else { write_log_file(&format!("curr device ref count: {}", hookdevice.ref_count )) }
+            hookdevice.ref_count
+        });
+    GLOBAL_STATE.in_hook_release = false;
+    r
 }
 
 pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> HRESULT {
+    if GLOBAL_STATE.in_any_hook_fn() {
+        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_begin_scene)(THIS);
+    }
+    GLOBAL_STATE.in_beginend_scene = true;
+
     if let Err(e) = do_per_scene_operations(THIS) {
         write_log_file(&format!("unexpected error: {:?}", e));
         return E_FAIL;
     }
 
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
-        state
-            .hook_direct3d9device
-            .as_ref()
-            .map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS))
-    })
+    let r = GLOBAL_STATE
+        .hook_direct3d9device
+        .as_ref()
+        .map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS));
+
+    GLOBAL_STATE.in_beginend_scene = false;
+    r
 }
 
 decl_profile_globals!(hdip);
@@ -629,187 +566,179 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 ) -> HRESULT {
     let force_modding_off = false;
 
-    profile_blocks!(hdip,hook_draw_indexed_primitive);
+    profile_blocks!(hdip, hook_draw_indexed_primitive);
 
-    profile_start!(hdip,hook_dip);
+    profile_start!(hdip, hook_dip);
 
     // no re-entry please
-    profile_start!(hdip,dip_check);
+    profile_start!(hdip, dip_check);
     if GLOBAL_STATE.in_dip {
         write_log_file(&format!("ERROR: i'm in DIP already!"));
         return S_OK;
     }
-    profile_end!(hdip,dip_check);
+    profile_end!(hdip, dip_check);
 
-    profile_start!(hdip,state_begin);
-    STATE.with(|state| {
-        let ref mut state = *state.borrow_mut();
+    profile_start!(hdip, state_begin);
 
-        let hookdevice = match state.hook_direct3d9device {
-            None => {
-                write_log_file(&format!("No state in DIP"));
-                return E_FAIL;
-            } // beginscene must do global->tls copy
-            Some(ref mut hookdevice) => hookdevice,
-        };
-        profile_end!(hdip,state_begin);
+    let hookdevice = match GLOBAL_STATE.hook_direct3d9device {
+        None => {
+            write_log_file(&format!("No state in DIP"));
+            return E_FAIL;
+        } // beginscene must do global->tls copy
+        Some(ref mut hookdevice) => hookdevice,
+    };
+    profile_end!(hdip, state_begin);
 
-        if hookdevice.low_framerate || force_modding_off {
-            return (hookdevice.real_draw_indexed_primitive)(
-                THIS,
-                arg1,
-                BaseVertexIndex,
-                MinVertexIndex,
-                NumVertices,
-                startIndex,
-                primCount,
-            );
-        }
+    if hookdevice.low_framerate || force_modding_off {
+        return (hookdevice.real_draw_indexed_primitive)(
+            THIS,
+            arg1,
+            BaseVertexIndex,
+            MinVertexIndex,
+            NumVertices,
+            startIndex,
+            primCount,
+        );
+    }
 
-        profile_start!(hdip,main_combinator);
-        profile_start!(hdip,mod_key_prep);
+    profile_start!(hdip, main_combinator);
+    profile_start!(hdip, mod_key_prep);
 
-        GLOBAL_STATE.in_dip = true;
+    GLOBAL_STATE.in_dip = true;
 
-        let mut drew_mod = false;
+    let mut drew_mod = false;
 
-        // if there is a matching mod, render it
-        let modded = GLOBAL_STATE
-            .loaded_mods
-            .as_ref()
-            .and_then(|mods| {
-                profile_end!(hdip,mod_key_prep);
-                profile_start!(hdip,mod_key_lookup);
-                let mod_key = NativeModData::mod_key(NumVertices, primCount);
-                let r = mods.get(&mod_key);
-                profile_end!(hdip,mod_key_lookup);
-                r
-            })
-            .and_then(|nmod| {
-                if nmod.mod_data.numbers.mod_type == interop::ModType::Deletion as i32 {
-                    return Some(nmod.mod_data.numbers.mod_type);
-                }
-                profile_start!(hdip,mod_render);
-                // save state
-                let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
-                let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
-                let hr = (*THIS).GetVertexDeclaration(ppDecl);
-                if hr != 0 {
-                    write_log_file(&format!(
-                        "failed to save vertex declaration when trying to render mod {} {}",
-                        NumVertices, primCount
-                    ));
-                    return None;
-                };
-
-                let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
-                let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
-                let mut offsetBytes: UINT = 0;
-                let mut stride: UINT = 0;
-
-                let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
-                if hr != 0 {
-                    write_log_file(&format!(
-                        "failed to save vertex data when trying to render mod {} {}",
-                        NumVertices, primCount
-                    ));
-                    if pDecl != null_mut() {
-                        (*pDecl).Release();
-                    }
-                    return None;
-                }
-
-                // Note: C++ code did not change StreamSourceFreq...may need it for some games.
-                // draw override
-                (*THIS).SetVertexDeclaration(nmod.decl);
-                (*THIS).SetStreamSource(
-                    0,
-                    nmod.vb,
-                    0,
-                    nmod.mod_data.numbers.vert_size_bytes as u32,
-                );
-
-                (*THIS).DrawPrimitive(
-                    nmod.mod_data.numbers.prim_type as u32,
-                    0,
-                    nmod.mod_data.numbers.prim_count as u32,
-                );
-                drew_mod = true;
-
-                // restore state
-                (*THIS).SetVertexDeclaration(pDecl);
-                (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
-                (*pDecl).Release();
-                (*pStreamVB).Release();
-                profile_end!(hdip,mod_render);
-
-                Some(nmod.mod_data.numbers.mod_type)
-            });
-        profile_end!(hdip,main_combinator);
-
-        profile_start!(hdip,draw_input_check);
-        // draw input if not modded or if mod is additive
-        let draw_input = match modded {
-            None => true,
-            Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
-            Some(_) => false,
-        };
-        profile_end!(hdip,draw_input_check);
-
-        profile_start!(hdip,real_dip);
-        let dresult = if draw_input {
-            (hookdevice.real_draw_indexed_primitive)(
-                THIS,
-                arg1,
-                BaseVertexIndex,
-                MinVertexIndex,
-                NumVertices,
-                startIndex,
-                primCount,
-            )
-        } else {
-            S_OK
-        };
-        profile_end!(hdip,real_dip);
-
-        profile_start!(hdip,statistics);
-        // statistics
-        hookdevice.dip_calls += 1;
-        if hookdevice.dip_calls % 500_000 == 0 {
-            let now = SystemTime::now();
-            let elapsed = now.duration_since(hookdevice.last_call_log);
-            match elapsed {
-                Ok(d) => {
-                    let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                    if secs >= 10.0 {
-                        let dipsec = hookdevice.dip_calls as f64 / secs;
-
-                        let epocht = now.duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or(std::time::Duration::from_secs(1))
-                            .as_secs() * 1000;
-
-                        write_log_file(&format!(
-                            "{:?}: {} dip calls in {} secs ({} dips/sec)",
-                            epocht, hookdevice.dip_calls, secs, dipsec
-                        ));
-                        hookdevice.last_call_log = now;
-                        hookdevice.dip_calls = 0;
-                    }
-                }
-                Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
+    // if there is a matching mod, render it
+    let modded = GLOBAL_STATE
+        .loaded_mods
+        .as_ref()
+        .and_then(|mods| {
+            profile_end!(hdip, mod_key_prep);
+            profile_start!(hdip, mod_key_lookup);
+            let mod_key = NativeModData::mod_key(NumVertices, primCount);
+            let r = mods.get(&mod_key);
+            profile_end!(hdip, mod_key_lookup);
+            r
+        })
+        .and_then(|nmod| {
+            if nmod.mod_data.numbers.mod_type == interop::ModType::Deletion as i32 {
+                return Some(nmod.mod_data.numbers.mod_type);
             }
+            profile_start!(hdip, mod_render);
+            // save state
+            let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
+            let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
+            let hr = (*THIS).GetVertexDeclaration(ppDecl);
+            if hr != 0 {
+                write_log_file(&format!(
+                    "failed to save vertex declaration when trying to render mod {} {}",
+                    NumVertices, primCount
+                ));
+                return None;
+            };
+
+            let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
+            let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
+            let mut offsetBytes: UINT = 0;
+            let mut stride: UINT = 0;
+
+            let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
+            if hr != 0 {
+                write_log_file(&format!(
+                    "failed to save vertex data when trying to render mod {} {}",
+                    NumVertices, primCount
+                ));
+                if pDecl != null_mut() {
+                    (*pDecl).Release();
+                }
+                return None;
+            }
+
+            // Note: C++ code did not change StreamSourceFreq...may need it for some games.
+            // draw override
+            (*THIS).SetVertexDeclaration(nmod.decl);
+            (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
+
+            (*THIS).DrawPrimitive(
+                nmod.mod_data.numbers.prim_type as u32,
+                0,
+                nmod.mod_data.numbers.prim_count as u32,
+            );
+            drew_mod = true;
+
+            // restore state
+            (*THIS).SetVertexDeclaration(pDecl);
+            (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
+            (*pDecl).Release();
+            (*pStreamVB).Release();
+            profile_end!(hdip, mod_render);
+
+            Some(nmod.mod_data.numbers.mod_type)
+        });
+    profile_end!(hdip, main_combinator);
+
+    profile_start!(hdip, draw_input_check);
+    // draw input if not modded or if mod is additive
+    let draw_input = match modded {
+        None => true,
+        Some(mtype) if interop::ModType::CPUAdditive as i32 == mtype => true,
+        Some(_) => false,
+    };
+    profile_end!(hdip, draw_input_check);
+
+    profile_start!(hdip, real_dip);
+    let dresult = if draw_input {
+        (hookdevice.real_draw_indexed_primitive)(
+            THIS,
+            arg1,
+            BaseVertexIndex,
+            MinVertexIndex,
+            NumVertices,
+            startIndex,
+            primCount,
+        )
+    } else {
+        S_OK
+    };
+    profile_end!(hdip, real_dip);
+
+    profile_start!(hdip, statistics);
+    // statistics
+    hookdevice.dip_calls += 1;
+    if hookdevice.dip_calls % 500_000 == 0 {
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(hookdevice.last_call_log);
+        match elapsed {
+            Ok(d) => {
+                let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+                if secs >= 10.0 {
+                    let dipsec = hookdevice.dip_calls as f64 / secs;
+
+                    let epocht = now.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or(std::time::Duration::from_secs(1))
+                        .as_secs() * 1000;
+
+                    write_log_file(&format!(
+                        "{:?}: {} dip calls in {} secs ({} dips/sec)",
+                        epocht, hookdevice.dip_calls, secs, dipsec
+                    ));
+                    hookdevice.last_call_log = now;
+                    hookdevice.dip_calls = 0;
+                }
+            }
+            Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
         }
-        profile_end!(hdip,statistics);
+    }
+    profile_end!(hdip, statistics);
 
-        GLOBAL_STATE.in_dip = false;
-        profile_end!(hdip,hook_dip);
+    GLOBAL_STATE.in_dip = false;
+    profile_end!(hdip, hook_dip);
 
-        profile_accum!(hdip);
+    profile_accum!(hdip);
 
-        profile_summarize!(hdip,hookdevice);
+    profile_summarize!(hdip, hookdevice);
 
-        dresult
-    })
+    dresult
 }
 
 unsafe fn hook_device(
@@ -870,6 +799,11 @@ unsafe fn create_and_hook_device(
         .ok_or(HookError::Direct3D9InstanceNotFound)
         .and_then(|hd3d9| {
             write_log_file(&format!("calling real create device"));
+            if BehaviorFlags & D3DCREATE_MULTITHREADED == D3DCREATE_MULTITHREADED {
+                write_log_file(&format!(
+                    "Notice: device being created with D3DCREATE_MULTITHREADED"
+                ));
+            }
             let result = (hd3d9.real_create_device)(
                 THIS,
                 Adapter,
@@ -947,14 +881,12 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
     let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
 
-    let make_it = || {
-        unsafe {
-            let create: Direct3DCreate9Fn = std::mem::transmute(addr);
+    let make_it = || unsafe {
+        let create: Direct3DCreate9Fn = std::mem::transmute(addr);
 
-            let direct3d9 = (create)(sdk_ver);
-            let direct3d9 = direct3d9 as *mut IDirect3D9;
-            direct3d9
-        }
+        let direct3d9 = (create)(sdk_ver);
+        let direct3d9 = direct3d9 as *mut IDirect3D9;
+        direct3d9
     };
 
     unsafe {
@@ -985,8 +917,10 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
 
                 let stem = {
                     let mut pb = PathBuf::from(&mod_name);
-                    let s = pb.file_stem().ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
-                    let s = s.to_str().ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
+                    let s = pb.file_stem()
+                        .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
+                    let s = s.to_str()
+                        .ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
                     (*s).to_owned()
                 };
 

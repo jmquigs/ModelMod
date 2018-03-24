@@ -1,4 +1,3 @@
-
 #[cfg(feature = "profile")]
 macro_rules! decl_profile_globals {
     ($v:ident) => {
@@ -16,7 +15,8 @@ macro_rules! decl_profile_globals {
             }
 
             pub static mut PROFILE_BLOCKS: Option<Vec<*mut ProfileBlock>> = None;
-            pub static mut PROFILE_ACCUM: Option<FnvHashMap<&'static str, ProfileBlockSummary>> = None;
+            pub static mut PROFILE_ACCUM:
+                Option<FnvHashMap<&'static str, ProfileBlockSummary>> = None;
             pub static mut PROFILE_SUMMARY_T: Option<std::time::SystemTime> = None;
         }
     }
@@ -69,12 +69,15 @@ macro_rules! profile_end {
 macro_rules! profile_accum {
     ($modn:ident) => {
         if $modn::PROFILE_ACCUM.is_none() {
-            $modn::PROFILE_ACCUM = Some($modn::FnvHashMap::with_capacity_and_hasher((100) as usize, Default::default()));
+            $modn::PROFILE_ACCUM = Some(
+                $modn::FnvHashMap::with_capacity_and_hasher((100) as usize, Default::default()));
         }
         for block in $modn::PROFILE_BLOCKS.as_mut().unwrap().iter_mut() {
             let block:Box<$modn::ProfileBlock> = Box::from_raw(*block);
-            let secs = (*block).elapsed.as_secs() as f64 + block.elapsed.subsec_nanos() as f64 * 1e-9;
-            let entry = $modn::PROFILE_ACCUM.as_mut().unwrap().entry(block.name).or_insert($modn::ProfileBlockSummary {
+            let secs = (*block).elapsed.as_secs() as f64
+                + block.elapsed.subsec_nanos() as f64 * 1e-9;
+            let entry = $modn::PROFILE_ACCUM
+                .as_mut().unwrap().entry(block.name).or_insert($modn::ProfileBlockSummary {
                 total_time: 0.0
             });
 
