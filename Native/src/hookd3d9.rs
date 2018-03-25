@@ -107,6 +107,7 @@ pub struct HookState {
     pub in_dip: bool,
     pub in_hook_release: bool,
     pub in_beginend_scene: bool,
+    pub show_mods: bool,
     pub mm_root: Option<String>,
     pub input: Option<input::Input>,
 }
@@ -125,6 +126,7 @@ impl HookState {
             in_dip: false,
             in_hook_release: false,
             in_beginend_scene: false,
+            show_mods: true,
             mm_root: None,
             input: None,
         }
@@ -160,6 +162,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     in_dip: false,
     in_hook_release: false,
     in_beginend_scene: false,
+    show_mods: true,
     mm_root: None,
     input: None,
 };
@@ -440,6 +443,72 @@ pub fn do_per_scene_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     Ok(())
 }
 
+fn cmd_toggle_show_mods() {
+    let hookstate = unsafe { &mut GLOBAL_STATE };
+    hookstate.show_mods = !hookstate.show_mods;
+}
+
+fn setup_fkey_input(inp: &mut input::Input) {
+    write_log_file("using fkey input layout");
+    // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
+    // _fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
+    // _fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
+    // _fKeyMap[DIK_F6] = [&]() { this->clearTextureLists(); };
+    // _fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
+    // _fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
+    // _fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
+    // _fKeyMap[DIK_F10] = [&]() { this->loadEverything(); };
+
+    inp.add_press_fn(input::DIK_F2, Box::new(|| cmd_toggle_show_mods()));
+}
+
+fn setup_punct_input(_inp: &mut input::Input) {
+    write_log_file("using punct key input layout");
+    // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
+    // TODO: hook these up
+    // _punctKeyMap[DIK_BACKSLASH] = [&]() { this->loadMods(); };
+    // _punctKeyMap[DIK_RBRACKET] = [&]() { this->toggleShowModMesh(); };
+    // _punctKeyMap[DIK_SEMICOLON] = [&]() { this->clearTextureLists(); };
+    // _punctKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
+    // _punctKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
+    // _punctKeyMap[DIK_SLASH] = [&]() { this->requestSnap(); };
+    // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
+}
+
+fn setup_input(inp: &mut input::Input) -> Result<()> {
+    use std::ffi::CStr;
+
+    // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
+    // TODO: should push this out to conf file eventually so that they can be customized without rebuild
+    let interop_state = unsafe { &GLOBAL_STATE.interop_state };
+    interop_state
+        .as_ref()
+        .ok_or(HookError::DInputCreateFailed(String::from(
+            "no interop state",
+        )))
+        .and_then(|is| {
+            let carr_ptr = &is.conf_data.InputProfile[0] as *const i8;
+            unsafe { CStr::from_ptr(carr_ptr) }
+                .to_str()
+                .map_err(|e| HookError::CStrConvertFailed(e))
+        })
+        .and_then(|inp_profile| {
+            let lwr = inp_profile.to_owned().to_lowercase();
+            if lwr.starts_with("fk") {
+                setup_fkey_input(inp);
+            } else if lwr.starts_with("punct") {
+                setup_punct_input(inp);
+            } else {
+                write_log_file(&format!(
+                    "input scheme unrecognized: {}, using FKeys",
+                    inp_profile
+                ));
+                setup_fkey_input(inp);
+            }
+            Ok(())
+        })
+}
+
 pub unsafe extern "system" fn hook_present(
     THIS: *mut IDirect3DDevice9,
     pSourceRect: *const RECT,
@@ -504,7 +573,14 @@ pub unsafe extern "system" fn hook_present(
             )
         });
 
-    GLOBAL_STATE.input.as_mut().map(|inp| inp.process());
+    GLOBAL_STATE.input.as_mut().map(|inp| {
+        if inp.get_press_fn_count() == 0 {
+            setup_input(inp)
+                .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
+        }
+        inp.process()
+            .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
+    });
 
     present_ret
 }
@@ -601,7 +677,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, state_begin);
 
-    if hookdevice.low_framerate || force_modding_off {
+    if hookdevice.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
             arg1,

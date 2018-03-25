@@ -30,6 +30,9 @@ pub enum HookError {
     GlobalLockError,
     IOError(std::io::Error),
     DInputCreateFailed(String),
+    DInputError(String),
+    TimeConversionError(std::time::SystemTimeError),
+    CStrConvertFailed(std::str::Utf8Error),
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
@@ -47,6 +50,18 @@ impl std::convert::From<std::ffi::OsString> for HookError {
 impl std::convert::From<std::io::Error> for HookError {
     fn from(error: std::io::Error) -> Self {
         HookError::IOError(error)
+    }
+}
+
+impl std::convert::From<std::time::SystemTimeError> for HookError {
+    fn from(error: std::time::SystemTimeError) -> Self {
+        HookError::TimeConversionError(error)
+    }
+}
+
+impl std::convert::From<std::str::Utf8Error> for HookError {
+    fn from(error: std::str::Utf8Error) -> Self {
+        HookError::CStrConvertFailed(error)
     }
 }
 

@@ -14,6 +14,9 @@ use winapi::shared::guiddef::{GUID, REFGUID, REFIID};
 // use winapi::ctypes::c_void;
 // use winapi::um::wingdi::RGNDATA;
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use fnv::FnvHashMap;
+
 //extern HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter);
 use util;
 use util::{write_log_file, HookError, Result};
@@ -90,15 +93,78 @@ type DirectInput8CreateFn = unsafe extern "system" fn(
     punkOuter: LPUNKNOWN,
 ) -> HRESULT;
 
-pub struct Input {}
+const INITIAL_REPEAT_DELAY: u16 = 500;
+const CONTINUED_REPEAT_DELAY: u16 = 75;
+
+pub const DIK_LALT: u8 = 0x38;
+pub const DIK_RALT: u8 = 0xB8;
+pub const DIK_LSHIFT: u8 = 0x2A;
+pub const DIK_RSHIFT: u8 = 0x36;
+pub const DIK_LCONTROL: u8 = 0x1D;
+pub const DIK_RCONTROL: u8 = 0x9D;
+pub const DIK_F1: u8 = 0x3B;
+pub const DIK_F2: u8 = 0x3C;
+pub const DIK_F3: u8 = 0x3D;
+pub const DIK_F4: u8 = 0x3E;
+pub const DIK_F5: u8 = 0x3F;
+pub const DIK_F6: u8 = 0x40;
+pub const DIK_F7: u8 = 0x41;
+pub const DIK_F8: u8 = 0x42;
+pub const DIK_F9: u8 = 0x43;
+pub const DIK_F10: u8 = 0x44;
+
+#[derive(Debug)]
+pub struct KeyEvent {
+    pub key: u8,
+    pub pressed: bool,
+}
+
+pub struct Input {
+    events: Vec<KeyEvent>,
+    keyboard_state: Vec<u8>,
+    last_keyboard_state: Vec<u8>,
+    last_press_event: Vec<SystemTime>,
+    last_update: SystemTime,
+    press_event_fns: FnvHashMap<u8, Box<FnMut() -> ()>>,
+    repeat_delay: Vec<u16>,
+    pub alt_pressed: bool,
+    pub ctrl_pressed: bool,
+    pub shift_pressed: bool,
+    keyboard: *mut IDirectInputDevice8W,
+}
+
+//
 
 impl Input {
     pub fn new() -> Result<Self> {
-        let mut i = Input {};
-        unsafe { i.init()? };
-        Ok(i)
+        let mut inp = Input {
+            events: Vec::new(),
+            keyboard_state: Vec::with_capacity(256),
+            last_keyboard_state: Vec::with_capacity(256),
+            repeat_delay: Vec::new(),
+            last_press_event: Vec::new(),
+            last_update: SystemTime::now(),
+            press_event_fns: FnvHashMap::with_capacity_and_hasher(
+                (1024) as usize,
+                Default::default(),
+            ),
+            alt_pressed: false,
+            shift_pressed: false,
+            ctrl_pressed: false,
+            keyboard: null_mut(),
+        };
+        for _i in 0..256 {
+            inp.keyboard_state.push(0);
+            inp.last_keyboard_state.push(0);
+            inp.repeat_delay.push(0);
+            inp.last_press_event.push(UNIX_EPOCH);
+        }
+        unsafe {
+            inp.keyboard = inp.init()?;
+        };
+        Ok(inp)
     }
-    unsafe fn init(&mut self) -> Result<()> {
+    unsafe fn init(&mut self) -> Result<*mut IDirectInputDevice8W> {
         use winapi::um::libloaderapi::*;
 
         let lib = util::load_lib("dinput8.dll")?;
@@ -159,10 +225,122 @@ impl Input {
 
         write_log_file("created dinput keyboard");
 
-        Ok(())
+        Ok(keyboard)
     }
 
-    pub unsafe fn process(&mut self) -> Result<()> {
+    pub fn add_press_fn(&mut self, key: u8, fun: Box<FnMut() -> ()>) {
+        self.press_event_fns.insert(key, fun);
+    }
+    pub fn get_press_fn_count(&self) -> usize {
+        self.press_event_fns.len()
+    }
+
+    pub fn events(&self) -> &Vec<KeyEvent> {
+        return &self.events;
+    }
+
+    pub fn process(&mut self) -> Result<()> {
+        self.events.clear();
+
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(self.last_update)?;
+        let ms = elapsed.subsec_nanos() as f64 * 1e-6;
+        if ms < 16.0 {
+            return Ok(());
+        }
+        self.last_update = now;
+
+        // TODO: need to clear before GetDeviceState?
+        unsafe {
+            {
+                let mut gds = || {
+                    (*self.keyboard).GetDeviceState(
+                        (std::mem::size_of::<i8>() * 256) as u32,
+                        std::mem::transmute(self.keyboard_state.as_mut_ptr()),
+                    )
+                };
+
+                let hr = gds();
+                if hr != 0 {
+                    // reacquire
+                    let hr = (*self.keyboard).Acquire();
+                    if hr != 0 {
+                        return Err(HookError::DInputError(format!(
+                            "failed to reacquire keyboard for input: {:x}",
+                            hr
+                        )));
+                    }
+                    let hr = gds();
+                    if hr != 0 {
+                        return Err(HookError::DInputError(format!(
+                            "failed to get device state after reacquire: {:x}",
+                            hr
+                        )));
+                    }
+                }
+            }
+
+            // update modifiers
+            self.alt_pressed = (self.keyboard_state[DIK_LALT as usize] & 0x80) > 0
+                || (self.keyboard_state[DIK_RALT as usize] & 0x80) > 0;
+            self.shift_pressed = (self.keyboard_state[DIK_LSHIFT as usize] & 0x80) > 0
+                || (self.keyboard_state[DIK_RSHIFT as usize] & 0x80) > 0;
+            self.ctrl_pressed = (self.keyboard_state[DIK_LCONTROL as usize] & 0x80) > 0
+                || (self.keyboard_state[DIK_RCONTROL as usize] & 0x80) > 0;
+
+            let zero_ms = Duration::from_millis(0);
+
+            for i in 0..256 {
+                let i = i as usize;
+                let pressed = self.keyboard_state[i] & 0x80 > 0;
+                let was_pressed = self.last_keyboard_state[i] & 0x80 > 0;
+                let new_press = pressed && !was_pressed;
+                let new_release = !pressed && was_pressed;
+
+                if new_press {
+                    // per-key repeat delay is probably overkill, but who cares.
+                    self.repeat_delay[i] = INITIAL_REPEAT_DELAY;
+                }
+
+                let repeat = !new_press && pressed && self.last_press_event[i] != UNIX_EPOCH
+                    && (now.duration_since(self.last_press_event[i])
+                        .unwrap_or(zero_ms)
+                        .subsec_nanos() as f64 * 1e-6)
+                        >= self.repeat_delay[i].into();
+                if repeat {
+                    // switch to lower delay now
+                    self.repeat_delay[i] = CONTINUED_REPEAT_DELAY;
+                }
+
+                if new_press || repeat {
+                    self.events.push(KeyEvent {
+                        key: i as u8,
+                        pressed: true,
+                    });
+                    self.last_press_event[i] = now;
+                } else if new_release {
+                    self.events.push(KeyEvent {
+                        key: i as u8,
+                        pressed: false,
+                    });
+                }
+
+                self.last_keyboard_state[i] = self.keyboard_state[i];
+            }
+        };
+
+        for evt in self.events.iter() {
+            //write_log_file(&format!("event: {:x} pressed: {}", ke.key, ke.pressed));
+            if evt.pressed && self.ctrl_pressed {
+                self.press_event_fns.get_mut(&evt.key).map(|fun| {
+                    fun();
+                });
+            }
+        }
+        // if self.events.len() > 0 {
+        //     write_log_file("");
+        // }
+
         Ok(())
     }
 }
