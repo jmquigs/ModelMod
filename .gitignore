@@ -43,3 +43,4 @@ ModelMod.VC.db
 ModelMod/Exports.cpp
 ModelMod/exports.h
 Native/rb.sh
+Native/rb32.sh

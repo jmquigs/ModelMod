@@ -469,6 +469,9 @@ pub unsafe extern "system" fn hook_present(
             hookdevice.frames += 1;
             if hookdevice.frames % 90 == 0 {
                 // enforce min fps
+                // NOTE: when low, it just sets a boolean flag to disable mod rendering,
+                // but we could also use virtual protect to temporarily swap out the hook functions
+                // (except for present)
                 let now = SystemTime::now();
                 let elapsed = now.duration_since(hookdevice.last_fps_update);
                 if let Ok(d) = elapsed {
@@ -480,7 +483,7 @@ pub unsafe extern "system" fn hook_present(
                     if smooth_fps < min_fps && !hookdevice.low_framerate {
                         hookdevice.low_framerate = true;
                     }
-                    // don't turn back on until 10% above mininum
+                    // prevent oscillation: don't reactivate until 10% above mininum
                     else if hookdevice.low_framerate && smooth_fps > (min_off * 1.1) {
                         hookdevice.low_framerate = false;
                     }
@@ -501,7 +504,7 @@ pub unsafe extern "system" fn hook_present(
             )
         });
 
-    GLOBAL_STATE.input.as_mut().map(|inp| inp.process() );
+    GLOBAL_STATE.input.as_mut().map(|inp| inp.process());
 
     present_ret
 }
@@ -728,8 +731,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                         .as_secs() * 1000;
 
                     write_log_file(&format!(
-                        "{:?}: {} dip calls in {} secs ({} dips/sec)",
-                        epocht, hookdevice.dip_calls, secs, dipsec
+                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
+                        epocht, hookdevice.dip_calls, 2, secs, 2, dipsec, 2, hookdevice.last_fps
                     ));
                     hookdevice.last_call_log = now;
                     hookdevice.dip_calls = 0;
@@ -868,7 +871,12 @@ pub unsafe extern "system" fn hook_create_device(
         .map(|inp| {
             GLOBAL_STATE.input = Some(inp);
         })
-        .unwrap_or_else(|e| write_log_file(&format!("failed to create input; only playback from existing mods will be possible: {:?}", e)));
+        .unwrap_or_else(|e| {
+            write_log_file(&format!(
+                "failed to create input; only playback from existing mods will be possible: {:?}",
+                e
+            ))
+        });
 
     match res {
         Err(e) => {
@@ -950,7 +958,11 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 use std::io::Write;
                 use std::fs::OpenOptions;
                 // don't open append first time so that log is cleared.
-                let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(&tname)?;
+                let mut f = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&tname)?;
                 writeln!(f, "ModelMod initialized\r")?;
 
                 // if that succeeded then we can set the file name now
