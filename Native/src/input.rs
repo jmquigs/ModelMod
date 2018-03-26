@@ -24,6 +24,8 @@ use util::{write_log_file, HookError, Result};
 use std;
 use std::ptr::null_mut;
 
+use profile::*;
+
 #[repr(C)]
 pub struct DIOBJECTDATAFORMAT(*const GUID, DWORD, DWORD, DWORD);
 
@@ -133,7 +135,7 @@ pub struct Input {
     keyboard: *mut IDirectInputDevice8W,
 }
 
-//
+decl_profile_globals!(inp);
 
 impl Input {
     pub fn new() -> Result<Self> {
@@ -240,14 +242,21 @@ impl Input {
     }
 
     pub fn process(&mut self) -> Result<()> {
-        self.events.clear();
+        profile_blocks!(inp, process);
+
+        profile_start!(inp, check);
 
         let now = SystemTime::now();
         let elapsed = now.duration_since(self.last_update)?;
         let ms = elapsed.subsec_nanos() as f64 * 1e-6;
         if ms < 16.0 {
+            profile_end!(inp, check);
             return Ok(());
         }
+        profile_end!(inp, check);
+        profile_start!(inp, process);
+
+        self.events.clear();
         self.last_update = now;
 
         // TODO: need to clear before GetDeviceState?
@@ -340,6 +349,11 @@ impl Input {
         // if self.events.len() > 0 {
         //     write_log_file("");
         // }
+
+        profile_end!(inp, process);
+
+        profile_accum!(inp);
+        profile_summarize!(inp);
 
         Ok(())
     }

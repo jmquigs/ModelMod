@@ -823,8 +823,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     profile_end!(hdip, hook_dip);
 
     profile_accum!(hdip);
-
-    profile_summarize!(hdip, hookdevice);
+    profile_summarize!(hdip);
 
     dresult
 }
