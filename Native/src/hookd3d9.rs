@@ -60,7 +60,7 @@ pub struct HookDirect3D9 {
 #[derive(Copy, Clone)]
 pub struct HookDirect3D9Device {
     pub real_draw_indexed_primitive: DrawIndexedPrimitiveFn,
-    pub real_begin_scene: BeginSceneFn,
+    //pub real_begin_scene: BeginSceneFn,
     pub real_present: PresentFn,
     pub real_release: IUnknownReleaseFn,
     pub ref_count: ULONG,
@@ -76,13 +76,13 @@ pub struct HookDirect3D9Device {
 impl HookDirect3D9Device {
     pub fn new(
         real_draw_indexed_primitive: DrawIndexedPrimitiveFn,
-        real_begin_scene: BeginSceneFn,
+        //real_begin_scene: BeginSceneFn,
         real_present: PresentFn,
         real_release: IUnknownReleaseFn,
     ) -> HookDirect3D9Device {
         HookDirect3D9Device {
             real_draw_indexed_primitive: real_draw_indexed_primitive,
-            real_begin_scene: real_begin_scene,
+            //real_begin_scene: real_begin_scene,
             real_release: real_release,
             real_present: real_present,
             dip_calls: 0,
@@ -374,7 +374,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
 }
 
-pub fn do_per_scene_operations(device: *mut IDirect3DDevice9) -> Result<()> {
+pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     // init the clr if needed
     {
         let hookstate = unsafe { &mut GLOBAL_STATE };
@@ -526,6 +526,17 @@ pub unsafe extern "system" fn hook_present(
         );
     }
 
+    if let Err(e) = do_per_frame_operations(THIS) {
+        write_log_file(&format!("unexpected error from do_per_scene_operations: {:?}", e));
+        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
+            THIS,
+            pSourceRect,
+            pDestRect,
+            hDestWindowOverride,
+            pDirtyRegion,
+        );
+    }
+
     let min_fps = GLOBAL_STATE
         .interop_state
         .map(|is| is.conf_data.MinimumFPS)
@@ -621,25 +632,26 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     r
 }
 
-pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> HRESULT {
-    if GLOBAL_STATE.in_any_hook_fn() {
-        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_begin_scene)(THIS);
-    }
-    GLOBAL_STATE.in_beginend_scene = true;
+// TODO: maybe remove if not needed
+// pub unsafe extern "system" fn hook_begin_scene(THIS: *mut IDirect3DDevice9) -> HRESULT {
+//     if GLOBAL_STATE.in_any_hook_fn() {
+//         return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_begin_scene)(THIS);
+//     }
+//     GLOBAL_STATE.in_beginend_scene = true;
 
-    if let Err(e) = do_per_scene_operations(THIS) {
-        write_log_file(&format!("unexpected error: {:?}", e));
-        return E_FAIL;
-    }
+//     if let Err(e) = do_per_frame_operations(THIS) {
+//         write_log_file(&format!("unexpected error: {:?}", e));
+//         return E_FAIL;
+//     }
 
-    let r = GLOBAL_STATE
-        .hook_direct3d9device
-        .as_ref()
-        .map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS));
+//     let r = GLOBAL_STATE
+//         .hook_direct3d9device
+//         .as_ref()
+//         .map_or(E_FAIL, |hookdevice| (hookdevice.real_begin_scene)(THIS));
 
-    GLOBAL_STATE.in_beginend_scene = false;
-    r
-}
+//     GLOBAL_STATE.in_beginend_scene = false;
+//     r
+// }
 
 decl_profile_globals!(hdip);
 
@@ -670,9 +682,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let hookdevice = match GLOBAL_STATE.hook_direct3d9device {
         None => {
-            write_log_file(&format!("No state in DIP"));
+            write_log_file(&format!("DIP: No d3d9 device found"));
             return E_FAIL;
-        } // beginscene must do global->tls copy
+        }
         Some(ref mut hookdevice) => hookdevice,
     };
     profile_end!(hdip, state_begin);
@@ -842,14 +854,14 @@ unsafe fn hook_device(
     let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
     let real_draw_indexed_primitive = (*vtbl).DrawIndexedPrimitive;
-    let real_begin_scene = (*vtbl).BeginScene;
+    //let real_begin_scene = (*vtbl).BeginScene;
     let real_release = (*vtbl).parent.Release;
     let real_present = (*vtbl).Present;
 
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
     (*vtbl).DrawIndexedPrimitive = hook_draw_indexed_primitive;
-    (*vtbl).BeginScene = hook_begin_scene;
+    //(*vtbl).BeginScene = hook_begin_scene;
     (*vtbl).Present = hook_present;
     (*vtbl).parent.Release = hook_release;
 
@@ -860,7 +872,7 @@ unsafe fn hook_device(
 
     Ok(HookDirect3D9Device::new(
         real_draw_indexed_primitive,
-        real_begin_scene,
+        //real_begin_scene,
         real_present,
         real_release,
     ))
