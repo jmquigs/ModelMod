@@ -6,6 +6,7 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::um::winnt::HRESULT;
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
+use winapi::um::winuser::{GetForegroundWindow, GetParent, GetAncestor};
 use winapi::ctypes::c_void;
 use winapi::um::wingdi::RGNDATA;
 
@@ -101,6 +102,7 @@ pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
     pub clr_pointer: Option<u64>,
+    pub d3d_window: HWND,
     pub interop_state: Option<InteropState>,
     pub is_global: bool,
     pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
@@ -120,6 +122,7 @@ impl HookState {
             hook_direct3d9: None,
             hook_direct3d9device: None,
             clr_pointer: None,
+            d3d_window: null_mut(),
             interop_state: None,
             is_global: false,
             loaded_mods: None,
@@ -157,6 +160,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     hook_direct3d9device: None,
     clr_pointer: None,
     interop_state: None,
+    d3d_window: null_mut(),
     is_global: true,
     loaded_mods: None,
     in_dip: false,
@@ -509,6 +513,30 @@ fn setup_input(inp: &mut input::Input) -> Result<()> {
         })
 }
 
+fn appwnd_is_foreground() -> bool {
+    const GA_ROOTOWNER:UINT = 3;
+
+    unsafe {
+        let gs = &GLOBAL_STATE;
+        if gs.d3d_window == null_mut() {
+            return false;
+        }
+        let focus_wnd = GetForegroundWindow();
+        let mut is_focused = focus_wnd == gs.d3d_window;
+        if !is_focused {
+            // check parent
+            let par = GetParent(gs.d3d_window);
+            is_focused = par == focus_wnd;
+        }
+        if !is_focused {
+            // check root owner
+            let own = GetAncestor(gs.d3d_window, GA_ROOTOWNER);
+            is_focused = own == focus_wnd;
+        }
+        is_focused
+    }
+}
+
 pub unsafe extern "system" fn hook_present(
     THIS: *mut IDirect3DDevice9,
     pSourceRect: *const RECT,
@@ -584,14 +612,16 @@ pub unsafe extern "system" fn hook_present(
             )
         });
 
-    GLOBAL_STATE.input.as_mut().map(|inp| {
-        if inp.get_press_fn_count() == 0 {
-            setup_input(inp)
-                .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
-        }
-        inp.process()
-            .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
-    });
+    if appwnd_is_foreground() {
+        GLOBAL_STATE.input.as_mut().map(|inp| {
+            if inp.get_press_fn_count() == 0 {
+                setup_input(inp)
+                    .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
+            }
+            inp.process()
+                .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
+        });
+    }
 
     present_ret
 }
@@ -916,6 +946,7 @@ unsafe fn create_and_hook_device(
                 write_log_file(&format!("create device FAILED: {}", result));
                 return Err(HookError::CreateDeviceFailed(result));
             }
+            GLOBAL_STATE.d3d_window = hFocusWindow;
             hook_device(*ppReturnedDeviceInterface, &lock)
         })
         .and_then(|hook_d3d9device| {
