@@ -112,6 +112,7 @@ pub struct HookState {
     pub show_mods: bool,
     pub mm_root: Option<String>,
     pub input: Option<input::Input>,
+    pub selection_texture: *mut IDirect3DTexture9,
 }
 
 impl HookState {
@@ -132,6 +133,7 @@ impl HookState {
             show_mods: true,
             mm_root: None,
             input: None,
+            selection_texture: null_mut(), // TODO: need to release this when device is released
         }
     }
 
@@ -169,6 +171,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     show_mods: true,
     mm_root: None,
     input: None,
+    selection_texture: null_mut(),
 };
 
 enum AsyncLoadState {
@@ -537,6 +540,43 @@ fn appwnd_is_foreground() -> bool {
     }
 }
 
+fn create_selection_texture(device:*mut IDirect3DDevice9) {
+    unsafe {
+        let width = 256;
+        let height = 256;
+        let mut tex:*mut IDirect3DTexture9 = null_mut();
+        let hr = (*device).CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
+            &mut tex, null_mut());
+        if hr != 0 {
+            write_log_file(&format!("failed to create selection texture: {:x}", hr));
+            return;
+        }
+
+        // fill it with a lovely shade of green
+        let mut rect:D3DLOCKED_RECT = std::mem::zeroed();
+        let hr = (*tex).LockRect(0, &mut rect, null_mut(), D3DLOCK_DISCARD);
+        if hr != 0 {
+            write_log_file(&format!("failed to lock selection texture: {:x}", hr));
+            (*tex).Release();
+            return;
+        }
+
+        let dest:*mut u32 = std::mem::transmute(rect.pBits);
+        for i in 0..width*height {
+            let d:*mut u32 = dest.offset(i as isize);
+            *d = 0xFF00FF00;
+        }
+        let hr = (*tex).UnlockRect(0);
+        if hr != 0 {
+            write_log_file("failed to unlock selection texture");
+            (*tex).Release();
+            return;
+        }
+        write_log_file("created selection texture");
+        GLOBAL_STATE.selection_texture = tex;
+    }
+}
+
 pub unsafe extern "system" fn hook_present(
     THIS: *mut IDirect3DDevice9,
     pSourceRect: *const RECT,
@@ -611,6 +651,10 @@ pub unsafe extern "system" fn hook_present(
                 pDirtyRegion,
             )
         });
+
+    if GLOBAL_STATE.selection_texture == null_mut() {
+        create_selection_texture(THIS);
+    }
 
     if appwnd_is_foreground() {
         GLOBAL_STATE.input.as_mut().map(|inp| {
