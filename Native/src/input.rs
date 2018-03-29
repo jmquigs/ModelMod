@@ -230,6 +230,10 @@ impl Input {
         Ok(keyboard)
     }
 
+    pub fn clear_handlers(&mut self) {
+        self.press_event_fns.clear();
+    }
+
     pub fn add_press_fn(&mut self, key: u8, fun: Box<FnMut() -> ()>) {
         self.press_event_fns.insert(key, fun);
     }
