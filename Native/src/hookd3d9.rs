@@ -105,6 +105,8 @@ impl HookDirect3D9Device {
     }
 }
 
+const MAX_STAGE:usize = 16;
+
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
@@ -125,6 +127,8 @@ pub struct HookState {
     pub mm_root: Option<String>,
     pub input: Option<input::Input>,
     pub selection_texture: *mut IDirect3DTexture9,
+    pub selected_on_stage: [bool; MAX_STAGE],
+    pub curr_texture_index: usize,
     // TODO: this should be tracked per device pointer.
     pub d3d_resource_count: u32,
 }
@@ -168,6 +172,8 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     mm_root: None,
     input: None,
     selection_texture: null_mut(),
+    selected_on_stage: [false;MAX_STAGE],
+    curr_texture_index: 0,
     d3d_resource_count: 0,
 };
 
@@ -176,6 +182,31 @@ enum AsyncLoadState {
     Pending,
     InProgress,
     Complete,
+}
+
+fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
+    unsafe {
+        let idx = GLOBAL_STATE.curr_texture_index;
+        GLOBAL_STATE.active_texture_list.as_ref().map(|list| {
+            if idx > list.len() {
+                null_mut()
+            } else {
+                list[idx]
+            }
+
+        }).unwrap_or(null_mut())
+    }
+}
+
+fn get_selected_texture_stage_() -> Option<DWORD> {
+    unsafe {
+        for i in 0..MAX_STAGE {
+            if GLOBAL_STATE.selected_on_stage[i] {
+                return Some(i as DWORD)
+            }
+        }
+        None
+    }
 }
 
 pub fn get_global_state_ptr() -> *mut HookState {
@@ -489,6 +520,15 @@ unsafe extern "system" fn hook_set_texture(THIS: *mut IDirect3DDevice9, Stage: D
                     });
             }
 
+            if Stage < MAX_STAGE as u32 {
+                let curr = get_current_texture();
+                if curr != null_mut() && pTexture == curr {
+                    GLOBAL_STATE.selected_on_stage[Stage as usize] = true;
+                } else if GLOBAL_STATE.selected_on_stage[Stage as usize] {
+                    GLOBAL_STATE.selected_on_stage[Stage as usize] = false;
+                }
+            }
+
             (GLOBAL_STATE.hook_direct3d9device.unwrap().real_set_texture)(
             THIS,
             Stage,
@@ -522,12 +562,38 @@ fn cmd_select_next_texture(device:*mut IDirect3DDevice9) {
         init_selection_mode(device)
         .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
     }
+
+    let len = hookstate.active_texture_list.as_mut().map(|list| {
+        list.len()
+    }).unwrap_or(0);
+
+    if len == 0 {
+        return;
+    }
+
+    hookstate.curr_texture_index += 1;
+    if hookstate.curr_texture_index >= len {
+        hookstate.curr_texture_index = 0;
+    }
 }
 fn cmd_select_prev_texture(device:*mut IDirect3DDevice9) {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     if !hookstate.making_selection {
         init_selection_mode(device)
         .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
+    }
+
+    let len = hookstate.active_texture_list.as_mut().map(|list| {
+        list.len()
+    }).unwrap_or(0);
+
+    if len == 0 {
+        return;
+    }
+
+    hookstate.curr_texture_index = hookstate.curr_texture_index.wrapping_sub(1);
+    if hookstate.curr_texture_index >= len {
+        hookstate.curr_texture_index = len - 1;
     }
 }
 fn cmd_toggle_show_mods() {
@@ -913,7 +979,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     // snapshotting
+    let mut override_texture:*mut IDirect3DBaseTexture9 = null_mut();
+    let mut sel_stage = 0;
     if GLOBAL_STATE.making_selection {
+        get_selected_texture_stage_().map(|stage| {
+            sel_stage = stage;
+            override_texture = std::mem::transmute(GLOBAL_STATE.selection_texture);
+        });
     }
 
     profile_start!(hdip, main_combinator);
@@ -974,6 +1046,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             (*THIS).SetVertexDeclaration(nmod.decl);
             (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
 
+            let mut save_texture:*mut IDirect3DBaseTexture9 = null_mut();
+            if override_texture != null_mut() {
+                (*THIS).GetTexture(sel_stage, &mut save_texture);
+                (*THIS).SetTexture(sel_stage, override_texture);
+            }
             (*THIS).DrawPrimitive(
                 nmod.mod_data.numbers.prim_type as u32,
                 0,
@@ -984,6 +1061,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             // restore state
             (*THIS).SetVertexDeclaration(pDecl);
             (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
+            if override_texture != null_mut() {
+                (*THIS).SetTexture(sel_stage, save_texture);
+            }
             (*pDecl).Release();
             (*pStreamVB).Release();
             profile_end!(hdip, mod_render);
@@ -1003,7 +1083,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, real_dip);
     let dresult = if draw_input {
-        (hookdevice.real_draw_indexed_primitive)(
+        let mut save_texture:*mut IDirect3DBaseTexture9 = null_mut();
+        if override_texture != null_mut() {
+            (*THIS).GetTexture(sel_stage, &mut save_texture);
+            (*THIS).SetTexture(sel_stage, override_texture);
+        }
+        let r = (hookdevice.real_draw_indexed_primitive)(
             THIS,
             arg1,
             BaseVertexIndex,
@@ -1011,7 +1096,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             NumVertices,
             startIndex,
             primCount,
-        )
+        );
+        if override_texture != null_mut() {
+            (*THIS).SetTexture(sel_stage, save_texture);
+        }
+        r
     } else {
         S_OK
     };
