@@ -2,7 +2,9 @@ use std;
 use winapi;
 
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
-use winapi::shared::minwindef::{FARPROC, HMODULE};
+use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
+use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
+use winapi::shared::windef::{HWND, RECT};
 
 use std::ffi::OsString;
 
@@ -182,6 +184,30 @@ pub fn get_proc_address(h: HMODULE, name: &str) -> Result<FARPROC> {
         )))
     } else {
         Ok(addr)
+    }
+}
+
+
+pub fn appwnd_is_foreground(app_wnd:HWND) -> bool {
+    const GA_ROOTOWNER: UINT = 3;
+
+    unsafe {
+        if app_wnd == std::ptr::null_mut() {
+            return false;
+        }
+        let focus_wnd = GetForegroundWindow();
+        let mut is_focused = focus_wnd == app_wnd;
+        if !is_focused {
+            // check parent
+            let par = GetParent(app_wnd);
+            is_focused = par == focus_wnd;
+        }
+        if !is_focused {
+            // check root owner
+            let own = GetAncestor(app_wnd, GA_ROOTOWNER);
+            is_focused = own == focus_wnd;
+        }
+        is_focused
     }
 }
 

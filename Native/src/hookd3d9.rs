@@ -6,7 +6,6 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::um::winnt::HRESULT;
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
-use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 use winapi::ctypes::c_void;
 use winapi::um::wingdi::RGNDATA;
 
@@ -690,30 +689,6 @@ fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<
         })
 }
 
-fn appwnd_is_foreground() -> bool {
-    const GA_ROOTOWNER: UINT = 3;
-
-    unsafe {
-        let gs = &GLOBAL_STATE;
-        if gs.d3d_window == null_mut() {
-            return false;
-        }
-        let focus_wnd = GetForegroundWindow();
-        let mut is_focused = focus_wnd == gs.d3d_window;
-        if !is_focused {
-            // check parent
-            let par = GetParent(gs.d3d_window);
-            is_focused = par == focus_wnd;
-        }
-        if !is_focused {
-            // check root owner
-            let own = GetAncestor(gs.d3d_window, GA_ROOTOWNER);
-            is_focused = own == focus_wnd;
-        }
-        is_focused
-    }
-}
-
 fn create_selection_texture(device: *mut IDirect3DDevice9) {
     unsafe {
         let width = 256;
@@ -870,7 +845,7 @@ pub unsafe extern "system" fn hook_present(
         create_selection_texture(THIS);
     }
 
-    if appwnd_is_foreground() {
+    if util::appwnd_is_foreground(GLOBAL_STATE.d3d_window) {
         GLOBAL_STATE.input.as_mut().map(|inp| {
             if inp.get_press_fn_count() == 0 {
                 setup_input(THIS, inp)
