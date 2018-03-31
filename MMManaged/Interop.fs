@@ -24,47 +24,6 @@ open System
 
 open Microsoft.Xna.Framework
 
-// Using interop makes the IL unverifiable, disable warning.
-#nowarn "9"
-/// Defines the main native->managed interface.
-module MMNative =
-    /// Called by native code to initialize managed code and configuration.
-    type SetPathsCB =
-        delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
-
-    type LoadModDBCB = delegate of unit -> int
-
-    [<StructLayout(LayoutKind.Sequential)>]
-    type ManagedCallbacks = {
-        SetPaths: SetPathsCB
-        LoadModDB: LoadModDBCB
-        GetModCount: InteropTypes.GetModCountCB
-        GetModData: InteropTypes.GetModDataCB
-        FillModData: InteropTypes.FillModDataCB
-        TakeSnapshot: InteropTypes.TakeSnapshotCB
-        GetLoadingState: InteropTypes.GetLoadingStateCB
-    }
-
-module NativeImportsAsD3D9 =
-    [< DllImport("d3d9.dll") >]
-    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
-    [< DllImport("d3d9.dll") >]
-    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-    [< DllImport("d3d9.dll") >]
-    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-    [< DllImport("d3d9.dll") >]
-    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-
-module NativeImportsAsMMNative =
-    [< DllImport("mm_native.dll") >]
-    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
-    [< DllImport("mm_native.dll") >]
-    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-    [< DllImport("mm_native.dll") >]
-    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-    [< DllImport("mm_native.dll") >]
-    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
-
 module NativeLogging =
     let factory ninfo nwarn nerror category =
         let category = "M:" + category // M: prefix means "managed", to help differentiate from native log messages
@@ -191,6 +150,8 @@ type Main() =
 
             let nativeGlobalState = uint64 (args.[0])
             let context = args.[1]
+
+            State.Context <- context
 
             Main.InitNativeInterface(context)
 

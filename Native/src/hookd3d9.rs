@@ -108,6 +108,18 @@ impl HookDirect3D9Device {
 
 const MAX_STAGE: usize = 16;
 
+// Snapshotting currently stops after a certain amount of real time has passed from the start of
+// the snap, specified by this constant.
+// One might expect that just snapping everything drawn within a single begin/end scene combo is
+// sufficient, but this often misses data,
+// and sometimes fails to snapshot anything at all.  This may be because the game is using multiple
+// begin/end combos, so maybe
+// present->present would be more reliable (TODO: check this)
+// Using a window makes it much more likely that something useful is captured, at the expense of
+// some duplicates; even though
+// some objects may still be missed.  Some investigation to make this more reliable would be useful.
+static SNAP_MS: u32 = 250;
+
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
@@ -130,6 +142,8 @@ pub struct HookState {
     pub selection_texture: *mut IDirect3DTexture9,
     pub selected_on_stage: [bool; MAX_STAGE],
     pub curr_texture_index: usize,
+    pub is_snapping: bool,
+    pub snap_start: SystemTime,
     // TODO: this should be tracked per device pointer.
     pub d3d_resource_count: u32,
 }
@@ -175,6 +189,8 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     selection_texture: null_mut(),
     selected_on_stage: [false; MAX_STAGE],
     curr_texture_index: 0,
+    is_snapping: false,
+    snap_start: std::time::UNIX_EPOCH,
     d3d_resource_count: 0,
 };
 
@@ -192,7 +208,7 @@ fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
             .active_texture_list
             .as_ref()
             .map(|list| {
-                if idx > list.len() {
+                if idx >= list.len() {
                     null_mut()
                 } else {
                     list[idx]
@@ -202,7 +218,7 @@ fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
     }
 }
 
-fn get_selected_texture_stage_() -> Option<DWORD> {
+fn get_selected_texture_stage() -> Option<DWORD> {
     unsafe {
         for i in 0..MAX_STAGE {
             if GLOBAL_STATE.selected_on_stage[i] {
@@ -560,11 +576,22 @@ fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
 
         let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
+        // TODO: should hook SetStreamSource so that we can tell what streams are in use
         (*vtbl).SetTexture = hook_set_texture;
 
         protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     }
     Ok(())
+}
+
+fn init_snapshot_mode() {
+    unsafe {
+        if GLOBAL_STATE.is_snapping {
+            return;
+        }
+        GLOBAL_STATE.is_snapping = true;
+        GLOBAL_STATE.snap_start = SystemTime::now();
+    }
 }
 
 fn cmd_select_next_texture(device: *mut IDirect3DDevice9) {
@@ -611,19 +638,31 @@ fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
+fn cmd_clear_texture_lists() {
+    unsafe {
+        GLOBAL_STATE
+            .active_texture_list
+            .as_mut()
+            .map(|list| list.clear());
+        GLOBAL_STATE
+            .active_texture_set
+            .as_mut()
+            .map(|list| list.clear());
+        GLOBAL_STATE.curr_texture_index = 0;
+    }
+}
 fn cmd_toggle_show_mods() {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     hookstate.show_mods = !hookstate.show_mods;
+}
+fn cmd_take_snapshot() {
+    init_snapshot_mode();
 }
 
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     // _fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
-    // _fKeyMap[DIK_F2] = [&]() { this->toggleShowModMesh(); };
-    // _fKeyMap[DIK_F6] = [&]() { this->clearTextureLists(); };
-    // _fKeyMap[DIK_F3] = [&]() { this->selectNextTexture(); };
-    // _fKeyMap[DIK_F4] = [&]() { this->selectPrevTexture(); };
     // _fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
     // _fKeyMap[DIK_F10] = [&]() { this->loadEverything(); };
 
@@ -640,6 +679,8 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
         input::DIK_F4,
         Box::new(move || cmd_select_prev_texture(device)),
     );
+    inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists()));
+    inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
 }
 
 fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
@@ -856,6 +897,17 @@ pub unsafe extern "system" fn hook_present(
         });
     }
 
+    if GLOBAL_STATE.is_snapping {
+        let now = SystemTime::now();
+        let max_dur = std::time::Duration::from_millis(SNAP_MS as u64);
+        if now.duration_since(GLOBAL_STATE.snap_start)
+            .unwrap_or(max_dur) >= max_dur
+        {
+            write_log_file("ending snapshot");
+            GLOBAL_STATE.is_snapping = false;
+        }
+    }
+
     present_ret
 }
 
@@ -947,7 +999,7 @@ decl_profile_globals!(hdip);
 
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
     THIS: *mut IDirect3DDevice9,
-    arg1: D3DPRIMITIVETYPE,
+    PrimitiveType: D3DPRIMITIVETYPE,
     BaseVertexIndex: INT,
     MinVertexIndex: UINT,
     NumVertices: UINT,
@@ -980,7 +1032,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     if hookdevice.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
-            arg1,
+            PrimitiveType,
             BaseVertexIndex,
             MinVertexIndex,
             NumVertices,
@@ -990,13 +1042,94 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     // snapshotting
-    let mut override_texture: *mut IDirect3DBaseTexture9 = null_mut();
-    let mut sel_stage = 0;
-    if GLOBAL_STATE.making_selection {
-        get_selected_texture_stage_().map(|stage| {
-            sel_stage = stage;
-            override_texture = std::mem::transmute(GLOBAL_STATE.selection_texture);
-        });
+    let (override_texture, sel_stage, this_is_selected) = {
+        let default = (null_mut(), 0, false);
+        if GLOBAL_STATE.making_selection {
+            get_selected_texture_stage()
+                .map(|stage| {
+                    (
+                        std::mem::transmute(GLOBAL_STATE.selection_texture),
+                        stage,
+                        true,
+                    )
+                })
+                .unwrap_or(default)
+        } else {
+            default
+        }
+    };
+
+    if this_is_selected && GLOBAL_STATE.is_snapping {
+        write_log_file("Snap started");
+
+        (*THIS).AddRef();
+        let pre_rc = (*THIS).Release();
+
+        // TODO: warn about active streams that are in use but not supported
+        let mut blending_enabled: DWORD = 0;
+        let hr = (*THIS).GetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, &mut blending_enabled);
+        if hr == 0 && blending_enabled > 0 {
+            write_log_file("WARNING: vertex blending is enabled, this mesh may not be supported");
+        }
+
+        let mut ok = true;
+        let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
+        // sharpdx does not expose GetVertexDeclaration, so need to do it here
+        let hr = (*THIS).GetVertexDeclaration(&mut vert_decl);
+
+        if hr != 0 {
+            write_log_file(&format!(
+                "Error, can't get vertex declaration.
+                Cannot snap; HR: {:x}",
+                hr
+            ));
+        }
+        ok = ok && hr == 0;
+        let mut ib: *mut IDirect3DIndexBuffer9 = null_mut();
+        let hr = (*THIS).GetIndices(&mut ib);
+        if hr != 0 {
+            write_log_file(&format!(
+                "Error, can't get index buffer.  Cannot snap; HR: {:x}",
+                hr
+            ));
+        }
+        ok = ok && hr == 0;
+
+        if ok {
+            let mut sd = interop::SnapshotData {
+                sd_size: std::mem::size_of::<interop::SnapshotData>() as u32,
+                prim_type: PrimitiveType as i32,
+                base_vertex_index: BaseVertexIndex,
+                min_vertex_index: MinVertexIndex,
+                num_vertices: NumVertices,
+                start_index: startIndex,
+                prim_count: primCount,
+                vert_decl: vert_decl,
+                index_buffer: ib,
+            };
+            write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
+            GLOBAL_STATE.interop_state.as_mut().map(|is| {
+                let cb = is.callbacks;
+                (cb.TakeSnapshot)(THIS, &mut sd);
+            });
+        }
+
+        if vert_decl != null_mut() {
+            (*vert_decl).Release();
+        }
+        if ib != null_mut() {
+            (*ib).Release();
+        }
+
+        (*THIS).AddRef();
+        let post_rc = (*THIS).Release();
+        if pre_rc != post_rc {
+            write_log_file(&format!(
+                "WARNING: device ref count before snapshot ({}) does not
+             equal count after snapshot ({}), likely resources were leaked",
+                pre_rc, post_rc
+            ));
+        }
     }
 
     profile_start!(hdip, main_combinator);
@@ -1101,7 +1234,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         }
         let r = (hookdevice.real_draw_indexed_primitive)(
             THIS,
-            arg1,
+            PrimitiveType,
             BaseVertexIndex,
             MinVertexIndex,
             NumVertices,

@@ -22,14 +22,14 @@ open System.Runtime.InteropServices
 #nowarn "9"
 
 /// Contains types that are passed back and forth over interop.  All of these types have strict layout requirements
-/// which must match the native code, so changes here must be reflected in that code, otherwise crashamundo 
+/// which must match the native code, so changes here must be reflected in that code, otherwise crashamundo
 /// (if you're lucky).
 module InteropTypes =
     // the use of multibyte could be a problem here if we need to marshal strings containing unicode characters (i18n paths for example),
     // but currently the unmanaged code doesn't need to know about paths other than the MM install dir, which it already knows.
 
     /// Run-time configuration data.  Mostly derived from RunConfig.
-    [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi  )>] 
+    [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi  )>]
     type ConfData = {
         [<MarshalAs(UnmanagedType.U1)>]
         RunModeFull: bool
@@ -42,15 +42,15 @@ module InteropTypes =
 
     /// A struct containing a pointer to unmanaged memory and the size of the data.
     [<Struct>]
-    [<StructLayout(LayoutKind.Sequential)>] 
-    type NativeMemoryBuffer =         
+    [<StructLayout(LayoutKind.Sequential)>]
+    type NativeMemoryBuffer =
         val mutable Data:System.IntPtr
-        val mutable Size:int32 
+        val mutable Size:int32
 
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
     [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
     type ModData = {
-        ModType: int 
+        ModType: int
         PrimType: int
         VertCount: int
         PrimCount: int
@@ -91,18 +91,19 @@ module InteropTypes =
         Tex3Path = ""
         PixelShaderPath = ""
     }
-    
+
     [<StructLayout(LayoutKind.Sequential)>]
-    /// Data provided by native code for snapshotting.  Most of these fields come from the DrawIndexedPrimitive() 
-    /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them 
+    /// Data provided by native code for snapshotting.  Most of these fields come from the DrawIndexedPrimitive()
+    /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them
     /// from the SharpDX device.
     type SnapshotData = {
+        SDSize: uint32
         PrimType: int32
         BaseVertexIndex: int32
         MinVertexIndex: uint32
         NumVertices: uint32
         StartIndex: uint32
-        PrimCount: uint32 
+        PrimCount: uint32
 
         /// Vertex buffer pointer
         VertDecl:nativeint
@@ -111,10 +112,10 @@ module InteropTypes =
     }
 
     /// Get the mod count (native -> managed callback)
-    type GetModCountCB = delegate of unit -> int 
+    type GetModCountCB = delegate of unit -> int
 
     /// Get the current loading state
-    type GetLoadingStateCB = delegate of unit -> int 
+    type GetLoadingStateCB = delegate of unit -> int
 
     /// Get the mod data for the mod at specified index, where index is in range 0..(modcount-1).
     /// (native -> managed callback).  If index is out of range, EmptyModData is returned.
@@ -122,8 +123,8 @@ module InteropTypes =
     /// Fill buffers associated with mod at specified index, where index is in range 0..(modcount-1).
     /// The native pointers are the destination buffers.  An exception will be logged and GenericFailureCode
     /// returned if an error occurs (for instance, buffers are too small).
-    type FillModDataCB = 
-        delegate of 
+    type FillModDataCB =
+        delegate of
             modIndex:int *
             declData:nativeptr<byte> *
             declSize:int32 *
@@ -131,26 +132,26 @@ module InteropTypes =
             vbSize:int32 *
             ibData:nativeptr<byte> *
             ibSize:int32 -> int
-            
+
     /// Take a snapshot.  Managed code is responsible for all the work here, including writing the files to disk
     /// and performing any transformations.  Returns 0 on success or logs an exception and returns
     /// GenericFailureCode on error.
-    type TakeSnapshotCB = 
-        delegate of 
+    type TakeSnapshotCB =
+        delegate of
             device: nativeint *
             snapData: SnapshotData -> int
 
-    /// Current load state.  Mod data is loaded asynchronously to minimize blocking of the 
+    /// Current load state.  Mod data is loaded asynchronously to minimize blocking of the
     /// render thread.
-    type AsyncLoadState = 
+    type AsyncLoadState =
         NotStarted
         | Pending
         | InProgress
         | Complete
 
-    /// Generic return value for failure.  Not much detail here because generally native code can't do anything 
+    /// Generic return value for failure.  Not much detail here because generally native code can't do anything
     /// about failures, but this is useful
-    /// to help it avoid crashing.  Managed code should typically log detailed exception information when 
+    /// to help it avoid crashing.  Managed code should typically log detailed exception information when
     /// failures occurr.
     let GenericFailureCode = 47
 
@@ -166,3 +167,58 @@ module InteropTypes =
     let AsyncLoadComplete = 54
 
     let Assplosion = 666
+
+// Using interop makes the IL unverifiable, disable warning.
+#nowarn "9"
+/// Defines the main native->managed interface.
+module MMNative =
+    /// Called by native code to initialize managed code and configuration.
+    type SetPathsCB =
+        delegate of [<MarshalAs(UnmanagedType.LPWStr)>] mmDllPath: string * [<MarshalAs(UnmanagedType.LPWStr)>] exeModule: string -> InteropTypes.ConfData
+
+    type LoadModDBCB = delegate of unit -> int
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type ManagedCallbacks = {
+        SetPaths: SetPathsCB
+        LoadModDB: LoadModDBCB
+        GetModCount: InteropTypes.GetModCountCB
+        GetModData: InteropTypes.GetModDataCB
+        FillModData: InteropTypes.FillModDataCB
+        TakeSnapshot: InteropTypes.TakeSnapshotCB
+        GetLoadingState: InteropTypes.GetLoadingStateCB
+    }
+
+module NativeImportsAsD3D9 =
+    [< DllImport("d3d9.dll") >]
+    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
+    [< DllImport("d3d9.dll") >]
+    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d9.dll") >]
+    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d9.dll") >]
+    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d9.dll") >]
+    /// Saves a dds texture from the specified texture stage.  This is handled by native code, which has
+    /// direct access to the D3DX library; no easy equivalent here in managed land.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    [< DllImport("d3d9.dll") >]
+    /// Fills in the specified NativeMemoryBuffer with the current pixel shader code.
+    /// WARNING: the argument must be an address of a NativeMemoryBuffer.  Otherwise it will crash.
+    /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
+    /// If you call this function twice in succession and then use the results from the first call, it will crash.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+
+module NativeImportsAsMMNative =
+    [< DllImport("mm_native.dll") >]
+    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
+    [< DllImport("mm_native.dll") >]
+    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("mm_native.dll") >]
+    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("mm_native.dll") >]
+    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("mm_native.dll") >]
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    [< DllImport("mm_native.dll") >]
+    extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)

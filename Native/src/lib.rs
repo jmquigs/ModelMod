@@ -26,7 +26,7 @@ mod hookd3d9;
 mod util;
 mod interop;
 
-pub use interop::OnInitialized;
+pub use interop::{OnInitialized, SaveTexture};
 pub use interop::{LogError, LogInfo, LogWarn};
 
 pub use hookd3d9::Direct3DCreate9;

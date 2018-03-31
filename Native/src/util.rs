@@ -187,8 +187,7 @@ pub fn get_proc_address(h: HMODULE, name: &str) -> Result<FARPROC> {
     }
 }
 
-
-pub fn appwnd_is_foreground(app_wnd:HWND) -> bool {
+pub fn appwnd_is_foreground(app_wnd: HWND) -> bool {
     const GA_ROOTOWNER: UINT = 3;
 
     unsafe {

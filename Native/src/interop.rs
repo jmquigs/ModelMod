@@ -64,6 +64,22 @@ pub struct ModData {
     pub texPath3: [WCHAR; MAX_TEX_PATH_LEN],
 }
 
+#[repr(C)]
+pub struct SnapshotData {
+    pub sd_size: u32,
+    pub prim_type: i32,
+    pub base_vertex_index: i32,
+    pub min_vertex_index: u32,
+    pub num_vertices: u32,
+    pub start_index: u32,
+    pub prim_count: u32,
+
+    /// Vertex buffer pointer
+    pub vert_decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
+    /// Index buffer pointer
+    pub index_buffer: *mut hookd3d9::IDirect3DIndexBuffer9,
+}
+
 pub struct NativeModData {
     pub mod_data: ModData,
     pub vb_data: *mut c_char,
@@ -98,8 +114,8 @@ type FillModDataCB = unsafe extern "stdcall" fn(
     ibSize: i32,
 ) -> i32;
 type TakeSnapshotCB = unsafe extern "stdcall" fn(
-    device: *mut u64,   /*IDirect3DDevice9*/
-    snapdata: *mut u64, /*SnapshotData*/
+    device: *mut hookd3d9::IDirect3DDevice9,
+    snapdata: *mut SnapshotData,
 );
 type GetLoadingStateCB = unsafe extern "stdcall" fn() -> i32;
 
@@ -163,6 +179,14 @@ pub unsafe extern "C" fn LogWarn(category: *const c_char, message: *const c_char
 #[no_mangle]
 pub unsafe extern "C" fn LogError(category: *const c_char, message: *const c_char) -> () {
     loggit("ERROR", category, message);
+}
+
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "C" fn SaveTexture(index: i32, filepath: *const u32) -> bool {
+    write_log_file("SaveTexture not implemented");
+    // TODO
+    false
 }
 
 #[allow(unused)]
