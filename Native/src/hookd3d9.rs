@@ -6,7 +6,7 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::um::winnt::HRESULT;
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
-use winapi::um::winuser::{GetForegroundWindow, GetParent, GetAncestor};
+use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 use winapi::ctypes::c_void;
 use winapi::um::wingdi::RGNDATA;
 
@@ -55,8 +55,10 @@ pub type PresentFn = unsafe extern "system" fn(
     pDirtyRegion: *const RGNDATA,
 ) -> HRESULT;
 pub type SetTextureFn = unsafe extern "system" fn(
-    THIS: *mut IDirect3DDevice9, Stage: DWORD,
-    pTexture: *mut IDirect3DBaseTexture9,) -> HRESULT;
+    THIS: *mut IDirect3DDevice9,
+    Stage: DWORD,
+    pTexture: *mut IDirect3DBaseTexture9,
+) -> HRESULT;
 
 pub struct HookDirect3D9 {
     pub real_create_device: CreateDeviceFn,
@@ -105,7 +107,7 @@ impl HookDirect3D9Device {
     }
 }
 
-const MAX_STAGE:usize = 16;
+const MAX_STAGE: usize = 16;
 
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
@@ -172,7 +174,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     mm_root: None,
     input: None,
     selection_texture: null_mut(),
-    selected_on_stage: [false;MAX_STAGE],
+    selected_on_stage: [false; MAX_STAGE],
     curr_texture_index: 0,
     d3d_resource_count: 0,
 };
@@ -187,14 +189,17 @@ enum AsyncLoadState {
 fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
     unsafe {
         let idx = GLOBAL_STATE.curr_texture_index;
-        GLOBAL_STATE.active_texture_list.as_ref().map(|list| {
-            if idx > list.len() {
-                null_mut()
-            } else {
-                list[idx]
-            }
-
-        }).unwrap_or(null_mut())
+        GLOBAL_STATE
+            .active_texture_list
+            .as_ref()
+            .map(|list| {
+                if idx > list.len() {
+                    null_mut()
+                } else {
+                    list[idx]
+                }
+            })
+            .unwrap_or(null_mut())
     }
 }
 
@@ -202,7 +207,7 @@ fn get_selected_texture_stage_() -> Option<DWORD> {
     unsafe {
         for i in 0..MAX_STAGE {
             if GLOBAL_STATE.selected_on_stage[i] {
-                return Some(i as DWORD)
+                return Some(i as DWORD);
             }
         }
         None
@@ -245,9 +250,11 @@ unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     (*device).AddRef();
     let post_rc = (*device).Release();
     let diff = pre_rc - post_rc;
-    if (GLOBAL_STATE.d3d_resource_count as i64 - diff as i64) < 0  {
-        write_log_file(&format!("DOH resource count would go below zero (curr: {}, removed {}),"
-            ,GLOBAL_STATE.d3d_resource_count,diff));
+    if (GLOBAL_STATE.d3d_resource_count as i64 - diff as i64) < 0 {
+        write_log_file(&format!(
+            "DOH resource count would go below zero (curr: {}, removed {}),",
+            GLOBAL_STATE.d3d_resource_count, diff
+        ));
     } else {
         GLOBAL_STATE.d3d_resource_count -= diff;
     }
@@ -430,8 +437,10 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     let post_rc = (*device).Release();
     let diff = post_rc - pre_rc;
     GLOBAL_STATE.d3d_resource_count += diff;
-    write_log_file(&format!("mod loading added {} to device {:x} ref count, new count: {}",
-        diff, device as u64, GLOBAL_STATE.d3d_resource_count));
+    write_log_file(&format!(
+        "mod loading added {} to device {:x} ref count, new count: {}",
+        diff, device as u64, GLOBAL_STATE.d3d_resource_count
+    ));
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
 }
@@ -505,42 +514,45 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     Ok(())
 }
 
-unsafe extern "system" fn hook_set_texture(THIS: *mut IDirect3DDevice9, Stage: DWORD,
-    pTexture: *mut IDirect3DBaseTexture9,) -> HRESULT {
-            let has_it = GLOBAL_STATE.active_texture_set.as_ref()
-                .map(|set| set.contains(&pTexture)).unwrap_or(true);
-            if !has_it {
-                GLOBAL_STATE.active_texture_set.as_mut()
-                    .map(|set| {
-                        set.insert(pTexture);
-                    });
-                GLOBAL_STATE.active_texture_list.as_mut()
-                    .map(|list| {
-                        list.push(pTexture);
-                    });
-            }
+unsafe extern "system" fn hook_set_texture(
+    THIS: *mut IDirect3DDevice9,
+    Stage: DWORD,
+    pTexture: *mut IDirect3DBaseTexture9,
+) -> HRESULT {
+    let has_it = GLOBAL_STATE
+        .active_texture_set
+        .as_ref()
+        .map(|set| set.contains(&pTexture))
+        .unwrap_or(true);
+    if !has_it {
+        GLOBAL_STATE.active_texture_set.as_mut().map(|set| {
+            set.insert(pTexture);
+        });
+        GLOBAL_STATE.active_texture_list.as_mut().map(|list| {
+            list.push(pTexture);
+        });
+    }
 
-            if Stage < MAX_STAGE as u32 {
-                let curr = get_current_texture();
-                if curr != null_mut() && pTexture == curr {
-                    GLOBAL_STATE.selected_on_stage[Stage as usize] = true;
-                } else if GLOBAL_STATE.selected_on_stage[Stage as usize] {
-                    GLOBAL_STATE.selected_on_stage[Stage as usize] = false;
-                }
-            }
+    if Stage < MAX_STAGE as u32 {
+        let curr = get_current_texture();
+        if curr != null_mut() && pTexture == curr {
+            GLOBAL_STATE.selected_on_stage[Stage as usize] = true;
+        } else if GLOBAL_STATE.selected_on_stage[Stage as usize] {
+            GLOBAL_STATE.selected_on_stage[Stage as usize] = false;
+        }
+    }
 
-            (GLOBAL_STATE.hook_direct3d9device.unwrap().real_set_texture)(
-            THIS,
-            Stage,
-            pTexture)
+    (GLOBAL_STATE.hook_direct3d9device.unwrap().real_set_texture)(THIS, Stage, pTexture)
 }
 
-fn init_selection_mode(device:*mut IDirect3DDevice9) -> Result<()> {
+fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     hookstate.making_selection = true;
     hookstate.active_texture_list = Some(Vec::with_capacity(5000));
-    hookstate.active_texture_set =
-        Some(FnvHashSet::with_capacity_and_hasher(5000, Default::default()));
+    hookstate.active_texture_set = Some(FnvHashSet::with_capacity_and_hasher(
+        5000,
+        Default::default(),
+    ));
 
     unsafe {
         // hot-patch the snapshot hook functions
@@ -556,16 +568,18 @@ fn init_selection_mode(device:*mut IDirect3DDevice9) -> Result<()> {
     Ok(())
 }
 
-fn cmd_select_next_texture(device:*mut IDirect3DDevice9) {
+fn cmd_select_next_texture(device: *mut IDirect3DDevice9) {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     if !hookstate.making_selection {
         init_selection_mode(device)
-        .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
+            .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
     }
 
-    let len = hookstate.active_texture_list.as_mut().map(|list| {
-        list.len()
-    }).unwrap_or(0);
+    let len = hookstate
+        .active_texture_list
+        .as_mut()
+        .map(|list| list.len())
+        .unwrap_or(0);
 
     if len == 0 {
         return;
@@ -576,16 +590,18 @@ fn cmd_select_next_texture(device:*mut IDirect3DDevice9) {
         hookstate.curr_texture_index = 0;
     }
 }
-fn cmd_select_prev_texture(device:*mut IDirect3DDevice9) {
+fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     if !hookstate.making_selection {
         init_selection_mode(device)
-        .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
+            .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
     }
 
-    let len = hookstate.active_texture_list.as_mut().map(|list| {
-        list.len()
-    }).unwrap_or(0);
+    let len = hookstate
+        .active_texture_list
+        .as_mut()
+        .map(|list| list.len())
+        .unwrap_or(0);
 
     if len == 0 {
         return;
@@ -601,7 +617,7 @@ fn cmd_toggle_show_mods() {
     hookstate.show_mods = !hookstate.show_mods;
 }
 
-fn setup_fkey_input(device:*mut IDirect3DDevice9, inp: &mut input::Input) {
+fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     // _fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
@@ -617,11 +633,17 @@ fn setup_fkey_input(device:*mut IDirect3DDevice9, inp: &mut input::Input) {
     // (see purge_device_resources)
     // but lets us avoid passing a context argument through the input layer.
     inp.add_press_fn(input::DIK_F2, Box::new(|| cmd_toggle_show_mods()));
-    inp.add_press_fn(input::DIK_F3, Box::new(move || cmd_select_next_texture(device)));
-    inp.add_press_fn(input::DIK_F4, Box::new(move || cmd_select_prev_texture(device)));
+    inp.add_press_fn(
+        input::DIK_F3,
+        Box::new(move || cmd_select_next_texture(device)),
+    );
+    inp.add_press_fn(
+        input::DIK_F4,
+        Box::new(move || cmd_select_prev_texture(device)),
+    );
 }
 
-fn setup_punct_input(_device:*mut IDirect3DDevice9, _inp: &mut input::Input) {
+fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
     write_log_file("using punct key input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     // TODO: hook these up
@@ -634,7 +656,7 @@ fn setup_punct_input(_device:*mut IDirect3DDevice9, _inp: &mut input::Input) {
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
 
-fn setup_input(device:*mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
+fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
     use std::ffi::CStr;
 
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
@@ -654,22 +676,22 @@ fn setup_input(device:*mut IDirect3DDevice9, inp: &mut input::Input) -> Result<(
         .and_then(|inp_profile| {
             let lwr = inp_profile.to_owned().to_lowercase();
             if lwr.starts_with("fk") {
-                setup_fkey_input(device,inp);
+                setup_fkey_input(device, inp);
             } else if lwr.starts_with("punct") {
-                setup_punct_input(device,inp);
+                setup_punct_input(device, inp);
             } else {
                 write_log_file(&format!(
                     "input scheme unrecognized: {}, using FKeys",
                     inp_profile
                 ));
-                setup_fkey_input(device,inp);
+                setup_fkey_input(device, inp);
             }
             Ok(())
         })
 }
 
 fn appwnd_is_foreground() -> bool {
-    const GA_ROOTOWNER:UINT = 3;
+    const GA_ROOTOWNER: UINT = 3;
 
     unsafe {
         let gs = &GLOBAL_STATE;
@@ -692,7 +714,7 @@ fn appwnd_is_foreground() -> bool {
     }
 }
 
-fn create_selection_texture(device:*mut IDirect3DDevice9) {
+fn create_selection_texture(device: *mut IDirect3DDevice9) {
     unsafe {
         let width = 256;
         let height = 256;
@@ -700,16 +722,24 @@ fn create_selection_texture(device:*mut IDirect3DDevice9) {
         (*device).AddRef();
         let pre_rc = (*device).Release();
 
-        let mut tex:*mut IDirect3DTexture9 = null_mut();
-        let hr = (*device).CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
-            &mut tex, null_mut());
+        let mut tex: *mut IDirect3DTexture9 = null_mut();
+        let hr = (*device).CreateTexture(
+            width,
+            height,
+            1,
+            0,
+            D3DFMT_A8R8G8B8,
+            D3DPOOL_MANAGED,
+            &mut tex,
+            null_mut(),
+        );
         if hr != 0 {
             write_log_file(&format!("failed to create selection texture: {:x}", hr));
             return;
         }
 
         // fill it with a lovely shade of green
-        let mut rect:D3DLOCKED_RECT = std::mem::zeroed();
+        let mut rect: D3DLOCKED_RECT = std::mem::zeroed();
         let hr = (*tex).LockRect(0, &mut rect, null_mut(), D3DLOCK_DISCARD);
         if hr != 0 {
             write_log_file(&format!("failed to lock selection texture: {:x}", hr));
@@ -717,9 +747,9 @@ fn create_selection_texture(device:*mut IDirect3DDevice9) {
             return;
         }
 
-        let dest:*mut u32 = std::mem::transmute(rect.pBits);
-        for i in 0..width*height {
-            let d:*mut u32 = dest.offset(i as isize);
+        let dest: *mut u32 = std::mem::transmute(rect.pBits);
+        for i in 0..width * height {
+            let d: *mut u32 = dest.offset(i as isize);
             *d = 0xFF00FF00;
         }
         let hr = (*tex).UnlockRect(0);
@@ -741,7 +771,7 @@ fn create_selection_texture(device:*mut IDirect3DDevice9) {
 }
 
 // TODO: hook this up to device release at the proper time
-unsafe fn purge_device_resources(device:*mut IDirect3DDevice9) {
+unsafe fn purge_device_resources(device: *mut IDirect3DDevice9) {
     if device == null_mut() {
         write_log_file("WARNING: ignoring insane attempt to purge devices on a null device");
         return;
@@ -751,7 +781,10 @@ unsafe fn purge_device_resources(device:*mut IDirect3DDevice9) {
         (*GLOBAL_STATE.selection_texture).Release();
         GLOBAL_STATE.selection_texture = null_mut();
     }
-    GLOBAL_STATE.input.as_mut().map(|input| input.clear_handlers());
+    GLOBAL_STATE
+        .input
+        .as_mut()
+        .map(|input| input.clear_handlers());
     GLOBAL_STATE.d3d_resource_count = 0;
 }
 
@@ -773,7 +806,10 @@ pub unsafe extern "system" fn hook_present(
     }
 
     if let Err(e) = do_per_frame_operations(THIS) {
-        write_log_file(&format!("unexpected error from do_per_scene_operations: {:?}", e));
+        write_log_file(&format!(
+            "unexpected error from do_per_scene_operations: {:?}",
+            e
+        ));
         return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
             THIS,
             pSourceRect,
@@ -874,8 +910,8 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             // resource count gets to the expected value, this way the device can be
             // properly disposed.
 
-            let destroying = GLOBAL_STATE.d3d_resource_count > 0 &&
-                hookdevice.ref_count == (GLOBAL_STATE.d3d_resource_count+1);
+            let destroying = GLOBAL_STATE.d3d_resource_count > 0
+                && hookdevice.ref_count == (GLOBAL_STATE.d3d_resource_count + 1);
             if destroying {
                 // purge my stuff
                 write_log_file(&format!(
@@ -900,7 +936,9 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                 if hookdevice.ref_count != 0 {
                     write_log_file(&format!(
                         "WARNING: unexpected ref count of {} after supposedly final
-                        device release, device probably leaked", hookdevice.ref_count));
+                        device release, device probably leaked",
+                        hookdevice.ref_count
+                    ));
                 }
             }
             hookdevice.ref_count
@@ -977,7 +1015,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     // snapshotting
-    let mut override_texture:*mut IDirect3DBaseTexture9 = null_mut();
+    let mut override_texture: *mut IDirect3DBaseTexture9 = null_mut();
     let mut sel_stage = 0;
     if GLOBAL_STATE.making_selection {
         get_selected_texture_stage_().map(|stage| {
@@ -1044,7 +1082,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             (*THIS).SetVertexDeclaration(nmod.decl);
             (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
 
-            let mut save_texture:*mut IDirect3DBaseTexture9 = null_mut();
+            let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
             if override_texture != null_mut() {
                 (*THIS).GetTexture(sel_stage, &mut save_texture);
                 (*THIS).SetTexture(sel_stage, override_texture);
@@ -1081,7 +1119,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, real_dip);
     let dresult = if draw_input {
-        let mut save_texture:*mut IDirect3DBaseTexture9 = null_mut();
+        let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
         if override_texture != null_mut() {
             (*THIS).GetTexture(sel_stage, &mut save_texture);
             (*THIS).SetTexture(sel_stage, override_texture);
@@ -1125,7 +1163,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                         epocht, hookdevice.dip_calls, 2, secs, 2, dipsec, 2, hookdevice.last_fps
                     ));
                     GLOBAL_STATE.active_texture_set.as_ref().map(|set| {
-                        write_log_file(&format!("active texture set contains: {} textures", set.len()))
+                        write_log_file(&format!(
+                            "active texture set contains: {} textures",
+                            set.len()
+                        ))
                     });
                     hookdevice.last_call_log = now;
                     hookdevice.dip_calls = 0;
@@ -1182,7 +1223,7 @@ unsafe fn hook_device(
         //real_begin_scene,
         real_present,
         real_release,
-        real_set_texture
+        real_set_texture,
     ))
 }
 

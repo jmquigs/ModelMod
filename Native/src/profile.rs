@@ -29,7 +29,8 @@ macro_rules! profile_start {
             let name = stringify!($v);
             if $modn::PROFILE_ACCUM.is_none() {
                 $modn::PROFILE_ACCUM = Some(
-                    $modn::FnvHashMap::with_capacity_and_hasher((100) as usize, Default::default()));
+                    $modn::FnvHashMap::with_capacity_and_hasher((100) as usize,
+                    Default::default()));
             }
 
             let accum = $modn::PROFILE_ACCUM
