@@ -8,15 +8,11 @@ macro_rules! decl_profile_globals {
             pub struct ProfileBlock {
                 pub name: &'static str,
                 pub start: std::time::SystemTime,
-                pub elapsed: std::time::Duration,
-            }
-            pub struct ProfileBlockSummary {
                 pub total_time: f64
             }
 
-            pub static mut PROFILE_BLOCKS: Option<Vec<*mut ProfileBlock>> = None;
             pub static mut PROFILE_ACCUM:
-                Option<FnvHashMap<&'static str, ProfileBlockSummary>> = None;
+                Option<FnvHashMap<&'static str, ProfileBlock>> = None;
             pub static mut PROFILE_SUMMARY_T: Option<std::time::SystemTime> = None;
         }
     }
@@ -26,31 +22,29 @@ macro_rules! decl_profile_globals {
 macro_rules! decl_profile_globals { ($v:ident) => {} }
 
 #[cfg(feature = "profile")]
-macro_rules! profile_blocks {
-    ($modn:ident, $v:ident) => {
-        unsafe {
-            if $modn::PROFILE_BLOCKS.is_none() {
-                $modn::PROFILE_BLOCKS = Some(Vec::with_capacity(20));
-            }
-        };
-    }
-}
-#[cfg(not(feature = "profile"))]
-macro_rules! profile_blocks { ($modn:ident, $v:ident) => {} }
-
-#[cfg(feature = "profile")]
 macro_rules! profile_start {
     ($modn:ident, $v:ident) => {
-        let $v = Box::new($modn::ProfileBlock {
-            name: stringify!($v),
-            start: std::time::UNIX_EPOCH,
-            elapsed: std::time::Duration::from_secs(0 as u64),
-        });
-        let $v: *mut $modn::ProfileBlock = Box::into_raw($v);
-        unsafe {
-            $modn::PROFILE_BLOCKS.as_mut().unwrap().push($v);
-            (* $v).start = std::time::SystemTime::now();
-        };
+
+        let $v = unsafe {
+            let name = stringify!($v);
+            if $modn::PROFILE_ACCUM.is_none() {
+                $modn::PROFILE_ACCUM = Some(
+                    $modn::FnvHashMap::with_capacity_and_hasher((100) as usize, Default::default()));
+            }
+
+            let accum = $modn::PROFILE_ACCUM
+                        .as_mut().unwrap();
+            let $v = accum.entry(name).or_insert({
+                            $modn::ProfileBlock {
+                                name: name,
+                                start: std::time::UNIX_EPOCH,
+                                total_time: 0.0,
+                            }
+                        });
+
+            $v.start = std::time::SystemTime::now();
+            $v
+        }
     }
 }
 
@@ -60,43 +54,16 @@ macro_rules! profile_start { ($modn:ident, $v:ident) => {} }
 #[cfg(feature = "profile")]
 macro_rules! profile_end {
     ($modn:ident, $v:ident) => {
-        unsafe { (* $v).elapsed = std::time::SystemTime::now().duration_since((* $v).start).unwrap(); };
+        let elapsed = std::time::SystemTime::now().duration_since($v.start).unwrap();
+
+        let secs = elapsed.as_secs() as f64
+                    elapsed.subsec_nanos() as f64 * 1e-9;
+        $v.total_time += secs;
     }
 }
 #[cfg(not(feature = "profile"))]
 macro_rules! profile_end {
     ($modn:ident, $v:ident) => {
-    }
-}
-
-#[cfg(feature = "profile")]
-macro_rules! profile_accum {
-    ($modn:ident) => {
-        unsafe {
-            if $modn::PROFILE_ACCUM.is_none() {
-                $modn::PROFILE_ACCUM = Some(
-                    $modn::FnvHashMap::with_capacity_and_hasher((100) as usize, Default::default()));
-            }
-            for block in $modn::PROFILE_BLOCKS.as_mut().unwrap().iter_mut() {
-                let block:Box<$modn::ProfileBlock> = Box::from_raw(*block);
-                let secs = (*block).elapsed.as_secs() as f64
-                    + block.elapsed.subsec_nanos() as f64 * 1e-9;
-                let entry = $modn::PROFILE_ACCUM
-                    .as_mut().unwrap().entry(block.name).or_insert($modn::ProfileBlockSummary {
-                    total_time: 0.0
-                });
-
-                entry.total_time += secs;
-
-            }
-
-            $modn::PROFILE_BLOCKS.as_mut().unwrap().clear();
-        };
-    }
-}
-#[cfg(not(feature = "profile"))]
-macro_rules! profile_accum {
-    ($modn:ident) => {
     }
 }
 
@@ -118,17 +85,17 @@ macro_rules! profile_summarize {
                 let modn = stringify!($modn);
                 out.push_str(&format!("[Profiler {}] {} secs elapsed since last profile\r\n",
                     modn, secs));
-                for key in $modn::PROFILE_ACCUM.as_ref().unwrap().keys() {
-                    let block = $modn::PROFILE_ACCUM.as_ref().unwrap().get(key).unwrap();
+                for (name,block) in $modn::PROFILE_ACCUM.as_mut().unwrap().iter_mut() {
                     let pct = block.total_time / secs * 100.0;
 
-                    let s = format!("   {}: {} secs ({}%)\r\n", key, block.total_time, pct );
+                    let s = format!("   {}: {} secs ({}%)\r\n", name, block.total_time, pct );
                     out.push_str(&s);
+
+                    block.total_time = 0.0; // reset for next round
                 }
 
                 write_log_file(&out);
 
-                $modn::PROFILE_ACCUM.as_mut().unwrap().clear();
                 $modn::PROFILE_SUMMARY_T = Some(now);
             }
         };

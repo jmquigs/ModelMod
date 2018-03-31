@@ -246,8 +246,6 @@ impl Input {
     }
 
     pub fn process(&mut self) -> Result<()> {
-        profile_blocks!(inp, process);
-
         profile_start!(inp, check);
 
         let now = SystemTime::now();
@@ -356,7 +354,6 @@ impl Input {
 
         profile_end!(inp, process);
 
-        profile_accum!(inp);
         profile_summarize!(inp);
 
         Ok(())

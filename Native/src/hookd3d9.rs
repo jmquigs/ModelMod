@@ -943,8 +943,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 ) -> HRESULT {
     let force_modding_off = false;
 
-    profile_blocks!(hdip, hook_draw_indexed_primitive);
-
     profile_start!(hdip, hook_dip);
 
     // no re-entry please
@@ -1141,7 +1139,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     GLOBAL_STATE.in_dip = false;
     profile_end!(hdip, hook_dip);
 
-    profile_accum!(hdip);
     profile_summarize!(hdip);
 
     dresult
