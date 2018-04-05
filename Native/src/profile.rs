@@ -8,7 +8,8 @@ macro_rules! decl_profile_globals {
             pub struct ProfileBlock {
                 pub name: &'static str,
                 pub start: std::time::SystemTime,
-                pub total_time: f64
+                pub total_time: f64,
+                pub count: u64,
             }
 
             pub static mut PROFILE_ACCUM:
@@ -40,10 +41,12 @@ macro_rules! profile_start {
                                 name: name,
                                 start: std::time::UNIX_EPOCH,
                                 total_time: 0.0,
+                                count: 0,
                             }
                         });
 
             $v.start = std::time::SystemTime::now();
+            $v.count += 1;
             $v
         }
     }
@@ -55,10 +58,12 @@ macro_rules! profile_start { ($modn:ident, $v:ident) => {} }
 #[cfg(feature = "profile")]
 macro_rules! profile_end {
     ($modn:ident, $v:ident) => {
-        let elapsed = std::time::SystemTime::now().duration_since($v.start).unwrap();
+        let now = std::time::SystemTime::now();
+        let elapsed = now.duration_since($v.start).unwrap();
 
         let secs = elapsed.as_secs() as f64
-                    elapsed.subsec_nanos() as f64 * 1e-9;
+            + elapsed.subsec_nanos() as f64 * 1e-9;
+
         $v.total_time += secs;
     }
 }
@@ -89,7 +94,8 @@ macro_rules! profile_summarize {
                 for (name,block) in $modn::PROFILE_ACCUM.as_mut().unwrap().iter_mut() {
                     let pct = block.total_time / secs * 100.0;
 
-                    let s = format!("   {}: {} secs ({}%)\r\n", name, block.total_time, pct );
+                    let s = format!("   {}: {} secs ({}%) (count: {})\r\n",
+                        name, block.total_time, pct, block.count);
                     out.push_str(&s);
 
                     block.total_time = 0.0; // reset for next round
@@ -106,5 +112,30 @@ macro_rules! profile_summarize {
 #[cfg(not(feature = "profile"))]
 macro_rules! profile_summarize {
     ($modn:ident) => {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use util::*;
+    use std::time::SystemTime;
+    use std;
+
+    decl_profile_globals!(test_profiler);
+
+    #[test]
+    fn profile_works() {
+        set_log_file_path("", "testlog.txt");
+        const sleeptime:u32 = 250;
+        let secs = 1000/sleeptime;
+        let itersec = 16;
+        for _i in 0..(itersec*secs) {
+            profile_start!(test_profiler, main);
+            std::thread::sleep_ms(sleeptime);
+            profile_end!(test_profiler, main);
+
+            profile_summarize!(test_profiler);
+        }
     }
 }
