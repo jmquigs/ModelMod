@@ -368,6 +368,32 @@ pub fn get_module_name() -> Result<String> {
     }
 }
 
+pub trait ReleaseDrop {
+    fn OnDrop(&mut self) -> ();
+}
+
+pub struct ReleaseOnDrop<T: ReleaseDrop> {
+    rd: T
+}
+
+impl<T> ReleaseOnDrop<T>
+where T: ReleaseDrop {
+    pub fn new(rd:T) -> Self {
+        ReleaseOnDrop {
+            rd: rd
+        }
+    }
+}
+
+impl<T> std::ops::Drop for ReleaseOnDrop<T>
+where T: ReleaseDrop
+{
+    fn drop(&mut self) {
+        self.rd.OnDrop();
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

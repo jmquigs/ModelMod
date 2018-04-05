@@ -194,6 +194,25 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     d3d_resource_count: 0,
 };
 
+macro_rules! impl_release_drop {
+    ($ptrtype:ident) => {
+        impl ReleaseDrop for *mut $ptrtype {
+            fn OnDrop(&mut self) -> () {
+                unsafe {
+                    let ptr = *self;
+                    if ptr != null_mut() {
+                        (*ptr).Release();
+                    }
+                };
+            }
+        }
+    }
+}
+
+impl_release_drop!(IDirect3DBaseTexture9);
+impl_release_drop!(IDirect3DVertexDeclaration9);
+impl_release_drop!(IDirect3DIndexBuffer9);
+
 enum AsyncLoadState {
     NotStarted = 51,
     Pending,
@@ -1084,6 +1103,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 hr
             ));
         }
+        let _vert_decl_rod = ReleaseOnDrop::new(vert_decl);
+
         ok = ok && hr == 0;
         let mut ib: *mut IDirect3DIndexBuffer9 = null_mut();
         let hr = (*THIS).GetIndices(&mut ib);
@@ -1093,6 +1114,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 hr
             ));
         }
+        let _ib_rod = ReleaseOnDrop::new(ib);
+
         ok = ok && hr == 0;
 
         if ok {
@@ -1113,14 +1136,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 (cb.TakeSnapshot)(THIS, &mut sd);
             });
         }
-
-        if vert_decl != null_mut() {
-            (*vert_decl).Release();
-        }
-        if ib != null_mut() {
-            (*ib).Release();
-        }
-
         (*THIS).AddRef();
         let post_rc = (*THIS).Release();
         if pre_rc != post_rc {
@@ -1191,10 +1206,16 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
 
             let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
-            if override_texture != null_mut() {
-                (*THIS).GetTexture(sel_stage, &mut save_texture);
-                (*THIS).SetTexture(sel_stage, override_texture);
-            }
+            let _st_rod = {
+                if override_texture != null_mut() {
+                    (*THIS).GetTexture(sel_stage, &mut save_texture);
+                    (*THIS).SetTexture(sel_stage, override_texture);
+                    Some(ReleaseOnDrop::new(save_texture))
+                } else {
+                    None
+                }
+            };
+
             (*THIS).DrawPrimitive(
                 nmod.mod_data.numbers.prim_type as u32,
                 0,
@@ -1228,10 +1249,15 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     profile_start!(hdip, real_dip);
     let dresult = if draw_input {
         let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
-        if override_texture != null_mut() {
-            (*THIS).GetTexture(sel_stage, &mut save_texture);
-            (*THIS).SetTexture(sel_stage, override_texture);
-        }
+        let _st_rod = {
+            if override_texture != null_mut() {
+                (*THIS).GetTexture(sel_stage, &mut save_texture);
+                (*THIS).SetTexture(sel_stage, override_texture);
+                Some(ReleaseOnDrop::new(save_texture))
+            } else {
+                None
+            }
+        };
         let r = (hookdevice.real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
