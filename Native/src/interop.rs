@@ -165,25 +165,25 @@ unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) 
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn LogInfo(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogInfo(category: *const c_char, message: *const c_char) -> () {
     loggit("", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn LogWarn(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogWarn(category: *const c_char, message: *const c_char) -> () {
     loggit("WARN", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn LogError(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const c_char) -> () {
     loggit("ERROR", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn SaveTexture(index: i32, filepath: *const u32) -> bool {
+pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u32) -> bool {
     write_log_file("SaveTexture not implemented");
     // TODO
     false
@@ -191,7 +191,7 @@ pub unsafe extern "C" fn SaveTexture(index: i32, filepath: *const u32) -> bool {
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "C" fn OnInitialized(
+pub unsafe extern "stdcall" fn OnInitialized(
     callbacks: *mut ManagedCallbacks,
     global_state_pointer: u64,
 ) -> i32 {
