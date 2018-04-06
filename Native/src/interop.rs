@@ -1,5 +1,5 @@
-use winapi::um::winnt::WCHAR;
 use std::os::raw::c_char;
+use winapi::um::winnt::WCHAR;
 
 use hookd3d9;
 use std;
@@ -183,10 +183,14 @@ pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u32) -> bool {
-    write_log_file("SaveTexture not implemented");
-    // TODO
-    false
+pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u16) -> bool {
+    match hookd3d9::save_texture(index, filepath) {
+        Ok(_) => true,
+        Err(e) => {
+            write_log_file(&format!("failed to save texture: {:?}", e));
+            false
+        }
+    }
 }
 
 #[allow(unused)]
@@ -195,8 +199,8 @@ pub unsafe extern "stdcall" fn OnInitialized(
     callbacks: *mut ManagedCallbacks,
     global_state_pointer: u64,
 ) -> i32 {
-    use std::ffi::CString;
     use std::ffi::CStr;
+    use std::ffi::CString;
 
     let on_init_error_code = 666;
 

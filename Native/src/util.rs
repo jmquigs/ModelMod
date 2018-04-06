@@ -1,10 +1,10 @@
 use std;
 use winapi;
 
-use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
-use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 use winapi::shared::windef::{HWND, RECT};
+use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
+use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
 use std::ffi::OsString;
 
@@ -35,6 +35,7 @@ pub enum HookError {
     DInputError(String),
     TimeConversionError(std::time::SystemTimeError),
     CStrConvertFailed(std::str::Utf8Error),
+    SnapshotFailed(String),
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
@@ -83,9 +84,9 @@ pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
 }
 
 pub fn write_log_file(msg: &str) -> () {
-    use std::io::Write;
-    use std::fs::OpenOptions;
     use std::env::temp_dir;
+    use std::fs::OpenOptions;
+    use std::io::Write;
 
     let lock = LOG_FILE_NAME.lock();
     match lock {
@@ -223,10 +224,10 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
         let reg_root = get_mm_reg_key();
         // find the MM install directory, this must be set in the registry by the launcher.
         // the launcher will also set whether MM is active.
-        use winapi::um::winreg::*;
+        use winapi::ctypes::c_void;
         use winapi::shared::minwindef::DWORD;
         use winapi::shared::winerror::ERROR_SUCCESS;
-        use winapi::ctypes::c_void;
+        use winapi::um::winreg::*;
 
         use std::os::windows::prelude::*;
 
@@ -344,10 +345,10 @@ pub fn to_wide_str(s: &str) -> Vec<u16> {
 }
 
 pub fn get_module_name() -> Result<String> {
-    use winapi::um::libloaderapi::*;
     use std::ffi::OsString;
     use std::os::windows::prelude::*;
     use winapi::shared::minwindef::DWORD;
+    use winapi::um::libloaderapi::*;
 
     unsafe {
         let ssize = 65535;
@@ -373,25 +374,25 @@ pub trait ReleaseDrop {
 }
 
 pub struct ReleaseOnDrop<T: ReleaseDrop> {
-    rd: T
+    rd: T,
 }
 
 impl<T> ReleaseOnDrop<T>
-where T: ReleaseDrop {
-    pub fn new(rd:T) -> Self {
-        ReleaseOnDrop {
-            rd: rd
-        }
+where
+    T: ReleaseDrop,
+{
+    pub fn new(rd: T) -> Self {
+        ReleaseOnDrop { rd: rd }
     }
 }
 
 impl<T> std::ops::Drop for ReleaseOnDrop<T>
-where T: ReleaseDrop
+where
+    T: ReleaseDrop,
 {
     fn drop(&mut self) {
         self.rd.OnDrop();
     }
-
 }
 
 #[cfg(test)]

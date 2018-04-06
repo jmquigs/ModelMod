@@ -1,29 +1,36 @@
 use winapi::um::unknwnbase::IUnknown;
 
+use winapi::ctypes::c_void;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
-pub use winapi::um::winnt::HRESULT;
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
-use winapi::ctypes::c_void;
 use winapi::um::wingdi::RGNDATA;
+pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 
-use util::*;
-use util;
 use dnclr::init_clr;
+use input;
+use interop;
 use interop::InteropState;
 use interop::NativeModData;
-use interop;
-use input;
+use util;
+use util::*;
 
 use std;
 use std::fmt;
-use std::time::SystemTime;
 use std::ptr::null_mut;
+use std::time::SystemTime;
+
+type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
+    path: LPCWSTR,
+    fileformat: i32,
+    src_texture: *mut IDirect3DBaseTexture9,
+    src_palette: *mut c_void,
+) -> HRESULT;
 
 pub type CreateDeviceFn =
     unsafe extern "system" fn(
@@ -120,6 +127,11 @@ const MAX_STAGE: usize = 16;
 // some objects may still be missed.  Some investigation to make this more reliable would be useful.
 static SNAP_MS: u32 = 250;
 
+pub struct D3DXFn {
+    pub D3DXSaveTextureToFileW: D3DXSaveTextureToFileWFn,
+    pub D3DXCreateTextureFromFileW: u64,
+}
+
 pub struct HookState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
@@ -146,6 +158,8 @@ pub struct HookState {
     pub snap_start: SystemTime,
     // TODO: this should be tracked per device pointer.
     pub d3d_resource_count: u32,
+    pub d3dx_fn: Option<D3DXFn>,
+    pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
 }
 
 impl HookState {
@@ -192,6 +206,8 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     is_snapping: false,
     snap_start: std::time::UNIX_EPOCH,
     d3d_resource_count: 0,
+    d3dx_fn: None,
+    device: None,
 };
 
 macro_rules! impl_release_drop {
@@ -206,7 +222,7 @@ macro_rules! impl_release_drop {
                 };
             }
         }
-    }
+    };
 }
 
 impl_release_drop!(IDirect3DBaseTexture9);
@@ -218,6 +234,74 @@ enum AsyncLoadState {
     Pending,
     InProgress,
     Complete,
+}
+
+fn load_d3dx(mm_root: &Option<String>) -> Result<D3DXFn> {
+    // TODO: detect 32/64 bit
+    // TODO: decide on where to load these from.
+    let mm_root = mm_root.as_ref().ok_or(HookError::LoadLibFailed(
+        "No MMRoot, can't load D3DX".to_owned(),
+    ))?;
+    let mut path = mm_root.to_owned();
+    path.push_str("\\");
+    path.push_str("TPLib");
+    path.push_str("\\");
+    path.push_str("D3DX9_43_x86_64.dll");
+    let handle = util::load_lib(&path)?;
+
+    unsafe {
+        Ok(D3DXFn {
+            D3DXSaveTextureToFileW: std::mem::transmute(util::get_proc_address(
+                handle,
+                "D3DXSaveTextureToFileW",
+            )?),
+            D3DXCreateTextureFromFileW: util::get_proc_address(
+                handle,
+                "D3DXCreateTextureFromFileW",
+            )? as u64,
+        })
+    }
+}
+
+pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
+    const D3DXIFF_DDS: i32 = 4;
+
+    let d3dx_fn = GLOBAL_STATE
+        .d3dx_fn
+        .as_ref()
+        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
+
+    let device_ptr = GLOBAL_STATE
+        .device
+        .as_ref()
+        .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+
+    let mut tex: *mut IDirect3DBaseTexture9 = null_mut();
+
+    let hr = (*(*device_ptr)).GetTexture(idx as u32, &mut tex);
+    if hr != 0 {
+        return Err(HookError::SnapshotFailed(format!(
+            "failed to get texture on stage {} for snapshotting: {:x}",
+            idx, hr
+        )));
+    }
+    let _tex_rod = ReleaseOnDrop::new(tex);
+    if tex as u64 == GLOBAL_STATE.selection_texture as u64 {
+        return Err(HookError::SnapshotFailed(format!(
+            "not snapshotting texture on stage {} because it is the selection texture",
+            idx
+        )));
+    }
+
+    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
+    if hr != 0 {
+        return Err(HookError::SnapshotFailed(format!(
+            "failed to save snapshot texture on stage {}: {:x}",
+            idx, hr
+        )));
+    }
+
+    Ok(())
 }
 
 fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
@@ -1084,6 +1168,20 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         (*THIS).AddRef();
         let pre_rc = (*THIS).Release();
 
+        GLOBAL_STATE.device = Some(THIS);
+
+        if GLOBAL_STATE.d3dx_fn.is_none() {
+            GLOBAL_STATE.d3dx_fn = load_d3dx(&GLOBAL_STATE.mm_root)
+                .map_err(|e| {
+                    write_log_file(&format!(
+                        "failed to load d3dx: texture snapping not available: {:?}",
+                        e
+                    ));
+                    e
+                })
+                .ok();
+        }
+
         // TODO: warn about active streams that are in use but not supported
         let mut blending_enabled: DWORD = 0;
         let hr = (*THIS).GetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, &mut blending_enabled);
@@ -1145,6 +1243,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 pre_rc, post_rc
             ));
         }
+
+        GLOBAL_STATE.device = None;
     }
 
     profile_start!(hdip, main_combinator);
@@ -1526,8 +1626,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 let mut tname = tdir.to_owned();
                 tname.push_str(&file_name);
 
-                use std::io::Write;
                 use std::fs::OpenOptions;
+                use std::io::Write;
                 // don't open append first time so that log is cleared.
                 let mut f = OpenOptions::new()
                     .create(true)
