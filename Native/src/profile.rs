@@ -2,8 +2,8 @@
 macro_rules! decl_profile_globals {
     ($v:ident) => {
         mod $v {
-            use std;
             pub use fnv::FnvHashMap;
+            use std;
 
             pub struct ProfileBlock {
                 pub name: &'static str,
@@ -12,15 +12,16 @@ macro_rules! decl_profile_globals {
                 pub count: u64,
             }
 
-            pub static mut PROFILE_ACCUM:
-                Option<FnvHashMap<&'static str, ProfileBlock>> = None;
+            pub static mut PROFILE_ACCUM: Option<FnvHashMap<&'static str, ProfileBlock>> = None;
             pub static mut PROFILE_SUMMARY_T: Option<std::time::SystemTime> = None;
         }
-    }
+    };
 }
 
 #[cfg(not(feature = "profile"))]
-macro_rules! decl_profile_globals { ($v:ident) => {} }
+macro_rules! decl_profile_globals {
+    ($v:ident) => {};
+}
 
 #[cfg(feature = "profile")]
 macro_rules! profile_start {
@@ -53,7 +54,9 @@ macro_rules! profile_start {
 }
 
 #[cfg(not(feature = "profile"))]
-macro_rules! profile_start { ($modn:ident, $v:ident) => {} }
+macro_rules! profile_start {
+    ($modn:ident, $v:ident) => {};
+}
 
 #[cfg(feature = "profile")]
 macro_rules! profile_end {
@@ -61,16 +64,14 @@ macro_rules! profile_end {
         let now = std::time::SystemTime::now();
         let elapsed = now.duration_since($v.start).unwrap();
 
-        let secs = elapsed.as_secs() as f64
-            + elapsed.subsec_nanos() as f64 * 1e-9;
+        let secs = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 * 1e-9;
 
         $v.total_time += secs;
-    }
+    };
 }
 #[cfg(not(feature = "profile"))]
 macro_rules! profile_end {
-    ($modn:ident, $v:ident) => {
-    }
+    ($modn:ident, $v:ident) => {};
 }
 
 #[cfg(feature = "profile")]
@@ -83,19 +84,24 @@ macro_rules! profile_summarize {
 
             // report stats every 10 seconds
             let now = SystemTime::now();
-            let selapsed = now.duration_since(*$modn::PROFILE_SUMMARY_T.as_ref().unwrap()).unwrap();
+            let selapsed = now.duration_since(*$modn::PROFILE_SUMMARY_T.as_ref().unwrap())
+                .unwrap();
             let secs = selapsed.as_secs() as f64 + selapsed.subsec_nanos() as f64 * 1e-9;
             if secs > 10.0 {
                 let mut out = String::new();
 
                 let modn = stringify!($modn);
-                out.push_str(&format!("[Profiler {}] {} secs elapsed since last profile\r\n",
-                    modn, secs));
-                for (name,block) in $modn::PROFILE_ACCUM.as_mut().unwrap().iter_mut() {
+                out.push_str(&format!(
+                    "[Profiler {}] {} secs elapsed since last profile\r\n",
+                    modn, secs
+                ));
+                for (name, block) in $modn::PROFILE_ACCUM.as_mut().unwrap().iter_mut() {
                     let pct = block.total_time / secs * 100.0;
 
-                    let s = format!("   {}: {} secs ({}%) (count: {})\r\n",
-                        name, block.total_time, pct, block.count);
+                    let s = format!(
+                        "   {}: {} secs ({}%) (count: {})\r\n",
+                        name, block.total_time, pct, block.count
+                    );
                     out.push_str(&s);
 
                     block.total_time = 0.0; // reset for next round
@@ -106,31 +112,30 @@ macro_rules! profile_summarize {
                 $modn::PROFILE_SUMMARY_T = Some(now);
             }
         };
-    }
+    };
 }
 
 #[cfg(not(feature = "profile"))]
 macro_rules! profile_summarize {
-    ($modn:ident) => {
-    }
+    ($modn:ident) => {};
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use util::*;
-    use std::time::SystemTime;
     use std;
+    use std::time::SystemTime;
+    use util::*;
 
     decl_profile_globals!(test_profiler);
 
     #[test]
     fn profile_works() {
         set_log_file_path("", "testlog.txt");
-        const sleeptime:u32 = 250;
-        let secs = 1000/sleeptime;
+        const sleeptime: u32 = 250;
+        let secs = 1000 / sleeptime;
         let itersec = 16;
-        for _i in 0..(itersec*secs) {
+        for _i in 0..(itersec * secs) {
             profile_start!(test_profiler, main);
             std::thread::sleep_ms(sleeptime);
             profile_end!(test_profiler, main);

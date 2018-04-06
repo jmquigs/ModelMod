@@ -1,11 +1,11 @@
-use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::HWND;
+use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{DefWindowProcA, DispatchMessageA, PeekMessageA, PostQuitMessage,
                           TranslateMessage, MSG, PM_REMOVE, WM_DESTROY};
 
-use std;
 use hookd3d9;
+use std;
 
 lazy_static! {
     pub static ref TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -22,9 +22,9 @@ unsafe extern "system" fn test_wndproc(h: HWND, msg: UINT, w: WPARAM, l: LPARAM)
 }
 
 fn create_test_window() -> HWND {
-    use winapi::um::winuser::*;
-    use std::ptr::null_mut;
     use std::ffi::CString;
+    use std::ptr::null_mut;
+    use winapi::um::winuser::*;
 
     let size = std::mem::size_of::<WNDCLASSEXA>() as u32;
     let title = CString::new("Direct3D Window").unwrap();

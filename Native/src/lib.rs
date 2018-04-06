@@ -20,13 +20,13 @@ mod test_e2e;
 #[macro_use]
 mod profile;
 
-mod input;
 mod dnclr;
 mod hookd3d9;
-mod util;
+mod input;
 mod interop;
+mod util;
 
-pub use interop::{OnInitialized, SaveTexture};
 pub use interop::{LogError, LogInfo, LogWarn};
+pub use interop::{OnInitialized, SaveTexture};
 
 pub use hookd3d9::Direct3DCreate9;

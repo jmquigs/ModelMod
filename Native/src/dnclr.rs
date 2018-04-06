@@ -1,18 +1,18 @@
-use winapi::shared::guiddef::{REFCLSID, REFIID};
-use winapi::um::winnt::HRESULT;
 use winapi::ctypes::c_void;
-use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
-use winapi::um::winnt::{HANDLE, LPCSTR, LPCWSTR, LPWSTR};
+use winapi::shared::guiddef::{REFCLSID, REFIID};
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, HMODULE, LPVOID, UINT};
 use winapi::shared::ntdef::LONG;
 use winapi::um::objidlbase::IEnumUnknown;
+use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
+use winapi::um::winnt::HRESULT;
+use winapi::um::winnt::{HANDLE, LPCSTR, LPCWSTR, LPWSTR};
 
+use hookd3d9;
 use std;
 use std::ptr::null_mut;
-use util::{get_proc_address, load_lib, write_log_file};
-use util::{HookError, Result};
 use util;
-use hookd3d9;
+use util::{HookError, Result};
+use util::{get_proc_address, load_lib, write_log_file};
 
 DEFINE_GUID!{CLSID_CLR_META_HOST,
 0x9280188d, 0xe8e, 0x4867, 0xb3, 0xc, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}

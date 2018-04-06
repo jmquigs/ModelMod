@@ -2,20 +2,20 @@
 //use winapi::shared::d3d9types::*;
 use winapi::shared::minwindef::*;
 //use winapi::shared::windef::{HWND, RECT};
+use winapi::ctypes::c_void;
 use winapi::shared::minwindef::{DWORD, LPVOID};
+use winapi::um::dinput::{GUID_Key, GUID_SysKeyboard, IID_IDirectInput8W};
 use winapi::um::unknwnbase::LPUNKNOWN;
 use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 use winapi::um::winnt::HRESULT;
-use winapi::um::dinput::{GUID_Key, GUID_SysKeyboard, IID_IDirectInput8W};
-use winapi::ctypes::c_void;
 
 //use winapi::shared::winerror::{S_OK};
 use winapi::shared::guiddef::{GUID, REFGUID, REFIID};
 // use winapi::ctypes::c_void;
 // use winapi::um::wingdi::RGNDATA;
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use fnv::FnvHashMap;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 //extern HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter);
 use util;
@@ -384,8 +384,12 @@ mod tests {
 macro_rules! keyformat {
     ($x:expr) => {
         DIOBJECTDATAFORMAT(
-            &GUID_Key, $x, DIDFT_OPTIONAL | DIDFT_BUTTON | (($x as u16) << 8) as DWORD, 0)
-    }
+            &GUID_Key,
+            $x,
+            DIDFT_OPTIONAL | DIDFT_BUTTON | (($x as u16) << 8) as DWORD,
+            0,
+        )
+    };
 }
 
 const DF_DIKEYBOARD: [DIOBJECTDATAFORMAT; 256] = [
