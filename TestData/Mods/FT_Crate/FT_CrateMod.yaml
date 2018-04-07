@@ -1,0 +1,4 @@
+Type: Mod
+Ref: FT_CrateRef
+ModType: GPUReplacement
+MeshPath: FT_CrateMod.mmobj

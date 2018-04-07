@@ -1,0 +1,5 @@
+type: "Index"
+mods:
+- {name: "FT_BarrelMod"}
+- {name: "FT_CrateMod"}
+- {name: "FT_LargeRockMod"}

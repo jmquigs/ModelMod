@@ -1,0 +1,4 @@
+Type: Mod
+Ref: FT_BarrelRef
+ModType: GPUReplacement
+MeshPath: FT_BarrelMod.mmobj

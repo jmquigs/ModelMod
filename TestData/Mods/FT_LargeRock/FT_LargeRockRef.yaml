@@ -1,0 +1,5 @@
+Type: Reference
+MeshPath: FT_LargeRockRef.mmobj
+VertDeclPath: FT_LargeRockRef_VBDecl.dat
+ExpectedPrimCount: 80
+ExpectedVertCount: 75
