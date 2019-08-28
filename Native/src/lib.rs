@@ -30,3 +30,10 @@ pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
 
 pub use hookd3d9::Direct3DCreate9;
+pub use hookd3d9::D3DPERF_BeginEvent;
+pub use hookd3d9::D3DPERF_EndEvent;
+pub use hookd3d9::D3DPERF_SetMarker;
+pub use hookd3d9::D3DPERF_SetRegion;
+pub use hookd3d9::D3DPERF_QueryRepeatFrame;
+pub use hookd3d9::D3DPERF_SetOptions;
+pub use hookd3d9::D3DPERF_GetStatus;

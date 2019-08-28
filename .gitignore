@@ -45,3 +45,7 @@ ModelMod/exports.h
 Native/rb.sh
 Native/rb32.sh
 Native/testlog.txt
+Native/d332-sh.sh
+ModelMod/ModelMod.vcxproj.user
+TPLib/D3DX9_43_x86_64.dll
+TPLib/D3DX9_43_x86.dll

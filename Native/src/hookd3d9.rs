@@ -32,16 +32,15 @@ type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
     src_palette: *mut c_void,
 ) -> HRESULT;
 
-pub type CreateDeviceFn =
-    unsafe extern "system" fn(
-        THIS: *mut IDirect3D9,
-        Adapter: UINT,
-        DeviceType: D3DDEVTYPE,
-        hFocusWindow: HWND,
-        BehaviorFlags: DWORD,
-        pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
-        ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
-    ) -> HRESULT;
+pub type CreateDeviceFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3D9,
+    Adapter: UINT,
+    DeviceType: D3DDEVTYPE,
+    hFocusWindow: HWND,
+    BehaviorFlags: DWORD,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+    ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
+) -> HRESULT;
 pub type DrawIndexedPrimitiveFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     arg1: D3DPRIMITIVETYPE,
@@ -494,13 +493,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
 
         // fill all data buckets with managed code
         let ret = (callbacks.FillModData)(
-            midx,
-            decl_data,
-            decl_size,
-            vb_data,
-            vb_size,
-            ib_data,
-            ib_size,
+            midx, decl_data, decl_size, vb_data, vb_size, ib_data, ib_size,
         );
 
         let hr = (*vb).Unlock();
@@ -914,6 +907,7 @@ pub unsafe extern "system" fn hook_present(
     hDestWindowOverride: HWND,
     pDirtyRegion: *const RGNDATA,
 ) -> HRESULT {
+    //write_log_file("present");
     if GLOBAL_STATE.in_any_hook_fn() {
         return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
             THIS,
@@ -1003,8 +997,10 @@ pub unsafe extern "system" fn hook_present(
     if GLOBAL_STATE.is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(SNAP_MS as u64);
-        if now.duration_since(GLOBAL_STATE.snap_start)
-            .unwrap_or(max_dur) >= max_dur
+        if now
+            .duration_since(GLOBAL_STATE.snap_start)
+            .unwrap_or(max_dur)
+            >= max_dur
         {
             write_log_file("ending snapshot");
             GLOBAL_STATE.is_snapping = false;
@@ -1388,9 +1384,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 if secs >= 10.0 {
                     let dipsec = hookdevice.dip_calls as f64 / secs;
 
-                    let epocht = now.duration_since(std::time::UNIX_EPOCH)
+                    let epocht = now
+                        .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or(std::time::Duration::from_secs(1))
-                        .as_secs() * 1000;
+                        .as_secs()
+                        * 1000;
 
                     write_log_file(&format!(
                         "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
@@ -1558,6 +1556,45 @@ pub unsafe extern "system" fn hook_create_device(
     }
 }
 
+// perf event typedefs from:
+// https://github.com/Microsoft/DXUT/blob/942a9f4e30abf6d5d0c1b3529c17cd6b574743f9/Core/DXUTmisc.cpp
+#[allow(unused)]
+#[no_mangle]
+// typedef INT         (WINAPI * LPD3DPERF_BEGINEVENT)(DWORD, LPCWSTR);
+pub extern "system" fn D3DPERF_BeginEvent(a: DWORD, b: LPCWSTR) -> i32 {
+    0
+}
+#[allow(unused)]
+#[no_mangle]
+// typedef INT         (WINAPI * LPD3DPERF_ENDEVENT)(void);
+pub extern "system" fn D3DPERF_EndEvent() -> i32 {
+    0
+}
+#[allow(unused)]
+#[no_mangle]
+// typedef VOID        (WINAPI * LPD3DPERF_SETMARKER)(DWORD, LPCWSTR);
+pub extern "system" fn D3DPERF_SetMarker(a: DWORD, b: LPCWSTR) -> () {}
+#[allow(unused)]
+#[no_mangle]
+// typedef VOID        (WINAPI * LPD3DPERF_SETREGION)(DWORD, LPCWSTR);
+pub extern "system" fn D3DPERF_SetRegion(a: DWORD, b: LPCWSTR) -> () {}
+#[allow(unused)]
+#[no_mangle]
+// typedef BOOL        (WINAPI * LPD3DPERF_QUERYREPEATFRAME)(void);
+pub extern "system" fn D3DPERF_QueryRepeatFrame() -> BOOL {
+    FALSE
+}
+#[allow(unused)]
+#[no_mangle]
+// typedef VOID        (WINAPI * LPD3DPERF_SETOPTIONS)( DWORD dwOptions );
+pub extern "system" fn D3DPERF_SetOptions(ops: DWORD) -> () {}
+#[allow(unused)]
+#[no_mangle]
+// typedef DWORD (WINAPI * LPD3DPERF_GETSTATUS)();
+pub extern "system" fn D3DPERF_GetStatus() -> DWORD {
+    0
+}
+
 type Direct3DCreate9Fn = unsafe extern "system" fn(sdk_ver: u32) -> *mut IDirect3D9;
 
 #[allow(unused)]
@@ -1612,9 +1649,11 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
 
                 let stem = {
                     let mut pb = PathBuf::from(&mod_name);
-                    let s = pb.file_stem()
+                    let s = pb
+                        .file_stem()
                         .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
-                    let s = s.to_str()
+                    let s = s
+                        .to_str()
                         .ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
                     (*s).to_owned()
                 };
