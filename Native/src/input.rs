@@ -264,27 +264,27 @@ impl Input {
         // TODO: need to clear before GetDeviceState?
         unsafe {
             {
-                let mut gds = || {
+                let mut gds = |acquire| {
+                    if acquire {
+                        let hr = (*self.keyboard).Acquire();
+                        if hr != 0 {
+                            return hr;
+                        }
+                    }
                     (*self.keyboard).GetDeviceState(
                         (std::mem::size_of::<i8>() * 256) as u32,
                         std::mem::transmute(self.keyboard_state.as_mut_ptr()),
                     )
                 };
 
-                let hr = gds();
+                let mut hr = gds(false);
                 if hr != 0 {
                     // reacquire
-                    let hr = (*self.keyboard).Acquire();
+                    hr = gds(true);
+
                     if hr != 0 {
                         return Err(HookError::DInputError(format!(
                             "failed to reacquire keyboard for input: {:x}",
-                            hr
-                        )));
-                    }
-                    let hr = gds();
-                    if hr != 0 {
-                        return Err(HookError::DInputError(format!(
-                            "failed to get device state after reacquire: {:x}",
                             hr
                         )));
                     }
