@@ -3,7 +3,7 @@ This project is unmaintained.  It may still work with old games that are not bei
 
 # Intro
 
-ModelMod is a system for modifying art in games.  
+**ModelMod** is a system for modifying art in games.  
 It works by replacing 3D models (and textures, optionally) at the renderer level.
 
 You start by selecting and snapshotting a model in the game.
