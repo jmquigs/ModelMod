@@ -91,6 +91,8 @@ type Main() =
             | "d3d9" ->
                 (NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
+            | "standalone" ->
+                ((fun (a,b) -> 0), Logging.ConsoleLoggerFactory)
             | s ->
                 failwithf "unrecognized context: %s" s
         Main.OnInitialized <- Some(oninitialized)
@@ -106,6 +108,7 @@ type Main() =
             0
         with
             e ->
+                printfn "IdentifyInLog exception: %A" e
                 InteropTypes.LogInitFailed
 
     static member InitCallbacks(globalStateAddress:uint64,context:string) =
@@ -167,3 +170,6 @@ type Main() =
                 // print it, but it will likely go nowhere
                 printfn "Exception: %A" e
                 InteropTypes.Assplosion
+    static member MainCoreClr(arg:IntPtr, argLength:int) =
+        Main.Main("0|standalone")
+        
