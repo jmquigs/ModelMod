@@ -754,6 +754,27 @@ fn cmd_toggle_show_mods() {
 fn cmd_take_snapshot() {
     init_snapshot_mode();
 }
+fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
+    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
+    interop_state.as_mut().map(|is| {
+        if is.loading_mods {
+            return;
+        }
+        let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
+        if loadstate == AsyncLoadState::InProgress as i32 {
+            return;
+        }
+        write_log_file("reloading mods");
+        is.loading_mods = false;
+        is.done_loading_mods = false;
+
+        unsafe {
+            clear_loaded_mods(device);
+        }
+
+        // the rest will be handled in per-frame operations
+    });
+}
 
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
@@ -766,6 +787,7 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     // This means that these handlers must be cleared when the device is destroyed,
     // (see purge_device_resources)
     // but lets us avoid passing a context argument through the input layer.
+    inp.add_press_fn(input::DIK_F1, Box::new(move || cmd_reload_mods(device)));
     inp.add_press_fn(input::DIK_F2, Box::new(|| cmd_toggle_show_mods()));
     inp.add_press_fn(
         input::DIK_F3,

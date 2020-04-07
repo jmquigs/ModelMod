@@ -99,6 +99,7 @@ pub fn write_log_file(msg: &str) -> () {
         Ok(mut fname) => {
             if (*fname).is_empty() {
                 let mut td = temp_dir();
+                println!("no log path, writing log to {:?}", td);
                 td.push("ModelMod.log");
                 match td.as_path().to_str() {
                     None => {
