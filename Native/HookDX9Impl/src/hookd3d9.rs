@@ -32,7 +32,7 @@ pub struct HookDirect3D9 {
     pub real_create_device: CreateDeviceFn,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct HookDirect3D9Device {
     pub real_draw_indexed_primitive: DrawIndexedPrimitiveFn,
     //pub real_begin_scene: BeginSceneFn,
@@ -616,7 +616,7 @@ unsafe extern "system" fn hook_set_texture(
         }
     }
 
-    (GLOBAL_STATE.hook_direct3d9device.unwrap().real_set_texture)(THIS, Stage, pTexture)
+    (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_set_texture)(THIS, Stage, pTexture)
 }
 
 fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
@@ -894,7 +894,7 @@ pub unsafe extern "system" fn hook_present(
 ) -> HRESULT {
     //write_log_file("present");
     if GLOBAL_STATE.in_any_hook_fn() {
-        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
+        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_present)(
             THIS,
             pSourceRect,
             pDestRect,
@@ -908,7 +908,7 @@ pub unsafe extern "system" fn hook_present(
             "unexpected error from do_per_scene_operations: {:?}",
             e
         ));
-        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_present)(
+        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_present)(
             THIS,
             pSourceRect,
             pDestRect,
@@ -998,7 +998,7 @@ pub unsafe extern "system" fn hook_present(
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // TODO: hack to work around Release on device while in DIP
     if GLOBAL_STATE.in_hook_release {
-        return (GLOBAL_STATE.hook_direct3d9device.unwrap().real_release)(THIS);
+        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_release)(THIS);
     }
 
     GLOBAL_STATE.in_hook_release = true;
