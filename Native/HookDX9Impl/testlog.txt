@@ -1,0 +1,3 @@
+ThreadId(1): [Profiler test_profiler] 10.0170054 secs elapsed since last profile
+   main: 10.267893199999998 secs (102.5046187955534%) (count: 41)
+
