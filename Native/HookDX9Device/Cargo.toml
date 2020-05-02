@@ -1,0 +1,29 @@
+[package]
+name = "mm_d3d9device"
+version = "0.1.0"
+authors = ["John Quigley <jmquigs@gmail.com>"]
+
+[dependencies]
+lazy_static = "*"
+fnv = "1.0.6"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+    "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
+    "dinput"] }
+
+[lib]
+crate_type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+#debug = true
+#rpath = false
+#lto = false
+#debug-assertions = false
+codegen-units = 1
+panic = 'unwind'
+
+[features]
+default = []
+profile = []
