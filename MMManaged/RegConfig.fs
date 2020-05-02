@@ -39,6 +39,7 @@ module RegKeys =
     // Game profile settings are currently exploded out into individual keys
     let ProfGPReverseNormals = "GameProfileReverseNormals"
     let ProfGPCommandLineArguments = "GameProfileCommandLineArguments"
+    let ProfGPDataPathName = "GameProfileDataPathName"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -237,6 +238,7 @@ module RegConfig =
                     { 
                         ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
                         CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
+                        DataPathName = profSave RegKeys.ProfGPDataPathName conf.GameProfile.DataPathName
                     }
             })
 
@@ -291,6 +293,7 @@ module RegConfig =
                 {
                     ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)
                     CommandLineArguments = regget(profPath, RegKeys.ProfGPCommandLineArguments, DefaultGameProfile.CommandLineArguments) :?> string
+                    DataPathName = regget(profPath, RegKeys.ProfGPDataPathName, DefaultGameProfile.DataPathName) :?> string
                 }
             
         }
@@ -312,25 +315,20 @@ module RegConfig =
     let loadAll (): RunConfig[] =
         getProfileKeyNames() |> Array.map loadFromProfileKey
 
-    let getExeRemappings (exePath:string) =
-        // include various potential variants (of the binary name 64 bit, 32 bit, etc).
-        [exePath; exePath.ToLowerInvariant().Replace("-64.exe", ".exe"); exePath.ToLowerInvariant().Replace(".exe", "-64.exe") ]
-
     /// Load a profile for the specified exe.  Returns a default profile if none found.
     let load (exePath:string):RunConfig = 
         let exePath = exePath.Trim()
 
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = getExeRemappings exePath |> List.tryPick (fun remapExe -> 
-                log.Info "trying to find profile with exe name %A" remapExe
-                findProfilePath remapExe)
+            let targetProfile = findProfilePath exePath
 
             let runConfig = 
                 match targetProfile with
                 | None -> 
                     let pRoot = regLoc.Hive.Name @@ regLoc.ProfRoot
-                    log.Info "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
+                    log.Warn "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
+                    log.Warn "This is probably not what you want.  Consider creating a profile in MMLaunch for exe named %A" exePath
                     // if this defaults key is missing, then we just use the hardcoded defaults below
                     let prof = loadDefaultProfile()
                     // the default profile won't have an exe path, so set it

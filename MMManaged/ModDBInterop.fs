@@ -111,9 +111,10 @@ module ModDBInterop =
     let loadFromDataPath() =
         try
             let exeDataDir = State.getExeDataDir()
-            log.Info "Loading from path: %A" exeDataDir
+            log.Info "Loading data from path: %A" exeDataDir
 
             if not (Directory.Exists(exeDataDir)) then
+                log.Warn "Can't find data directory for this executable, consider setting an override in the GameProfile XX"
                 failwithf "Cannot load data, dir does not exist: %A" exeDataDir
 
             // look for ModIndex file

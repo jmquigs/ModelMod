@@ -103,7 +103,7 @@ module Snapshot =
                     fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
                 | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
             | SDXVertexDeclUsage.Normal -> handleVector "normal" fns.Normal
-            | SDXVertexDeclUsage.Binormal  handleVector "binormal" fns.Binormal
+            | SDXVertexDeclUsage.Binormal -> handleVector "binormal" fns.Binormal
             | SDXVertexDeclUsage.Tangent -> handleVector "tangent" fns.Tangent
             | SDXVertexDeclUsage.BlendIndices ->
                 match el.Type with

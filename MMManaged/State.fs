@@ -24,7 +24,10 @@ open CoreTypes
 /// This is stored here so that we don't have to pass it all over the interop barrier, which
 /// would be totally nasty (and is also largely irrelevant to code on that side).
 module State =
-    let private log = Logging.getLogger("State")
+    // log is a function here because otherwise it gets initialized too early and the 
+    // log messages get lost.  Making it lazy is not sufficient.  
+    // TODO: Might need to do this with other modules...
+    let private log() = Logging.getLogger("State")
 
     // DLL context, set by Interop.Main
     let mutable Context = ""
@@ -34,6 +37,9 @@ module State =
 
     /// Helper type for finding various directories
     type DirLocator(rootDir:string, conf:RunConfig) =
+        override x.ToString() = 
+            sprintf "<DirLocator: root %A, conf %A>" rootDir conf
+
         member x.QueryBaseDataDir() =
             // this is set from registry; if not set, use RootDir + DefaultDataDir
             if conf.DocRoot <> "" then
@@ -55,7 +61,31 @@ module State =
         member x.ExeBaseName
             with get() = Path.GetFileNameWithoutExtension(conf.ExePath.ToLowerInvariant())
         member x.ExeDataDir
-            with get() = Path.Combine(x.BaseDataDir,x.ExeBaseName)
+            with get() = 
+                let dd = Path.Combine(x.BaseDataDir,x.ExeBaseName)
+                let gameProfDP = conf.GameProfile.DataPathName
+
+                let dirChecks = [
+                    fun () -> if Directory.Exists(dd) then Some(dd) else None
+                    fun () -> if gameProfDP <> "" && Path.IsPathRooted(gameProfDP) && Directory.Exists(gameProfDP) then Some(gameProfDP) else None
+                    fun () -> 
+                        if gameProfDP <> "" then 
+                            let bdSub = Path.Combine(x.BaseDataDir, gameProfDP)
+                            if Directory.Exists(bdSub) then Some(bdSub) else None
+                        else 
+                            None
+                ]
+
+                let dir = dirChecks |> List.tryPick (fun check -> check())
+                match dir with 
+                | None -> 
+                    if gameProfDP <> "" then 
+                        log().Warn 
+                            "Found data path %A in profile, but it is not extant absolute path or a subdirectory of %A" 
+                                conf.GameProfile.DataPathName x.BaseDataDir
+                    dd 
+                | Some(path) -> path
+                
         member x.ExeSnapshotDir
             with get() = Path.Combine(x.ExeDataDir,"snapshots")
         member x.RootDir = rootDir
@@ -97,22 +127,22 @@ module State =
                 let sprofiles = SnapshotProfile.GetAll(_rootDir)
                 _snapProfiles <- sprofiles
                 if not (sprofiles |> Map.containsKey conf.SnapshotProfile) then
-                    log.Error "Unrecognized snapshot profile: %A; no snapshot transforms will be applied" conf.SnapshotProfile
-                    log.Info "The following snapshot profiles are available: %A" _snapProfiles
+                    log().Error "Unrecognized snapshot profile: %A; no snapshot transforms will be applied" conf.SnapshotProfile
+                    log().Info "The following snapshot profiles are available: %A" _snapProfiles
                     ""
                 else
                     conf.SnapshotProfile
             with
             | e ->
-                log.Error "Error loading snapshot profiles: %A; no snapshot transforms will be applied" e
+                log().Error "Error loading snapshot profiles: %A; no snapshot transforms will be applied" e
                 ""
 
         let conf =
             { conf with
                 SnapshotProfile = snapProfile
             }
-        log.Info "Root dir: %A" (Path.GetFullPath(_rootDir))
-        log.Info "Conf: %A" conf
+        log().Info "Root dir: %A" (Path.GetFullPath(_rootDir))
+        log().Info "Conf: %A" conf
 
         _conf <- conf
         _locator <- DirLocator(_rootDir,_conf)
@@ -130,3 +160,5 @@ module State =
     let getExeSnapshotDir() = _locator.ExeSnapshotDir
     /// Returns the root directory of the ModelMod installation ("c:\modelmod" or whatever)
     let getRootDir() = _locator.RootDir
+
+    let getLocator() = _locator

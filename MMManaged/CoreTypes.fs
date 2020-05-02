@@ -74,11 +74,15 @@ module CoreTypes =
         ReverseNormals: bool
         /// Command line arguments that should be passed to the game when launched.
         CommandLineArguments: string
+        /// An alternate name for the game data directory data directory in case the exe base name does not map to any extant directory.
+        /// Can also be a full absolute path.
+        DataPathName: string
     }
 
     let DefaultGameProfile = {
         ReverseNormals = false
         CommandLineArguments = ""
+        DataPathName = ""
     }
 
     /// A run config for modelmod.  These are stored in the registry.
