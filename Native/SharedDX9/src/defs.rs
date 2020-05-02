@@ -8,7 +8,6 @@ pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::wingdi::RGNDATA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 
-
 pub type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
     path: LPCWSTR,
     fileformat: i32,

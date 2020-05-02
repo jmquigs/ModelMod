@@ -6,6 +6,7 @@ authors = ["John Quigley <jmquigs@gmail.com>"]
 [dependencies]
 lazy_static = "*"
 fnv = "1.0.6"
+shared_dx9 = { path = "../SharedDX9" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",

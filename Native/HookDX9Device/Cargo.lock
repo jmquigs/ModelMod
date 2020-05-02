@@ -18,6 +18,14 @@ version = "0.1.0"
 dependencies = [
  "fnv",
  "lazy_static",
+ "shared_dx9",
+ "winapi",
+]
+
+[[package]]
+name = "shared_dx9"
+version = "0.1.0"
+dependencies = [
  "winapi",
 ]
 
