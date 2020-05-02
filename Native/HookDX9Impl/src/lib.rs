@@ -14,6 +14,8 @@ extern crate fnv;
 #[cfg(windows)]
 extern crate winapi;
 
+extern crate shared_dx9;
+
 //#[cfg(test)]
 mod test_e2e;
 

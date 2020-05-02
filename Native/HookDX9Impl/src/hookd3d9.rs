@@ -25,45 +25,8 @@ use std::fmt;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
-type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
-    path: LPCWSTR,
-    fileformat: i32,
-    src_texture: *mut IDirect3DBaseTexture9,
-    src_palette: *mut c_void,
-) -> HRESULT;
+use shared_dx9::defs::*;
 
-pub type CreateDeviceFn = unsafe extern "system" fn(
-    THIS: *mut IDirect3D9,
-    Adapter: UINT,
-    DeviceType: D3DDEVTYPE,
-    hFocusWindow: HWND,
-    BehaviorFlags: DWORD,
-    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
-    ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
-) -> HRESULT;
-pub type DrawIndexedPrimitiveFn = unsafe extern "system" fn(
-    THIS: *mut IDirect3DDevice9,
-    arg1: D3DPRIMITIVETYPE,
-    BaseVertexIndex: INT,
-    MinVertexIndex: UINT,
-    NumVertices: UINT,
-    startIndex: UINT,
-    primCount: UINT,
-) -> HRESULT;
-pub type BeginSceneFn = unsafe extern "system" fn(THIS: *mut IDirect3DDevice9) -> HRESULT;
-pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
-pub type PresentFn = unsafe extern "system" fn(
-    THIS: *mut IDirect3DDevice9,
-    pSourceRect: *const RECT,
-    pDestRect: *const RECT,
-    hDestWindowOverride: HWND,
-    pDirtyRegion: *const RGNDATA,
-) -> HRESULT;
-pub type SetTextureFn = unsafe extern "system" fn(
-    THIS: *mut IDirect3DDevice9,
-    Stage: DWORD,
-    pTexture: *mut IDirect3DBaseTexture9,
-) -> HRESULT;
 
 pub struct HookDirect3D9 {
     pub real_create_device: CreateDeviceFn,
