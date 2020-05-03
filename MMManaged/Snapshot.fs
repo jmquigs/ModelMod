@@ -434,6 +434,33 @@ module Snapshot =
                     bw.Write(bytes)
                     ())
 
+            // Global transforms
+            // Usually, only old games that still use fixed function for part of their rendering
+            // Will set these, since shaders use constants to get these values instead.  
+            // So only write out the file if at least one of these is non-identity.
+            let _ = 
+                let w0 = device.GetTransform(TransformState.World);
+                let w1 = device.GetTransform(TransformState.World1);
+                let w2 = device.GetTransform(TransformState.World2);
+                let w3 = device.GetTransform(TransformState.World3);
+                let view = device.GetTransform(TransformState.View);
+                let proj = device.GetTransform(TransformState.Projection)
+                use s = new StringWriter()
+                let writeMat (mat:SharpDX.Matrix) label = 
+                    if not (mat.IsIdentity) then 
+                        s.WriteLine(sprintf "%s: values=%A" label mat)
+
+                writeMat w0 "w0"
+                writeMat w1 "w1"
+                writeMat w2 "w2"
+                writeMat w3 "w3"
+                writeMat view "view"
+                writeMat proj "proj"
+
+                let s = s.ToString()
+                if s <> "" then 
+                    let fname = Path.Combine(baseDir, (sprintf "%s_Transforms.txt" sbasename))
+                    File.WriteAllText(fname, s.ToString())
 
             // TODO: vertex shader & constants
 
