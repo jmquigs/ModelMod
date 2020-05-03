@@ -78,6 +78,14 @@ type CLRCreateInstanceFn =
     unsafe extern "stdcall" fn(clsid: REFCLSID, riid: REFIID, ppInterface: *mut *mut ICLRMetaHost)
         -> HRESULT;
 
+struct CLRGlobalState {
+    runtime_host: *mut ICLRRuntimeHost
+}
+
+static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
+    runtime_host: null_mut()
+};
+
 #[cfg(test)]
 pub fn get_run_context() -> &'static str {
     return "mm_native";
@@ -179,6 +187,48 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
             )));
         }
 
+        CLR_GLOBAL_STATE.runtime_host = runtime_host;
+        Ok(())
+    }
+}
+
+pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
+    if unsafe { CLR_GLOBAL_STATE.runtime_host } == null_mut() {
+        return Err(HookError::CLRInitFailed("runtime host pointer is null".to_owned()))?
+    }
+    let mm_root = mm_root
+        .as_ref()
+        .ok_or(HookError::UnableToLocatedManagedDLL(
+            "No MM Root has been set".to_owned(),
+        ))?;    
+    let managed_dll = util::get_managed_dll_path(mm_root)?;
+    
+    // copy the managed_dll to a temp name prior 
+    let attempts = 0..255;
+    let pb = std::path::Path::new(&managed_dll);
+    let pb = pb.parent().ok_or(HookError::CLRInitFailed("managed dll has no parent".to_owned()))?;
+    
+    let mut dll_copy:Option<String> = None;
+    let mut reload_idx = 0;
+    for idx in attempts {
+        if dll_copy.is_some() {
+            break;
+        }
+        let mut pb = pb.to_path_buf();
+        let name = format!("TempMMManaged{:03}.dll", idx);
+        pb.push(name);
+        let res = std::fs::copy(&managed_dll, &pb);
+        if res.is_ok() {
+            dll_copy = Some(pb.to_str().ok_or(
+                HookError::CLRInitFailed("copied dll path error".to_owned()))?.to_owned());
+            reload_idx = idx;
+            break;
+        }            
+    }
+    
+    let managed_dll = dll_copy.ok_or(
+        HookError::CLRInitFailed("copied dll path error 2".to_owned()))?;
+
         let app = util::to_wide_str(&managed_dll);
         let typename = util::to_wide_str("ModelMod.Main");
         let method = util::to_wide_str("Main");
@@ -197,8 +247,9 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
             global_state_ptr as u64,
             get_run_context()
         ));
+    unsafe {        
         let mut ret: u32 = 0xFFFFFFFF;
-        let hr = (*runtime_host).ExecuteInDefaultAppDomain(
+        let hr = (*CLR_GLOBAL_STATE.runtime_host).ExecuteInDefaultAppDomain(
             app.as_ptr(),
             typename.as_ptr(),
             method.as_ptr(),
@@ -211,10 +262,10 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
                 hr
             )));
         }
+    }
 
         // TODO: release things?
         write_log_file(&format!("clr initialized"));
-    }
 
     Ok(())
 }

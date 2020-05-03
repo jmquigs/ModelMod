@@ -12,7 +12,7 @@ pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 
-use dnclr::init_clr;
+use dnclr::{init_clr, reload_managed_dll};
 use input;
 use interop;
 use interop::InteropState;
@@ -27,6 +27,8 @@ use std::time::SystemTime;
 
 use shared_dx9::defs::*;
 
+const CLR_OK:u64 = 1;
+const CLR_FAIL:u64 = 666;
 
 pub struct HookDirect3D9 {
     pub real_create_device: CreateDeviceFn,
@@ -536,12 +538,15 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
                         write_log_file("creating CLR");
                         init_clr(&hookstate.mm_root)
                             .and_then(|_x| {
-                                hookstate.clr_pointer = Some(1);
+                                reload_managed_dll(&hookstate.mm_root)
+                            })
+                            .and_then(|_x| {
+                                hookstate.clr_pointer = Some(CLR_OK);
                                 Ok(_x)
                             })
                             .map_err(|e| {
                                 write_log_file(&format!("Error creating CLR: {:?}", e));
-                                hookstate.clr_pointer = Some(666);
+                                hookstate.clr_pointer = Some(CLR_FAIL);
                                 e
                             })?;
                     }
@@ -717,26 +722,74 @@ fn cmd_toggle_show_mods() {
 fn cmd_take_snapshot() {
     init_snapshot_mode();
 }
-fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
+
+fn is_loading_mods() -> bool {
     let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-    interop_state.as_mut().map(|is| {
+    let loading = interop_state.as_mut().map(|is| {
         if is.loading_mods {
-            return;
+            return true;
         }
         let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
         if loadstate == AsyncLoadState::InProgress as i32 {
-            return;
+            return true;
         }
-        write_log_file("reloading mods");
+        false
+    }).unwrap_or(false);
+    loading
+}
+
+fn cmd_clear_mods(device: *mut IDirect3DDevice9) {
+    if is_loading_mods() {
+        write_log_file("cannot reload now; mods are loading");
+        return;
+    }
+    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
+    interop_state.as_mut().map(|is| {
+        write_log_file("clearing mods");
         is.loading_mods = false;
-        is.done_loading_mods = false;
+        is.done_loading_mods = true;
 
         unsafe {
             clear_loaded_mods(device);
         }
+    });    
+}
 
-        // the rest will be handled in per-frame operations
+fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
+    if is_loading_mods() {
+        write_log_file("cannot reload now; mods are loading");
+        return;
+    }
+    cmd_clear_mods(device);
+    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
+    interop_state.as_mut().map(|is| {
+        write_log_file("reloading mods");
+        is.loading_mods = false;
+        is.done_loading_mods = false;
+        
+        // the actual reload will be handled in per-frame operations
     });
+}
+
+fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
+    if is_loading_mods() {
+        write_log_file("cannot reload now; mods are loading");
+        return;
+    }
+    unsafe {clear_loaded_mods(device)};
+    // TODO: should check for active snapshotting and anything else that might be using the managed 
+    // code
+    let hookstate = unsafe { &mut GLOBAL_STATE };    
+    match hookstate.clr_pointer {
+        Some(CLR_OK) => {
+            let res = reload_managed_dll(&hookstate.mm_root);
+            match res {
+                Ok(_) => write_log_file("managed dll reloaded"),
+                Err(e) => write_log_file(&format!("ERROR: reloading managed dll failed: {:?}", e))
+            }
+        },
+        _ => ()
+    };
 }
 
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
@@ -744,7 +797,6 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     // _fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
     // _fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
-    // _fKeyMap[DIK_F10] = [&]() { this->loadEverything(); };
 
     // Allow the handlers to take a copy of the device pointer in the closure.
     // This means that these handlers must be cleared when the device is destroyed,
@@ -762,6 +814,11 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists()));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
+    // Disabling this because its ineffective: the reload will complete without error, but 
+    // The old managed code will still be used.  The old C++ code 
+    // used a custom domain manager to support reloading, but I'd rather just move to the 
+    // CoreCLR rather than reimplement that.
+    //inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 }
 
 fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
