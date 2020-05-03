@@ -1633,7 +1633,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 use std::path::PathBuf;
 
                 let stem = {
-                    let mut pb = PathBuf::from(&mod_name);
+                    let pb = PathBuf::from(&mod_name);
                     let s = pb
                         .file_stem()
                         .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;

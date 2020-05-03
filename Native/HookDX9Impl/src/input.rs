@@ -24,7 +24,7 @@ use util::{write_log_file, HookError, Result};
 use std;
 use std::ptr::null_mut;
 
-use profile::*;
+//use profile::*;
 
 #[repr(C)]
 pub struct DIOBJECTDATAFORMAT(*const GUID, DWORD, DWORD, DWORD);
@@ -127,7 +127,7 @@ pub struct Input {
     last_keyboard_state: Vec<u8>,
     last_press_event: Vec<SystemTime>,
     last_update: SystemTime,
-    press_event_fns: FnvHashMap<u8, Box<FnMut() -> ()>>,
+    press_event_fns: FnvHashMap<u8, Box<dyn FnMut() -> ()>>,
     repeat_delay: Vec<u16>,
     pub alt_pressed: bool,
     pub ctrl_pressed: bool,
@@ -234,7 +234,7 @@ impl Input {
         self.press_event_fns.clear();
     }
 
-    pub fn add_press_fn(&mut self, key: u8, fun: Box<FnMut() -> ()>) {
+    pub fn add_press_fn(&mut self, key: u8, fun: Box<dyn FnMut() -> ()>) {
         self.press_event_fns.insert(key, fun);
     }
     pub fn get_press_fn_count(&self) -> usize {

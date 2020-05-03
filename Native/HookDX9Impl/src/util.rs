@@ -2,7 +2,7 @@ use std;
 use winapi;
 
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
-use winapi::shared::windef::{HWND, RECT};
+use winapi::shared::windef::{HWND};
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
@@ -106,7 +106,7 @@ pub fn write_log_file(msg: &str) -> () {
                         eprintln!("ModelMod: error getting temp path");
                         return;
                     }
-                    Some(mut p) => {
+                    Some(p) => {
                         *fname = p.to_owned();
                     }
                 }
@@ -346,7 +346,6 @@ pub fn to_wide_str(s: &str) -> Vec<u16> {
 }
 
 pub fn get_module_name() -> Result<String> {
-    use std::ffi::OsString;
     use std::os::windows::prelude::*;
     use winapi::shared::minwindef::DWORD;
     use winapi::um::libloaderapi::*;
