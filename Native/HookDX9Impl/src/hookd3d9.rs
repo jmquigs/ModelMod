@@ -59,14 +59,17 @@ pub struct FrameMetrics {
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,        
 }
-
-pub struct HookState {
+pub struct DeviceState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
+    pub d3d_window: HWND,    
+    pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
+}
+
+pub struct HookState {
     pub clr_pointer: Option<u64>,
-    pub d3d_window: HWND,
     pub interop_state: Option<InteropState>,
-    pub is_global: bool,
+    //pub is_global: bool,
     pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
@@ -84,8 +87,6 @@ pub struct HookState {
     pub curr_texture_index: usize,
     pub is_snapping: bool,
     pub snap_start: SystemTime,
-    // TODO: this should be tracked per device pointer.
-    pub d3d_resource_count: u32,
     pub d3dx_fn: Option<D3DXFn>,
     pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
     pub metrics: FrameMetrics,
@@ -100,10 +101,10 @@ impl fmt::Display for HookState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "HookState (thread: {:?}): d3d9: {:?}, device: {:?}",
+            "HookState (thread: {:?})", // : d3d9: {:?}, device: {:?}",
             std::thread::current().id(),
-            self.hook_direct3d9.is_some(),
-            self.hook_direct3d9device.is_some()
+            //self.hook_direct3d9.is_some(),
+            //self.hook_direct3d9device.is_some()
         )
     }
 }
@@ -111,14 +112,24 @@ impl fmt::Display for HookState {
 lazy_static! {
     pub static ref GLOBAL_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
+pub static mut DEVICE_STATE: *mut DeviceState = null_mut();
+
+fn dev_state() -> &'static mut DeviceState {
+    unsafe {
+        if DEVICE_STATE == null_mut() {
+            write_log_file("accessing null device state pointer, this 'should never happen'.  we gonna crash boys");
+            panic!("Aborting because I'm about to dereference a null device state pointer.");
+        }
+        &mut (*DEVICE_STATE)
+    }
+}
+
 // TODO: maybe create read/write accessors for this
 pub static mut GLOBAL_STATE: HookState = HookState {
-    hook_direct3d9: None,
-    hook_direct3d9device: None,
     clr_pointer: None,
     interop_state: None,
-    d3d_window: null_mut(),
-    is_global: true,
+    
+    //is_global: true,
     loaded_mods: None,
     active_texture_set: None,
     active_texture_list: None,
@@ -134,7 +145,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     curr_texture_index: 0,
     is_snapping: false,
     snap_start: std::time::UNIX_EPOCH,
-    d3d_resource_count: 0,
+    
     d3dx_fn: None,
     device: None,
     metrics: FrameMetrics {
@@ -306,13 +317,13 @@ unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     (*device).AddRef();
     let post_rc = (*device).Release();
     let diff = pre_rc - post_rc;
-    if (GLOBAL_STATE.d3d_resource_count as i64 - diff as i64) < 0 {
+    if (dev_state().d3d_resource_count as i64 - diff as i64) < 0 {
         write_log_file(&format!(
             "DOH resource count would go below zero (curr: {}, removed {}),",
-            GLOBAL_STATE.d3d_resource_count, diff
+            dev_state().d3d_resource_count, diff
         ));
     } else {
-        GLOBAL_STATE.d3d_resource_count -= diff;
+        dev_state().d3d_resource_count -= diff;
     }
 
     write_log_file(&format!("unloaded {} mods", cnt));
@@ -486,10 +497,10 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     (*device).AddRef();
     let post_rc = (*device).Release();
     let diff = post_rc - pre_rc;
-    GLOBAL_STATE.d3d_resource_count += diff;
+    (*DEVICE_STATE).d3d_resource_count += diff;
     write_log_file(&format!(
         "mod loading added {} to device {:x} ref count, new count: {}",
-        diff, device as u64, GLOBAL_STATE.d3d_resource_count
+        diff, device as u64, (*DEVICE_STATE).d3d_resource_count
     ));
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
@@ -595,7 +606,7 @@ unsafe extern "system" fn hook_set_texture(
         }
     }
 
-    (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_set_texture)(THIS, Stage, pTexture)
+    (dev_state().hook_direct3d9device.as_ref().unwrap().real_set_texture)(THIS, Stage, pTexture)
 }
 
 fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
@@ -892,7 +903,7 @@ fn create_selection_texture(device: *mut IDirect3DDevice9) {
         let post_rc = (*device).Release();
         let diff = post_rc - pre_rc;
 
-        GLOBAL_STATE.d3d_resource_count += diff;
+        dev_state().d3d_resource_count += diff;
 
         GLOBAL_STATE.selection_texture = tex;
     }
@@ -913,7 +924,7 @@ unsafe fn purge_device_resources(device: *mut IDirect3DDevice9) {
         .input
         .as_mut()
         .map(|input| input.clear_handlers());
-    GLOBAL_STATE.d3d_resource_count = 0;
+    dev_state().d3d_resource_count = 0;
 }
 
 pub unsafe extern "system" fn hook_present(
@@ -925,7 +936,7 @@ pub unsafe extern "system" fn hook_present(
 ) -> HRESULT {
     //write_log_file("present");
     if GLOBAL_STATE.in_any_hook_fn() {
-        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_present)(
+        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_present)(
             THIS,
             pSourceRect,
             pDestRect,
@@ -939,7 +950,7 @@ pub unsafe extern "system" fn hook_present(
             "unexpected error from do_per_scene_operations: {:?}",
             e
         ));
-        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_present)(
+        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_present)(
             THIS,
             pSourceRect,
             pDestRect,
@@ -955,7 +966,7 @@ pub unsafe extern "system" fn hook_present(
 
     
     let mut metrics = &mut GLOBAL_STATE.metrics;
-    let present_ret = GLOBAL_STATE
+    let present_ret = dev_state()
         .hook_direct3d9device
         .as_mut()
         .map_or(S_OK, |hookdevice| {
@@ -1001,7 +1012,7 @@ pub unsafe extern "system" fn hook_present(
         create_selection_texture(THIS);
     }
 
-    if util::appwnd_is_foreground(GLOBAL_STATE.d3d_window) {
+    if util::appwnd_is_foreground(dev_state().d3d_window) {
         GLOBAL_STATE.input.as_mut().map(|inp| {
             if inp.get_press_fn_count() == 0 {
                 setup_input(THIS, inp)
@@ -1031,12 +1042,12 @@ pub unsafe extern "system" fn hook_present(
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // TODO: hack to work around Release on device while in DIP
     if GLOBAL_STATE.in_hook_release {
-        return (GLOBAL_STATE.hook_direct3d9device.as_ref().unwrap().real_release)(THIS);
+        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_release)(THIS);
     }
 
     GLOBAL_STATE.in_hook_release = true;
 
-    let r = GLOBAL_STATE
+    let r = dev_state()
         .hook_direct3d9device
         .as_mut()
         .map_or(0xFFFFFFFF, |hookdevice| {
@@ -1054,14 +1065,14 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             // resource count gets to the expected value, this way the device can be
             // properly disposed.
 
-            let destroying = GLOBAL_STATE.d3d_resource_count > 0
-                && hookdevice.ref_count == (GLOBAL_STATE.d3d_resource_count + 1);
+            let destroying = dev_state().d3d_resource_count > 0
+                && hookdevice.ref_count == (dev_state().d3d_resource_count + 1);
             if destroying {
                 // purge my stuff
                 write_log_file(&format!(
                     "device {:x} refcount is same as internal resource count ({}),
                     it is being destroyed: purging resources",
-                    THIS as u64, GLOBAL_STATE.d3d_resource_count
+                    THIS as u64, dev_state().d3d_resource_count
                 ));
                 purge_device_resources(THIS as *mut IDirect3DDevice9);
                 // Note, hookdevice.ref_count is wrong now since we bypassed
@@ -1070,7 +1081,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                 // will fix the count.
             }
 
-            if destroying || (GLOBAL_STATE.d3d_resource_count == 0 && hookdevice.ref_count == 1) {
+            if destroying || (dev_state().d3d_resource_count == 0 && hookdevice.ref_count == 1) {
                 // release again to trigger destruction of the device
                 hookdevice.ref_count = (hookdevice.real_release)(THIS);
                 write_log_file(&format!(
@@ -1137,7 +1148,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, state_begin);
 
-    let hookdevice = match GLOBAL_STATE.hook_direct3d9device {
+    let hookdevice = match dev_state().hook_direct3d9device {
         None => {
             write_log_file(&format!("DIP: No d3d9 device found"));
             return E_FAIL;
@@ -1493,7 +1504,10 @@ unsafe fn create_and_hook_device(
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
 
-    GLOBAL_STATE
+    if DEVICE_STATE == null_mut() {
+        return Err(HookError::BadStateError("no device state pointer??".to_owned()));
+    }
+    (*DEVICE_STATE)
         .hook_direct3d9
         .as_mut()
         .ok_or(HookError::Direct3D9InstanceNotFound)
@@ -1517,11 +1531,11 @@ unsafe fn create_and_hook_device(
                 write_log_file(&format!("create device FAILED: {}", result));
                 return Err(HookError::CreateDeviceFailed(result));
             }
-            GLOBAL_STATE.d3d_window = hFocusWindow;
+            (*DEVICE_STATE).d3d_window = hFocusWindow;
             hook_device(*ppReturnedDeviceInterface, &lock)
         })
         .and_then(|hook_d3d9device| {
-            GLOBAL_STATE.hook_direct3d9device = Some(hook_d3d9device);
+            (*DEVICE_STATE).hook_direct3d9device = Some(hook_d3d9device);
             write_log_file(&format!(
                 "hooked device on thread {:?}",
                 std::thread::current().id()
@@ -1630,6 +1644,17 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
 }
 
 pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
+    unsafe {
+        if DEVICE_STATE == null_mut() {
+            DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
+                hook_direct3d9: None,
+                hook_direct3d9device: None,
+                d3d_window: null_mut(),
+                d3d_resource_count: 0,            
+            }));            
+        }            
+    };
+    
     let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
     let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
 
@@ -1718,7 +1743,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             .lock()
             .map_err(|_err| HookError::D3D9HookFailed)?;
 
-        if GLOBAL_STATE.hook_direct3d9.is_some() {
+        if (*DEVICE_STATE).hook_direct3d9.is_some() {
             return Ok(direct3d9);
         }
 
@@ -1747,7 +1772,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             real_create_device: real_create_device,
         };
 
-        GLOBAL_STATE.hook_direct3d9 = Some(hd3d9);
+        (*DEVICE_STATE).hook_direct3d9 = Some(hd3d9);
 
         Ok(direct3d9)
     }

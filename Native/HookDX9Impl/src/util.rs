@@ -19,6 +19,7 @@ pub enum HookError {
     GetProcAddressFailed(String),
     CLRInitFailed(String),
     NulError(std::ffi::NulError),
+    BadStateError(String),
     GlobalStateCopyFailed,
     Direct3D9InstanceNotFound,
     CreateDeviceFailed(i32),
