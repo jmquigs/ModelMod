@@ -26,56 +26,10 @@ use std::ptr::null_mut;
 use std::time::SystemTime;
 
 use shared_dx9::defs::*;
+use shared_dx9::types::*;
 
 const CLR_OK:u64 = 1;
 const CLR_FAIL:u64 = 666;
-
-pub struct HookDirect3D9 {
-    pub real_create_device: CreateDeviceFn,
-}
-
-#[derive(Clone)]
-pub struct HookDirect3D9Device {
-    pub real_draw_indexed_primitive: DrawIndexedPrimitiveFn,
-    //pub real_begin_scene: BeginSceneFn,
-    pub real_present: PresentFn,
-    pub real_release: IUnknownReleaseFn,
-    pub real_set_texture: SetTextureFn,
-    pub ref_count: ULONG,
-    pub dip_calls: u32,
-    pub frames: u32,
-    pub last_call_log: SystemTime,
-    pub last_frame_log: SystemTime,
-    pub last_fps: f64,
-    pub last_fps_update: SystemTime,
-    pub low_framerate: bool,
-}
-
-impl HookDirect3D9Device {
-    pub fn new(
-        real_draw_indexed_primitive: DrawIndexedPrimitiveFn,
-        //real_begin_scene: BeginSceneFn,
-        real_present: PresentFn,
-        real_release: IUnknownReleaseFn,
-        real_set_texture: SetTextureFn,
-    ) -> HookDirect3D9Device {
-        HookDirect3D9Device {
-            real_draw_indexed_primitive: real_draw_indexed_primitive,
-            //real_begin_scene: real_begin_scene,
-            real_release: real_release,
-            real_present: real_present,
-            real_set_texture: real_set_texture,
-            dip_calls: 0,
-            frames: 0,
-            ref_count: 0,
-            last_call_log: SystemTime::now(),
-            last_frame_log: SystemTime::now(),
-            last_fps_update: SystemTime::now(),
-            last_fps: 120.0,
-            low_framerate: false,
-        }
-    }
-}
 
 const MAX_STAGE: usize = 16;
 
@@ -94,6 +48,16 @@ static SNAP_MS: u32 = 250;
 pub struct D3DXFn {
     pub D3DXSaveTextureToFileW: D3DXSaveTextureToFileWFn,
     pub D3DXCreateTextureFromFileW: u64,
+}
+
+pub struct FrameMetrics {
+    pub dip_calls: u32,
+    pub frames: u32,
+    pub last_call_log: SystemTime,
+    pub last_frame_log: SystemTime,
+    pub last_fps: f64,
+    pub last_fps_update: SystemTime,
+    pub low_framerate: bool,        
 }
 
 pub struct HookState {
@@ -124,6 +88,7 @@ pub struct HookState {
     pub d3d_resource_count: u32,
     pub d3dx_fn: Option<D3DXFn>,
     pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
+    pub metrics: FrameMetrics,
 }
 
 impl HookState {
@@ -172,6 +137,15 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     d3d_resource_count: 0,
     d3dx_fn: None,
     device: None,
+    metrics: FrameMetrics {
+        dip_calls: 0,
+        frames: 0,
+        last_call_log: std::time::UNIX_EPOCH,
+        last_frame_log: std::time::UNIX_EPOCH,
+        last_fps_update: std::time::UNIX_EPOCH,
+        last_fps: 120.0,
+        low_framerate: false,
+    },
 };
 
 macro_rules! impl_release_drop {
@@ -979,37 +953,39 @@ pub unsafe extern "system" fn hook_present(
         .map(|is| is.conf_data.MinimumFPS)
         .unwrap_or(0) as f64;
 
+    
+    let mut metrics = &mut GLOBAL_STATE.metrics;
     let present_ret = GLOBAL_STATE
         .hook_direct3d9device
         .as_mut()
         .map_or(S_OK, |hookdevice| {
-            hookdevice.frames += 1;
-            if hookdevice.frames % 90 == 0 {
+            metrics.frames += 1;
+            if metrics.frames % 90 == 0 {
                 // enforce min fps
                 // NOTE: when low, it just sets a boolean flag to disable mod rendering,
                 // but we could also use virtual protect to temporarily swap out the hook functions
                 // (except for present)
                 let now = SystemTime::now();
-                let elapsed = now.duration_since(hookdevice.last_fps_update);
+                let elapsed = now.duration_since(metrics.last_fps_update);
                 if let Ok(d) = elapsed {
                     let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                    let fps = hookdevice.frames as f64 / secs;
-                    let smooth_fps = 0.3 * fps + 0.7 * hookdevice.last_fps;
-                    hookdevice.last_fps = smooth_fps;
+                    let fps = metrics.frames as f64 / secs;
+                    let smooth_fps = 0.3 * fps + 0.7 * metrics.last_fps;
+                    metrics.last_fps = smooth_fps;
                     let min_off = min_fps * 1.1;
-                    if smooth_fps < min_fps && !hookdevice.low_framerate {
-                        hookdevice.low_framerate = true;
+                    if smooth_fps < min_fps && !metrics.low_framerate {
+                        metrics.low_framerate = true;
                     }
                     // prevent oscillation: don't reactivate until 10% above mininum
-                    else if hookdevice.low_framerate && smooth_fps > (min_off * 1.1) {
-                        hookdevice.low_framerate = false;
+                    else if metrics.low_framerate && smooth_fps > (min_off * 1.1) {
+                        metrics.low_framerate = false;
                     }
                     // write_log_file(&format!(
                     //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
                     //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
                     // ));
-                    hookdevice.last_fps_update = now;
-                    hookdevice.frames = 0;
+                    metrics.last_fps_update = now;
+                    metrics.frames = 0;
                 }
             }
             (hookdevice.real_present)(
@@ -1170,7 +1146,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, state_begin);
 
-    if hookdevice.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
+    let mut metrics = &mut GLOBAL_STATE.metrics;
+    
+    if metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
@@ -1416,15 +1394,15 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, statistics);
     // statistics
-    hookdevice.dip_calls += 1;
-    if hookdevice.dip_calls % 500_000 == 0 {
+    metrics.dip_calls += 1;
+    if metrics.dip_calls % 500_000 == 0 {
         let now = SystemTime::now();
-        let elapsed = now.duration_since(hookdevice.last_call_log);
+        let elapsed = now.duration_since(metrics.last_call_log);
         match elapsed {
             Ok(d) => {
                 let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
                 if secs >= 10.0 {
-                    let dipsec = hookdevice.dip_calls as f64 / secs;
+                    let dipsec = metrics.dip_calls as f64 / secs;
 
                     let epocht = now
                         .duration_since(std::time::UNIX_EPOCH)
@@ -1434,7 +1412,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
                     write_log_file(&format!(
                         "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
-                        epocht, hookdevice.dip_calls, 2, secs, 2, dipsec, 2, hookdevice.last_fps
+                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
                     ));
                     GLOBAL_STATE.active_texture_set.as_ref().map(|set| {
                         write_log_file(&format!(
@@ -1442,8 +1420,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                             set.len()
                         ))
                     });
-                    hookdevice.last_call_log = now;
-                    hookdevice.dip_calls = 0;
+                    metrics.last_call_log = now;
+                    metrics.dip_calls = 0;
                 }
             }
             Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
