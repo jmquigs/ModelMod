@@ -126,6 +126,8 @@ mod tests {
     use std;
     use std::time::SystemTime;
     use util::*;
+    
+    use shared_dx9::util::*;
 
     decl_profile_globals!(test_profiler);
 

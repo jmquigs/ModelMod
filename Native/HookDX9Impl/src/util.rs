@@ -8,123 +8,12 @@ use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
 use std::ffi::OsString;
 
-lazy_static! {
-    static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-}
+use shared_dx9::error::*;
 
-#[derive(Debug)]
-pub enum HookError {
-    ProtectFailed,
-    LoadLibFailed(String),
-    GetProcAddressFailed(String),
-    CLRInitFailed(String),
-    NulError(std::ffi::NulError),
-    BadStateError(String),
-    GlobalStateCopyFailed,
-    Direct3D9InstanceNotFound,
-    CreateDeviceFailed(i32),
-    ConfReadFailed(String),
-    FailedToConvertString(OsString),
-    WinApiError(String),
-    ModuleNameError(String),
-    UnableToLocatedManagedDLL(String),
-    D3D9HookFailed,
-    D3D9DeviceHookFailed,
-    GlobalLockError,
-    IOError(std::io::Error),
-    DInputCreateFailed(String),
-    DInputError(String),
-    TimeConversionError(std::time::SystemTimeError),
-    CStrConvertFailed(std::str::Utf8Error),
-    SnapshotFailed(String),
-}
 
-impl std::convert::From<std::ffi::NulError> for HookError {
-    fn from(error: std::ffi::NulError) -> Self {
-        HookError::NulError(error)
-    }
-}
 
-impl std::convert::From<std::ffi::OsString> for HookError {
-    fn from(error: std::ffi::OsString) -> Self {
-        HookError::FailedToConvertString(error)
-    }
-}
 
-impl std::convert::From<std::io::Error> for HookError {
-    fn from(error: std::io::Error) -> Self {
-        HookError::IOError(error)
-    }
-}
 
-impl std::convert::From<std::time::SystemTimeError> for HookError {
-    fn from(error: std::time::SystemTimeError) -> Self {
-        HookError::TimeConversionError(error)
-    }
-}
-
-impl std::convert::From<std::str::Utf8Error> for HookError {
-    fn from(error: std::str::Utf8Error) -> Self {
-        HookError::CStrConvertFailed(error)
-    }
-}
-
-pub type Result<T> = std::result::Result<T, HookError>;
-
-pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
-    let lock = LOG_FILE_NAME.lock();
-    match lock {
-        Err(e) => Err(HookError::WinApiError(format!("lock error: {}", e))),
-        Ok(mut fname) => {
-            let mut p = path.to_owned();
-            p.push_str(name);
-            *fname = p;
-            Ok(())
-        }
-    }
-}
-
-pub fn write_log_file(msg: &str) -> () {
-    use std::env::temp_dir;
-    use std::fs::OpenOptions;
-    use std::io::Write;
-
-    let lock = LOG_FILE_NAME.lock();
-    match lock {
-        Err(e) => {
-            eprintln!(
-                "ModelMod: derp, can't write log file due to lock error: {}",
-                e
-            );
-        }
-        Ok(mut fname) => {
-            if (*fname).is_empty() {
-                let mut td = temp_dir();
-                println!("no log path, writing log to {:?}", td);
-                td.push("ModelMod.log");
-                match td.as_path().to_str() {
-                    None => {
-                        eprintln!("ModelMod: error getting temp path");
-                        return;
-                    }
-                    Some(p) => {
-                        *fname = p.to_owned();
-                    }
-                }
-            }
-
-            let tid = std::thread::current().id();
-
-            let w = || -> std::io::Result<()> {
-                let mut f = OpenOptions::new().create(true).append(true).open(&*fname)?;
-                writeln!(f, "{:?}: {}\r", tid, msg)?;
-                Ok(())
-            };
-
-            w().unwrap_or_else(|e| eprintln!("ModelMod: log file write error: {}", e));
-        }
-    };
-}
 
 pub unsafe fn protect_memory(
     target: *mut winapi::ctypes::c_void,

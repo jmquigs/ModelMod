@@ -11,8 +11,9 @@ use hookd3d9;
 use std;
 use std::ptr::null_mut;
 use util;
-use util::{HookError, Result};
-use util::{get_proc_address, load_lib, write_log_file};
+use shared_dx9::error::*;
+use shared_dx9::util::*;
+use util::{get_proc_address, load_lib};
 
 DEFINE_GUID!{CLSID_CLR_META_HOST,
 0x9280188d, 0xe8e, 0x4867, 0xb3, 0xc, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}

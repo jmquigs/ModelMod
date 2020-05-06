@@ -15,6 +15,13 @@ pub struct HookDirect3D9Device {
 
 }
 
+pub struct DeviceState {
+    pub hook_direct3d9: Option<HookDirect3D9>,
+    pub hook_direct3d9device: Option<HookDirect3D9Device>,
+    pub d3d_window: HWND,    
+    pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
+}
+
 impl HookDirect3D9Device {
     pub fn new(
         real_draw_indexed_primitive: DrawIndexedPrimitiveFn,

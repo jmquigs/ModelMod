@@ -27,6 +27,8 @@ use std::time::SystemTime;
 
 use shared_dx9::defs::*;
 use shared_dx9::types::*;
+use shared_dx9::util::*;
+use shared_dx9::error::*;
 
 const CLR_OK:u64 = 1;
 const CLR_FAIL:u64 = 666;
@@ -59,12 +61,7 @@ pub struct FrameMetrics {
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,        
 }
-pub struct DeviceState {
-    pub hook_direct3d9: Option<HookDirect3D9>,
-    pub hook_direct3d9device: Option<HookDirect3D9Device>,
-    pub d3d_window: HWND,    
-    pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
-}
+
 
 pub struct HookState {
     pub clr_pointer: Option<u64>,
@@ -1448,6 +1445,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     dresult
 }
 
+// =====================
+// Everything after this should be moved into device lib
+
 unsafe fn hook_device(
     device: *mut IDirect3DDevice9,
     _guard: &std::sync::MutexGuard<()>,
@@ -1721,7 +1721,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 writeln!(f, "ModelMod initialized\r")?;
 
                 // if that succeeded then we can set the file name now
-                util::set_log_file_path(&tdir, &file_name)?;
+                set_log_file_path(&tdir, &file_name)?;
 
                 eprintln!("Log File: {}", tname);
 

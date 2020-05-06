@@ -4,7 +4,7 @@ use winapi::um::winnt::WCHAR;
 use hookd3d9;
 use std;
 use util;
-use util::write_log_file;
+use shared_dx9::util::write_log_file;
 
 #[derive(Copy, Clone)]
 pub struct InteropState {

@@ -12,3 +12,4 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
     "dinput"] }
     
 [dependencies]
+lazy_static = "*"
