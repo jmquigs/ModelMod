@@ -47,3 +47,11 @@ pub type SetTextureFn = unsafe extern "system" fn(
     Stage: DWORD,
     pTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT;
+
+// shader constants
+pub type SetVertexShaderConstantFFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    StartRegister: UINT,
+    pConstantData: *const f32,
+    Vector4fCount: UINT
+) -> HRESULT;

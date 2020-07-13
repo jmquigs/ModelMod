@@ -12,6 +12,8 @@ pub struct HookDirect3D9Device {
     pub real_release: IUnknownReleaseFn,
     pub real_set_texture: SetTextureFn,
     pub ref_count: ULONG,
+    // shader constants
+    pub real_set_vertex_sc_f: SetVertexShaderConstantFFn,
 
 }
 
@@ -29,6 +31,7 @@ impl HookDirect3D9Device {
         real_present: PresentFn,
         real_release: IUnknownReleaseFn,
         real_set_texture: SetTextureFn,
+        real_set_vertex_sc_f: SetVertexShaderConstantFFn,
     ) -> HookDirect3D9Device {
         HookDirect3D9Device {
             real_draw_indexed_primitive: real_draw_indexed_primitive,
@@ -36,6 +39,7 @@ impl HookDirect3D9Device {
             real_release: real_release,
             real_present: real_present,
             real_set_texture: real_set_texture,
+            real_set_vertex_sc_f: real_set_vertex_sc_f,
             ref_count: 0,
         }
     }

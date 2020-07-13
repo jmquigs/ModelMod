@@ -19,6 +19,7 @@ use interop::InteropState;
 use interop::NativeModData;
 use util;
 use util::*;
+use constant_tracking;
 
 use std;
 use std::fmt;
@@ -111,7 +112,7 @@ lazy_static! {
 }
 pub static mut DEVICE_STATE: *mut DeviceState = null_mut();
 
-fn dev_state() -> &'static mut DeviceState {
+pub fn dev_state() -> &'static mut DeviceState {
     unsafe {
         if DEVICE_STATE == null_mut() {
             write_log_file("accessing null device state pointer, this 'should never happen'.  we gonna crash boys");
@@ -628,6 +629,10 @@ fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
 
         // TODO: should hook SetStreamSource so that we can tell what streams are in use
         (*vtbl).SetTexture = hook_set_texture;
+        if constant_tracking::is_enabled() {
+            (*vtbl).SetVertexShaderConstantF = constant_tracking::hook_set_vertex_sc_f;
+        }
+        write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 
         protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     }
@@ -1483,6 +1488,8 @@ unsafe fn hook_device(
 
     // remember these functions but don't hook them yet
     let real_set_texture = (*vtbl).SetTexture;
+    
+    let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
 
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
@@ -1502,6 +1509,7 @@ unsafe fn hook_device(
         real_present,
         real_release,
         real_set_texture,
+        real_set_vertex_sc_f
     ))
 }
 

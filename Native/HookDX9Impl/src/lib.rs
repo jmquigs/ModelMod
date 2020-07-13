@@ -22,6 +22,7 @@ mod test_e2e;
 #[macro_use]
 mod profile;
 
+mod constant_tracking;
 mod dnclr;
 mod hookd3d9;
 mod input;
