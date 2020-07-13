@@ -183,7 +183,6 @@ enum AsyncLoadState {
 }
 
 fn load_d3dx(mm_root: &Option<String>) -> Result<D3DXFn> {
-    // TODO: detect 32/64 bit
     // TODO: decide on where to load these from.
     let mm_root = mm_root.as_ref().ok_or(HookError::LoadLibFailed(
         "No MMRoot, can't load D3DX".to_owned(),
@@ -192,7 +191,12 @@ fn load_d3dx(mm_root: &Option<String>) -> Result<D3DXFn> {
     path.push_str("\\");
     path.push_str("TPLib");
     path.push_str("\\");
-    path.push_str("D3DX9_43_x86_64.dll");
+    if cfg!(target_pointer_width = "64") {
+        path.push_str("D3DX9_43_x86_64.dll");
+    } else {
+        path.push_str("D3DX9_43_x86.dll");
+    }
+    
     let handle = util::load_lib(&path)?;
 
     unsafe {
