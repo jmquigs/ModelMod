@@ -688,7 +688,7 @@ fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-fn cmd_clear_texture_lists() {
+fn cmd_clear_texture_lists(device: *mut IDirect3DDevice9) {
     unsafe {
         GLOBAL_STATE
             .active_texture_list
@@ -699,6 +699,17 @@ fn cmd_clear_texture_lists() {
             .as_mut()
             .map(|list| list.clear());
         GLOBAL_STATE.curr_texture_index = 0;
+        
+        // TODO: this was an attempt to fix the issue with the selection 
+        // texture getting clobbered after alt-tab, but it didn't work.
+        // if GLOBAL_STATE.selection_texture != null_mut() {
+        //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
+        //     if tex != null_mut() {
+        //         (*tex).Release();
+        //     }
+        //     GLOBAL_STATE.selection_texture = null_mut();
+        //     create_selection_texture(device);
+        // }        
     }
 }
 fn cmd_toggle_show_mods() {
@@ -798,7 +809,7 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
         input::DIK_F4,
         Box::new(move || cmd_select_prev_texture(device)),
     );
-    inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists()));
+    inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
     // Disabling this because its ineffective: the reload will complete without error, but 
     // The old managed code will still be used.  The old C++ code 
