@@ -693,7 +693,7 @@ fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-fn cmd_clear_texture_lists(device: *mut IDirect3DDevice9) {
+fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
     unsafe {
         GLOBAL_STATE
             .active_texture_list
@@ -981,8 +981,7 @@ pub unsafe extern "system" fn hook_present(
         .map(|is| is.conf_data.MinimumFPS)
         .unwrap_or(0) as f64;
 
-    
-    let mut metrics = &mut GLOBAL_STATE.metrics;
+    let metrics = &mut GLOBAL_STATE.metrics;
     let present_ret = dev_state()
         .hook_direct3d9device
         .as_mut()
@@ -1858,7 +1857,7 @@ mod tests {
 
     #[test]
     fn can_create_d3d9() {
-        use test_e2e;
+        //use test_e2e;
         // TODO: need to figure out why this behaves poorly WRT test_e2e.
         // is it a side effect of rust's threaded test framework or a system of issues.
 
@@ -1890,7 +1889,7 @@ mod tests {
     }
 
     #[bench]
-    fn dip_call_time(b: &mut Bencher) {
+    fn dip_call_time(_b: &mut Bencher) {
         //set_stub_device();
 
         // Core-i7-6700 3.4Ghz, 1.25 nightly 2018-01-13

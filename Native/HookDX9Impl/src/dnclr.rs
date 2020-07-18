@@ -102,7 +102,8 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
         .ok_or(HookError::UnableToLocatedManagedDLL(
             "No MM Root has been set".to_owned(),
         ))?;
-    let managed_dll = util::get_managed_dll_path(mm_root)?;
+    // fail early if this is missing
+    let _managed_dll = util::get_managed_dll_path(mm_root)?;
 
     let h = load_lib("mscoree.dll")?;
     let clr_create_instance = get_proc_address(h, "CLRCreateInstance")?;
@@ -210,7 +211,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
     let pb = pb.parent().ok_or(HookError::CLRInitFailed("managed dll has no parent".to_owned()))?;
     
     let mut dll_copy:Option<String> = None;
-    let mut reload_idx = 0;
+    let mut _reload_idx = 0;
     for idx in attempts {
         if dll_copy.is_some() {
             break;
@@ -222,7 +223,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
         if res.is_ok() {
             dll_copy = Some(pb.to_str().ok_or(
                 HookError::CLRInitFailed("copied dll path error".to_owned()))?.to_owned());
-            reload_idx = idx;
+            _reload_idx = idx;
             break;
         }            
     }
@@ -293,7 +294,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //use super::*;
 
     #[test]
     pub fn test_init_clr() {

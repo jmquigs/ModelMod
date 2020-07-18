@@ -122,10 +122,7 @@ macro_rules! profile_summarize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std;
-    use std::time::SystemTime;
-    use util::*;
     
     use shared_dx9::util::*;
 
@@ -133,13 +130,13 @@ mod tests {
 
     #[test]
     fn profile_works() {
-        set_log_file_path("", "testlog.txt");
-        const sleeptime: u32 = 250;
-        let secs = 1000 / sleeptime;
+        set_log_file_path("", "testlog.txt").expect("doh");
+        const SLEEPTIME:u64 = 250;
+        let secs = 1000 / SLEEPTIME;
         let itersec = 16;
         for _i in 0..(itersec * secs) {
             profile_start!(test_profiler, main);
-            std::thread::sleep_ms(sleeptime);
+            std::thread::sleep(std::time::Duration::from_millis(SLEEPTIME));
             profile_end!(test_profiler, main);
 
             profile_summarize!(test_profiler);

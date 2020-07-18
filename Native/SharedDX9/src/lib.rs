@@ -1,4 +1,4 @@
-#[macro_use]
+//#[macro_use]
 #[cfg(windows)]
 extern crate winapi;
 
