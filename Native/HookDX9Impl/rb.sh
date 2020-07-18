@@ -1,3 +1,5 @@
+rustup default nightly-x86_64-pc-windows-msvc
+
 if [ "$1" == "profile" ]; then
     BCMD="cargo build --release --features=profile"
 else
