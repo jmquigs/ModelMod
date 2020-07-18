@@ -26,6 +26,7 @@ dependencies = [
 name = "shared_dx9"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "winapi",
 ]
 
