@@ -14,13 +14,15 @@ pub struct HookDirect3D9Device {
     pub ref_count: ULONG,
     // shader constants
     pub real_set_vertex_sc_f: SetVertexShaderConstantFFn,
+    pub real_set_vertex_sc_i: SetVertexShaderConstantIFn,
+    pub real_set_vertex_sc_b: SetVertexShaderConstantBFn,
 
 }
 
 pub struct DeviceState {
     pub hook_direct3d9: Option<HookDirect3D9>,
     pub hook_direct3d9device: Option<HookDirect3D9Device>,
-    pub d3d_window: HWND,    
+    pub d3d_window: HWND,
     pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
 }
 
@@ -32,6 +34,8 @@ impl HookDirect3D9Device {
         real_release: IUnknownReleaseFn,
         real_set_texture: SetTextureFn,
         real_set_vertex_sc_f: SetVertexShaderConstantFFn,
+        real_set_vertex_sc_i: SetVertexShaderConstantIFn,
+        real_set_vertex_sc_b: SetVertexShaderConstantBFn,
     ) -> HookDirect3D9Device {
         HookDirect3D9Device {
             real_draw_indexed_primitive: real_draw_indexed_primitive,
@@ -40,6 +44,8 @@ impl HookDirect3D9Device {
             real_present: real_present,
             real_set_texture: real_set_texture,
             real_set_vertex_sc_f: real_set_vertex_sc_f,
+            real_set_vertex_sc_i: real_set_vertex_sc_i,
+            real_set_vertex_sc_b: real_set_vertex_sc_b,
             ref_count: 0,
         }
     }

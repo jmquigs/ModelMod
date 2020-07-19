@@ -125,6 +125,7 @@ type Main() =
                 FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.fillModData));
                 TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.take));
                 GetLoadingState = phandle (new InteropTypes.GetLoadingStateCB(ModDBInterop.getLoadingState))
+                GetSnapshotResult = phandle (new InteropTypes.GetSnapshotResultCB(Snapshot.getResult))
             }
 
             let ret =

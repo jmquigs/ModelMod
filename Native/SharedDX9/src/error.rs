@@ -25,6 +25,7 @@ pub enum HookError {
     TimeConversionError(std::time::SystemTimeError),
     CStrConvertFailed(std::str::Utf8Error),
     SnapshotFailed(String),
+    SerdeError(String),
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {

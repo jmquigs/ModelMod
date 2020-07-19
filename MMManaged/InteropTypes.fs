@@ -111,6 +111,18 @@ module InteropTypes =
         IndexBuffer:nativeint
     }
 
+    [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
+    type SnapshotResult = {
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        Directory: string
+
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
+        SnapFilePrefix: string
+
+        DirectoryLen: int32
+        SnapFilePrefixLen: int32
+    }
+
     /// Get the mod count (native -> managed callback)
     type GetModCountCB = delegate of unit -> int
 
@@ -140,6 +152,8 @@ module InteropTypes =
         delegate of
             device: nativeint *
             snapData: SnapshotData -> int
+
+    type GetSnapshotResultCB = delegate of unit -> SnapshotResult
 
     /// Current load state.  Mod data is loaded asynchronously to minimize blocking of the
     /// render thread.
@@ -187,6 +201,7 @@ module MMNative =
         FillModData: InteropTypes.FillModDataCB
         TakeSnapshot: InteropTypes.TakeSnapshotCB
         GetLoadingState: InteropTypes.GetLoadingStateCB
+        GetSnapshotResult: InteropTypes.GetSnapshotResultCB
     }
 
 module NativeImportsAsD3D9 =

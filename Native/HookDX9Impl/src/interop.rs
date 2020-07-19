@@ -80,6 +80,16 @@ pub struct SnapshotData {
     pub index_buffer: *mut hookd3d9::IDirect3DIndexBuffer9,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct SnapshotResult {
+    pub directory: [WCHAR; MAX_TEX_PATH_LEN],
+    pub snap_file_prefix: [WCHAR; MAX_TEX_PATH_LEN],
+
+    pub directory_len: i32,
+    pub snap_file_prefix_len: i32,
+}
+
 pub struct NativeModData {
     pub mod_data: ModData,
     pub vb_data: *mut c_char,
@@ -116,7 +126,9 @@ type FillModDataCB = unsafe extern "stdcall" fn(
 type TakeSnapshotCB = unsafe extern "stdcall" fn(
     device: *mut hookd3d9::IDirect3DDevice9,
     snapdata: *mut SnapshotData,
-);
+) -> i32;
+type GetSnapshotResultCB = unsafe extern "stdcall" fn() -> *mut SnapshotResult;
+
 type GetLoadingStateCB = unsafe extern "stdcall" fn() -> i32;
 
 #[repr(C)]
@@ -129,6 +141,7 @@ pub struct ManagedCallbacks {
     pub FillModData: FillModDataCB,
     pub TakeSnapshot: TakeSnapshotCB,
     pub GetLoadingState: GetLoadingStateCB,
+    pub GetSnapshotResult: GetSnapshotResultCB,
 }
 
 lazy_static! {

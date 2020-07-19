@@ -60,7 +60,7 @@ pub struct FrameMetrics {
     pub last_frame_log: SystemTime,
     pub last_fps: f64,
     pub last_fps_update: SystemTime,
-    pub low_framerate: bool,        
+    pub low_framerate: bool,
 }
 
 
@@ -88,6 +88,7 @@ pub struct HookState {
     pub d3dx_fn: Option<D3DXFn>,
     pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
     pub metrics: FrameMetrics,
+    pub vertex_constants: Option<constant_tracking::ConstantGroup>,
 }
 
 impl HookState {
@@ -126,7 +127,7 @@ pub fn dev_state() -> &'static mut DeviceState {
 pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
     interop_state: None,
-    
+
     //is_global: true,
     loaded_mods: None,
     active_texture_set: None,
@@ -143,7 +144,8 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     curr_texture_index: 0,
     is_snapping: false,
     snap_start: std::time::UNIX_EPOCH,
-    
+    vertex_constants: None,
+
     d3dx_fn: None,
     device: None,
     metrics: FrameMetrics {
@@ -197,7 +199,7 @@ fn load_d3dx(mm_root: &Option<String>) -> Result<D3DXFn> {
     } else {
         path.push_str("D3DX9_43_x86.dll");
     }
-    
+
     let handle = util::load_lib(&path)?;
 
     unsafe {
@@ -629,10 +631,6 @@ fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
 
         // TODO: should hook SetStreamSource so that we can tell what streams are in use
         (*vtbl).SetTexture = hook_set_texture;
-        if constant_tracking::is_enabled() {
-            (*vtbl).SetVertexShaderConstantF = constant_tracking::hook_set_vertex_sc_f;
-        }
-        write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 
         protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     }
@@ -704,8 +702,8 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
             .as_mut()
             .map(|list| list.clear());
         GLOBAL_STATE.curr_texture_index = 0;
-        
-        // TODO: this was an attempt to fix the issue with the selection 
+
+        // TODO: this was an attempt to fix the issue with the selection
         // texture getting clobbered after alt-tab, but it didn't work.
         // if GLOBAL_STATE.selection_texture != null_mut() {
         //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
@@ -714,7 +712,7 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
         //     }
         //     GLOBAL_STATE.selection_texture = null_mut();
         //     create_selection_texture(device);
-        // }        
+        // }
     }
 }
 fn cmd_toggle_show_mods() {
@@ -754,7 +752,7 @@ fn cmd_clear_mods(device: *mut IDirect3DDevice9) {
         unsafe {
             clear_loaded_mods(device);
         }
-    });    
+    });
 }
 
 fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
@@ -768,7 +766,7 @@ fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
         write_log_file("reloading mods");
         is.loading_mods = false;
         is.done_loading_mods = false;
-        
+
         // the actual reload will be handled in per-frame operations
     });
 }
@@ -779,9 +777,9 @@ fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
         return;
     }
     unsafe {clear_loaded_mods(device)};
-    // TODO: should check for active snapshotting and anything else that might be using the managed 
+    // TODO: should check for active snapshotting and anything else that might be using the managed
     // code
-    let hookstate = unsafe { &mut GLOBAL_STATE };    
+    let hookstate = unsafe { &mut GLOBAL_STATE };
     match hookstate.clr_pointer {
         Some(CLR_OK) => {
             let res = reload_managed_dll(&hookstate.mm_root);
@@ -816,9 +814,9 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
-    // Disabling this because its ineffective: the reload will complete without error, but 
-    // The old managed code will still be used.  The old C++ code 
-    // used a custom domain manager to support reloading, but I'd rather just move to the 
+    // Disabling this because its ineffective: the reload will complete without error, but
+    // The old managed code will still be used.  The old C++ code
+    // used a custom domain manager to support reloading, but I'd rather just move to the
     // CoreCLR rather than reimplement that.
     //inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 }
@@ -1174,7 +1172,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     profile_end!(hdip, state_begin);
 
     let mut metrics = &mut GLOBAL_STATE.metrics;
-    
+
     if metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
@@ -1274,7 +1272,31 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
             GLOBAL_STATE.interop_state.as_mut().map(|is| {
                 let cb = is.callbacks;
-                (cb.TakeSnapshot)(THIS, &mut sd);
+                let res = (cb.TakeSnapshot)(THIS, &mut sd);
+                if res == 0 && constant_tracking::is_enabled() {
+                    let sresult = *(cb.GetSnapshotResult)();
+
+                    GLOBAL_STATE.vertex_constants.as_ref().map(|vconst| {
+                        let dir = &sresult.directory[0..(sresult.directory_len as usize)];
+                        let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
+
+                        let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
+                        let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
+                        if dir != "" && sprefix != "" {
+                            let out = dir.to_owned()  + "/" + &sprefix + "_vconst.yaml";
+                            // write_log_file(&format!("snap save dir: {}", dir));
+                            // write_log_file(&format!("snap prefix: {}", sprefix));
+                            write_log_file(&format!("saving vertex constants to file: {}", out));
+
+                            constant_tracking::write_to_file(&out, &vconst)
+                                .unwrap_or_else(|e| {
+                                    write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
+                                });
+                        } else {
+                            write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
+                        }
+                    });
+                }
             });
         }
         (*THIS).AddRef();
@@ -1487,8 +1509,10 @@ unsafe fn hook_device(
 
     // remember these functions but don't hook them yet
     let real_set_texture = (*vtbl).SetTexture;
-    
+
     let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
+    let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
+    let real_set_vertex_sc_b = (*vtbl).SetVertexShaderConstantB;
 
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
@@ -1502,13 +1526,24 @@ unsafe fn hook_device(
     // Inc ref count on the device
     (*device).AddRef();
 
+    // shader constants init
+    GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
+    if constant_tracking::is_enabled() {
+        (*vtbl).SetVertexShaderConstantF = constant_tracking::hook_set_vertex_sc_f;
+        (*vtbl).SetVertexShaderConstantI = constant_tracking::hook_set_vertex_sc_i;
+        (*vtbl).SetVertexShaderConstantB = constant_tracking::hook_set_vertex_sc_b;
+    }
+    write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
+
     Ok(HookDirect3D9Device::new(
         real_draw_indexed_primitive,
         //real_begin_scene,
         real_present,
         real_release,
         real_set_texture,
-        real_set_vertex_sc_f
+        real_set_vertex_sc_f,
+        real_set_vertex_sc_i,
+        real_set_vertex_sc_b,
     ))
 }
 
@@ -1672,11 +1707,11 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 hook_direct3d9: None,
                 hook_direct3d9device: None,
                 d3d_window: null_mut(),
-                d3d_resource_count: 0,            
-            }));            
-        }            
+                d3d_resource_count: 0,
+            }));
+        }
     };
-    
+
     let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
     let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
 

@@ -64,6 +64,9 @@ module Snapshot =
     /// this just results in a slightly messy directory as opposed to snapshot stomping).
     let private snapshotNum = ref 0
 
+    let private lastBaseDir = ref ""
+    let private lastBaseName = ref ""
+
     // for use with Snapshot.readElement
     type ReadOutputFunctions = {
         Pos: float32 * float32 * float32 -> unit
@@ -141,6 +144,22 @@ module Snapshot =
                 if disp <> null then
                     log.Info "%s" message
                     disp.Dispose()
+        }
+
+    let getResult():InteropTypes.SnapshotResult =
+        
+        let getLen (s:string) = 
+            if s.Length < 8192 
+            then s.Length 
+            else
+                log.Warn "string too long: %A" s
+                0 
+        {
+            Directory = lastBaseDir.Value
+            SnapFilePrefix = lastBaseName.Value
+
+            DirectoryLen = getLen lastBaseDir.Value
+            SnapFilePrefixLen = getLen lastBaseName.Value
         }
 
     /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
@@ -317,6 +336,9 @@ module Snapshot =
                 Directory.CreateDirectory(baseDir) |> ignore
 
             let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.PrimCount sd.NumVertices
+
+            lastBaseDir := baseDir 
+            lastBaseName := sbasename
 
             // write textures for enabled stages only
             // Note: Sometimes we can't read textures from the device.
