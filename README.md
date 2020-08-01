@@ -1,3 +1,8 @@
+# NOTE
+This project is unmaintained.  It may still work with DX9-based games that are not being updated.  It does not work with games that use any other 3D API.
+
+# Intro
+
 ModelMod is a system for modifying art in games.  
 It works by replacing 3D models (and textures, optionally) at the renderer level.
 
@@ -5,32 +10,8 @@ You start by selecting and snapshotting a model in the game.
 This snapshot can then be edited in a 3D modeling tool and re-exported.  Then you load it back into the game, where it will be automatically
 rendered in place of the original.
 
-Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
-
 [![appveyor](https://ci.appveyor.com/api/projects/status/gqsf2f001h46q1tn?svg=true)](https://ci.appveyor.com/project/jmquigs/modelmod)
-[![Join the chat at https://gitter.im/jmquigs/ModelMod](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmquigs/ModelMod?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Reddit: https://www.reddit.com/r/ModelMod/
-
-
-
-Demos
------
-
-#### Blogs:
-* https://medium.com/@jmquigs/exploring-modelmod-part-the-first-b6edb0d36ce5
-* https://medium.com/@jmquigs/exploring-modelmod-part-secundus-bb29925c3518
-
-Here is a screenshot of a simple mod from the demo videos:
-
-![skyrim](https://raw.githubusercontent.com/jmquigs/ModelMod-demo/master/screenshots/skyrimebony.jpg)
-
-
-### Videos
-
-* Longer intro video with commentary: https://www.youtube.com/watch?v=ijmLTTzCGuU
-* Testing a game for compatibility: https://www.youtube.com/watch?v=3Mvqcv3-OPs
-* For developers, guide to making changes to support a new game: https://www.youtube.com/watch?v=KGN7MSjSx_U
 
 Requirements
 ------------
