@@ -1,5 +1,5 @@
 # NOTE
-This project is unmaintained.  It may still work with old games that are not being updated.  It is unlikely to work with newer games or recently updated games.
+This project is unmaintained.  It may still work with DX9-based games that are not being updated.  It does not work with games that use any other 3D API.
 
 # Intro
 
