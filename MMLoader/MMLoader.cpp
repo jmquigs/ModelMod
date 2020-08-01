@@ -143,6 +143,8 @@ void ShowError(const string& doh) {
 	Util::DisplayMessageBox(doh.c_str(), "Crap");
 }
 
+// CodeAnalysis reports ~65K of stack used by this function (probably "err" below), but its not 
+// recursive so I'm ignoring that for now.
 int StartInjection(bool launch, string processName, string dllPath, int waitPeriod) {
 	DWORD targetProcessId = 0;
 
@@ -212,7 +214,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 		}
 		isFirstSearch = FALSE;
 		
-		DWORD startTime = GetTickCount();
+		ULONGLONG startTime = GetTickCount64();
 
 		// enter find and suspend loop
 		do {
@@ -226,7 +228,7 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 			if (waitPeriod != -1 && targetProcessId == 0) {
 				// check for timed exit
-				DWORD elapsed = GetTickCount() - startTime;
+				ULONGLONG elapsed = GetTickCount64() - startTime;
 				unsigned int waitMax = waitPeriod * 1000;
 				if (elapsed >= waitMax) {
 					Util::Log("Wait period expired, exiting\n");
@@ -295,7 +297,9 @@ int StartInjection(bool launch, string processName, string dllPath, int waitPeri
 
 	// clean up
 	CloseHandle(procInfo.hProcess);
-	CloseHandle(procInfo.hThread);
+	if (procInfo.hThread > 0) {
+		CloseHandle(procInfo.hThread);
+	}
 
 	return ret;
 }
@@ -317,10 +321,12 @@ public:
 //#define BUILD_CONSOLE
 
 #ifndef BUILD_CONSOLE
-int APIENTRY _tWinMain(HINSTANCE hInstance,
-                     HINSTANCE hPrevInstance,
-                     LPTSTR    lpCmdLine,
-                     int       nCmdShow)
+int WINAPI _tWinMain(
+	_In_ HINSTANCE hInstance,
+	_In_opt_ HINSTANCE hPrevInstance,
+	_In_ LPSTR lpCmdLine,
+	_In_ int nShowCmd
+	)
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 
@@ -351,7 +357,7 @@ int _tmain(int argc, const char* argv[])
 
 	// process command line
 	//Util::Log("Args:\n");
-	for (int i = 0; i < argc; ++i) {
+	for (int i = 1; i < argc; ++i) {
 		//Util::Log("  %s\n", argv[i]);
 		string arg = string(argv[i]);
 		if (arg == "-waitperiod") {
@@ -372,9 +378,6 @@ int _tmain(int argc, const char* argv[])
 	if (targetExe.empty()) {
 		Util::DisplayMessageBox("Command line missing argument: path to executable to inject", "Crap");
 		return -1;
-	}
-	else {
-		targetExe = argv[1];
 	}
 
 	// we always use poll mode rather than launch, this is just here for debug launches

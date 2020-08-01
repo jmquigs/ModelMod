@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace ModelMod
@@ -116,7 +116,23 @@ module ModDB =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
+        let unpackPath = 
+            let useEmptyStringForMissing (x:string option) = 
+                match x with 
+                | None -> ""
+                | Some s when s.Trim() = "" -> ""
+                | Some s -> s
+            let makeAbsolute (path:string) =
+                match path with
+                | "" -> ""
+                | path when Path.IsPathRooted path -> path
+                | _ -> Path.GetFullPath(Path.Combine(basePath,path))
+
+            Yaml.toOptionalString >> useEmptyStringForMissing >> makeAbsolute
+        
         let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
+
+        let pixelShader = node |> Yaml.getOptionalValue "pixelshader" |> unpackPath
 
         let mesh,modType,weightMode,attrs =
             let sType = (node |> Yaml.getFirstValue ["modtype"; "meshtype"] |> Yaml.toString).ToLower().Trim()
@@ -173,24 +189,11 @@ module ModDB =
                 match mesh with 
                 | None -> None
                 | Some(m) -> 
-                    let useEmptyStringForMissing (x:string option) = 
-                        match x with 
-                        | None -> ""
-                        | Some s when s.Trim() = "" -> ""
-                        | Some s -> s
-                    let makeAbsolute (path:string) =
-                        match path with
-                        | "" -> ""
-                        | path when Path.IsPathRooted path -> path
-                        | _ -> Path.GetFullPath(Path.Combine(basePath,path))
-
-                    let unpack = Yaml.toOptionalString >> useEmptyStringForMissing >> makeAbsolute
-
                     Some({ m with 
-                            Tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpack
-                            Tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpack
-                            Tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpack
-                            Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpack
+                            Tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath
+                            Tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath
+                            Tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath
+                            Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpackPath
                     })
 
             mesh,modType,weightMode,attrs
@@ -202,6 +205,7 @@ module ModDB =
             Mesh = mesh
             WeightMode = weightMode
             Attributes = attrs
+            PixelShader = pixelShader
         }
 
         let numOverrideTextures = 

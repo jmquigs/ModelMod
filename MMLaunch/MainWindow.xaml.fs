@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace MMLaunch
@@ -124,8 +124,8 @@ type ProfileModel(config:CoreTypes.RunConfig) =
 
     // set defaults for empty profile values
     let mutable config = 
-        if config.SnapshotProfile.Trim() = "" || not (SnapshotProfiles.isValid config.SnapshotProfile)
-            then { config with SnapshotProfile = SnapshotProfiles.DefaultProfile} else config
+        if config.SnapshotProfile.Trim() = ""
+            then { config with SnapshotProfile = SnapshotProfile.DefaultProfileName } else config
     let mutable config = 
         if config.InputProfile.Trim() = "" || not (InputProfiles.isValid config.InputProfile)
             then { config with InputProfile = InputProfiles.DefaultProfile} else config
@@ -389,10 +389,19 @@ type MainViewModel() as self =
     do
         RegConfig.init() // reg config requires init to set hive root
 
+    let snapshotProfileDefs,snapshotProfileNames = 
+        try 
+            let defs = SnapshotProfile.GetAll (ProcessUtil.getMMRoot())
+            let names = defs |> Map.toList |> List.map fst
+            defs,names
+        with 
+            | e -> Map.ofList [],[]
+
     let observableProfiles = 
         new ObservableCollection<ProfileModel>(
-            RegConfig.loadAll() |> 
-                Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
+            RegConfig.loadAll() 
+            |> Array.sortBy (fun gp -> gp.ProfileName.ToLowerInvariant().Trim())
+            |> Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
 
     let timer = new DispatcherTimer()
     do 
@@ -419,7 +428,16 @@ type MainViewModel() as self =
             | StartPending(_) 
             | StartFailed (_) -> loaderState
             | Stopped (proc,exe) -> loaderState
-            | Started (proc,exe) -> if proc.HasExited then Stopped (proc,exe) else loaderState
+            | Started (proc,exe) -> 
+                if proc.HasExited 
+                then 
+                    try
+                        File.Delete(Path.Combine(Path.GetDirectoryName(exe), @"ModelModCLRAppDomain.dll"))
+                    with 
+                        | e -> ()
+
+                    Stopped (proc,exe) 
+                else loaderState
 
         x.UpdateProfileButtons()
 
@@ -444,7 +462,7 @@ type MainViewModel() as self =
 
     member x.SnapshotProfiles = 
         new ObservableCollection<SubProfileModel>
-            (SnapshotProfiles.ValidProfiles |> List.map (fun p -> SubProfileModel(p)))
+            (snapshotProfileNames |> List.map (fun p -> SubProfileModel(p)))
 
     member x.InputProfiles = 
         new ObservableCollection<SubProfileModel>
@@ -524,17 +542,17 @@ type MainViewModel() as self =
                 let snapshotText = 
                     let makeStringList (xforms:string list) =  String.Join(", ", xforms)
 
-                    let pxforms = 
-                        match (SnapshotTransforms.Position |> Map.tryFind profile.SnapshotProfile) with
-                        | None -> LocStrings.Errors.NoSnapshotDescription
-                        | Some (xforms) -> makeStringList xforms
+                    let stext = 
+                        snapshotProfileDefs
+                        |> Map.tryFind profile.SnapshotProfile 
+                        |> function
+                            | None -> LocStrings.Errors.NoSnapshotDescription
+                            | Some profile -> 
+                                LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + (makeStringList <| profile.PosXForm()) + "\n" 
+                                + LocStrings.Snapshot.UVLabel + (makeStringList <| profile.UVXForm())
+                                    
+                    LocStrings.Snapshot.Header + "\n" + stext
 
-                    let uvxforms = 
-                        match (SnapshotTransforms.UV |> Map.tryFind profile.SnapshotProfile) with
-                        | None -> LocStrings.Errors.NoSnapshotDescription
-                        | Some (xforms) -> makeStringList xforms
-                    LocStrings.Snapshot.Header + "\n" + LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + pxforms + "\n" 
-                    + LocStrings.Snapshot.UVLabel + uvxforms
                 inputText + "\n" + snapshotText
 
     member x.LauncherProfileIcon 
@@ -766,7 +784,7 @@ type MainViewModel() as self =
 
                         // start it 
                         x.UpdateLoaderState <|
-                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath launchWindow) with 
+                            match (ProcessUtil.launchWithLoader selectedProfile.ExePath selectedProfile.GameProfile.CommandLineArguments launchWindow) with 
                             | Ok(p) -> Started(p,selectedProfile.ExePath)
                             | Err(e) -> 
                                 MainViewUtil.failValidation e.Message

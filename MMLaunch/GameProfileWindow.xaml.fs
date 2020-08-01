@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace MMLaunch
@@ -42,6 +42,8 @@ type GameProfileViewModel() =
     // The viewmodel is also the actual Model for the GameProfile
     let mutable profile = { 
         GameProfile.ReverseNormals = false
+        CommandLineArguments = ""
+        DataPathName = ""
     }
     let mutable profileChangedCb: GameProfile -> unit = ignore
 
@@ -62,3 +64,11 @@ type GameProfileViewModel() =
     member x.ReverseNormals
         with get () = profile.ReverseNormals
         and set (value:bool) = updateProfile { profile with ReverseNormals = value }
+
+    member x.CommandLineArguments
+        with get () = profile.CommandLineArguments
+        and set (value:string) = updateProfile { profile with CommandLineArguments = value}
+
+    member x.DataPathName 
+        with get() = profile.DataPathName
+        and set (value:string) = updateProfile { profile with DataPathName = value }

@@ -48,6 +48,12 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 {
 	bool result = false; // assume failure
 
+	HMODULE k32 = GetModuleHandle("kernel32.dll");
+	if (k32 == 0) {
+		_injectError = "Failed to obtain handle for kernel32.dll";
+		return result;
+	}
+
 	HANDLE process = OpenProcess(
 		PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, processId);
 	if(process)
@@ -57,7 +63,7 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 		{
 			// safe because kernel32 is loaded at the same address in all processes
 			// (can change across restarts)
-			UInt32	loadLibraryAAddr = (UInt32)GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibraryA");
+			UInt32	loadLibraryAAddr = (UInt32)GetProcAddress(k32, "LoadLibraryA");
 
 			//_MESSAGE("hookBase = %08X", hookBase);
 			//_MESSAGE("loadLibraryAAddr = %08X", loadLibraryAAddr);
@@ -176,7 +182,8 @@ bool Inject::DoInjectDLL(DWORD processId, const char * dllPath, bool processWasL
 			}
 				
 
-			VirtualFreeEx(process, (LPVOID)hookBase, 8192, MEM_RELEASE);
+			// the size parameter must be 0 when using MEM_RELEASE (CodeAnalysis C6333)
+			VirtualFreeEx(process, (LPVOID)hookBase, 0, MEM_RELEASE);
 		}
 		else
 			_injectError = "Process::InstallHook: couldn't allocate memory in target process";

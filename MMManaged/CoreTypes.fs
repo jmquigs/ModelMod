@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace ModelMod
@@ -23,24 +23,6 @@ open SharpDX.Direct3D9
 type SDXVertexElement = SharpDX.Direct3D9.VertexElement
 type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage
 type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
-
-/// Contains the names of all available snapshot profiles.  A snapshot profile controls what types of data transformations
-/// (typically vertex position and uv coordinates) that are applied by the snapshotter.  These are typically used to 
-/// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may 
-/// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is 
-/// in the correct space for the game.
-/// The snapshot module controls which transforms are associated with each of these names.
-module SnapshotProfiles =
-    let Profile1 = "Profile1"
-    let Profile2 = "Profile2"
-    let Profile3 = "Profile3"
-
-    let ValidProfiles = [ Profile1; Profile2; Profile3 ]
-
-    let DefaultProfile = Profile1
-
-    let isValid (profile:string) =
-        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
 
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for 
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that 
@@ -90,10 +72,17 @@ module CoreTypes =
         /// Controls the order in which normal vector components are written to D3D buffers.
         /// False: XYZW; True: ZYXW
         ReverseNormals: bool
+        /// Command line arguments that should be passed to the game when launched.
+        CommandLineArguments: string
+        /// An alternate name for the game data directory data directory in case the exe base name does not map to any extant directory.
+        /// Can also be a full absolute path.
+        DataPathName: string
     }
 
     let DefaultGameProfile = {
         ReverseNormals = false
+        CommandLineArguments = ""
+        DataPathName = ""
     }
 
     /// A run config for modelmod.  These are stored in the registry.
@@ -122,6 +111,8 @@ module CoreTypes =
         DocRoot: string 
         /// Period of time that the Loader will wait for the game to start before exiting.
         LaunchWindow: int
+        /// MinimumFPS desired.  Below this number, modelmod will temporarily shut off mod rendering in an effort to improve FPS.
+        MinimumFPS: int
     } 
 
     /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot 
@@ -137,6 +128,7 @@ module CoreTypes =
         GameProfile = DefaultGameProfile
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
         LaunchWindow = 15
+        MinimumFPS = 28
     }
 
     // ------------------------------------------------------------------------
@@ -286,6 +278,7 @@ module CoreTypes =
         Name: string
         Mesh: Mesh option
         WeightMode: WeightMode
+        PixelShader: string
         Attributes: ModAttributes
     }
 

@@ -11,7 +11,7 @@ let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
 
-let version = "1.0.0.8"  // or retrieve from CI server
+let version = "1.0.0.13"  // or retrieve from CI server
 
 let updateRcVersions rcFile =
     let lines = File.ReadAllLines(rcFile)
@@ -129,6 +129,8 @@ Target "CopyStuff" (fun _ ->
 
     !! ("./BlenderScripts/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts")
+    !! ("./SnapshotProfiles/*.*")
+        |> CopyFiles (buildDir + "/SnapshotProfiles")
     !! ("./BlenderScripts/io_scene_mmobj/*.*")
         |> CopyFiles (buildDir + "/BlenderScripts/io_scene_mmobj")
     !! ("./LICENSE.txt")
@@ -154,6 +156,10 @@ Target "UpdateVersions" (fun _ ->
 
 // Signing stuff
 Target "SignBuild" (fun _ ->
+    let certExpired = System.DateTime.Parse("11/10/2016")
+    if (System.DateTime.Now > certExpired) then
+        failwithf "cert expired, rewind the clock to before %A or renew the cert for $$$" certExpired
+
     // TODO: download last build from appveyor
     let signDir = "./sign"
 

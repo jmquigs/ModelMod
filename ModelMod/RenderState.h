@@ -1,9 +1,9 @@
 // ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
@@ -112,6 +112,9 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	bool _initted;
 	bool _showModMesh;
 	bool _dipActive;
+	bool _loadInProgress;
+	bool _preSnapTrackingEnabled;
+	ULONGLONG _preSnapTrackingStart;
 	
 	Input _input;
 
@@ -135,6 +138,8 @@ class RenderState : public ID3DResourceTracker, public IRenderState {
 	BoolConstantMap psBoolConstants;	
 
 	Hook_IDirect3DVertexBuffer9* _currHookVB0; // track hook vb only for stream 0
+
+	NativeMemoryBuffer _lastPixelShader;
 
 public:
 	RenderState(void);
@@ -162,6 +167,7 @@ public:
 	// load the mods 
 	void loadMods(); 
 	void loadEverything(); 
+	void setupModData(); 
 
 	void clearLoadedMods();
 
@@ -239,6 +245,10 @@ public:
 		return _snapRequested;
 	}
 
+	bool isPreSnapTrackingEnabled() {
+		return _preSnapTrackingEnabled;
+	}
+
 	bool isDoingSnap() {
 		return _doingSnap;
 	}
@@ -256,7 +266,8 @@ public:
 		return _snapRequested && _doingSnap && selectedTextureStage() >= 0;
 	}
 
-	void saveTexture(int index, WCHAR* path);
+	bool saveTexture(int index, WCHAR* path);
+	NativeMemoryBuffer getPixelShader();
 
 	// ---------------------------------------
 	// ID3DResourceTracker

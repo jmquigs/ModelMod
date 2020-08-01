@@ -1,0 +1,4 @@
+Type: Mod
+Ref: FT_LargeRockRef
+ModType: GPUReplacement
+MeshPath: FT_LargeRockMod.mmobj

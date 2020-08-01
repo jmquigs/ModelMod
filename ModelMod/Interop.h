@@ -1,9 +1,9 @@
 // ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
@@ -24,6 +24,13 @@
 
 INTEROP_API int GetMMVersion();
 
+#include "Types.h"
+
+#define Code_AsyncLoadNotStarted 51
+#define Code_AsyncLoadPending 52
+#define Code_AsyncLoadInProgress 53
+#define Code_AsyncLoadComplete 54
+
 extern "C" {
 
 struct IDirect3D9;
@@ -33,10 +40,11 @@ struct IDirect3DIndexBuffer9;
 struct IDirect3DVertexDeclaration9;
 struct IDirect3DIndexBuffer9;
 struct IDirect3DBaseTexture9;
+struct IDirect3DPixelShader9;
 
 #define MaxModTextures 4
 #define MaxModTexPathLen 8192 // Must match SizeConst attribute in managed code
-typedef WCHAR ModTexPath[MaxModTexPathLen];
+typedef WCHAR ModPath[MaxModTexPathLen];
 
 #pragma pack(push,8)
 struct ModData {
@@ -50,7 +58,8 @@ struct ModData {
 	int declSizeBytes;
 	int vertSizeBytes;
 	int indexElemSizeBytes;
-	ModTexPath texPath[MaxModTextures];
+	ModPath texPath[MaxModTextures];
+	ModPath pixelShaderPath;
 
 	ModData() {
 		memset(this, 0, sizeof(ModData));
@@ -92,6 +101,7 @@ struct ConfData {
 
 typedef int (__stdcall *InitCallback) (int);
 typedef ConfData* (__stdcall *SetPathsCB) (WCHAR*, WCHAR*);
+typedef int (__stdcall *GetLoadingStateCB) ();
 typedef int (__stdcall *LoadModDBCB) ();
 typedef int (__stdcall *GetModCountCB) ();
 typedef ModData* (__stdcall *GetModDataCB) (int modIndex);
@@ -106,14 +116,42 @@ typedef struct {
 	GetModDataCB GetModData;
 	FillModDataCB FillModData;
 	TakeSnapshotCB TakeSnapshot;
+	GetLoadingStateCB GetLoadingState;
 } ManagedCallbacks;
 #pragma pack(pop)
+
+#pragma pack(push,8)
+struct NativeMemoryBuffer {
+	ModelMod::Uint8* data;
+	ModelMod::Int32 size;
+};
+#pragma pack(pop)
+
+// Native memory buffer functions.
+// Would prefer to define these as members, but that makes the struct have a non-standard layout and 
+// thus unsafe to return over a C-style interop interface.
+// Note that Init must be called manually on any buffer prior to calling alloc.
+inline void InitNMB(NativeMemoryBuffer& nmb) {
+	nmb.data = NULL;
+	nmb.size = 0;
+}
+inline void ReleaseNMB(NativeMemoryBuffer& nmb) {
+	delete[] nmb.data;
+	nmb.data = NULL;
+	nmb.size = 0;
+}
+inline void AllocNMB(NativeMemoryBuffer& nmb, ModelMod::Int32 size_) {
+	ReleaseNMB(nmb);
+	nmb.data = new ModelMod::Uint8[size_];
+	nmb.size = size_;
+}
 
 INTEROP_API int OnInitialized(ManagedCallbacks* callbacks);
 INTEROP_API void LogInfo(char* category, char* message);
 INTEROP_API void LogWarn(char* category, char* message);
 INTEROP_API void LogError(char* category, char* message);
-INTEROP_API void SaveTexture(int index, WCHAR* path);
+INTEROP_API bool SaveTexture(int index, WCHAR* path);
+INTEROP_API bool GetPixelShader(NativeMemoryBuffer* outBuf);
 
 };
 
@@ -127,6 +165,7 @@ struct NativeModData {
 	IDirect3DIndexBuffer9* ib;
 	IDirect3DVertexDeclaration9* decl;
 	IDirect3DBaseTexture9* texture[MaxModTextures];
+	IDirect3DPixelShader9* pixelShader;
 
 	NativeModData() {
 		memset(this,0,sizeof(NativeModData));

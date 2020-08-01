@@ -2,25 +2,32 @@ ModelMod is a system for modifying art in games.
 It works by replacing 3D models (and textures, optionally) at the renderer level.
 
 You start by selecting and snapshotting a model in the game.
-This snapshot can then be edited in a 3D modeling tool and re-exported.  Then you can load it back into the game, where it will be automatically
+This snapshot can then be edited in a 3D modeling tool and re-exported.  Then you load it back into the game, where it will be automatically
 rendered in place of the original.
+
+Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
 
 [![appveyor](https://ci.appveyor.com/api/projects/status/gqsf2f001h46q1tn?svg=true)](https://ci.appveyor.com/project/jmquigs/modelmod)
 [![Join the chat at https://gitter.im/jmquigs/ModelMod](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmquigs/ModelMod?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+Reddit: https://www.reddit.com/r/ModelMod/
 
 
 
 Demos
 -----
 
-Screenshot of a simple mod from the demo videos:
+#### Blogs:
+* https://medium.com/@jmquigs/exploring-modelmod-part-the-first-b6edb0d36ce5
+* https://medium.com/@jmquigs/exploring-modelmod-part-secundus-bb29925c3518
+
+Here is a screenshot of a simple mod from the demo videos:
 
 ![skyrim](https://raw.githubusercontent.com/jmquigs/ModelMod-demo/master/screenshots/skyrimebony.jpg)
 
 
 ### Videos
 
-* Short intro video: https://www.youtube.com/watch?v=HDAN63VyJSY
 * Longer intro video with commentary: https://www.youtube.com/watch?v=ijmLTTzCGuU
 * Testing a game for compatibility: https://www.youtube.com/watch?v=3Mvqcv3-OPs
 * For developers, guide to making changes to support a new game: https://www.youtube.com/watch?v=KGN7MSjSx_U
@@ -30,8 +37,8 @@ Requirements
 
 * Windows.  
 * 32-bit only games at the moment.
-* The game must use D3D9 for rendering.  Support for other versions is possible,
-but has not been implemented.
+* The game must use D3D9 for rendering.  Make sure you have the D3D9 runtime installed.  This is an especially true for Windows 10 systems.  Developers can skip this since you need the DX SDK instead.  https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.  
+* .Net Runtime 4.5 or newer (this may already be installed on your machine): https://www.microsoft.com/en-us/download/details.aspx?id=30653.  Developers can skip this.
 * Only a few games have been tested.  Programming effort is usually required
 to get new games to work.
 * For animated models, the target game
@@ -45,7 +52,9 @@ Installation
 
 Non-programmers should use the [release package](https://github.com/jmquigs/ModelMod/releases).
 
-Also, [look at the User's Guide](Docs/userguide/README.md).
+
+
+Also, check out the [game compatibility list](https://github.com/jmquigs/ModelMod/wiki/Game-Compatibility-List), and [look at the User's Guide](Docs/userguide/README.md).
 
 Development
 -----------
@@ -68,11 +77,15 @@ Pull Requests are welcome!  In particular, these things are desirable:
 
 * Support for other 3D tools (port MMObj format code, new Snapshot profiles)
 
+#### DMCA & Copy Protection
+
+Due to the [Digital Millennium Copyright Act](https://en.wikipedia.org/wiki/Digital_Millennium_Copyright_Act), I cannot accept code contributions that circumvent copy-protection systems built into any game.  
+
 License
 -------
 
 Unless otherwise noted here, ModelMod code is licensed under the terms of the
-GNU GPL version 3.
+GNU LGPL version 2.1.
 
 The included c++ format library (format.h/format.cc) is licensed under its
 author's license - see format.h for details.

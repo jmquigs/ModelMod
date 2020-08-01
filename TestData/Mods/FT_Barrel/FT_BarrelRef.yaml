@@ -1,0 +1,5 @@
+Type: Reference
+MeshPath: FT_BarrelRef.mmobj
+VertDeclPath: FT_BarrelRef_VBDecl.dat
+ExpectedPrimCount: 396
+ExpectedVertCount: 286

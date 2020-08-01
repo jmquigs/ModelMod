@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace MMLaunch
@@ -133,18 +133,9 @@ mods:"""
                     File.Copy(declSrc,newDeclFile)
                     newDeclFile
 
-            // copy texture file
-            let texFile = 
-                let texExt = ".dds"
-                let texSuffix = "_texture0"
-                let texSrc = Path.Combine(snapSrcDir, srcBasename + texSuffix + texExt)
-                if not (File.Exists(texSrc)) then None
-                else
-                    let newTexFile = Path.Combine(modOutDir, refBasename + texExt)
-                    File.Copy(texSrc,newTexFile)
-                    Some newTexFile
+            // copy mtl file, texture file, and rename texture; note, this only supports one texture right now
+            let kdMarker = "map_Kd "
 
-            // copy mtl file and rename texture
             let mtlFile = 
                 let mtlExt = ".mtl"
                 let mtlSrc = Path.Combine(snapSrcDir, srcBasename + mtlExt)
@@ -154,7 +145,21 @@ mods:"""
                     let fDat = File.ReadAllLines(mtlSrc)
                     let fDat = fDat |> Array.map (fun line -> 
                         match line with
-                        | l when texFile <> None && l.StartsWith("map_Kd ") -> "map_Kd " + Path.GetFileName(Option.get texFile)
+                        | l when l.StartsWith(kdMarker) -> 
+                            // copy the texture file and rename it 
+                            let texFile = l.Replace(kdMarker, "").Trim()
+                            let texFile = 
+                                let texSrc = Path.Combine(snapSrcDir, texFile)
+                                if (File.Exists(texSrc)) then 
+                                    let texExt = ".dds"
+                                    let texBN = refBasename + texExt
+                                    let newTexFile = Path.Combine(modOutDir, texBN)
+                                    File.Copy(texSrc,newTexFile)
+                                    texBN
+                                else
+                                    texFile
+                            
+                            kdMarker + Path.GetFileName(texFile)
                         | l -> l)
                     File.WriteAllLines(newMtlFile, fDat)
                     Some newMtlFile

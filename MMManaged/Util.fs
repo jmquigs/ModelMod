@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace ModelMod
@@ -103,3 +103,30 @@ module Util =
         let proc = Process.GetCurrentProcess();
         let procMemMB = float32 proc.PrivateMemorySize64 / 1024.f / 1024.f
         log.Info "Memory: (clr: %3.2fMB; process: %3.2f MB)" manangedMemory procMemMB
+
+// Source: https://gist.github.com/haf/8140280
+module CRC32 = 
+  let IEEE = 0xedb88320u
+
+  /// The seed value default: all ones, CRC depends fully on its input.
+  let seed = 0xffffffffu
+
+  let inline (!!) v = v ^^^ 0xFFFFFFFFu
+
+  let crc_table = Array.init 256 (fun i ->
+    (uint32 i, [0..7])
+    ||> List.fold (fun value _ ->
+      match value &&& 1u with
+      | 0u -> value >>> 1
+      | _  -> (value >>> 1) ^^^ IEEE))
+
+  let step state buffer =
+    (state, buffer)
+    ||> Array.fold (fun crc byt -> crc_table.[int(byt ^^^ byte crc)] ^^^ (crc >>> 8))
+
+  let finalise (state : uint32) : byte [] =
+    !! state |> BitConverter.GetBytes
+
+  let single_step = finalise << step seed
+
+  let toU32 (x:byte[]) = BitConverter.ToUInt32(x,0)

@@ -1,9 +1,9 @@
 // ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 #include "RenderState.h"
@@ -31,21 +31,27 @@ RenderState::RenderState(void) :
 		_currentTextureIdx(-1),
 		_currentTexturePtr(NULL),
 		_snapRequested(false),
+		_preSnapTrackingEnabled(false),
+		_preSnapTrackingStart(0),
 		_doingSnap(false),
 		_snapStart(0),
 		_initted(false),
 		_showModMesh(false),
 		_dipActive(false),
+		_loadInProgress(false),
 		_dev(NULL),
 		_focusWindow(NULL),
 		_selectionTexture(NULL),
 		_currHookVB0(NULL),
-		_pCurrentKeyMap(NULL) 
+		_pCurrentKeyMap(NULL)
+
 	{
 		_sCurrentRenderState = this;
 
 		memset(_selectedOnStage, 0, sizeof(bool) * MM_MAX_STAGE);
 		memset(_stageEnabled, 0, sizeof(bool) * MM_MAX_STAGE);
+
+		InitNMB(_lastPixelShader);
 	}
 
 RenderState::~RenderState(void) {
@@ -57,6 +63,8 @@ void RenderState::shutdown() {
 	while (_d3dResources.size() > 0) {
 		release(_d3dResources.begin()->first);
 	}
+
+	ReleaseNMB(_lastPixelShader);
 }
 
 void RenderState::clearLoadedMods() {
@@ -72,6 +80,9 @@ void RenderState::clearLoadedMods() {
 		}
 		if (mod.decl) {
 			release(mod.decl);
+		}
+		if (mod.pixelShader) {
+			release(mod.pixelShader);
 		}
 		for (Uint32 i = 0; i < MaxModTextures; ++i) {
 			if (mod.texture[i]) {
@@ -92,107 +103,175 @@ void RenderState::loadManagedAssembly() {
 }
 
 void RenderState::loadMods() {
-	clearLoadedMods();
+	if (!Interop::OK())
+		return;
 
-	DWORD start,elapsed;
-	start = GetTickCount();
-	if (Interop::OK()) {
-		Interop::Callbacks().LoadModDB();
-
-		int modCount = Interop::Callbacks().GetModCount();
-		for (int i = 0; i < modCount; ++i) {
-			ModData* mdat = Interop::Callbacks().GetModData(i);
-			if (!mdat) {
-				MM_LOG_INFO(format("Null mod data for index {}", i));
-				continue;
-			}
-			if (mdat->modType != GPUReplacement && mdat->modType != Deletion) {
-				MM_LOG_INFO(format("Unsupported type: {}", mdat->modType));
-				continue;
-			}
-
-			NativeModData nModData;
-			nModData.modData = *mdat;
-
-			if (mdat->modType == Deletion) {
-				int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
-				_managedMods[hashCode] = nModData; // structwise-copy is ok
-				// thats all we need to do for these.
-				continue;
-			}
-
-			int declSize = mdat->declSizeBytes;
-			char* declData = declSize > 0 ? new char[declSize] : NULL;
-
-			int vbSize = mdat->primCount * 3 * mdat->vertSizeBytes;
-			char* vbData = NULL;
-
-			// index buffers not currently supported
-			int ibSize = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
-			char* ibData = NULL;
-
-			HRESULT hr;
-			hr = _dev->CreateVertexBuffer(vbSize, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &nModData.vb, NULL);
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to create vertex buffer");
-				return;
-			}
-			this->add(nModData.vb);
-
-			hr = nModData.vb->Lock(0, 0, (void**)&vbData, 0);
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to lock vertex buffer");
-				return;
-
-			}
-
-			int ret = Interop::Callbacks().FillModData(i, declData, declSize, vbData, vbSize, ibData, ibSize);
-
-			hr = nModData.vb->Unlock();
-			if (FAILED(hr)) {
-				MM_LOG_INFO("failed to unlock vb");
-				return;
-			}
-
-			if (ret == 0) {
-				// fill was ok
-
-				// create vertex declaration
-				_dev->CreateVertexDeclaration((D3DVERTEXELEMENT9*)declData, &nModData.decl);
-				if (nModData.decl) {
-					this->add(nModData.decl);
-				}
-
-				int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
-
-				// create textures 
-				for (Uint32 i = 0; i < MaxModTextures; ++i) {
-					if (wcslen(nModData.modData.texPath[i]) > 0) {
-						IDirect3DTexture9 * tex = NULL;
-						HRESULT hr = D3DXCreateTextureFromFileW(_dev, nModData.modData.texPath[i], &tex);
-						if (FAILED(hr)) {
-							MM_LOG_INFO(fmt::format("Error: failed to create mod texture for stage {}", i));
-						}
-						else {
-							//char* mbName = Util::convertToMB(nModData.modData.texPath[i]);
-							//MM_LOG_INFO(fmt::format("Created texture for stage {} from path {}", i, mbName));
-							//delete[] mbName;
-							nModData.texture[i] = tex;
-							this->add(tex);
-						}
-					}
-				}
-
-				// store in mod DB
-				_managedMods[hashCode] = nModData; // structwise-copy is ok
-			}
-
-			delete [] declData; // the docs don't say it, but I'm pretty sure that CreateVertexDeclaration copies this data, so ok to delete
-		}
+	if (_loadInProgress) {
+		return;
 	}
 
+	int state = Interop::Callbacks().GetLoadingState();
+	if (state == Code_AsyncLoadPending || state == Code_AsyncLoadInProgress) {
+		return;
+	}
+
+	state = Interop::Callbacks().LoadModDB();
+	if (state == Code_AsyncLoadPending || state == Code_AsyncLoadInProgress) {
+		_loadInProgress = true;
+		return;
+	}
+	else {
+		setupModData();
+	}
+}
+
+void RenderState::setupModData() {
+	if (!Interop::OK()) {
+		return;
+	}
+
+	int state = Interop::Callbacks().GetLoadingState();
+	if (state != Code_AsyncLoadComplete) {
+		MM_LOG_INFO(format("Error: setupModData called when loading state is not complete ({})", state));
+		return;
+	}
+
+	_loadInProgress = false;
+
+	clearLoadedMods();
+
+	DWORD start, elapsed;
+	start = GetTickCount();
+
+	int modCount = Interop::Callbacks().GetModCount();
+	for (int i = 0; i < modCount; ++i) {
+		ModData* mdat = Interop::Callbacks().GetModData(i);
+		if (!mdat) {
+			MM_LOG_INFO(format("Null mod data for index {}", i));
+			continue;
+		}
+		if (mdat->modType != GPUReplacement && mdat->modType != Deletion) {
+			MM_LOG_INFO(format("Unsupported type: {}", mdat->modType));
+			continue;
+		}
+
+		NativeModData nModData;
+		nModData.modData = *mdat;
+
+		if (mdat->modType == Deletion) {
+			int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
+			_managedMods[hashCode] = nModData; // structwise-copy is ok
+			// thats all we need to do for these.
+			continue;
+		}
+
+		int declSize = mdat->declSizeBytes;
+		char* declData = declSize > 0 ? new char[declSize] : NULL;
+
+		int vbSize = mdat->primCount * 3 * mdat->vertSizeBytes;
+		char* vbData = NULL;
+
+		// index buffers not currently supported
+		int ibSize = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
+		char* ibData = NULL;
+
+		HRESULT hr;
+		hr = _dev->CreateVertexBuffer(vbSize, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &nModData.vb, NULL);
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to create vertex buffer");
+			return;
+		}
+		this->add(nModData.vb);
+
+		hr = nModData.vb->Lock(0, 0, (void**)&vbData, 0);
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to lock vertex buffer");
+			return;
+
+		}
+
+		int ret = Interop::Callbacks().FillModData(i, declData, declSize, vbData, vbSize, ibData, ibSize);
+
+		hr = nModData.vb->Unlock();
+		if (FAILED(hr)) {
+			MM_LOG_INFO("failed to unlock vb");
+			return;
+		}
+
+		if (ret == 0) {
+			// fill was ok
+
+			// create vertex declaration
+			_dev->CreateVertexDeclaration((D3DVERTEXELEMENT9*)declData, &nModData.decl);
+			if (nModData.decl) {
+				this->add(nModData.decl);
+			}
+
+			int hashCode = NativeModData::hashCode(nModData.modData.refVertCount, nModData.modData.refPrimCount);
+
+			// create textures 
+			for (Uint32 i = 0; i < MaxModTextures; ++i) {
+				if (wcslen(nModData.modData.texPath[i]) > 0) {
+					IDirect3DTexture9 * tex = NULL;
+					HRESULT hr = D3DXCreateTextureFromFileW(_dev, nModData.modData.texPath[i], &tex);
+					if (FAILED(hr)) {
+						MM_LOG_INFO(fmt::format("Error: failed to create mod texture for stage {}", i));
+					}
+					else {
+						//char* mbName = Util::convertToMB(nModData.modData.texPath[i]);
+						//MM_LOG_INFO(fmt::format("Created texture for stage {} from path {}", i, mbName));
+						//delete[] mbName;
+						nModData.texture[i] = tex;
+						this->add(tex);
+					}
+				}
+			}
+
+			// create pixel shader if present
+			if (wcslen(nModData.modData.pixelShaderPath) > 0) {
+
+				Uint32 sizeBytes = 0;
+				Uint8* psBytes = Util::slurpFile(nModData.modData.pixelShaderPath, sizeBytes);
+				if (psBytes == NULL) {
+					MM_LOG_INFO("Failed to read pixel shader file");
+				}
+				else {
+					hr = _dev->CreatePixelShader((const DWORD *)psBytes, &nModData.pixelShader);
+					if (FAILED(hr)) {
+						MM_LOG_INFO("Failed to create pixel shader");
+					}
+					else {
+						MM_LOG_INFO(format("Created pixel shader of size {}", sizeBytes));
+						this->add(nModData.pixelShader);
+
+						// disassemble and log for debugging
+						//LPD3DXBUFFER buf;
+
+						//if (FAILED(D3DXDisassembleShader((const DWORD *)psBytes, FALSE, NULL, &buf))) {
+						//	MM_LOG_INFO("failed to disassemble loaded shader");
+						//}
+						//else {
+						//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
+						//	MM_LOG_INFO("Loaded shader:");
+						//	MM_LOG_INFO(format("{}", s));
+						//}
+					}
+
+					// TODO: I _think_ that CreatePixelShader is copying the data, so this is safe.  wish the docs spelled it out.
+					delete[] psBytes;
+				}
+			}
+
+			// store in mod DB
+			_managedMods[hashCode] = nModData; // structwise-copy is ok
+		}
+
+		delete [] declData; // TODO: another case where the docs don't specify if the declaration copies this.  I think it does.
+	}
+
+
 	elapsed = GetTickCount() - start;
-	MM_LOG_INFO(format("Mod Load time (Native+Managed): {}", elapsed));
+	MM_LOG_INFO(format("Mod Data Setup time (Native+Managed): {}", elapsed));
 }
 
 void RenderState::loadEverything() {
@@ -202,8 +281,9 @@ void RenderState::loadEverything() {
 
 NativeModData* RenderState::findMod(int vertCount, int primCount) {
 	int hashCode = NativeModData::hashCode(vertCount, primCount);
-	if (_managedMods.count(hashCode)) {
-		return &_managedMods[hashCode];
+	ManagedModMap::iterator found = _managedMods.find(hashCode);
+	if (found != _managedMods.end()) {
+		return &found->second;
 	}
 	return NULL;
 }
@@ -316,6 +396,8 @@ static const bool SnapWholeScene = false;
 // some objects may still be missed.  Some investigation to make this more reliable would be useful.
 static const ULONGLONG SnapMS = 250;
 
+static const ULONGLONG SnapWindow = 1000 * 180;
+
 void RenderState::beginScene(IDirect3DDevice9* dev) {
 	if (!_initted)
 		init(dev);
@@ -372,11 +454,25 @@ void RenderState::beginScene(IDirect3DDevice9* dev) {
 		}
 	}
 
+	if (Interop::OK()) {
+		if (_loadInProgress && Interop::Callbacks().GetLoadingState() == Code_AsyncLoadComplete) {
+			setupModData();
+		}
+	}
+
 	if (SnapWholeScene && currentTextureIdx() > 0) 
 		requestSnap();
 
 	if (!isDoingSnap() && isSnapRequested())
 		startSnap();
+
+	if (_preSnapTrackingEnabled && !isSnapping()) {
+		if ((GetTickCount64() - _preSnapTrackingStart) > SnapWindow) {
+			MM_LOG_INFO("Snap timeout expired, clearing selected texture and texture lists");
+			_preSnapTrackingEnabled = false;
+			clearTextureLists();
+		}
+	}
 
 	for (Uint32 i = 0; i < _sceneNotify.size(); ++i) {
 		_sceneNotify[i]->onBeginScene();
@@ -399,6 +495,12 @@ void RenderState::endScene(IDirect3DDevice9* dev) {
 }
 
 void RenderState::selectNextTexture() {
+	if (!_preSnapTrackingEnabled) {
+		_preSnapTrackingEnabled = true;
+		_preSnapTrackingStart = GetTickCount64();
+		// no-op return since we likely have no active textures in list yet
+		return;
+	}
 	if (_activeTextureList.size() == 0) {
 		MM_LOG_INFO("No textures available");
 		return;
@@ -416,6 +518,12 @@ void RenderState::selectNextTexture() {
 }
 
 void RenderState::selectPrevTexture() {
+	if (!_preSnapTrackingEnabled) {
+		_preSnapTrackingEnabled = true;
+		_preSnapTrackingStart = GetTickCount64();
+		// no-op return since we likely have no active textures in list yet
+		return;
+	}
 	if (_activeTextureList.size() == 0) {
 		MM_LOG_INFO("No textures available");
 		return;
@@ -541,23 +649,27 @@ void RenderState::setTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture) {
 	}
 
 	_stageEnabled[Stage] = pTexture != NULL;
-	if (pTexture) {
-		if (!_activeTextureLookup[pTexture]) {
-			_activeTextureList.push_back(pTexture);
+	if (_preSnapTrackingEnabled) {
+		if (pTexture) {
+			if (!_activeTextureLookup[pTexture]) {
+				_activeTextureList.push_back(pTexture);
+			}
+			_activeTextureLookup[pTexture] = true;
 		}
-		_activeTextureLookup[pTexture] = true;
-	}
 
-	bool isSelected = _currentTextureIdx != -1 && pTexture == _activeTextureList[_currentTextureIdx];
-	_selectedOnStage[Stage] = isSelected;
+		bool isSelected = _currentTextureIdx != -1 && pTexture == _activeTextureList[_currentTextureIdx];
+		_selectedOnStage[Stage] = isSelected;
+	}
 }
 
-void RenderState::saveTexture(int i, WCHAR* path) {
+bool RenderState::saveTexture(int i, WCHAR* path) {
 	LPDIRECT3DBASETEXTURE9 texture = NULL;
 	if (FAILED(getDevice()->GetTexture(i, &texture))) {
 		MM_LOG_INFO(format("Failed to query texture for stage: {}", i));
+		return false;
 	} else if (!texture) {
 		MM_LOG_INFO(format("Failed to obtain texture for stage {}; texture is null", i));
+		return false;
 	} else {
 		LPDIRECT3DBASETEXTURE9 snaptex = texture;
 		if (texture == getSelectionTexture()) {
@@ -567,15 +679,76 @@ void RenderState::saveTexture(int i, WCHAR* path) {
 
 		// TODO: this will fail for textures in the default pool that are dynamic.  will probably need to force managed
 		// pool when in snapshot mode for games that are affected by this.
-		if (FAILED(D3DXSaveTextureToFileW(
+		bool ok = SUCCEEDED(D3DXSaveTextureToFileW(
 			path,
 			D3DXIFF_DDS,
 			snaptex,
-			NULL))) {
-				MM_LOG_INFO(format("Failed to save texture {}", i));
+			NULL));
+
+		if (!ok) {
+			MM_LOG_INFO(format("Failed to save texture {}", i));
 		}
 		texture->Release();
+
+		return ok;		
 	}
+}
+
+NativeMemoryBuffer RenderState::getPixelShader() {
+	LPDIRECT3DPIXELSHADER9 shader = NULL;
+	UINT size = 0;
+
+	ReleaseNMB(_lastPixelShader);
+
+	InvokeOnDrop drop([&]() {
+		if (shader) {
+			MM_LOG_INFO("disposing shader");
+		}
+		SAFE_RELEASE(shader);
+	});
+
+	if (FAILED(getDevice()->GetPixelShader(&shader))) {
+		MM_LOG_INFO(format("Failed to save pixel shader"));
+		return _lastPixelShader;
+	}
+
+	if (shader == NULL) {
+		MM_LOG_INFO(format("No pixel shader present"));
+		return _lastPixelShader;
+	}
+
+	if (FAILED(shader->GetFunction(NULL, &size))) {
+		MM_LOG_INFO(format("Failed to get pixel shader size"));
+		return _lastPixelShader;
+	}
+
+	// Just to prevent overflow, but of course, its not reasonable to allocate a 2GB array for a pixel shader
+	if (size > INT_MAX) { 
+		MM_LOG_INFO(format("Failed to get pixel shader data; size is too large: {}", size));
+		return _lastPixelShader;
+	}
+
+	AllocNMB(_lastPixelShader, size);
+
+	if (FAILED(shader->GetFunction(_lastPixelShader.data, &size))) {
+		MM_LOG_INFO(format("Failed to get pixel shader data"));
+		ReleaseNMB(_lastPixelShader);
+		return _lastPixelShader;
+	}
+
+	// Disassemble and log for debugging		
+	//LPD3DXBUFFER buf;
+
+	//if (FAILED(D3DXDisassembleShader((const DWORD *)data, FALSE, NULL, &buf))) {
+	//	MM_LOG_INFO("failed to disassemble snapshot shader");
+	//}
+	//else {
+	//	string s((const char*)buf->GetBufferPointer(), buf->GetBufferSize());
+	//	MM_LOG_INFO("Snapshot shader:");
+	//	MM_LOG_INFO(format("{}", s));
+	//}
+
+	return _lastPixelShader;
 }
 
 };

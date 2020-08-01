@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace MMLaunch
@@ -76,13 +76,28 @@ module BlenderUtil =
 
     let getExe (idir:string) = Path.Combine(idir,BlenderExe)
 
-    let detectInstallPath():(string) option = 
+    let detectBlenderInFS():string option = 
+        // hardcode some obvious places
+        let drives = ["C:"; "D:"]
+        let paths = [
+            @"\Program Files\Blender Foundation\Blender\blender.exe";
+            @"\Program Files (x86)\Blender Foundation\Blender\blender.exe"]
+
+        paths |> List.tryPick (fun p ->
+            drives |> List.tryPick (fun d ->
+                let fp = d + p
+                if File.Exists(fp) then Some(Directory.GetParent(fp).ToString()) else None
+        ))
+
+    let detectInstallPath():string option = 
         // look in registry.  use 64-bit registry first
         let views = [RegistryView.Registry64; RegistryView.Registry32]
         let found = views |> List.tryPick (fun view ->
             let idir = queryKey view "Install_Dir" ""
             match idir with
-            | "" -> None
+            | "" -> 
+                // as of 2.75 they don't seem to write Install_Dir anymore
+                detectBlenderInFS()
             | path ->
                 Some(idir)
         )
@@ -105,16 +120,27 @@ module BlenderUtil =
             failwithf "Can't find setup script: %s" pySetup
 
         let proc = new Process()
+
+        // blender 2.77+ explodes if we try to redirect its stdout.  so have it write to a temp file instead.
+        // unfortunately this means we can no longer display the blender error in a message box
+        // if it fails. (this may be a bug in the embedded python and since its 3.x, maybe they 
+        // will fix it eventually)
+        let pyOut = Path.GetTempFileName()
+
         proc.StartInfo.UseShellExecute <- false 
         proc.StartInfo.FileName <- exe
-        proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- %s" pySetup cmd
-        proc.StartInfo.RedirectStandardOutput <- true
-        proc.StartInfo.RedirectStandardError <- true
+        proc.StartInfo.Arguments <- sprintf "--background --python \"%s\" -- %s \"%s\"" pySetup cmd pyOut
+//        proc.StartInfo.RedirectStandardOutput <- false
+//        proc.StartInfo.RedirectStandardError <- false
         proc.Start() |> ignore
         proc.WaitForExit()
-        let rawOut = proc.StandardOutput.ReadToEnd()
-        let rawErr = proc.StandardError.ReadToEnd()
-        rawOut,rawErr
+//        let rawOut = proc.StandardOutput.ReadToEnd()
+//        let rawErr = proc.StandardError.ReadToEnd()
+
+        let fullCMD = sprintf "%s %s" proc.StartInfo.FileName proc.StartInfo.Arguments
+        let out = File.ReadAllText(pyOut);
+        File.Delete(pyOut);
+        fullCMD,out //,rawOut,rawErr
         
     let getAddonsPath (exe:string):Result<string,string> =
         try
@@ -123,7 +149,7 @@ module BlenderUtil =
             // if its not in the list (probably because it doesn't exist or is empty), construct it from parts of the
             // install dir path (so that we get the correct version, etc), and return that.
             // (we need to use an appdata path, because otherwise we likely need admin privs to install)
-            let rawOut,rawErr = runBlender exe "paths"
+            let cmd,rawOut = runBlender exe "paths"
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
@@ -134,11 +160,39 @@ module BlenderUtil =
                 |> Array.map (fun line -> line.Substring(pathLine.Length).Trim())
 
             if paths.Length = 0 then
-                let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
                 failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
+            let isWritable (p:string) = 
+                try
+                    Directory.GetAccessControl(p) |> ignore
+                    true
+                with
+                    | _ -> false
+
+            let pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+            let pf = 
+                let pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                // on 32 bit, pf and pfx86 are the same, so we have to jump through a hoop to get the 64 bit path
+                if pf <> pfx86 then pf
+                else
+                    let ev = Environment.GetEnvironmentVariable("PROGRAMW6432")
+                    if ev = null then
+                        let lastidx = pf.LastIndexOf(" (x86)") // _maybe_ all languages end with this X_X
+                        if lastidx = -1 then pf else pf.Substring(0,lastidx)
+                    else
+                        ev
+
+            let isPFPath (p:string) = p.StartsWith(pf) || p.StartsWith(pfx86)
+
             let appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-            let found = paths |> Array.tryFind (fun p -> p.ToLowerInvariant().StartsWith(appData.ToLowerInvariant()))
+
+            // find first writable addon path, use appdata path or program files as a last resort if it is writable
+            let paths = 
+                let pfs, npfs = paths |> Array.partition isPFPath 
+                let adps, npfs = npfs |> Array.partition (fun p -> p.Contains(appData))
+                Array.concat [npfs;adps;pfs]
+            let found = paths |> Array.tryFind (fun p -> isWritable(p) && not (isPFPath(p)))
             match found with
             | Some p -> Ok(p)
             | None ->
@@ -148,7 +202,7 @@ module BlenderUtil =
                 let path = 
                     match found with
                     | None -> 
-                        let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+                        let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut "<unknown>"
                         failwithf "Unable to locate a suitable addon path:%s" rawMsg
                     | Some path -> path
                 let path = path.Substring(path.IndexOf(relRoot))
@@ -225,13 +279,13 @@ module BlenderUtil =
             directoryCopy srcDir dest true
 
             // run the python script to make sure they are registered with blender
-            let rawOut,rawErr = runBlender exe "install"
+            let cmd, rawOut = runBlender exe "install"
 
             let outLines = rawOut.Split([| "\n"; "\r\n" |], StringSplitOptions.None)
 
             let failed = outLines |> Array.tryFind (fun line -> line.StartsWith(PyFailLine))
 
-            let rawMsg = sprintf "\n\nStdout:\n%s\n\nStderr:\n%s" rawOut rawErr
+            let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
 
             match failed with
             | Some (line) ->

@@ -1,9 +1,9 @@
 ﻿// ModelMod: 3d data snapshotting & substitution program.
-// Copyright(C) 2015 John Quigley
+// Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or
 // (at your option) any later version.
 
 // This program is distributed in the hope that it will be useful,
@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
 // GNU General Public License for more details.
 
-// You should have received a copy of the GNU General Public License
+// You should have received a copy of the GNU Lesser General Public License
 // along with this program.If not, see <http://www.gnu.org/licenses/>.
 
 namespace ModelMod
@@ -345,16 +345,27 @@ module MeshUtil =
 newmtl (null)
 map_Kd $$filename
 """
-    
-
     /// Write a mesh to the specified path in MMObj format.
     let writeObj (md:Mesh) outpath =
         let lines = new ResizeArray<string>()
-    
-        // currently we only write materials for texture 0
-        match md.Tex0Path.Trim() with
-        | "" -> ()
-        | p -> 
+
+        // write material file
+
+        // so, we could have up to four textures, but we have no idea how they are actually used.  often, the lowest-number
+        // texture is the diffuse map, but that is not always the case.  For now just assume so, but this can 
+        // cause problems when multiple textures were snapped.
+        // TODO: modify the create mod utility to allow the user to sort out this ambiguity; display each texture to them
+        // and let them select the type.  Create mod would then need to patch up the generated .mtl file.
+
+        // use first non-empty texture as the map_Kd
+        let nonEmptyTextures = 
+            [ md.Tex0Path; md.Tex1Path; md.Tex2Path; md.Tex3Path ] |> List.map (fun s -> s.Trim()) |> List.filter (fun n -> n <> "" )
+
+        log.Info "non empty tex: %A" nonEmptyTextures
+
+        match nonEmptyTextures with
+        | [] -> ()
+        | p::xs -> 
             let dir = Path.GetDirectoryName(outpath)
             let file = Path.GetFileNameWithoutExtension(outpath) + ".mtl"
             // omit dir to use same directory as obj for mlt and texture file (makes files easily movable)
