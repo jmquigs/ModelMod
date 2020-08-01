@@ -70,3 +70,23 @@ pub type SetVertexShaderConstantIFn = unsafe extern "system" fn(
     Vector4iCount: UINT
 ) -> HRESULT;
 
+pub type SetPixelShaderConstantFFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    StartRegister: UINT,
+    pConstantData: *const f32,
+    Vector4fCount: UINT
+) -> HRESULT;
+
+pub type SetPixelShaderConstantBFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    StartRegister: UINT,
+    pConstantData: *const BOOL,
+    BoolCount: UINT
+) -> HRESULT;
+
+pub type SetPixelShaderConstantIFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    StartRegister: UINT,
+    pConstantData: *const i32,
+    Vector4iCount: UINT
+) -> HRESULT;

@@ -16,6 +16,9 @@ pub struct HookDirect3D9Device {
     pub real_set_vertex_sc_f: SetVertexShaderConstantFFn,
     pub real_set_vertex_sc_i: SetVertexShaderConstantIFn,
     pub real_set_vertex_sc_b: SetVertexShaderConstantBFn,
+    pub real_set_pixel_sc_f: SetPixelShaderConstantFFn,
+    pub real_set_pixel_sc_i: SetPixelShaderConstantIFn,
+    pub real_set_pixel_sc_b: SetPixelShaderConstantBFn,
 
 }
 
@@ -36,6 +39,9 @@ impl HookDirect3D9Device {
         real_set_vertex_sc_f: SetVertexShaderConstantFFn,
         real_set_vertex_sc_i: SetVertexShaderConstantIFn,
         real_set_vertex_sc_b: SetVertexShaderConstantBFn,
+        real_set_pixel_sc_f: SetPixelShaderConstantFFn,
+        real_set_pixel_sc_i: SetPixelShaderConstantIFn,
+        real_set_pixel_sc_b: SetPixelShaderConstantBFn,
     ) -> HookDirect3D9Device {
         HookDirect3D9Device {
             real_draw_indexed_primitive: real_draw_indexed_primitive,
@@ -46,6 +52,10 @@ impl HookDirect3D9Device {
             real_set_vertex_sc_f: real_set_vertex_sc_f,
             real_set_vertex_sc_i: real_set_vertex_sc_i,
             real_set_vertex_sc_b: real_set_vertex_sc_b,
+            real_set_pixel_sc_f: real_set_pixel_sc_f,
+            real_set_pixel_sc_i: real_set_pixel_sc_i,
+            real_set_pixel_sc_b: real_set_pixel_sc_b,
+
             ref_count: 0,
         }
     }

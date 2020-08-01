@@ -89,6 +89,7 @@ pub struct HookState {
     pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
+    pub pixel_constants: Option<constant_tracking::ConstantGroup>,
 }
 
 impl HookState {
@@ -145,6 +146,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     is_snapping: false,
     snap_start: std::time::UNIX_EPOCH,
     vertex_constants: None,
+    pixel_constants: None,
 
     d3dx_fn: None,
     device: None,
@@ -1275,14 +1277,14 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 let res = (cb.TakeSnapshot)(THIS, &mut sd);
                 if res == 0 && constant_tracking::is_enabled() {
                     let sresult = *(cb.GetSnapshotResult)();
+                    let dir = &sresult.directory[0..(sresult.directory_len as usize)];
+                    let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
 
-                    GLOBAL_STATE.vertex_constants.as_ref().map(|vconst| {
-                        let dir = &sresult.directory[0..(sresult.directory_len as usize)];
-                        let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
+                    let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
+                    let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
 
-                        let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
-                        let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
-                        if dir != "" && sprefix != "" {
+                    if dir != "" && sprefix != "" {
+                        GLOBAL_STATE.vertex_constants.as_ref().map(|vconst| {
                             let out = dir.to_owned()  + "/" + &sprefix + "_vconst.yaml";
                             // write_log_file(&format!("snap save dir: {}", dir));
                             // write_log_file(&format!("snap prefix: {}", sprefix));
@@ -1292,10 +1294,19 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                                 .unwrap_or_else(|e| {
                                     write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
                                 });
-                        } else {
-                            write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
-                        }
-                    });
+                        });
+                        GLOBAL_STATE.pixel_constants.as_ref().map(|pconst| {
+                            let out = dir.to_owned()  + "/" + &sprefix + "_pconst.yaml";
+                            write_log_file(&format!("saving pixel constants to file: {}", out));
+
+                            constant_tracking::write_to_file(&out, &pconst)
+                                .unwrap_or_else(|e| {
+                                    write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
+                                });
+                        });
+                    } else {
+                        write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
+                    }
                 }
             });
         }
@@ -1514,6 +1525,10 @@ unsafe fn hook_device(
     let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
     let real_set_vertex_sc_b = (*vtbl).SetVertexShaderConstantB;
 
+    let real_set_pixel_sc_f = (*vtbl).SetPixelShaderConstantF;
+    let real_set_pixel_sc_i = (*vtbl).SetPixelShaderConstantI;
+    let real_set_pixel_sc_b = (*vtbl).SetPixelShaderConstantB;
+
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
     (*vtbl).DrawIndexedPrimitive = hook_draw_indexed_primitive;
@@ -1527,11 +1542,17 @@ unsafe fn hook_device(
     (*device).AddRef();
 
     // shader constants init
-    GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
     if constant_tracking::is_enabled() {
+        GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
+        GLOBAL_STATE.pixel_constants = Some(constant_tracking::ConstantGroup::new());
+
         (*vtbl).SetVertexShaderConstantF = constant_tracking::hook_set_vertex_sc_f;
         (*vtbl).SetVertexShaderConstantI = constant_tracking::hook_set_vertex_sc_i;
         (*vtbl).SetVertexShaderConstantB = constant_tracking::hook_set_vertex_sc_b;
+
+        (*vtbl).SetPixelShaderConstantF = constant_tracking::hook_set_pixel_sc_f;
+        (*vtbl).SetPixelShaderConstantI = constant_tracking::hook_set_pixel_sc_i;
+        (*vtbl).SetPixelShaderConstantB = constant_tracking::hook_set_pixel_sc_b;
     }
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 
@@ -1544,6 +1565,9 @@ unsafe fn hook_device(
         real_set_vertex_sc_f,
         real_set_vertex_sc_i,
         real_set_vertex_sc_b,
+        real_set_pixel_sc_f,
+        real_set_pixel_sc_i,
+        real_set_pixel_sc_b,
     ))
 }
 
