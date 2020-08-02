@@ -4,9 +4,9 @@ pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
+use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 use winapi::um::wingdi::RGNDATA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
-use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 
 pub type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
     path: LPCWSTR,
@@ -22,7 +22,7 @@ interface ID3DXBuffer(ID3DXBufferVtbl): IUnknown(IUnknownVtbl) {
 });
 
 pub type D3DXDisassembleShaderFn = unsafe extern "system" fn(
-    pShader:*const DWORD,
+    pShader: *const DWORD,
     EnableColorCode: BOOL,
     pComments: *mut c_void,
     ppDisassembly: *mut *mut ID3DXBuffer,
@@ -66,40 +66,40 @@ pub type SetVertexShaderConstantFFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const f32,
-    Vector4fCount: UINT
+    Vector4fCount: UINT,
 ) -> HRESULT;
 
 pub type SetVertexShaderConstantBFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const BOOL,
-    BoolCount: UINT
+    BoolCount: UINT,
 ) -> HRESULT;
 
 pub type SetVertexShaderConstantIFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const i32,
-    Vector4iCount: UINT
+    Vector4iCount: UINT,
 ) -> HRESULT;
 
 pub type SetPixelShaderConstantFFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const f32,
-    Vector4fCount: UINT
+    Vector4fCount: UINT,
 ) -> HRESULT;
 
 pub type SetPixelShaderConstantBFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const BOOL,
-    BoolCount: UINT
+    BoolCount: UINT,
 ) -> HRESULT;
 
 pub type SetPixelShaderConstantIFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     StartRegister: UINT,
     pConstantData: *const i32,
-    Vector4iCount: UINT
+    Vector4iCount: UINT,
 ) -> HRESULT;

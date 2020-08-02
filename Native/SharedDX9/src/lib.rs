@@ -9,7 +9,7 @@ extern crate winapi;
 extern crate lazy_static;
 
 pub mod defs;
+pub mod error;
 pub mod state;
 pub mod types;
 pub mod util;
-pub mod error;

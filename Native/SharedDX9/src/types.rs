@@ -19,7 +19,6 @@ pub struct HookDirect3D9Device {
     pub real_set_pixel_sc_f: SetPixelShaderConstantFFn,
     pub real_set_pixel_sc_i: SetPixelShaderConstantIFn,
     pub real_set_pixel_sc_b: SetPixelShaderConstantBFn,
-
 }
 
 pub struct DeviceState {

@@ -1,4 +1,4 @@
-use crate::error::{Result, HookError};
+use crate::error::{HookError, Result};
 
 lazy_static! {
     static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
