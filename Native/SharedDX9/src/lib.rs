@@ -1,5 +1,8 @@
+#![allow(non_snake_case)]
+
 //#[macro_use]
 #[cfg(windows)]
+#[macro_use]
 extern crate winapi;
 
 #[macro_use]

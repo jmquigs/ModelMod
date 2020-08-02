@@ -1,4 +1,3 @@
-use winapi::um::unknwnbase::IUnknown;
 use winapi::ctypes::c_void;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
@@ -7,12 +6,26 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::wingdi::RGNDATA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 
 pub type D3DXSaveTextureToFileWFn = unsafe extern "system" fn(
     path: LPCWSTR,
     fileformat: i32,
     src_texture: *mut IDirect3DBaseTexture9,
     src_palette: *mut c_void,
+) -> HRESULT;
+
+RIDL!(#[uuid(0x8ba5fb08, 0x5195, 0x40e2, 0xac, 0x58, 0xd, 0x98, 0x9c, 0x3a, 0x1, 0x2)]
+interface ID3DXBuffer(ID3DXBufferVtbl): IUnknown(IUnknownVtbl) {
+    fn GetBufferPointer() -> LPVOID,
+    fn GetBufferSize() -> DWORD,
+});
+
+pub type D3DXDisassembleShaderFn = unsafe extern "system" fn(
+    pShader:*const DWORD,
+    EnableColorCode: BOOL,
+    pComments: *mut c_void,
+    ppDisassembly: *mut *mut ID3DXBuffer,
 ) -> HRESULT;
 
 pub type CreateDeviceFn = unsafe extern "system" fn(

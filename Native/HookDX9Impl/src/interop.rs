@@ -4,6 +4,7 @@ use winapi::um::winnt::WCHAR;
 use hookd3d9;
 use std;
 use util;
+use d3dx;
 use shared_dx9::util::write_log_file;
 
 #[derive(Copy, Clone)]
@@ -197,7 +198,7 @@ pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const
 #[allow(unused)]
 #[no_mangle]
 pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u16) -> bool {
-    match hookd3d9::save_texture(index, filepath) {
+    match d3dx::save_texture(index, filepath) {
         Ok(_) => true,
         Err(e) => {
             write_log_file(&format!("failed to save texture: {:?}", e));

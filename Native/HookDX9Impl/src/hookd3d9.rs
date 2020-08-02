@@ -20,6 +20,8 @@ use interop::NativeModData;
 use util;
 use util::*;
 use constant_tracking;
+use shader_capture;
+use d3dx;
 
 use std;
 use std::fmt;
@@ -48,11 +50,6 @@ const MAX_STAGE: usize = 16;
 // some objects may still be missed.  Some investigation to make this more reliable would be useful.
 static SNAP_MS: u32 = 250;
 
-pub struct D3DXFn {
-    pub D3DXSaveTextureToFileW: D3DXSaveTextureToFileWFn,
-    pub D3DXCreateTextureFromFileW: u64,
-}
-
 pub struct FrameMetrics {
     pub dip_calls: u32,
     pub frames: u32,
@@ -62,7 +59,6 @@ pub struct FrameMetrics {
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
 }
-
 
 pub struct HookState {
     pub clr_pointer: Option<u64>,
@@ -85,7 +81,7 @@ pub struct HookState {
     pub curr_texture_index: usize,
     pub is_snapping: bool,
     pub snap_start: SystemTime,
-    pub d3dx_fn: Option<D3DXFn>,
+    pub d3dx_fn: Option<d3dx::D3DXFn>,
     pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
@@ -125,6 +121,10 @@ pub fn dev_state() -> &'static mut DeviceState {
 }
 
 // TODO: maybe create read/write accessors for this
+// TODO: actually the way global state is handled is super gross.  at a minimum it seems 
+// like it should be a behind a RW lock, and if I made it a pointer/box I could get rid of some 
+// of the option types that are only there due to Rust limitations on what can be used to 
+// init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
     interop_state: None,
@@ -179,6 +179,9 @@ macro_rules! impl_release_drop {
 impl_release_drop!(IDirect3DBaseTexture9);
 impl_release_drop!(IDirect3DVertexDeclaration9);
 impl_release_drop!(IDirect3DIndexBuffer9);
+impl_release_drop!(IDirect3DPixelShader9);
+impl_release_drop!(IDirect3DVertexShader9);
+impl_release_drop!(ID3DXBuffer);
 
 enum AsyncLoadState {
     NotStarted = 51,
@@ -187,76 +190,8 @@ enum AsyncLoadState {
     Complete,
 }
 
-fn load_d3dx(mm_root: &Option<String>) -> Result<D3DXFn> {
-    // TODO: decide on where to load these from.
-    let mm_root = mm_root.as_ref().ok_or(HookError::LoadLibFailed(
-        "No MMRoot, can't load D3DX".to_owned(),
-    ))?;
-    let mut path = mm_root.to_owned();
-    path.push_str("\\");
-    path.push_str("TPLib");
-    path.push_str("\\");
-    if cfg!(target_pointer_width = "64") {
-        path.push_str("D3DX9_43_x86_64.dll");
-    } else {
-        path.push_str("D3DX9_43_x86.dll");
-    }
-
-    let handle = util::load_lib(&path)?;
-
-    unsafe {
-        Ok(D3DXFn {
-            D3DXSaveTextureToFileW: std::mem::transmute(util::get_proc_address(
-                handle,
-                "D3DXSaveTextureToFileW",
-            )?),
-            D3DXCreateTextureFromFileW: util::get_proc_address(
-                handle,
-                "D3DXCreateTextureFromFileW",
-            )? as u64,
-        })
-    }
-}
-
-pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
-    const D3DXIFF_DDS: i32 = 4;
-
-    let d3dx_fn = GLOBAL_STATE
-        .d3dx_fn
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
-
-    let device_ptr = GLOBAL_STATE
-        .device
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
-
-    let mut tex: *mut IDirect3DBaseTexture9 = null_mut();
-
-    let hr = (*(*device_ptr)).GetTexture(idx as u32, &mut tex);
-    if hr != 0 {
-        return Err(HookError::SnapshotFailed(format!(
-            "failed to get texture on stage {} for snapshotting: {:x}",
-            idx, hr
-        )));
-    }
-    let _tex_rod = ReleaseOnDrop::new(tex);
-    if tex as u64 == GLOBAL_STATE.selection_texture as u64 {
-        return Err(HookError::SnapshotFailed(format!(
-            "not snapshotting texture on stage {} because it is the selection texture",
-            idx
-        )));
-    }
-
-    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
-    if hr != 0 {
-        return Err(HookError::SnapshotFailed(format!(
-            "failed to save snapshot texture on stage {}: {:x}",
-            idx, hr
-        )));
-    }
-
-    Ok(())
+fn snapshot_extra() -> bool {
+    return constant_tracking::is_enabled() || shader_capture::is_enabled()
 }
 
 fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
@@ -1214,7 +1149,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         GLOBAL_STATE.device = Some(THIS);
 
         if GLOBAL_STATE.d3dx_fn.is_none() {
-            GLOBAL_STATE.d3dx_fn = load_d3dx(&GLOBAL_STATE.mm_root)
+            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
                 .map_err(|e| {
                     write_log_file(&format!(
                         "failed to load d3dx: texture snapping not available: {:?}",
@@ -1275,38 +1210,17 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             GLOBAL_STATE.interop_state.as_mut().map(|is| {
                 let cb = is.callbacks;
                 let res = (cb.TakeSnapshot)(THIS, &mut sd);
-                if res == 0 && constant_tracking::is_enabled() {
+                if res == 0 && snapshot_extra() {
                     let sresult = *(cb.GetSnapshotResult)();
                     let dir = &sresult.directory[0..(sresult.directory_len as usize)];
                     let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
 
                     let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
-
-                    if dir != "" && sprefix != "" {
-                        GLOBAL_STATE.vertex_constants.as_ref().map(|vconst| {
-                            let out = dir.to_owned()  + "/" + &sprefix + "_vconst.yaml";
-                            // write_log_file(&format!("snap save dir: {}", dir));
-                            // write_log_file(&format!("snap prefix: {}", sprefix));
-                            write_log_file(&format!("saving vertex constants to file: {}", out));
-
-                            constant_tracking::write_to_file(&out, &vconst)
-                                .unwrap_or_else(|e| {
-                                    write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
-                                });
-                        });
-                        GLOBAL_STATE.pixel_constants.as_ref().map(|pconst| {
-                            let out = dir.to_owned()  + "/" + &sprefix + "_pconst.yaml";
-                            write_log_file(&format!("saving pixel constants to file: {}", out));
-
-                            constant_tracking::write_to_file(&out, &pconst)
-                                .unwrap_or_else(|e| {
-                                    write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
-                                });
-                        });
-                    } else {
-                        write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
-                    }
+                    // write_log_file(&format!("snap save dir: {}", dir));
+                    // write_log_file(&format!("snap prefix: {}", sprefix));
+                    constant_tracking::take_snapshot(&dir, &sprefix);
+                    shader_capture::take_snapshot(&dir, &sprefix);
                 }
             });
         }

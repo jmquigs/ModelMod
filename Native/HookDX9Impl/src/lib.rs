@@ -14,7 +14,7 @@ extern crate fnv;
 #[cfg(windows)]
 extern crate winapi;
 
-#[macro_use]
+//#[macro_use]
 extern crate serde;
 extern crate serde_yaml;
 extern crate shared_dx9;
@@ -25,12 +25,14 @@ mod test_e2e;
 #[macro_use]
 mod profile;
 
-mod constant_tracking;
 mod dnclr;
 mod hookd3d9;
 mod input;
 mod interop;
 mod util;
+mod constant_tracking;
+mod shader_capture;
+mod d3dx;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
