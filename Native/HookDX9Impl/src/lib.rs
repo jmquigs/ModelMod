@@ -19,6 +19,8 @@ extern crate serde;
 extern crate serde_yaml;
 extern crate shared_dx9;
 
+extern crate bincode;
+
 //#[cfg(test)]
 mod test_e2e;
 

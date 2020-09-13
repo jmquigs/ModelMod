@@ -32,6 +32,16 @@ pub struct Vec4<T: Serialize> {
     d: T
 }
 
+pub fn vecToVec4<T>(vec:&Vec<T>, offset: usize) -> Vec4<T>
+where T: Copy + serde::Serialize {
+    Vec4 {
+        a: vec[offset+0],
+        b: vec[offset+1],
+        c: vec[offset+2],
+        d: vec[offset+3],
+    }
+}
+
 // This is like the 'From' trait except that it allows the caller to specify an offset
 // from the source that they want converted.  Useful for doing (dangerous) raw pointer reads.
 pub trait FromOffset<T> {
@@ -197,6 +207,65 @@ struct GroupFile {
     pub bools: std::collections::BTreeMap<UINT, BOOL>,
 }
 
+use std::collections::BTreeMap;
+#[derive(Serialize)]
+pub struct RenderStateMap {
+    pub blendstates: BTreeMap<DWORD, DWORD>,
+    pub tstagestates: Vec<BTreeMap<DWORD, DWORD>>,
+}
+
+pub fn write_obj_to_file<T>(name:&str, binary:bool, what:&T) -> Result<()> 
+where T: Serialize {
+    let ystr:String;
+    let bvec:Vec<u8>;
+    let bytes = if binary {
+        bvec = bincode::serialize(what).map_err(|e| {
+            HookError::SerdeError(format!("Serialization error: {:?}", e))
+        })?;
+        &bvec
+    } else {
+        ystr = serde_yaml::to_string(what).map_err(|e| {
+            HookError::SerdeError(format!("Serialization error: {:?}", e))
+        })?;
+        ystr.as_bytes()
+    };
+    use std::io::Write;
+    let mut file = std::fs::File::create(name)?;
+    file.write_all(bytes)?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct AnimFrame {
+    pub snapped_at: std::time::SystemTime,
+    pub floats: std::collections::BTreeMap<UINT, Vec4<f32>>,
+    pub player_transform: Option<Vec4<f32>>,
+}
+
+#[derive(Serialize)]
+pub struct AnimFrameFile {
+    pub frames:Vec<AnimFrame>
+}
+
+impl AnimFrameFile {
+    pub fn new() -> Self {
+        Self {
+            frames: vec![]
+        }
+    }
+    
+    pub fn write_to_file(&self, name:&str) -> Result<()> {
+        let s = bincode::serialize(self).map_err(|e| {
+            HookError::SerdeError(format!("Serialization error: {:?}", e))
+        })?;
+        
+        use std::io::Write;
+        let mut file = std::fs::File::create(name)?;
+        file.write_all(&s)?;
+        Ok(())
+    }
+}
+
 pub fn write_to_file(name:&str, constants:&ConstantGroup) -> Result<()> {
     let file = GroupFile {
         floats: constants.floats.get_as_btree(),
@@ -222,8 +291,20 @@ pub unsafe extern "system" fn hook_set_vertex_sc_f(
     pConstantData: *const f32,
     Vector4fCount: UINT
 ) -> HRESULT {
+    util::write_log_file(&format!("hook_set_vertex_sc_f: {} {}", StartRegister, Vector4fCount));
     let hr = (dev_state().hook_direct3d9device.as_ref().unwrap().real_set_vertex_sc_f)(THIS, StartRegister, pConstantData, Vector4fCount);
     if hr == 0 {
+        let is_snapping = GLOBAL_STATE.is_snapping;
+        if is_snapping && Vector4fCount > 0 {
+            util::write_log_file(&format!("snapping vf const {}, {} count: {} {} {} {}...",
+                StartRegister,
+                Vector4fCount,
+                *pConstantData,
+                *pConstantData.offset(1),
+                *pConstantData.offset(2),
+                *pConstantData.offset(3),
+            ));
+        }
         GLOBAL_STATE.vertex_constants.as_mut().map(|vconsts| {
             vconsts.floats.set(StartRegister, pConstantData, Vector4fCount);
         });
@@ -310,15 +391,7 @@ pub unsafe extern "system" fn hook_set_pixel_sc_b(
 mod tests {
     use super::*;
 
-    fn vecToVec4<T>(vec:&Vec<T>, offset: usize) -> Vec4<T>
-    where T: Copy + serde::Serialize {
-        Vec4 {
-            a: vec[offset+0],
-            b: vec[offset+1],
-            c: vec[offset+2],
-            d: vec[offset+3],
-        }
-    }
+
     #[test]
     pub fn test_float2() {
         let mut fconst = FloatConstList::new(4);
