@@ -99,7 +99,7 @@ pub struct NativeModData {
     pub vb: *mut hookd3d9::IDirect3DVertexBuffer9,
     pub ib: *mut hookd3d9::IDirect3DIndexBuffer9,
     pub decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
-    // TODO: //IDirect3DBaseTexture9* texture[MaxModTextures];
+    pub textures: [hookd3d9::LPDIRECT3DTEXTURE9; 4],
     //IDirect3DPixelShader9* pixelShader;
 }
 
