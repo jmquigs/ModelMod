@@ -415,6 +415,13 @@ unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
             if nmd.decl != null_mut() {
                 (*nmd.decl).Release();
             }
+            
+            for tex in nmd.textures.iter() {
+                if *tex != null_mut() {
+                    let tex = *tex as *mut IDirect3DBaseTexture9;
+                    (*tex).Release();
+                }
+            }
         }
     });
 
@@ -449,6 +456,20 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     if let Err(_e) = lock {
         write_log_file("failed to lock global state to setup mod data");
         return;
+    }
+    
+    // need d3dx for textures
+    GLOBAL_STATE.device = Some(device);
+    if GLOBAL_STATE.d3dx_fn.is_none() {
+        GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
+            .map_err(|e| {
+                write_log_file(&format!(
+                    "failed to load d3dx: texture snapping not available: {:?}",
+                    e
+                ));
+                e
+            })
+            .ok();
     }
 
     // get device ref count prior to adding everything
@@ -485,6 +506,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             vb: null_mut(),
             ib: null_mut(),
             decl: null_mut(),
+            textures: [null_mut(); 4],
         };
 
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
@@ -582,7 +604,39 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         }
         native_mod_data.decl = out_decl;
 
-        // TODO textures
+        let load_tex = |texpath:&[u16]| {
+            use std::ffi::OsString;
+            use std::os::windows::ffi::OsStringExt;
+    
+            // find the "null terminator" - of course this is a wide string so this isn't really valid,
+            // but the managed code fills in the whole array with null, and it looks like from_wide 
+            // just happily treats those as part of the string.  this would probably break paths 
+            // that actually have unicode in them, but oh well.
+            let mut null_pos = 0;
+            for (i,c) in texpath.iter().enumerate() {
+                if *c == 0 {
+                    null_pos = i;
+                    break;
+                }
+            }
+            
+            let tex = OsString::from_wide(&texpath[0..null_pos]);
+            let tex = tex.as_os_str().to_string_lossy();
+            let tex = tex.trim();
+            
+            let mut outtex = null_mut();
+            if !tex.is_empty() {
+                outtex = d3dx::load_texture(texpath.as_ptr()).map_err(|e| {
+                    write_log_file(&format!("failed to load texture: {:?}", e));
+                }).unwrap_or(null_mut());
+                write_log_file(&format!("Loaded tex: {:?} {:x}", tex, outtex as u64));
+            }
+            outtex
+        };
+        native_mod_data.textures[0] = load_tex(&(*mdat).texPath0);
+        native_mod_data.textures[1] = load_tex(&(*mdat).texPath1);
+        native_mod_data.textures[2] = load_tex(&(*mdat).texPath2);
+        native_mod_data.textures[3] = load_tex(&(*mdat).texPath3);
 
         let mod_key = NativeModData::mod_key(
             native_mod_data.mod_data.numbers.ref_vert_count as u32,
@@ -923,6 +977,10 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
             .as_mut()
             .map(|list| list.clear());
         GLOBAL_STATE.curr_texture_index = 0;
+        for i in 0..MAX_STAGE {
+            GLOBAL_STATE.selected_on_stage[i] = false;
+        }
+        GLOBAL_STATE.making_selection = false;
 
         // TODO: this was an attempt to fix the issue with the selection
         // texture getting clobbered after alt-tab, but it didn't work.
@@ -1862,6 +1920,22 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             (*THIS).SetVertexDeclaration(nmod.decl);
             (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
 
+            // and set mod textures
+            let mut save_tex:[Option<*mut IDirect3DBaseTexture9>; 4] = [None; 4];
+            let mut _st_rods:Vec<ReleaseOnDrop<*mut IDirect3DBaseTexture9>> = vec![];
+            for (i,tex) in nmod.textures.iter().enumerate() {
+                if *tex != null_mut() {
+                    //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as u64, NumVertices, primCount));
+                    let mut save:*mut IDirect3DBaseTexture9 = null_mut();
+                    (*THIS).GetTexture(i as u32, &mut save);
+                    save_tex[i] = Some(save);
+                    (*THIS).SetTexture(i as u32, *tex as *mut IDirect3DBaseTexture9);
+                    _st_rods.push(ReleaseOnDrop::new(save));
+                }
+            }
+            
+            // set the override tex, which is the (usually) the selection tex.  this might overwrite
+            // the mod tex tex we just set.
             let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
             let _st_rod = {
                 if override_texture != null_mut() {
@@ -1883,6 +1957,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             // restore state
             (*THIS).SetVertexDeclaration(pDecl);
             (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
+            // restore textures
+            for (i,tex) in save_tex.iter().enumerate() {
+                tex.map(|tex| {
+                    (*THIS).SetTexture(i as u32, tex);
+                });
+            }
             if override_texture != null_mut() {
                 (*THIS).SetTexture(sel_stage, save_texture);
             }

@@ -5,9 +5,15 @@ use hookd3d9::{ GLOBAL_STATE };
 use std::ptr::null_mut;
 use util::ReleaseOnDrop;
 
+pub type D3DXCreateTextureFromFileWFn = unsafe extern "system" fn(
+    pDevice: LPDIRECT3DDEVICE9,
+    pSrcFile: LPCWSTR,
+    ppTexture: *mut LPDIRECT3DTEXTURE9,
+) -> HRESULT;
+
 pub struct D3DXFn {
     pub D3DXSaveTextureToFileW: D3DXSaveTextureToFileWFn,
-    pub D3DXCreateTextureFromFileW: u64,
+    pub D3DXCreateTextureFromFileW: D3DXCreateTextureFromFileWFn,
     pub D3DXDisassembleShader: D3DXDisassembleShaderFn,
 }
 
@@ -34,16 +40,37 @@ pub fn load_lib(mm_root: &Option<String>) -> Result<D3DXFn> {
                 handle,
                 "D3DXSaveTextureToFileW",
             )?),
-            D3DXCreateTextureFromFileW: util::get_proc_address(
+            D3DXCreateTextureFromFileW: std::mem::transmute(util::get_proc_address(
                 handle,
                 "D3DXCreateTextureFromFileW",
-            )? as u64,
+            )?),
             D3DXDisassembleShader: std::mem::transmute(util::get_proc_address(
                 handle,
                 "D3DXDisassembleShader",
             )?),
         })
     }
+}
+
+pub unsafe fn load_texture(path:*const u16) -> Result<LPDIRECT3DTEXTURE9> {
+    let d3dx_fn = GLOBAL_STATE
+        .d3dx_fn
+        .as_ref()
+        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
+
+    let device_ptr = GLOBAL_STATE
+        .device
+        .as_ref()
+        .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+        
+    let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
+    let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
+    let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(*device_ptr, path, ptext);
+    if hr != 0 {
+        return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
+    }
+    
+    Ok(tex)
 }
 
 pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
