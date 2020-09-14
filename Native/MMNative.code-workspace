@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "HookDX9Impl"
+		},
+		{
+			"path": "SharedDX9"
+		},
+		{
+			"path": "HookDX9Device"
+		},
+		{
+			"path": "snaplib"
+		}
+	],
+	"settings": {}
+}
