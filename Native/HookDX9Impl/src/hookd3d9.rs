@@ -1616,7 +1616,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut metrics = &mut GLOBAL_STATE.metrics;
 
-    if metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
+    if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
