@@ -65,14 +65,45 @@ impl AutoSnapMesh {
         }
     }
 }
-#[derive(Debug,Deserialize,Clone,Serialize)]
+#[derive(Deserialize,Clone,Serialize,Default)]
 pub struct SnapConfig {
     pub snap_ms: u32,
     pub snap_anim: bool,
+    pub require_gpu: Option<bool>,
     pub snap_anim_on_count: u32,
     pub vconsts_to_capture: usize,
     pub pconsts_to_capture: usize,
-    pub autosnap:HashSet<AutoSnapMesh>,
+    pub autosnap:Option<HashSet<AutoSnapMesh>>,
+}
+impl fmt::Display for SnapConfig {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "SnapConfig {{")?;
+        writeln!(f, "  snap_ms: {}", self.snap_ms)?;
+        writeln!(f, "  snap_anim: {}", self.snap_anim)?;
+        if self.snap_anim {
+            writeln!(f, "  require gpu: true (due to snap anim)")?;
+        } else {
+            writeln!(f, "  require gpu: {:?}", self.require_gpu)?;
+        }
+        writeln!(f, "  snap_anim_on_count: {}", self.snap_anim_on_count)?;
+        writeln!(f, "  vconsts_to_capture: {}", self.vconsts_to_capture)?;
+        writeln!(f, "  pconsts_to_capture: {}", self.pconsts_to_capture)?;
+        if self.snap_anim {
+            writeln!(f, "  max sequences: {}", self.max_const_sequences())?;
+        }
+        match self.autosnap.as_ref() {
+            None => writeln!(f, "  no autosnap meshes")?,
+            Some(hm) => {
+                writeln!(f, "  autosnap meshes:")?;
+                for asm in hm.iter() {
+                    writeln!(f, "    {}p {}v", asm.prims, asm.verts )?;
+                }
+            }
+        }
+        
+        writeln!(f, "}}")
+    }
 }
 
 impl SnapConfig {
@@ -118,7 +149,7 @@ impl SnapConfig {
         drop(sclock);
         
         let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
-        write_log_file(&format!("loaded snap config: {:?}, max seqs: {}", *sclock, sclock.max_const_sequences()));
+        write_log_file(&format!("loaded snap config: {}", *sclock));
         
         Ok(())
         
@@ -143,7 +174,9 @@ impl SnapConfig {
         write_log_file(&format!("writing intial sc to {:?}", pb));
         {
             let sc = &mut SNAP_CONFIG.write().unwrap();
-            (*sc).autosnap.insert(AutoSnapMesh::new(1234,567));
+            let mut autosnap = HashSet::new();
+            autosnap.insert(AutoSnapMesh::new(1234,567));
+            (*sc).autosnap = Some(autosnap);
             drop(sc);
         }
         
@@ -176,7 +209,8 @@ lazy_static! {
         // TODO: should read these limits from device, it might support fewer!
         vconsts_to_capture: 256,
         pconsts_to_capture: 224,
-        autosnap: HashSet::new(),
+        autosnap: None,
+        require_gpu: None,
     }));
 }
 
@@ -867,9 +901,16 @@ fn init_snapshot_mode() {
                 write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
             }).unwrap_or_default();
             
-            let expected_primverts:HashSet<(UINT,UINT)> = snap_conf.autosnap.iter().map(|m| (m.prims,m.verts) ).collect();
+            let expected_primverts:HashSet<(UINT,UINT)> = 
+                match snap_conf.autosnap.as_ref() {
+                    Some(hm) => hm.iter().map(|m| (m.prims,m.verts) ).collect(),
+                    None => {
+                        write_log_file("autosnap hashmap not populated, can't snap anim without it");
+                        return;
+                    },
+                };
             
-            let numcombos = snap_conf.autosnap.len();
+            let numcombos = expected_primverts.len();
             let mut anim_state = AnimSnapState {
                 next_vconst_idx: 0,
                 seen_all: false,
@@ -1605,13 +1646,14 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         }
     };
     
-    let (snap_anim_on_count,vconsts_to_capture,pconsts_to_capture) = match SNAP_CONFIG.read() {
-        Err(e) => {
-            write_log_file(&format!("failed to lock snap config: {}", e));
-            (0,0,0)
-        },
-        Ok(c) => (c.snap_anim_on_count, c.vconsts_to_capture, c.pconsts_to_capture)
-    };
+    let snap_conf = 
+        match SNAP_CONFIG.read() {
+            Err(e) => {
+                write_log_file(&format!("failed to lock snap config: {}", e));
+                SnapConfig::default()
+            },
+            Ok(c) => c.clone()
+        };
 
     let mut autosnap = false;
     
@@ -1627,7 +1669,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             *cap_count += 1;
             
             // ignore it if it isn't the target snap count
-            if *cap_count != snap_anim_on_count {
+            if *cap_count != snap_conf.snap_anim_on_count {
                 ();
             }
             else if ass.seen_all {
@@ -1643,7 +1685,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     write_log_file("too many constant captures!");
                 } else {
                     let next = &mut ass.sequence_vconstants[ass.next_vconst_idx];
-                    set_vconsts(THIS, vconsts_to_capture, &mut next.constants, false);
+                    set_vconsts(THIS, snap_conf.vconsts_to_capture, &mut next.constants, false);
                     // (*THIS).GetTransform(D3DTS_WORLD, std::mem::transmute(next.worldmat.m.as_mut_ptr()));
                     // (*THIS).GetTransform(D3DTS_VIEW, std::mem::transmute(next.viewmat.m.as_mut_ptr()));
                     // (*THIS).GetTransform(D3DTS_PROJECTION, std::mem::transmute(next.projmat.m.as_mut_ptr()));
@@ -1694,10 +1736,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         // constant tracking workaround: read back all the constants
         if constant_tracking::is_enabled() {
             GLOBAL_STATE.vertex_constants.as_mut().map(|vconsts| {
-                set_vconsts(THIS, vconsts_to_capture, vconsts, true);
+                set_vconsts(THIS, snap_conf.vconsts_to_capture, vconsts, true);
             });
             GLOBAL_STATE.pixel_constants.as_mut().map(|pconsts| {
-                set_pconsts(THIS, pconsts_to_capture, pconsts);
+                set_pconsts(THIS, snap_conf.pconsts_to_capture, pconsts);
             });
         }
         
@@ -1829,23 +1871,25 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                         });
                     }
                     
-                    // validate that shader is GPU animated
-                    use std::path::Path;
-                    let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
-                    if Path::new(&file).exists() {
-                        use std::fs;
-                        
-                        fs::read_to_string(&file).map_err(|e| {
-                            write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
-                        }).map(|contents| {
-                            if contents.contains("m4x4 oPos, v0, c0") {
-                                write_log_file("shader contains simple position multiply, likely not gpu animated, aborting snap");
-                                write_log_file(&format!("file: {}", &file));
-                                GLOBAL_STATE.is_snapping = false;
-                            }
-                        }).unwrap_or_default();
+                    // for animations, validate that shader is GPU animated
+                    if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
+                        use std::path::Path;
+                        let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
+                        if Path::new(&file).exists() {
+                            use std::fs;
+                            
+                            fs::read_to_string(&file).map_err(|e| {
+                                write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
+                            }).map(|contents| {
+                                if contents.contains("m4x4 oPos, v0, c0") {
+                                    write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
+                                    write_log_file(&format!("file: {}", &file));
+                                    GLOBAL_STATE.is_snapping = false;
+                                    GLOBAL_STATE.anim_snap_state = None;
+                                }
+                            }).unwrap_or_default();
+                        }
                     }
-                    //m4x4 oPos, v0, c0
                 }
             });
         }
