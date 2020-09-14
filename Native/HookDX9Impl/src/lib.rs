@@ -14,12 +14,8 @@ extern crate fnv;
 #[cfg(windows)]
 extern crate winapi;
 
-//#[macro_use]
-extern crate serde;
-extern crate serde_yaml;
 extern crate shared_dx9;
-
-extern crate bincode;
+extern crate snaplib;
 
 //#[cfg(test)]
 mod test_e2e;

@@ -19,7 +19,10 @@ use interop::InteropState;
 use interop::NativeModData;
 use util;
 use util::*;
-use constant_tracking;
+use constant_tracking as dev_constant_tracking;
+use snaplib::constant_tracking;
+
+//use constant_tracking;
 use shader_capture;
 use d3dx;
 
@@ -34,171 +37,13 @@ use shared_dx9::types::*;
 use shared_dx9::util::*;
 use shared_dx9::error::*;
 
-use serde::{Deserialize, Serialize};
+use snaplib::snap_config::{SnapConfig};
 
 const CLR_OK:u64 = 1;
 const CLR_FAIL:u64 = 666;
 
 const MAX_STAGE: usize = 16;
 
-// Snapshotting currently stops after a certain amount of real time has passed from the start of
-// the snap, specified by this constant.
-// One might expect that just snapping everything drawn within a single begin/end scene combo is
-// sufficient, but this often misses data,
-// and sometimes fails to snapshot anything at all.  This may be because the game is using multiple
-// begin/end combos, so maybe
-// present->present would be more reliable (TODO: check this)
-// Using a window makes it much more likely that something useful is captured, at the expense of
-// some duplicates; even though
-// some objects may still be missed.  Some investigation to make this more reliable would be useful.
-
-#[derive(Deserialize,Serialize,Eq,PartialEq,Copy,Clone,Debug,Hash)]
-pub struct AutoSnapMesh {
-    pub prims: UINT,
-    pub verts: UINT,
-}
-impl AutoSnapMesh {
-    fn new(prims:UINT, verts:UINT) -> Self {
-        Self {
-            prims,
-            verts
-        }
-    }
-}
-#[derive(Deserialize,Clone,Serialize,Default)]
-pub struct SnapConfig {
-    pub snap_ms: u32,
-    pub snap_anim: bool,
-    pub require_gpu: Option<bool>,
-    pub snap_anim_on_count: u32,
-    pub vconsts_to_capture: usize,
-    pub pconsts_to_capture: usize,
-    pub autosnap:Option<HashSet<AutoSnapMesh>>,
-}
-impl fmt::Display for SnapConfig {
-    // This trait requires `fmt` with this exact signature.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "SnapConfig {{")?;
-        writeln!(f, "  snap_ms: {}", self.snap_ms)?;
-        writeln!(f, "  snap_anim: {}", self.snap_anim)?;
-        if self.snap_anim {
-            writeln!(f, "  require gpu: true (due to snap anim)")?;
-        } else {
-            writeln!(f, "  require gpu: {:?}", self.require_gpu)?;
-        }
-        writeln!(f, "  snap_anim_on_count: {}", self.snap_anim_on_count)?;
-        writeln!(f, "  vconsts_to_capture: {}", self.vconsts_to_capture)?;
-        writeln!(f, "  pconsts_to_capture: {}", self.pconsts_to_capture)?;
-        if self.snap_anim {
-            writeln!(f, "  max sequences: {}", self.max_const_sequences())?;
-        }
-        match self.autosnap.as_ref() {
-            None => writeln!(f, "  no autosnap meshes")?,
-            Some(hm) => {
-                writeln!(f, "  autosnap meshes:")?;
-                for asm in hm.iter() {
-                    writeln!(f, "    {}p {}v", asm.prims, asm.verts )?;
-                }
-            }
-        }
-        
-        writeln!(f, "}}")
-    }
-}
-
-impl SnapConfig {
-    fn max_const_sequences(&self) -> usize {
-        let mut seqs = self.snap_ms / 1000 * 4096;
-        if seqs < 4096 {
-            seqs = 4096;
-        }
-        seqs as usize
-    }
-    
-    fn load() -> Result<()> {
-        write_log_file("loading snap config");
-        let ci = get_mm_conf_info();
-        let mm_root = match ci {
-            Ok((_, Some(dir))) => dir,
-            _ => {
-                return Err(HookError::CaptureFailed(format!(
-                    "Can't load mm snap config: {:?}", ci
-                )));
-            }
-        };
-        
-        use std::path::PathBuf;
-        let mut pb = PathBuf::from(&mm_root);
-        pb.push("\\snapconfig.yaml");
-        
-        if !pb.is_file() {
-            write_log_file(&format!("Snap confile does not exist: {:?}", pb));
-            write_log_file(&format!("Using defaults"));
-            return Ok(())
-        }
-                
-        use std::fs::File;
-        use std::io::BufReader;
-
-        let file = File::open(pb)?;
-        let reader = BufReader::new(file);
-        let s: SnapConfig = serde_yaml::from_reader(reader).map_err(|e| HookError::SnapshotFailed(format!("deserialize error: {}", e)))?;
-        
-        let mut sclock = SNAP_CONFIG.write().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
-        *sclock = s;
-        drop(sclock);
-        
-        let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
-        write_log_file(&format!("loaded snap config: {}", *sclock));
-        
-        Ok(())
-        
-    }
-    
-    // This is useful for generating a new config file
-    fn save() -> Result<()> {
-        write_log_file("saving snap config");
-        let ci = get_mm_conf_info();
-        let mm_root = match ci {
-            Ok((_, Some(dir))) => dir,
-            _ => {
-                return Err(HookError::CaptureFailed(format!(
-                    "Can't load mm snap config: {:?}", ci
-                )));
-            }
-        };
-        
-        use std::path::PathBuf;
-        let mut pb = PathBuf::from(&mm_root);
-        pb.push("\\snapconfig.yaml");
-        write_log_file(&format!("writing intial sc to {:?}", pb));
-        {
-            let sc = &mut SNAP_CONFIG.write().unwrap();
-            let mut autosnap = HashSet::new();
-            autosnap.insert(AutoSnapMesh::new(1234,567));
-            (*sc).autosnap = Some(autosnap);
-            drop(sc);
-        }
-        
-        write_log_file(&format!("reread sc for {:?}", pb));
-        let conf = SNAP_CONFIG.read().map_err(|e| {
-            // convert error here because I don't want to make shared dx9 depend on serde
-            HookError::SerdeError(format!("Serialization error: {:?}", e))
-        })?;
-        
-        write_log_file(&format!("cereal sc to {:?}", pb));
-        let s = serde_yaml::to_string(&*conf).map_err(|e| {
-            // convert error here because I don't want to make shared dx9 depend on serde
-            HookError::SerdeError(format!("Serialization error: {:?}", e))
-        })?;
-        
-        write_log_file(&format!("writef to {:?}", pb));
-        use std::io::Write;
-        let mut file = std::fs::File::create(&*pb.to_string_lossy())?;
-        file.write_all(&s.as_bytes())?;
-        Ok(())
-    }
-}
 use std::sync::RwLock;
 
 lazy_static! {
@@ -996,11 +841,24 @@ fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
+fn tryload_snap_config() -> Result<()> {
+    let (_,dir) = get_mm_conf_info()?;
+    let dir = dir.ok_or_else(|| HookError::SnapshotFailed("no mm root dir".to_owned()))?;
+    
+    let sc = SnapConfig::load(&dir)?;
+    let mut sclock = SNAP_CONFIG.write().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    *sclock = sc;
+    drop(sclock);
+    
+    let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    write_log_file(&format!("loaded snap config: {}", *sclock));
+    Ok(())
+}
 fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
-    SnapConfig::load().map_err(|e| {
+    tryload_snap_config().map_err(|e| {
         write_log_file(&format!("failed to load snap config: {:?}", e))
     }).unwrap_or_default();
-    
+
     unsafe { 
         init_toolbox().map_err(|e| {
             write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
@@ -1857,13 +1715,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
                     // write_log_file(&format!("snap save dir: {}", dir));
                     // write_log_file(&format!("snap prefix: {}", sprefix));
-                    constant_tracking::take_snapshot(&dir, &sprefix);
+                    dev_constant_tracking::take_snapshot(&dir, &sprefix);
                     shader_capture::take_snapshot(&dir, &sprefix);
 
-                    use constant_tracking::*;
                     if blendstates.len() > 0 {
                         let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
-                        let _r = write_obj_to_file(&file, false, &RenderStateMap {
+                        let _r = constant_tracking::write_obj_to_file(&file, false, &constant_tracking::RenderStateMap {
                             blendstates: blendstates,
                             tstagestates: tstagestates,
                         }).map_err(|e| {
@@ -2151,13 +2008,13 @@ unsafe fn hook_device(
         GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
         GLOBAL_STATE.pixel_constants = Some(constant_tracking::ConstantGroup::new());
 
-        (*vtbl).SetVertexShaderConstantF = constant_tracking::hook_set_vertex_sc_f;
-        (*vtbl).SetVertexShaderConstantI = constant_tracking::hook_set_vertex_sc_i;
-        (*vtbl).SetVertexShaderConstantB = constant_tracking::hook_set_vertex_sc_b;
+        (*vtbl).SetVertexShaderConstantF = dev_constant_tracking::hook_set_vertex_sc_f;
+        (*vtbl).SetVertexShaderConstantI = dev_constant_tracking::hook_set_vertex_sc_i;
+        (*vtbl).SetVertexShaderConstantB = dev_constant_tracking::hook_set_vertex_sc_b;
 
-        (*vtbl).SetPixelShaderConstantF = constant_tracking::hook_set_pixel_sc_f;
-        (*vtbl).SetPixelShaderConstantI = constant_tracking::hook_set_pixel_sc_i;
-        (*vtbl).SetPixelShaderConstantB = constant_tracking::hook_set_pixel_sc_b;
+        (*vtbl).SetPixelShaderConstantF = dev_constant_tracking::hook_set_pixel_sc_f;
+        (*vtbl).SetPixelShaderConstantI = dev_constant_tracking::hook_set_pixel_sc_i;
+        (*vtbl).SetPixelShaderConstantB = dev_constant_tracking::hook_set_pixel_sc_b;
     }
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 
