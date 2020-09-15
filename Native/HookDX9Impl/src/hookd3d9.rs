@@ -1508,7 +1508,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         match SNAP_CONFIG.read() {
             Err(e) => {
                 write_log_file(&format!("failed to lock snap config: {}", e));
-                SnapConfig::default()
+                SnapConfig::new()
             },
             Ok(c) => c.clone()
         };

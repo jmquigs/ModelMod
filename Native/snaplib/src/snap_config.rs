@@ -31,7 +31,7 @@ impl AutoSnapMesh {
         }
     }
 }
-#[derive(Deserialize,Clone,Serialize,Default)]
+#[derive(Deserialize,Clone,Serialize)]
 pub struct SnapConfig {
     pub snap_ms: u32,
     pub snap_anim: bool,
@@ -73,6 +73,17 @@ impl fmt::Display for SnapConfig {
 }
 
 impl SnapConfig {
+    pub fn new() -> Self {
+        Self {
+            snap_ms: 250,
+            snap_anim: false,
+            require_gpu: None,
+            snap_anim_on_count: 1,
+            vconsts_to_capture: 224,
+            pconsts_to_capture: 224,
+            autosnap: None,
+        }
+    }
     pub fn max_const_sequences(&self) -> usize {
         let mut seqs = self.snap_ms / 1000 * 4096;
         if seqs < 4096 {
@@ -91,7 +102,7 @@ impl SnapConfig {
         if !pb.is_file() {
             write_log_file(&format!("Snap confile does not exist: {:?}", pb));
             write_log_file(&format!("Using defaults"));
-            return Ok(Default::default())
+            return Ok(SnapConfig::new())
         }
                 
         use std::fs::File;
