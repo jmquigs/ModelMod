@@ -7,7 +7,7 @@ use winapi::shared::minwindef::*;
 
 //use hookd3d9::{ dev_state, GLOBAL_STATE };
 use shared_dx9::error::*;
-// use shared_dx9::util;
+use shared_dx9::util;
 
 // use std::collections::HashMap;
 use serde::{Serialize};
@@ -258,6 +258,33 @@ pub fn write_to_file(name:&str, constants:&ConstantGroup) -> Result<()> {
     file.write_all(s.as_bytes())?;
 
     Ok(())
+}
+
+/// Save specified pixel and shader constants to files.
+pub fn take_snapshot(snap_dir:&str, snap_prefix:&str, vconst:Option<&ConstantGroup>, pconst:Option<&ConstantGroup>) {
+    if !is_enabled() {
+        return;
+    }
+    if snap_dir != "" && snap_prefix != "" {
+        vconst.map(|vconst| {
+            let out = snap_dir.to_owned()  + "/" + snap_prefix + "_vconst.yaml";
+            util::write_log_file(&format!("saving vertex constants to file: {}", out));
+            write_to_file(&out, &vconst)
+                .unwrap_or_else(|e| {
+                    util::write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
+                });
+        });
+        pconst.map(|pconst| {
+            let out = snap_dir.to_owned()  + "/" + snap_prefix + "_pconst.yaml";
+            util::write_log_file(&format!("saving pixel constants to file: {}", out));
+            write_to_file(&out, &pconst)
+                .unwrap_or_else(|e| {
+                    util::write_log_file(&format!("ERROR: failed to write pixel constants: {:?}", e));
+                });
+        });
+    } else {
+        util::write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
+    }
 }
 
 

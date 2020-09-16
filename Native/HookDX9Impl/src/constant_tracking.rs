@@ -1,3 +1,15 @@
+// This module provides hook functions to store constants as they are set, rather than grabbing
+// a range of them at snapshot time.  
+//
+// Currently this is disabled (not compiled) because:
+// 1) some games won't use the Set* functions to set constants, I guess they are modifying the 
+// constant table in the shader or something.
+// 2) Grabbing them as they are set doesn't really help since you can't really be sure what the 
+// "active" set of constants is, at DIP time (without inspecting the shaders), 
+// you'd have to consider any constant that was set previously as still valid, so you still 
+// end up with a lot of extra constants.
+// 3) Grabbing them as they are set is probably slower.
+
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -7,37 +19,6 @@ use hookd3d9::{ dev_state, GLOBAL_STATE };
 use shared_dx9::util;
 
 pub use std::collections::HashMap;
-
-use snaplib::constant_tracking as snaplib_ct;
-
-/// Save current device pixel and shader constants to files.
-pub fn take_snapshot(snap_dir:&str, snap_prefix:&str) {
-    if !snaplib_ct::is_enabled() {
-        return;
-    }
-    if snap_dir != "" && snap_prefix != "" {
-        unsafe {
-            GLOBAL_STATE.vertex_constants.as_ref().map(|vconst| {
-                let out = snap_dir.to_owned()  + "/" + snap_prefix + "_vconst.yaml";
-                util::write_log_file(&format!("saving vertex constants to file: {}", out));
-                snaplib_ct::write_to_file(&out, &vconst)
-                    .unwrap_or_else(|e| {
-                        util::write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
-                    });
-            });
-            GLOBAL_STATE.pixel_constants.as_ref().map(|pconst| {
-                let out = snap_dir.to_owned()  + "/" + snap_prefix + "_pconst.yaml";
-                util::write_log_file(&format!("saving pixel constants to file: {}", out));
-                snaplib_ct::write_to_file(&out, &pconst)
-                    .unwrap_or_else(|e| {
-                        util::write_log_file(&format!("ERROR: failed to write pixel constants: {:?}", e));
-                    });
-            });
-        }
-    } else {
-        util::write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
-    }
-}
 
 pub unsafe extern "system" fn hook_set_vertex_sc_f(
     THIS: *mut IDirect3DDevice9,

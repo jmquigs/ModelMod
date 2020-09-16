@@ -28,7 +28,7 @@ mod hookd3d9;
 mod input;
 mod interop;
 mod util;
-mod constant_tracking;
+//mod constant_tracking; // disabled for now, using the one in snaplib
 mod shader_capture;
 mod d3dx;
 

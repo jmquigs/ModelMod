@@ -19,7 +19,7 @@ use interop::InteropState;
 use interop::NativeModData;
 use util;
 use util::*;
-use constant_tracking as dev_constant_tracking;
+//use constant_tracking as dev_constant_tracking;
 use snaplib::constant_tracking;
 
 //use constant_tracking;
@@ -1715,7 +1715,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
                     // write_log_file(&format!("snap save dir: {}", dir));
                     // write_log_file(&format!("snap prefix: {}", sprefix));
-                    dev_constant_tracking::take_snapshot(&dir, &sprefix);
+                    let vc = GLOBAL_STATE.vertex_constants.as_ref();
+                    let pc = GLOBAL_STATE.pixel_constants.as_ref();
+                    
+                    constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
                     shader_capture::take_snapshot(&dir, &sprefix);
 
                     if blendstates.len() > 0 {
@@ -2008,13 +2011,13 @@ unsafe fn hook_device(
         GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
         GLOBAL_STATE.pixel_constants = Some(constant_tracking::ConstantGroup::new());
 
-        (*vtbl).SetVertexShaderConstantF = dev_constant_tracking::hook_set_vertex_sc_f;
-        (*vtbl).SetVertexShaderConstantI = dev_constant_tracking::hook_set_vertex_sc_i;
-        (*vtbl).SetVertexShaderConstantB = dev_constant_tracking::hook_set_vertex_sc_b;
+        // (*vtbl).SetVertexShaderConstantF = dev_constant_tracking::hook_set_vertex_sc_f;
+        // (*vtbl).SetVertexShaderConstantI = dev_constant_tracking::hook_set_vertex_sc_i;
+        // (*vtbl).SetVertexShaderConstantB = dev_constant_tracking::hook_set_vertex_sc_b;
 
-        (*vtbl).SetPixelShaderConstantF = dev_constant_tracking::hook_set_pixel_sc_f;
-        (*vtbl).SetPixelShaderConstantI = dev_constant_tracking::hook_set_pixel_sc_i;
-        (*vtbl).SetPixelShaderConstantB = dev_constant_tracking::hook_set_pixel_sc_b;
+        // (*vtbl).SetPixelShaderConstantF = dev_constant_tracking::hook_set_pixel_sc_f;
+        // (*vtbl).SetPixelShaderConstantI = dev_constant_tracking::hook_set_pixel_sc_i;
+        // (*vtbl).SetPixelShaderConstantB = dev_constant_tracking::hook_set_pixel_sc_b;
     }
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 
