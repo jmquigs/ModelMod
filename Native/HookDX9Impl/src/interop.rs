@@ -40,6 +40,7 @@ pub enum ModType {
 // typedef WCHAR ModPath[MaxModTexPathLen];
 
 const MAX_TEX_PATH_LEN: usize = 8192;
+const MAX_MOD_NAME_LEN: usize = 1024;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -63,6 +64,9 @@ pub struct ModData {
     pub texPath1: [WCHAR; MAX_TEX_PATH_LEN],
     pub texPath2: [WCHAR; MAX_TEX_PATH_LEN],
     pub texPath3: [WCHAR; MAX_TEX_PATH_LEN],
+    pub modName: [WCHAR; MAX_MOD_NAME_LEN],
+    pub parentModName: [WCHAR; MAX_MOD_NAME_LEN],
+    pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
 }
 
 #[repr(C)]
@@ -100,6 +104,9 @@ pub struct NativeModData {
     pub ib: *mut hookd3d9::IDirect3DIndexBuffer9,
     pub decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
     pub textures: [hookd3d9::LPDIRECT3DTEXTURE9; 4],
+    pub is_parent: bool,
+    pub parent_mod_name: String,
+    pub last_frame_render: u64, // only set for parent mods
     //IDirect3DPixelShader9* pixelShader;
 }
 
@@ -107,6 +114,13 @@ impl NativeModData {
     pub fn mod_key(vert_count: u32, prim_count: u32) -> u32 {
         //https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
         ((vert_count + prim_count) * (vert_count + prim_count + 1) / 2) + prim_count
+    }
+    pub fn recently_rendered(&self, curr_frame_num:u64) -> bool {
+        if self.last_frame_render > curr_frame_num {
+            // we rendered in the future, so I guess that is recent?
+            return true;
+        }
+        curr_frame_num - self.last_frame_render <= 10 // last 150ms or so ought to be fine
     }
 }
 

@@ -104,6 +104,7 @@ pub struct HookState {
     pub interop_state: Option<InteropState>,
     //pub is_global: bool,
     pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
+    pub mods_by_name: Option<FnvHashMap<String,u32>>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<*mut IDirect3DBaseTexture9>>,
@@ -168,9 +169,9 @@ pub fn dev_state() -> &'static mut DeviceState {
 pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
     interop_state: None,
-
     //is_global: true,
     loaded_mods: None,
+    mods_by_name: None,
     active_texture_set: None,
     active_texture_list: None,
     making_selection: false,
@@ -357,7 +358,13 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
 
     let mut loaded_mods: FnvHashMap<u32, interop::NativeModData> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
+    // map of modname -> mod key, which can then be indexed into loaded mods.  used by 
+    // child mods to find the parent.
+    let mut mods_by_name: FnvHashMap<String,u32> = 
+        FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
 
+    // temporary list of all mods that have been referenced as a parent by something
+    let mut parent_mods:HashSet<String> = HashSet::new();
     for midx in 0..mod_count {
         let mdat: *mut interop::ModData = (callbacks.GetModData)(midx);
 
@@ -365,7 +372,14 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             write_log_file(&format!("null mod at index {}", midx));
             continue;
         }
-
+        let mod_name = util::from_wide_str(&(*mdat).modName).unwrap_or_else(|_e| "".to_owned());
+        let mod_name = mod_name.trim().to_owned();
+        let parent_mod = util::from_wide_str(&(*mdat).parentModName).unwrap_or_else(|_e| "".to_owned());
+        let parent_mod = parent_mod.trim().to_owned();
+        write_log_file(&format!("Initializing mod: {}", mod_name));
+        if !parent_mod.is_empty() {
+            write_log_file(&format!("Parent mod: {}", mod_name));
+        }
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
             && mod_type != interop::ModType::Deletion as i32
@@ -386,6 +400,9 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             ib: null_mut(),
             decl: null_mut(),
             textures: [null_mut(); 4],
+            is_parent: false,
+            parent_mod_name: "".to_owned(),
+            last_frame_render: 0,
         };
 
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
@@ -434,8 +451,6 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             ));
             return;
         }
-
-        // TODO: // this->add(nModData.vb);
 
         let vb = *out_vb;
 
@@ -508,14 +523,47 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             native_mod_data.mod_data.numbers.ref_vert_count as u32,
             native_mod_data.mod_data.numbers.ref_prim_count as u32,
         );
+        if !parent_mod.is_empty() {
+            native_mod_data.parent_mod_name = parent_mod.to_lowercase();
+            parent_mods.insert(native_mod_data.parent_mod_name.clone());
+        }
+        // TODO: is hashing the generated mod key better than just hashing a tuple of prims,verts?
+        // For all I know I'm getting a linked list.
         loaded_mods.insert(mod_key, native_mod_data);
-
+        if !mod_name.is_empty() {
+            // names are case insensitive
+            let mod_name = mod_name.to_lowercase();
+            if mods_by_name.contains_key(&mod_name) {
+                write_log_file(&format!("error, duplicate mod name: ignoring dup: {}", mod_name));
+            } else {
+                mods_by_name.insert(mod_name, mod_key);
+            }
+        }
         write_log_file(&format!(
             "allocated vb/decl for mod data {}: {:?}",
             midx,
             (*mdat).numbers
         ));
     }
+    
+    // mark all parent mods as such, and also warn about any parents that didn't load
+    let mut resolved_parents = 0;
+    let num_parents = parent_mods.len();
+    for parent in parent_mods {
+        match mods_by_name.get(&parent) {
+            None => write_log_file(&format!("error, mod referenced as parent failed to load: {}", parent)),
+            Some(modkey) => {
+                match loaded_mods.get_mut(modkey) {
+                    None => write_log_file(&format!("error, mod referenced as parent was found, but no loaded: {}", parent)),
+                    Some(nmdata) => {
+                        resolved_parents += 1;
+                        nmdata.is_parent = true
+                    }
+                }
+            }
+        }
+    }
+    write_log_file(&format!("resolved {} of {} parent mods", resolved_parents, num_parents));
 
     // get new ref count
     (*device).AddRef();
@@ -528,6 +576,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     ));
 
     GLOBAL_STATE.loaded_mods = Some(loaded_mods);
+    GLOBAL_STATE.mods_by_name = Some(mods_by_name);
 }
 
 pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
@@ -1761,13 +1810,62 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     let mut drew_mod = false;
 
     // if there is a matching mod, render it
-    let modded = GLOBAL_STATE
-        .loaded_mods
-        .as_ref()
+    let modded = 
+        GLOBAL_STATE.loaded_mods.as_mut()
         .and_then(|mods| {
             profile_end!(hdip, mod_key_prep);
             profile_start!(hdip, mod_key_lookup);
             let mod_key = NativeModData::mod_key(NumVertices, primCount);
+            let r = mods.get(&mod_key);
+            // just get out of here if we didn't have a match
+            if let None = r {
+                profile_end!(hdip, mod_key_lookup);
+                return None;
+            }
+            // found a mod.  do some more checks to see if it has a parent, and if the parent
+            // is active
+            let r2 = r.and_then(|nmod| {
+                if !nmod.parent_mod_name.is_empty() {
+                    GLOBAL_STATE.mods_by_name.as_ref() 
+                        .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
+                        .and_then(|parmodkey| mods.get(parmodkey))
+                        .and_then(|parent_mod| {
+                            if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
+                                // parent is active, so child can render
+                                Some(nmod)
+                            } else {
+                                // parent not active, so hide child
+                                None
+                            }
+                        })
+                } else {
+                    Some(nmod)
+                }
+            });
+            // return if we aren't rendering it.
+            if let None = r2 {
+                profile_end!(hdip, mod_key_lookup);
+                return None;
+            }
+            // ok, we're rendering it, but it might be a parent mod too, so we have to set 
+            // the last frame on it, which requires a mutable reference.  we couldn't use a 
+            // mutable ref earlier, because we had to do two lookups on the hash table.
+            // so we have to refetch as mutable, set the frame value and then (for safety)
+            // refetch as immutable again so that we can pass that value on.  that's three
+            // hash lookups guaranteed but fortunately we're only doing this for active mods.
+            // we also can't be clever and return an immutable ref now if it isn't a parent, 
+            // because we won't be able to even write the code that checks for the parent 
+            // since it would require the get_mut call and thus a mutable and immutable ref 
+            // would be active at the same time.
+            // TODO: this bullshit could be avoided by using a refcell on the native mods.
+            drop(r);
+            drop(r2);
+            mods.get_mut(&mod_key).and_then(|nmod| {
+                if nmod.is_parent {
+                    nmod.last_frame_render = GLOBAL_STATE.metrics.total_frames;
+                }
+                Some(nmod)
+            });
             let r = mods.get(&mod_key);
             profile_end!(hdip, mod_key_lookup);
             r
