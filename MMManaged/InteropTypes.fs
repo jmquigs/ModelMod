@@ -69,6 +69,10 @@ module InteropTypes =
         Tex2Path: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         Tex3Path: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=1024)>]
+        ModName: string
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=1024)>]
+        ParentModName: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         PixelShaderPath: string
     }
@@ -89,6 +93,8 @@ module InteropTypes =
         Tex1Path = ""
         Tex2Path = ""
         Tex3Path = ""
+        ModName = "" 
+        ParentModName = ""
         PixelShaderPath = ""
     }
 

@@ -198,6 +198,8 @@ module ModDB =
 
             mesh,modType,weightMode,attrs
 
+        let parentModName = node |> Yaml.getOptionalValue "ParentModName" |> Yaml.toOptionalString
+
         let md = { 
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
@@ -206,6 +208,7 @@ module ModDB =
             WeightMode = weightMode
             Attributes = attrs
             PixelShader = pixelShader
+            ParentModName = parentModName
         }
 
         let numOverrideTextures = 

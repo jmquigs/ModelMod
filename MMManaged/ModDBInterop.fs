@@ -223,6 +223,12 @@ module ModDBInterop =
         let vertSizeBytes = vertSize
         let indexElemSizeBytes = 0
 
+        let mname = meshrel.DBMod.Name
+        let parentModName = 
+            match meshrel.DBMod.ParentModName with 
+            | None -> ""
+            | Some(name) -> name
+
         {
             InteropTypes.ModData.ModType = modType
             PrimType = primType
@@ -239,6 +245,8 @@ module ModDBInterop =
             Tex2Path = modm.Tex2Path
             Tex3Path = modm.Tex3Path
             PixelShaderPath = meshrel.DBMod.PixelShader
+            ModName = mname
+            ParentModName = parentModName
         }
 
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.

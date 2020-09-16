@@ -280,6 +280,7 @@ module CoreTypes =
         WeightMode: WeightMode
         PixelShader: string
         Attributes: ModAttributes
+        ParentModName: string option
     }
 
     /// Union Parent type for the yaml objects.
