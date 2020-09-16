@@ -484,23 +484,10 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         native_mod_data.decl = out_decl;
 
         let load_tex = |texpath:&[u16]| {
-            use std::ffi::OsString;
-            use std::os::windows::ffi::OsStringExt;
-    
-            // find the "null terminator" - of course this is a wide string so this isn't really valid,
-            // but the managed code fills in the whole array with null, and it looks like from_wide 
-            // just happily treats those as part of the string.  this would probably break paths 
-            // that actually have unicode in them, but oh well.
-            let mut null_pos = 0;
-            for (i,c) in texpath.iter().enumerate() {
-                if *c == 0 {
-                    null_pos = i;
-                    break;
-                }
-            }
-            
-            let tex = OsString::from_wide(&texpath[0..null_pos]);
-            let tex = tex.as_os_str().to_string_lossy();
+            let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
+                write_log_file(&format!("failed to load texture: {:?}", e));
+                "".to_owned()
+            });
             let tex = tex.trim();
             
             let mut outtex = null_mut();
