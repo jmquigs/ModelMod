@@ -226,7 +226,34 @@ pub fn get_managed_dll_path(mm_root: &str) -> Result<String> {
                 .and_then(|spath| Ok(String::from(spath)))
         })
 }
+pub fn from_wide_str(ws: &[u16]) -> Result<String> {
+    use std::os::windows::prelude::*;
+    // use winapi::shared::minwindef::DWORD;
+    // use winapi::um::libloaderapi::*;
 
+    // HACK: should use the widestring crate
+    // find the "null terminator". I don't have a great understanding of wide strings but I think 
+    // its valid for some to be null terminated, but maybe not all.
+    // the MM managed code will fill in the whole array with null, and it looks like from_wide 
+    // just happily treats those as part of the string - i.e finding the length is our problem.
+    // this would probably break paths that actually have certain unicode chars in them, but oh well.
+    let mut null_pos = None;
+    for (i,c) in ws.iter().enumerate() {
+        if *c == 0 {
+            null_pos = Some(i);
+            break;
+        }
+    }
+    let ws = match null_pos {
+        Some(pos) => &ws[0..pos],
+        None => ws
+    };
+
+    let len = ws.len();
+    let s = unsafe { std::slice::from_raw_parts(ws.as_ptr(), len as usize) };
+    let s = OsString::from_wide(&s).into_string()?;
+    Ok(s)
+}
 pub fn to_wide_str(s: &str) -> Vec<u16> {
     use std::ffi::OsStr;
     use std::iter::once;
