@@ -107,6 +107,7 @@ pub struct NativeModData {
     pub is_parent: bool,
     pub parent_mod_name: String,
     pub last_frame_render: u64, // only set for parent mods
+    pub name: String,
     //IDirect3DPixelShader9* pixelShader;
 }
 
