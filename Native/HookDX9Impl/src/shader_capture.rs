@@ -1,6 +1,6 @@
 use shared_dx9::error::*;
 use shared_dx9::util;
-use hookd3d9::{ GLOBAL_STATE };
+use hook_render::{ GLOBAL_STATE };
 
 use util::ReleaseOnDrop;
 

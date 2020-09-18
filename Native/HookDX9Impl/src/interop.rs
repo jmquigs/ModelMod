@@ -1,7 +1,7 @@
 use std::os::raw::c_char;
 use winapi::um::winnt::WCHAR;
 
-use hookd3d9;
+use hook_render;
 use std;
 use util;
 use d3dx;
@@ -80,9 +80,9 @@ pub struct SnapshotData {
     pub prim_count: u32,
 
     /// Vertex buffer pointer
-    pub vert_decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
+    pub vert_decl: *mut hook_render::IDirect3DVertexDeclaration9,
     /// Index buffer pointer
-    pub index_buffer: *mut hookd3d9::IDirect3DIndexBuffer9,
+    pub index_buffer: *mut hook_render::IDirect3DIndexBuffer9,
 }
 
 #[repr(C)]
@@ -100,10 +100,10 @@ pub struct NativeModData {
     pub vb_data: *mut c_char,
     pub ib_data: *mut c_char,
     pub decl_data: *mut c_char,
-    pub vb: *mut hookd3d9::IDirect3DVertexBuffer9,
-    pub ib: *mut hookd3d9::IDirect3DIndexBuffer9,
-    pub decl: *mut hookd3d9::IDirect3DVertexDeclaration9,
-    pub textures: [hookd3d9::LPDIRECT3DTEXTURE9; 4],
+    pub vb: *mut hook_render::IDirect3DVertexBuffer9,
+    pub ib: *mut hook_render::IDirect3DIndexBuffer9,
+    pub decl: *mut hook_render::IDirect3DVertexDeclaration9,
+    pub textures: [hook_render::LPDIRECT3DTEXTURE9; 4],
     pub is_parent: bool,
     pub parent_mod_name: String,
     pub last_frame_render: u64, // only set for parent mods
@@ -140,7 +140,7 @@ type FillModDataCB = unsafe extern "stdcall" fn(
     ibSize: i32,
 ) -> i32;
 type TakeSnapshotCB = unsafe extern "stdcall" fn(
-    device: *mut hookd3d9::IDirect3DDevice9,
+    device: *mut hook_render::IDirect3DDevice9,
     snapdata: *mut SnapshotData,
 ) -> i32;
 type GetSnapshotResultCB = unsafe extern "stdcall" fn() -> *mut SnapshotResult;
@@ -239,7 +239,7 @@ pub unsafe extern "stdcall" fn OnInitialized(
         "OnInitialized called with global state address: {}",
         global_state_pointer
     ));
-    let local_gs_addr = hookd3d9::get_global_state_ptr() as u64;
+    let local_gs_addr = hook_render::get_global_state_ptr() as u64;
     if global_state_pointer != local_gs_addr {
         write_log_file(&format!(
             "WARNING: OnInitialized's global state address {:x} differs from input param {:x}",
@@ -247,8 +247,8 @@ pub unsafe extern "stdcall" fn OnInitialized(
         ));
     }
 
-    let global_hookstate: *mut hookd3d9::HookState =
-        global_state_pointer as *mut hookd3d9::HookState;
+    let global_hookstate: *mut hook_render::HookState =
+        global_state_pointer as *mut hook_render::HookState;
 
     if global_hookstate == std::ptr::null_mut() {
         write_log_file("error: global state pointer is null");

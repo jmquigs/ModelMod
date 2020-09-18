@@ -7,7 +7,7 @@ use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 use winapi::um::winnt::HRESULT;
 use winapi::um::winnt::{HANDLE, LPCSTR, LPCWSTR, LPWSTR};
 
-use hookd3d9;
+use hook_render;
 use std;
 use std::ptr::null_mut;
 use util;
@@ -237,7 +237,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
 
         write_log_file(&format!("Loading managed dll {} into CLR", managed_dll));
 
-        let global_state_ptr = hookd3d9::get_global_state_ptr();
+        let global_state_ptr = hook_render::get_global_state_ptr();
         // can only pass one argument (a string), so delimit the arguments with pipe
         write_log_file(&format!(
             "using '{}' load context for CLR",
@@ -305,7 +305,7 @@ mod tests {
         //     assert!(false, "Expected Ok but got {:?}", err)
         // });
         // .map(|r| {
-        //     hookd3d9::hook_begin_scene()
+        //     hook_render::hook_begin_scene()
 
         // });
     }

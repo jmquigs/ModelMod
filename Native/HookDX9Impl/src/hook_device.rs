@@ -14,8 +14,8 @@ use input;
 use util;
 use util::*;
 use constant_tracking;
-use crate::hookd3d9::{DEVICE_STATE, GLOBAL_STATE, GLOBAL_STATE_LOCK};
-use crate::hookd3d9::{hook_present, hook_draw_indexed_primitive, hook_release};
+use crate::hook_render::{DEVICE_STATE, GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release};
 
 /*
 Would be nice to move this into a separate crate, but it needs to know about the device functions

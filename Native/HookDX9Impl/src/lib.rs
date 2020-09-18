@@ -26,7 +26,7 @@ mod test_e2e;
 mod profile;
 
 mod dnclr;
-mod hookd3d9;
+mod hook_render;
 mod input;
 mod interop;
 mod util;
@@ -40,11 +40,11 @@ mod hook_device;
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
 
-pub use hookd3d9::Direct3DCreate9;
-pub use hookd3d9::D3DPERF_BeginEvent;
-pub use hookd3d9::D3DPERF_EndEvent;
-pub use hookd3d9::D3DPERF_SetMarker;
-pub use hookd3d9::D3DPERF_SetRegion;
-pub use hookd3d9::D3DPERF_QueryRepeatFrame;
-pub use hookd3d9::D3DPERF_SetOptions;
-pub use hookd3d9::D3DPERF_GetStatus;
+pub use hook_render::Direct3DCreate9;
+pub use hook_render::D3DPERF_BeginEvent;
+pub use hook_render::D3DPERF_EndEvent;
+pub use hook_render::D3DPERF_SetMarker;
+pub use hook_render::D3DPERF_SetRegion;
+pub use hook_render::D3DPERF_QueryRepeatFrame;
+pub use hook_render::D3DPERF_SetOptions;
+pub use hook_render::D3DPERF_GetStatus;
