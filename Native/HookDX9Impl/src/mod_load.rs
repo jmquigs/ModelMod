@@ -15,6 +15,13 @@ use std::ptr::null_mut;
 use shared_dx9::util::*;
 use crate::hookd3d9::{dev_state, DEVICE_STATE, GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
+pub enum AsyncLoadState {
+    NotStarted = 51,
+    Pending,
+    InProgress,
+    Complete,
+}
+
 pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let lock = GLOBAL_STATE_LOCK.lock();
     if let Err(_e) = lock {
