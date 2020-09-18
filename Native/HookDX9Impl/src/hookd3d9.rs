@@ -103,7 +103,7 @@ pub struct HookState {
     pub clr_pointer: Option<u64>,
     pub interop_state: Option<InteropState>,
     //pub is_global: bool,
-    pub loaded_mods: Option<FnvHashMap<u32, interop::NativeModData>>,
+    pub loaded_mods: Option<FnvHashMap<u32, Vec<interop::NativeModData>>>,
     pub mods_by_name: Option<FnvHashMap<String,u32>>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
@@ -284,26 +284,29 @@ unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let mods = GLOBAL_STATE.loaded_mods.take();
     let mut cnt = 0;
     mods.map(|mods| {
-        for (_key, nmd) in mods.into_iter() {
-            cnt += 1;
-            if nmd.vb != null_mut() {
-                (*nmd.vb).Release();
-            }
-            if nmd.ib != null_mut() {
-                (*nmd.ib).Release();
-            }
-            if nmd.decl != null_mut() {
-                (*nmd.decl).Release();
-            }
-            
-            for tex in nmd.textures.iter() {
-                if *tex != null_mut() {
-                    let tex = *tex as *mut IDirect3DBaseTexture9;
-                    (*tex).Release();
+        for (_key, modvec) in mods.into_iter() {
+            for nmd in modvec {
+                cnt += 1;
+                if nmd.vb != null_mut() {
+                    (*nmd.vb).Release();
+                }
+                if nmd.ib != null_mut() {
+                    (*nmd.ib).Release();
+                }
+                if nmd.decl != null_mut() {
+                    (*nmd.decl).Release();
+                }
+                
+                for tex in nmd.textures.iter() {
+                    if *tex != null_mut() {
+                        let tex = *tex as *mut IDirect3DBaseTexture9;
+                        (*tex).Release();
+                    }
                 }
             }
         }
     });
+    GLOBAL_STATE.mods_by_name = None;
 
     (*device).AddRef();
     let post_rc = (*device).Release();
@@ -356,7 +359,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
     (*device).AddRef();
     let pre_rc = (*device).Release();
 
-    let mut loaded_mods: FnvHashMap<u32, interop::NativeModData> =
+    let mut loaded_mods: FnvHashMap<u32, Vec<interop::NativeModData>> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
     // map of modname -> mod key, which can then be indexed into loaded mods.  used by 
     // child mods to find the parent.
@@ -376,10 +379,13 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
         let mod_name = mod_name.trim().to_owned();
         let parent_mod = util::from_wide_str(&(*mdat).parentModName).unwrap_or_else(|_e| "".to_owned());
         let parent_mod = parent_mod.trim().to_owned();
-        write_log_file(&format!("Initializing mod: {}", mod_name));
-        if !parent_mod.is_empty() {
-            write_log_file(&format!("Parent mod: {}", mod_name));
-        }
+        let (prims,verts) = if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
+            ((*mdat).numbers.ref_prim_count as u32,(*mdat).numbers.ref_vert_count as u32)
+        } else {
+            ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
+        };
+        write_log_file(&format!("==> Initializing mod: name '{}', parent '{}', type {}, prims {}, verts {}", 
+            mod_name, parent_mod, (*mdat).numbers.mod_type, prims, verts));
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
             && mod_type != interop::ModType::Deletion as i32
@@ -391,6 +397,8 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             continue;
         }
 
+        // names are case insensitive
+        let mod_name = mod_name.to_lowercase();
         let mut native_mod_data = interop::NativeModData {
             mod_data: (*mdat),
             vb_data: null_mut(),
@@ -403,6 +411,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             is_parent: false,
             parent_mod_name: "".to_owned(),
             last_frame_render: 0,
+            name: mod_name.to_owned(),
         };
 
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
@@ -411,7 +420,7 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
                 native_mod_data.mod_data.numbers.ref_prim_count as u32,
             );
 
-            loaded_mods.insert(hash_code, native_mod_data);
+            loaded_mods.entry(hash_code).or_insert(vec![]).push(native_mod_data);
             // thats all we need to do for these.
             continue;
         }
@@ -528,11 +537,8 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             parent_mods.insert(native_mod_data.parent_mod_name.clone());
         }
         // TODO: is hashing the generated mod key better than just hashing a tuple of prims,verts?
-        // For all I know I'm getting a linked list.
-        loaded_mods.insert(mod_key, native_mod_data);
+        loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
         if !mod_name.is_empty() {
-            // names are case insensitive
-            let mod_name = mod_name.to_lowercase();
             if mods_by_name.contains_key(&mod_name) {
                 write_log_file(&format!("error, duplicate mod name: ignoring dup: {}", mod_name));
             } else {
@@ -555,15 +561,46 @@ unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::Mana
             Some(modkey) => {
                 match loaded_mods.get_mut(modkey) {
                     None => write_log_file(&format!("error, mod referenced as parent was found, but no loaded: {}", parent)),
-                    Some(nmdata) => {
-                        resolved_parents += 1;
-                        nmdata.is_parent = true
+                    Some(nmdatavec) => {
+                        for nmdata in nmdatavec.iter_mut() {
+                            if nmdata.name == parent {
+                                resolved_parents += 1;
+                                nmdata.is_parent = true
+                            }
+                        }
                     }
                 }
             }
         }
     }
     write_log_file(&format!("resolved {} of {} parent mods", resolved_parents, num_parents));
+    
+    // verify that all multi-mod cases have parent mod names set.
+    for nmodv in loaded_mods.values() {
+        if nmodv.len() <= 1 {
+            continue
+        }
+        // in a multimod case, all mods must have parents, and the parents have to be different
+        // names.
+        let mut parent_names: HashSet<String> = HashSet::new();
+        for nmod in nmodv.iter() {
+            if nmod.parent_mod_name.is_empty() {
+                write_log_file(&format!("Error: mod '{}' ({} prims,{} verts) has no parent \
+mod but it overlaps with another mod.  This won't render correctly.",
+                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count));
+            } else {
+                parent_names.insert(nmod.parent_mod_name.to_string());
+            }
+            
+        }
+        if nmodv.len() != parent_names.len() {
+            write_log_file("Error: mod overlap found, check that all of these mods have proper/unique parents:");
+            for nmod in nmodv.iter() {
+                write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parent: {}",
+                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count, nmod.parent_mod_name));
+            }
+        }
+    }
 
     // get new ref count
     (*device).AddRef();
@@ -1822,24 +1859,58 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 profile_end!(hdip, mod_key_lookup);
                 return None;
             }
-            // found a mod.  do some more checks to see if it has a parent, and if the parent
-            // is active
-            let r2 = r.and_then(|nmod| {
-                if !nmod.parent_mod_name.is_empty() {
-                    GLOBAL_STATE.mods_by_name.as_ref() 
-                        .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
-                        .and_then(|parmodkey| mods.get(parmodkey))
-                        .and_then(|parent_mod| {
-                            if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
-                                // parent is active, so child can render
-                                Some(nmod)
-                            } else {
-                                // parent not active, so hide child
-                                None
-                            }
-                        })
+            // found at least one mod.  do some more checks to see if each has a parent, and if the parent
+            // is active.  count the active parents we find because if more than one is active, 
+            // we have ambiguity and can't render any of them.
+            let mut target_mod_index:usize = 0;
+            let mut active_parent_name:&str = "";
+            let r2 = r.and_then(|nmods| {
+                let mut num_active_parents = 0;
+                for (midx,nmod) in nmods.iter().enumerate() {
+                    if !nmod.parent_mod_name.is_empty() {
+                        GLOBAL_STATE.mods_by_name.as_ref() 
+                            .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
+                            .and_then(|parmodkey| mods.get(parmodkey))
+                            .map(|parent_mods| {
+                                // count any active parents
+                                for parent_mod in parent_mods.iter() {
+                                    if num_active_parents > 1 {
+                                        // fail, ambiguity
+                                        break;
+                                    }
+                                    if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
+                                        // parent is active
+                                        num_active_parents += 1;
+                                        
+                                        // if this parent is for the mod we are looking at, 
+                                        // remember that mod index.  not that we'll slam this if we 
+                                        // have multiple active parents for multiple mods, 
+                                        // but we are screwed anyway in that case.
+                                        if nmod.parent_mod_name == parent_mod.name {
+                                            active_parent_name = &parent_mod.name;
+                                            target_mod_index = midx;
+                                        }
+                                    }
+                                }
+                            });
+                    } 
+                }
+                // return Some(()) if we found a valid one.
+                // if multiple mods but only one parent, we're good
+                if nmods.len() > 1 && num_active_parents == 1 {
+                    // write_log_file(&format!("rend mod {} because just one active parent named '{}'", 
+                    //     nmods[target_mod_index].name, active_parent_name));
+                    Some(())
+                }
+                // if just one mod it doesn't have a parent, or if it does and there is just one parent,
+                // also good.
+                else if nmods.len() == 1 && (nmods[0].parent_mod_name.is_empty() || num_active_parents == 1) {
+                    // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents", 
+                    // nmods[target_mod_index].name, nmods[0].parent_mod_name, num_active_parents));
+
+                    Some(())
                 } else {
-                    Some(nmod)
+                    None
                 }
             });
             // return if we aren't rendering it.
@@ -1860,13 +1931,25 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             // TODO: this bullshit could be avoided by using a refcell on the native mods.
             drop(r);
             drop(r2);
-            mods.get_mut(&mod_key).and_then(|nmod| {
-                if nmod.is_parent {
-                    nmod.last_frame_render = GLOBAL_STATE.metrics.total_frames;
+            mods.get_mut(&mod_key).map(|nmods| {
+                if target_mod_index >= nmods.len() {
+                    // error, spam the log i guess
+                    write_log_file(&format!("selected target mod index {} exceeds number of mods {}", 
+                        target_mod_index, nmods.len()));
+                } else {
+                    let nmod = &mut nmods[target_mod_index];
+                    if nmod.is_parent {
+                        nmod.last_frame_render = GLOBAL_STATE.metrics.total_frames;
+                    }
                 }
-                Some(nmod)
             });
-            let r = mods.get(&mod_key);
+            let r = mods.get(&mod_key).and_then(|nmods| {
+                if target_mod_index < nmods.len() {
+                    Some(&nmods[target_mod_index])
+                } else { 
+                    None
+                }
+            });
             profile_end!(hdip, mod_key_lookup);
             r
         })

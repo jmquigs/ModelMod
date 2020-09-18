@@ -52,11 +52,20 @@ module ModDB =
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))
             |> List.map (fun imod ->
                 imod.Attributes.DeletedGeometry |> List.map (fun delPair -> 
+                    let parentMod = 
+                        match imod.ParentModName with 
+                        | Some(par) -> par
+                        | None -> ""
+
                     { InteropTypes.EmptyModData with
                         InteropTypes.ModData.ModType = 5
                         PrimType = 4
+                        VertCount = delPair.VertCount
+                        PrimCount = delPair.PrimCount
                         RefVertCount = delPair.VertCount
                         RefPrimCount = delPair.PrimCount
+                        ModName = imod.Name
+                        ParentModName = parentMod
                     }
                 )
             )
