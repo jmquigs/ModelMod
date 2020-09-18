@@ -54,6 +54,7 @@ static SNAP_MS: u32 = 250;
 pub struct FrameMetrics {
     pub dip_calls: u32,
     pub frames: u32,
+    pub total_frames: u64,
     pub last_call_log: SystemTime,
     pub last_frame_log: SystemTime,
     pub last_fps: f64,
@@ -155,6 +156,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     metrics: FrameMetrics {
         dip_calls: 0,
         frames: 0,
+        total_frames: 0,
         last_call_log: std::time::UNIX_EPOCH,
         last_frame_log: std::time::UNIX_EPOCH,
         last_fps_update: std::time::UNIX_EPOCH,
@@ -708,6 +710,7 @@ pub unsafe extern "system" fn hook_present(
         .as_mut()
         .map_or(S_OK, |hookdevice| {
             metrics.frames += 1;
+            metrics.total_frames += 1;
             if metrics.frames % 90 == 0 {
                 // enforce min fps
                 // NOTE: when low, it just sets a boolean flag to disable mod rendering,
