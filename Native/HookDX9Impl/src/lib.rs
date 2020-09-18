@@ -33,6 +33,7 @@ mod util;
 mod constant_tracking;
 mod shader_capture;
 mod d3dx;
+mod mod_load;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
