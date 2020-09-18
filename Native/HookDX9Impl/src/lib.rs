@@ -35,6 +35,7 @@ mod shader_capture;
 mod d3dx;
 mod mod_load;
 mod input_commands;
+mod hook_device;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};

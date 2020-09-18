@@ -3,8 +3,6 @@ use winapi::shared::windef::HWND;
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{DefWindowProcA, DispatchMessageA, PeekMessageA, PostQuitMessage,
                           TranslateMessage, MSG, PM_REMOVE, WM_DESTROY};
-
-use hookd3d9;
 use std;
 
 lazy_static! {
@@ -79,7 +77,7 @@ fn test_e2e() {
     use winapi::shared::d3d9::*;
     use winapi::shared::d3d9types::*;
 
-    let d3d9 = hookd3d9::create_d3d9(32).expect("failed to create d3d9");
+    let d3d9 = crate::hook_device::create_d3d9(32).expect("failed to create d3d9");
     // create a device
     let hwnd = create_test_window();
 

@@ -4,9 +4,6 @@
 			"path": "HookDX9Impl"
 		},
 		{
-			"path": "HookDX9Device"
-		},
-		{
 			"path": "SharedDX9"
 		}
 	],
