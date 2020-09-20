@@ -1,4 +1,6 @@
 
+// This lib is disabled for now since I don't use this.
+// Constants are captured in one shot during snapshot.
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;

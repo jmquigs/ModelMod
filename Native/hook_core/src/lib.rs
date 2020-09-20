@@ -27,7 +27,7 @@ extern crate profiler;
 mod hook_render;
 mod input_commands;
 mod hook_device;
-mod hook_constants;
+//mod hook_constants;
 mod toolbox;
 
 pub use interop::{LogError, LogInfo, LogWarn};
