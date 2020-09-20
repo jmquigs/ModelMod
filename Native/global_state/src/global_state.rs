@@ -15,6 +15,8 @@ use types::interop;
 use types::native_mod;
 use types::d3dx;
 
+use snaplib::anim_snap_state::AnimSnapState;
+
 pub (crate) const MAX_STAGE: usize = 16;
 
 pub struct FrameMetrics {
@@ -55,6 +57,7 @@ pub struct HookState {
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
+    pub anim_snap_state: Option<AnimSnapState>,
 }
 
 impl HookState {
@@ -79,9 +82,9 @@ lazy_static! {
 }
 
 // TODO: maybe create read/write accessors for this
-// TODO: actually the way global state is handled is super gross.  at a minimum it seems 
-// like it should be a behind a RW lock, and if I made it a pointer/box I could get rid of some 
-// of the option types that are only there due to Rust limitations on what can be used to 
+// TODO: actually the way global state is handled is super gross.  at a minimum it seems
+// like it should be a behind a RW lock, and if I made it a pointer/box I could get rid of some
+// of the option types that are only there due to Rust limitations on what can be used to
 // init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
@@ -105,7 +108,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     snap_start: std::time::UNIX_EPOCH,
     vertex_constants: None,
     pixel_constants: None,
-
+    anim_snap_state: None,
     d3dx_fn: None,
     device: None,
     metrics: FrameMetrics {

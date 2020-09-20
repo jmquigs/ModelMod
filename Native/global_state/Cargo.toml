@@ -17,3 +17,4 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 types = { path = "../types" }
 input = { path = "../input" }
 constant_tracking = { path = "../constant_tracking" }
+snaplib = { path = "../snaplib" }

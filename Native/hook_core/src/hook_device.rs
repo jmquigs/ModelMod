@@ -70,13 +70,13 @@ unsafe fn hook_device(
         GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
         GLOBAL_STATE.pixel_constants = Some(constant_tracking::ConstantGroup::new());
 
-        (*vtbl).SetVertexShaderConstantF = hook_constants::hook_set_vertex_sc_f;
-        (*vtbl).SetVertexShaderConstantI = hook_constants::hook_set_vertex_sc_i;
-        (*vtbl).SetVertexShaderConstantB = hook_constants::hook_set_vertex_sc_b;
+        // (*vtbl).SetVertexShaderConstantF = dev_constant_tracking::hook_set_vertex_sc_f;
+        // (*vtbl).SetVertexShaderConstantI = dev_constant_tracking::hook_set_vertex_sc_i;
+        // (*vtbl).SetVertexShaderConstantB = dev_constant_tracking::hook_set_vertex_sc_b;
 
-        (*vtbl).SetPixelShaderConstantF = hook_constants::hook_set_pixel_sc_f;
-        (*vtbl).SetPixelShaderConstantI = hook_constants::hook_set_pixel_sc_i;
-        (*vtbl).SetPixelShaderConstantB = hook_constants::hook_set_pixel_sc_b;
+        // (*vtbl).SetPixelShaderConstantF = dev_constant_tracking::hook_set_pixel_sc_f;
+        // (*vtbl).SetPixelShaderConstantI = dev_constant_tracking::hook_set_pixel_sc_i;
+        // (*vtbl).SetPixelShaderConstantB = dev_constant_tracking::hook_set_pixel_sc_b;
     }
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
 

@@ -26,10 +26,23 @@ use std::time::SystemTime;
 use shared_dx9::util::*;
 use shared_dx9::error::*;
 
+use snaplib::snap_config::{SnapConfig};
+use snaplib::anim_frame::{AnimFrame, AnimFrameFile};
+use snaplib::anim_frame::RenderStateMap;
+use snaplib::anim_frame::write_obj_to_file;
+use snaplib::anim_snap_state::AnimSnapState;
+
+use crate::toolbox::TBSTATE;
+use std::collections::HashMap;
+
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
 pub (crate) const MAX_STAGE: usize = 16;
 
+use std::sync::RwLock;
+use std::sync::Arc;
+
+lazy_static! {
 // Snapshotting currently stops after a certain amount of real time has passed from the start of
 // the snap, specified by this constant.
 // One might expect that just snapping everything drawn within a single begin/end scene combo is
@@ -40,7 +53,18 @@ pub (crate) const MAX_STAGE: usize = 16;
 // Using a window makes it much more likely that something useful is captured, at the expense of
 // some duplicates; even though
 // some objects may still be missed.  Some investigation to make this more reliable would be useful.
-static SNAP_MS: u32 = 250;
+
+    pub static ref SNAP_CONFIG: Arc<RwLock<SnapConfig>> = Arc::new(RwLock::new(SnapConfig {
+        snap_ms: 250,
+        snap_anim: false,
+        snap_anim_on_count: 2,
+        // TODO: should read these limits from device, it might support fewer!
+        vconsts_to_capture: 256,
+        pconsts_to_capture: 224,
+        autosnap: None,
+        require_gpu: None,
+    }));
+}
 
 fn snapshot_extra() -> bool {
     return constant_tracking::is_enabled() || shader_capture::is_enabled()
@@ -291,9 +315,90 @@ pub unsafe extern "system" fn hook_present(
         });
     }
 
+    let snap_ms = match SNAP_CONFIG.read() {
+        Err(e) => {
+            write_log_file(&format!("failed to lock snap config: {}", e));
+            0
+        },
+        Ok(c) => c.snap_ms
+    };
+
+    fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
+        if ass.snap_dir == "" {
+            return Err(HookError::SnapshotFailed("oops snap_dir is empty".to_owned()));
+        }
+        if !ass.seen_all {
+            return Err(HookError::SnapshotFailed("error, not all expected primvert combos were seen!".to_owned()));
+        }
+        let snap_on_count = match SNAP_CONFIG.read() {
+            Err(e) => {
+                return Err(HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))
+            },
+            Ok(c) => c.snap_anim_on_count
+        };
+
+        let mut frames_by_mesh:HashMap<(UINT,UINT), AnimFrameFile> = HashMap::new();
+
+        for sidx in 0..ass.next_vconst_idx {
+            let aseq = &ass.sequence_vconstants[sidx];
+            let frame = aseq.frame - ass.start_frame;
+            // discard results from the first frame (always partial because the first is the meshes).
+            if frame == 0 {
+                continue;
+            }
+            // for players: 1st render is shadow or something.  2nd is normal model.  3rd
+            // is inventory previews.  might be more in some cases (reflections, etc)
+            if aseq.capture_count != snap_on_count {
+                continue;
+            }
+
+            // get the frame file for this frame
+            let frame_file = frames_by_mesh.entry((aseq.prim_count, aseq.vert_count))
+                .or_insert_with(AnimFrameFile::new);
+
+            let pxform = match aseq.player_transform.as_ref() {
+                Err(e) => {
+                    return Err(HookError::SnapshotFailed(
+                        format!("player transform not available at frame {}, aborting constant write (error: {:?})", frame, e)
+                    ));
+                },
+                Ok(xfrm) => {
+                    xfrm
+                }
+            };
+            let mut pxform = pxform.split(" ");
+            // meh https://stackoverflow.com/questions/31046763/does-rust-have-anything-like-scanf
+            let parse_next = |split: &mut std::str::Split<&str>| -> Result<f32> {
+                let res = split.next().ok_or(HookError::SnapshotFailed("Failed transform parse".to_owned()))?;
+                Ok(res.parse().map_err(|_| HookError::SnapshotFailed("failed to parse float".to_owned()))?)
+            };
+            let x = parse_next(&mut pxform)?;
+            let y = parse_next(&mut pxform)?;
+            let z = parse_next(&mut pxform)?;
+            let rot = parse_next(&mut pxform)?;
+            let pxform = constant_tracking::vecToVec4(&vec![x,y,z,rot], 0);
+            let framedata = AnimFrame {
+                snapped_at: aseq.snapped_at,
+                floats: aseq.constants.floats.get_as_btree(),
+                player_transform: Some(pxform),
+            };
+            frame_file.frames.push(framedata);
+        }
+        let anim_dir = &ass.snap_dir;
+
+        // note, capture count ignored since now we only capture only one set of constants for
+        // each mesh per frame
+        for ((prims,verts), frame_file) in frames_by_mesh {
+            let out_file = format!("{}/animframes_{}p_{}v.dat", anim_dir, prims, verts);
+            frame_file.write_to_file(&out_file)?;
+        }
+        write_log_file("wrote anim sequences");
+        Ok(())
+    }
+
     if GLOBAL_STATE.is_snapping {
         let now = SystemTime::now();
-        let max_dur = std::time::Duration::from_millis(SNAP_MS as u64);
+        let max_dur = std::time::Duration::from_millis(snap_ms as u64);
         if now
             .duration_since(GLOBAL_STATE.snap_start)
             .unwrap_or(max_dur)
@@ -301,6 +406,13 @@ pub unsafe extern "system" fn hook_present(
         {
             write_log_file("ending snapshot");
             GLOBAL_STATE.is_snapping = false;
+            GLOBAL_STATE.anim_snap_state.as_ref().map(|ass| {
+                let duration = now.duration_since(ass.sequence_start_time).unwrap_or_default();
+                write_log_file(&format!("captured {} anim constant sequences in {}ms", ass.next_vconst_idx, duration.as_millis()));
+                write_anim_snap_state(ass)
+                .unwrap_or_else(|e| write_log_file(&format!("failed to write anim state: {:?}", e)));
+            });
+            GLOBAL_STATE.anim_snap_state = None;
         }
     }
 
@@ -393,6 +505,39 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
 decl_profile_globals!(hdip);
 
+fn set_vconsts(THIS: *mut IDirect3DDevice9, num_to_read:usize, vconsts: &mut constant_tracking::ConstantGroup, includeIntsBools:bool) {
+    let mut dest:Vec<f32> = vec![];
+    dest.resize_with(num_to_read * 4, || Default::default());
+    unsafe { (*THIS).GetVertexShaderConstantF(0, dest.as_mut_ptr(), num_to_read as u32); }
+    vconsts.floats.set(0, dest.as_ptr(), num_to_read as u32);
+    if includeIntsBools {
+        let mut dest:Vec<i32> = vec![];
+        dest.resize_with(num_to_read * 4, || Default::default());
+        unsafe { (*THIS).GetVertexShaderConstantI(0, dest.as_mut_ptr(), num_to_read as u32); }
+        vconsts.ints.set(0, dest.as_ptr(), num_to_read as u32);
+        let mut dest:Vec<BOOL> = vec![];
+        dest.resize_with(num_to_read, || Default::default());
+        unsafe { (*THIS).GetVertexShaderConstantB(0, dest.as_mut_ptr(), num_to_read as u32); }
+        vconsts.bools.set(0, dest.as_ptr(), num_to_read as u32);
+    }
+}
+
+fn set_pconsts(THIS: *mut IDirect3DDevice9, num_to_read:usize, pconsts: &mut constant_tracking::ConstantGroup) {
+    let mut dest:Vec<f32> = vec![];
+    dest.resize_with(num_to_read * 4, || Default::default());
+    unsafe { (*THIS).GetPixelShaderConstantF(0, dest.as_mut_ptr(), num_to_read as u32); }
+    pconsts.floats.set(0, dest.as_ptr(), num_to_read as u32);
+    let mut dest:Vec<i32> = vec![];
+    dest.resize_with(num_to_read * 4, || Default::default());
+    unsafe { (*THIS).GetPixelShaderConstantI(0, dest.as_mut_ptr(), num_to_read as u32); }
+    pconsts.ints.set(0, dest.as_ptr(), num_to_read as u32);
+    let mut dest:Vec<BOOL> = vec![];
+    dest.resize_with(num_to_read, || Default::default());
+    unsafe { (*THIS).GetPixelShaderConstantB(0, dest.as_mut_ptr(), num_to_read as u32); }
+    pconsts.bools.set(0, dest.as_ptr(), num_to_read as u32);
+}
+
+
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
     THIS: *mut IDirect3DDevice9,
     PrimitiveType: D3DPRIMITIVETYPE,
@@ -427,7 +572,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut metrics = &mut GLOBAL_STATE.metrics;
 
-    if metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
+    if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
@@ -457,7 +602,75 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         }
     };
 
-    if this_is_selected && GLOBAL_STATE.is_snapping {
+    let snap_conf =
+        match SNAP_CONFIG.read() {
+            Err(e) => {
+                write_log_file(&format!("failed to lock snap config: {}", e));
+                SnapConfig::new()
+            },
+            Ok(c) => c.clone()
+        };
+
+    let mut autosnap = false;
+
+    if GLOBAL_STATE.anim_snap_state.is_some() {
+        let ass = GLOBAL_STATE.anim_snap_state.as_mut().unwrap();
+        let primvert = &(primCount,NumVertices);
+        if GLOBAL_STATE.metrics.total_frames > ass.curr_frame {
+            ass.curr_frame = GLOBAL_STATE.metrics.total_frames;
+            ass.capture_count_this_frame.clear();
+        }
+        if ass.expected_primverts.contains(primvert) {
+            let cap_count = ass.capture_count_this_frame.entry(*primvert).or_insert(0);
+            *cap_count += 1;
+
+            // ignore it if it isn't the target snap count
+            if *cap_count != snap_conf.snap_anim_on_count {
+                ();
+            }
+            else if ass.seen_all {
+                if ass.start_frame == 0 {
+                    ass.start_frame = ass.curr_frame
+                }
+
+                if ass.next_vconst_idx == 0 {
+                    ass.sequence_start_time = SystemTime::now();
+                }
+                // see everything once, so we can start snapping the constants now
+                if ass.next_vconst_idx >= ass.sequence_vconstants.len() {
+                    write_log_file("too many constant captures!");
+                } else {
+                    let next = &mut ass.sequence_vconstants[ass.next_vconst_idx];
+                    set_vconsts(THIS, snap_conf.vconsts_to_capture, &mut next.constants, false);
+                    // (*THIS).GetTransform(D3DTS_WORLD, std::mem::transmute(next.worldmat.m.as_mut_ptr()));
+                    // (*THIS).GetTransform(D3DTS_VIEW, std::mem::transmute(next.viewmat.m.as_mut_ptr()));
+                    // (*THIS).GetTransform(D3DTS_PROJECTION, std::mem::transmute(next.projmat.m.as_mut_ptr()));
+                    next.snapped_at = SystemTime::now();
+                    next.prim_count = primCount;
+                    next.vert_count = NumVertices;
+                    next.sequence = ass.next_vconst_idx;
+                    next.frame = ass.curr_frame;
+                    next.capture_count = *cap_count;
+                    ass.next_vconst_idx += 1;
+                    TBSTATE.as_mut().map(|tbstate| {
+                        next.player_transform = tbstate.get_player_transform();
+                    });
+                }
+            }
+            else if !ass.seen_primverts.contains(primvert) {
+                // this is a match and we haven't seen it yet, do a full snap
+                autosnap = true;
+                ass.seen_primverts.insert(*primvert);
+                if ass.expected_primverts.len() == ass.seen_primverts.len() {
+                    ass.seen_all = true;
+                }
+            }
+        }
+    }
+
+    let do_snap = (this_is_selected || autosnap) && GLOBAL_STATE.is_snapping;
+
+    if do_snap {
         write_log_file("Snap started");
 
         (*THIS).AddRef();
@@ -475,6 +688,64 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     e
                 })
                 .ok();
+        }
+        // constant tracking workaround: read back all the constants
+        if constant_tracking::is_enabled() {
+            GLOBAL_STATE.vertex_constants.as_mut().map(|vconsts| {
+                set_vconsts(THIS, snap_conf.vconsts_to_capture, vconsts, true);
+            });
+            GLOBAL_STATE.pixel_constants.as_mut().map(|pconsts| {
+                set_pconsts(THIS, snap_conf.pconsts_to_capture, pconsts);
+            });
+        }
+
+        use std::collections::BTreeMap;
+        let mut blendstates: BTreeMap<DWORD, DWORD> = BTreeMap::new();
+        let mut tstagestates: Vec<BTreeMap<DWORD, DWORD>> = vec![];
+
+        let mut save_state = |statename| {
+            let mut state = 0;
+            (*THIS).GetRenderState(statename, &mut state);
+            blendstates.insert(statename, state);
+        };
+
+        save_state(D3DRS_CULLMODE);
+
+        save_state(D3DRS_ALPHABLENDENABLE);
+        save_state(D3DRS_SRCBLEND);
+        save_state(D3DRS_DESTBLEND);
+        save_state(D3DRS_BLENDOP);
+        save_state(D3DRS_SEPARATEALPHABLENDENABLE);
+        save_state(D3DRS_SRCBLENDALPHA);
+        save_state(D3DRS_DESTBLENDALPHA);
+        save_state(D3DRS_BLENDOPALPHA);
+        save_state(D3DRS_ALPHATESTENABLE);
+        save_state(D3DRS_ALPHAFUNC);
+        save_state(D3DRS_ALPHAREF);
+        save_state(D3DRS_COLORWRITEENABLE);
+
+        tstagestates.resize_with(4, BTreeMap::new);
+        let mut save_state = |tex, statename| {
+            let mut state = 0;
+            (*THIS).GetTextureStageState(tex, statename, &mut state);
+            let tex = tex as usize;
+            if tex >= tstagestates.len() {
+                return;
+            }
+            tstagestates[tex].insert(statename, state);
+        };
+
+        for tex in (0..4).rev() {
+            save_state(tex, D3DTSS_COLOROP);
+            save_state(tex, D3DTSS_COLORARG1);
+            save_state(tex, D3DTSS_COLORARG2);
+            save_state(tex, D3DTSS_COLORARG0);
+            save_state(tex, D3DTSS_ALPHAOP);
+            save_state(tex, D3DTSS_ALPHAARG1);
+            save_state(tex, D3DTSS_ALPHAARG2);
+            save_state(tex, D3DTSS_ALPHAARG0);
+            save_state(tex, D3DTSS_TEXTURETRANSFORMFLAGS);
+            save_state(tex, D3DTSS_RESULTARG);
         }
 
         // TODO: warn about active streams that are in use but not supported
@@ -533,13 +804,50 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
 
                     let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
+
+                    GLOBAL_STATE.anim_snap_state.as_mut().map(|ass| {
+                        if ass.snap_dir == "" {
+                            ass.snap_dir = dir.to_owned();
+                        }
+                    });
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
                     // write_log_file(&format!("snap save dir: {}", dir));
                     // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let vconst = &GLOBAL_STATE.vertex_constants;
-                    let pconst = &GLOBAL_STATE.pixel_constants;
-                    constant_tracking::take_snapshot(&dir, &sprefix, vconst, pconst);
+                    let vc = &GLOBAL_STATE.vertex_constants;
+                    let pc = &GLOBAL_STATE.pixel_constants;
+
+                    constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
                     shader_capture::take_snapshot(&dir, &sprefix);
+
+                    if blendstates.len() > 0 {
+                        let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
+                        let _r = write_obj_to_file(&file, false, &RenderStateMap {
+                            blendstates: blendstates,
+                            tstagestates: tstagestates,
+                        }).map_err(|e| {
+                            write_log_file(&format!("failed to snap blend states: {:?}", e));
+                        });
+                    }
+
+                        // for animations, validate that shader is GPU animated
+                        if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
+                            use std::path::Path;
+                            let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
+                            if Path::new(&file).exists() {
+                                use std::fs;
+
+                                fs::read_to_string(&file).map_err(|e| {
+                                    write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
+                                }).map(|contents| {
+                                    if contents.contains("m4x4 oPos, v0, c0") {
+                                        write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
+                                        write_log_file(&format!("file: {}", &file));
+                                        GLOBAL_STATE.is_snapping = false;
+                                        GLOBAL_STATE.anim_snap_state = None;
+                            }
+                            }).unwrap_or_default();
+                        }
+                    }
                 }
             });
         }
@@ -564,7 +872,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     let mut drew_mod = false;
 
     // if there is a matching mod, render it
-    let modded = 
+    let modded =
         GLOBAL_STATE.loaded_mods.as_mut()
         .and_then(|mods| {
             profile_end!(hdip, mod_key_prep);
@@ -577,7 +885,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 return None;
             }
             // found at least one mod.  do some more checks to see if each has a parent, and if the parent
-            // is active.  count the active parents we find because if more than one is active, 
+            // is active.  count the active parents we find because if more than one is active,
             // we have ambiguity and can't render any of them.
             let mut target_mod_index:usize = 0;
             let mut active_parent_name:&str = "";
@@ -585,7 +893,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 let mut num_active_parents = 0;
                 for (midx,nmod) in nmods.iter().enumerate() {
                     if !nmod.parent_mod_name.is_empty() {
-                        GLOBAL_STATE.mods_by_name.as_ref() 
+                        GLOBAL_STATE.mods_by_name.as_ref()
                             .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
                             .and_then(|parmodkey| mods.get(parmodkey))
                             .map(|parent_mods| {
@@ -598,10 +906,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                                     if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
                                         // parent is active
                                         num_active_parents += 1;
-                                        
-                                        // if this parent is for the mod we are looking at, 
-                                        // remember that mod index.  not that we'll slam this if we 
-                                        // have multiple active parents for multiple mods, 
+
+                                        // if this parent is for the mod we are looking at,
+                                        // remember that mod index.  not that we'll slam this if we
+                                        // have multiple active parents for multiple mods,
                                         // but we are screwed anyway in that case.
                                         if nmod.parent_mod_name == parent_mod.name {
                                             active_parent_name = &parent_mod.name;
@@ -610,19 +918,19 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                                     }
                                 }
                             });
-                    } 
+                    }
                 }
                 // return Some(()) if we found a valid one.
                 // if multiple mods but only one parent, we're good
                 if nmods.len() > 1 && num_active_parents == 1 {
-                    // write_log_file(&format!("rend mod {} because just one active parent named '{}'", 
+                    // write_log_file(&format!("rend mod {} because just one active parent named '{}'",
                     //     nmods[target_mod_index].name, active_parent_name));
                     Some(())
                 }
                 // if just one mod it doesn't have a parent, or if it does and there is just one parent,
                 // also good.
                 else if nmods.len() == 1 && (nmods[0].parent_mod_name.is_empty() || num_active_parents == 1) {
-                    // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents", 
+                    // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents",
                     // nmods[target_mod_index].name, nmods[0].parent_mod_name, num_active_parents));
 
                     Some(())
@@ -635,15 +943,15 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 profile_end!(hdip, mod_key_lookup);
                 return None;
             }
-            // ok, we're rendering it, but it might be a parent mod too, so we have to set 
-            // the last frame on it, which requires a mutable reference.  we couldn't use a 
+            // ok, we're rendering it, but it might be a parent mod too, so we have to set
+            // the last frame on it, which requires a mutable reference.  we couldn't use a
             // mutable ref earlier, because we had to do two lookups on the hash table.
             // so we have to refetch as mutable, set the frame value and then (for safety)
             // refetch as immutable again so that we can pass that value on.  that's three
             // hash lookups guaranteed but fortunately we're only doing this for active mods.
-            // we also can't be clever and return an immutable ref now if it isn't a parent, 
-            // because we won't be able to even write the code that checks for the parent 
-            // since it would require the get_mut call and thus a mutable and immutable ref 
+            // we also can't be clever and return an immutable ref now if it isn't a parent,
+            // because we won't be able to even write the code that checks for the parent
+            // since it would require the get_mut call and thus a mutable and immutable ref
             // would be active at the same time.
             // TODO: this bullshit could be avoided by using a refcell on the native mods.
             drop(r);
@@ -651,7 +959,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             mods.get_mut(&mod_key).map(|nmods| {
                 if target_mod_index >= nmods.len() {
                     // error, spam the log i guess
-                    write_log_file(&format!("selected target mod index {} exceeds number of mods {}", 
+                    write_log_file(&format!("selected target mod index {} exceeds number of mods {}",
                         target_mod_index, nmods.len()));
                 } else {
                     let nmod = &mut nmods[target_mod_index];
@@ -663,7 +971,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             let r = mods.get(&mod_key).and_then(|nmods| {
                 if target_mod_index < nmods.len() {
                     Some(&nmods[target_mod_index])
-                } else { 
+                } else {
                     None
                 }
             });
@@ -722,7 +1030,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     _st_rods.push(ReleaseOnDrop::new(save));
                 }
             }
-            
+
             // set the override tex, which is the (usually) the selection tex.  this might overwrite
             // the mod tex tex we just set.
             let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();

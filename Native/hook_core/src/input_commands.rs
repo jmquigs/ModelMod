@@ -24,6 +24,17 @@ use util::*;
 use winapi::ctypes::c_void;
 use std::time::SystemTime;
 
+use crate::toolbox::init_toolbox;
+use snaplib::anim_snap_state::AnimSnapState;
+use snaplib::anim_snap_state::AnimConstants;
+use crate::hook_render::SNAP_CONFIG;
+
+use snaplib::snap_config::SnapConfig;
+use std::collections::HashMap;
+use std::collections::HashSet;
+
+use shared_dx9::error::Result;
+
 pub fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     hookstate.making_selection = true;
@@ -53,6 +64,66 @@ pub fn init_snapshot_mode() {
         if GLOBAL_STATE.is_snapping {
             return;
         }
+
+        let snap_conf = match SNAP_CONFIG.read() {
+            Err(e) => {
+                write_log_file(&format!("failed to lock snap config: {}", e));
+                return;
+            },
+            Ok(c) => c
+        };
+
+        if snap_conf.snap_anim {
+            init_toolbox().map_err(|e| {
+                write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
+            }).unwrap_or_default();
+
+            let expected_primverts:HashSet<(UINT,UINT)> =
+                match snap_conf.autosnap.as_ref() {
+                    Some(hm) => hm.iter().map(|m| (m.prims,m.verts) ).collect(),
+                    None => {
+                        write_log_file("autosnap hashmap not populated, can't snap anim without it");
+                        return;
+                    },
+                };
+
+            let numcombos = expected_primverts.len();
+            let mut anim_state = AnimSnapState {
+                next_vconst_idx: 0,
+                seen_all: false,
+                expected_primverts: expected_primverts,
+                seen_primverts: HashSet::new(),
+                sequence_vconstants: Vec::new(),
+                sequence_start_time: SystemTime::now(), // this will get overwritten when we actually start the constant sequences
+                snap_dir: "".to_owned(),
+                curr_frame: 0,
+                start_frame: 0,
+                capture_count_this_frame: HashMap::new(),
+            };
+            anim_state.seen_primverts.reserve(numcombos * 2);// double to avoid resize while snapping
+            anim_state.capture_count_this_frame.reserve(numcombos * 2);
+            // prealloc constant array; hopefully we won't exceed this
+            let max_seq = snap_conf.max_const_sequences();
+            let snap_on_count = snap_conf.snap_anim_on_count;
+            anim_state.sequence_vconstants.resize_with(max_seq, || AnimConstants {
+                snapped_at: std::time::SystemTime::UNIX_EPOCH,
+                prim_count: 0,
+                vert_count: 0,
+                sequence: 0,
+                constants: constant_tracking::ConstantGroup::new(),
+                capture_count: 0,
+                frame: 0,
+                player_transform: Err(HookError::SnapshotFailed("".to_owned())),
+                snap_on_count: snap_on_count,
+                // worldmat: std::mem::zeroed(),
+                // viewmat: std::mem::zeroed(),
+                // projmat: std::mem::zeroed(),
+            });
+
+            // TODO: should prealloc the scratch arrays used to read from the device in set_vconsts()
+            GLOBAL_STATE.anim_snap_state = Some(anim_state);
+        }
+
         GLOBAL_STATE.is_snapping = true;
         GLOBAL_STATE.snap_start = SystemTime::now();
     }
@@ -102,7 +173,17 @@ pub fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-pub fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
+fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
+    tryload_snap_config().map_err(|e| {
+        write_log_file(&format!("failed to load snap config: {:?}", e))
+    }).unwrap_or_default();
+
+    unsafe {
+        init_toolbox().map_err(|e| {
+            write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
+        }).unwrap_or_default();
+     };
+
     unsafe {
         GLOBAL_STATE
             .active_texture_list
@@ -120,6 +201,7 @@ pub fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
 
         // TODO: this was an attempt to fix the issue with the selection
         // texture getting clobbered after alt-tab, but it didn't work.
+        // for now I just use windowed mode.
         // if GLOBAL_STATE.selection_texture != null_mut() {
         //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
         //     if tex != null_mut() {
@@ -249,7 +331,7 @@ fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
 
-pub (crate) fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
+pub fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
     use std::ffi::CStr;
 
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
@@ -337,4 +419,19 @@ pub (crate) fn create_selection_texture(device: *mut IDirect3DDevice9) {
 
         GLOBAL_STATE.selection_texture = tex;
     }
+}
+
+
+fn tryload_snap_config() -> Result<()> {
+    let (_,dir) = get_mm_conf_info()?;
+    let dir = dir.ok_or_else(|| HookError::SnapshotFailed("no mm root dir".to_owned()))?;
+
+    let sc = SnapConfig::load(&dir)?;
+    let mut sclock = SNAP_CONFIG.write().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    *sclock = sc;
+    drop(sclock);
+
+    let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    write_log_file(&format!("loaded snap config: {}", *sclock));
+    Ok(())
 }

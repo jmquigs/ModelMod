@@ -38,6 +38,9 @@
 		},
 		{
 			"path": "interop"
+		},
+		{
+			"path": "snaplib"
 		}
 	],
 	"settings": {}

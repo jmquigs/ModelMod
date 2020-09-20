@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 fnv = "1.0.6"
 shared_dx9 = { path = "../shared_dx9" }
-
 profiler = { path = "../profiler" }
 global_state = { path = "../global_state" }
 util = { path = "../util" }
@@ -20,6 +19,8 @@ device_state = { path = "../device_state" }
 dnclr = { path = "../dnclr" }
 interop = { path = "../interop" }
 shader_capture = { path = "../shader_capture" }
+snaplib = { path = "../snaplib" }
+lazy_static = "1.1.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
