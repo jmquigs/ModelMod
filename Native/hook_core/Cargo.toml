@@ -1,0 +1,43 @@
+[package]
+name = "hook_core"
+version = "0.1.0"
+authors = ["John Quigley <jmquigs@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+fnv = "1.0.6"
+shared_dx9 = { path = "../shared_dx9" }
+
+profiler = { path = "../profiler" }
+global_state = { path = "../global_state" }
+util = { path = "../util" }
+input = { path = "../input" }
+constant_tracking = { path = "../constant_tracking" }
+d3dx = { path = "../d3dx" }
+types = { path = "../types" }
+mod_load = { path = "../mod_load" }
+device_state = { path = "../device_state" }
+dnclr = { path = "../dnclr" }
+interop = { path = "../interop" }
+shader_capture = { path = "../shader_capture" }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+    "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
+    "dinput"] }
+
+[lib]
+crate_type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+#debug = true
+#rpath = false
+#lto = false
+#debug-assertions = false
+codegen-units = 1
+panic = 'unwind'
+
+[features]
+default = []
+profile = []

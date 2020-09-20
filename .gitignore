@@ -58,3 +58,5 @@ MMLaunch/obj/MMLaunch.fsprojAssemblyReference.cache
 .rustc_info.json
 Native/snaplib/target
 
+**/target/rls
+**/target
