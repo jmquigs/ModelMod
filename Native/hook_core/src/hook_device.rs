@@ -13,7 +13,6 @@ use shared_dx9::error::*;
 use input;
 use util;
 use util::*;
-use crate::hook_constants;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
 use device_state::DEVICE_STATE;
