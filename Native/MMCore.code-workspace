@@ -41,6 +41,9 @@
 		},
 		{
 			"path": "snaplib"
+		},
+		{
+			"path": "..\\..\\Docs"
 		}
 	],
 	"settings": {}

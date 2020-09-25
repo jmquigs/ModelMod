@@ -13,7 +13,7 @@ use std;
 use std::ptr::null_mut;
 use shared_dx9::util::*;
 use device_state::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LoadedModState};
 use types::interop;
 use types::native_mod;
 
@@ -38,7 +38,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let mods = GLOBAL_STATE.loaded_mods.take();
     let mut cnt = 0;
     mods.map(|mods| {
-        for (_key, modvec) in mods.into_iter() {
+        for (_key, modvec) in mods.mods.into_iter() {
             for nmd in modvec {
                 cnt += 1;
                 if nmd.vb != null_mut() {
@@ -60,7 +60,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
             }
         }
     });
-    GLOBAL_STATE.mods_by_name = None;
+    GLOBAL_STATE.loaded_mods = None;
 
     (*device).AddRef();
     let post_rc = (*device).Release();
@@ -367,6 +367,8 @@ mod but it overlaps with another mod.  This won't render correctly.",
         diff, device as u64, (*DEVICE_STATE).d3d_resource_count
     ));
 
-    GLOBAL_STATE.loaded_mods = Some(loaded_mods);
-    GLOBAL_STATE.mods_by_name = Some(mods_by_name);
+    GLOBAL_STATE.loaded_mods = Some(LoadedModState {
+        mods: loaded_mods,
+        mods_by_name: mods_by_name,
+    } );
 }

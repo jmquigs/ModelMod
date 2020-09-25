@@ -15,6 +15,7 @@ use constant_tracking;
 use mod_load;
 use mod_load::AsyncLoadState;
 use crate::input_commands;
+use crate::mod_render;
 use d3dx;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use device_state::dev_state;
@@ -876,106 +877,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         GLOBAL_STATE.loaded_mods.as_mut()
         .and_then(|mods| {
             profile_end!(hdip, mod_key_prep);
-            profile_start!(hdip, mod_key_lookup);
-            let mod_key = NativeModData::mod_key(NumVertices, primCount);
-            let r = mods.get(&mod_key);
-            // just get out of here if we didn't have a match
-            if let None = r {
-                profile_end!(hdip, mod_key_lookup);
-                return None;
-            }
-            // found at least one mod.  do some more checks to see if each has a parent, and if the parent
-            // is active.  count the active parents we find because if more than one is active,
-            // we have ambiguity and can't render any of them.
-            let mut target_mod_index:usize = 0;
-            let mut active_parent_name:&str = "";
-            let r2 = r.and_then(|nmods| {
-                let mut num_active_parents = 0;
-                for (midx,nmod) in nmods.iter().enumerate() {
-                    if !nmod.parent_mod_name.is_empty() {
-                        GLOBAL_STATE.mods_by_name.as_ref()
-                            .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
-                            .and_then(|parmodkey| mods.get(parmodkey))
-                            .map(|parent_mods| {
-                                // count any active parents
-                                for parent_mod in parent_mods.iter() {
-                                    if num_active_parents > 1 {
-                                        // fail, ambiguity
-                                        break;
-                                    }
-                                    if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
-                                        // parent is active
-                                        num_active_parents += 1;
-
-                                        // if this parent is for the mod we are looking at,
-                                        // remember that mod index.  not that we'll slam this if we
-                                        // have multiple active parents for multiple mods,
-                                        // but we are screwed anyway in that case.
-                                        if nmod.parent_mod_name == parent_mod.name {
-                                            active_parent_name = &parent_mod.name;
-                                            target_mod_index = midx;
-                                        }
-                                    }
-                                }
-                            });
-                    }
-                }
-                // return Some(()) if we found a valid one.
-                // if multiple mods but only one parent, we're good
-                if nmods.len() > 1 && num_active_parents == 1 {
-                    // write_log_file(&format!("rend mod {} because just one active parent named '{}'",
-                    //     nmods[target_mod_index].name, active_parent_name));
-                    Some(())
-                }
-                // if just one mod it doesn't have a parent, or if it does and there is just one parent,
-                // also good.
-                else if nmods.len() == 1 && (nmods[0].parent_mod_name.is_empty() || num_active_parents == 1) {
-                    // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents",
-                    // nmods[target_mod_index].name, nmods[0].parent_mod_name, num_active_parents));
-
-                    Some(())
-                } else {
-                    None
-                }
-            });
-            // return if we aren't rendering it.
-            if let None = r2 {
-                profile_end!(hdip, mod_key_lookup);
-                return None;
-            }
-            // ok, we're rendering it, but it might be a parent mod too, so we have to set
-            // the last frame on it, which requires a mutable reference.  we couldn't use a
-            // mutable ref earlier, because we had to do two lookups on the hash table.
-            // so we have to refetch as mutable, set the frame value and then (for safety)
-            // refetch as immutable again so that we can pass that value on.  that's three
-            // hash lookups guaranteed but fortunately we're only doing this for active mods.
-            // we also can't be clever and return an immutable ref now if it isn't a parent,
-            // because we won't be able to even write the code that checks for the parent
-            // since it would require the get_mut call and thus a mutable and immutable ref
-            // would be active at the same time.
-            // TODO: this bullshit could be avoided by using a refcell on the native mods.
-            drop(r);
-            drop(r2);
-            mods.get_mut(&mod_key).map(|nmods| {
-                if target_mod_index >= nmods.len() {
-                    // error, spam the log i guess
-                    write_log_file(&format!("selected target mod index {} exceeds number of mods {}",
-                        target_mod_index, nmods.len()));
-                } else {
-                    let nmod = &mut nmods[target_mod_index];
-                    if nmod.is_parent {
-                        nmod.last_frame_render = GLOBAL_STATE.metrics.total_frames;
-                    }
-                }
-            });
-            let r = mods.get(&mod_key).and_then(|nmods| {
-                if target_mod_index < nmods.len() {
-                    Some(&nmods[target_mod_index])
-                } else {
-                    None
-                }
-            });
-            profile_end!(hdip, mod_key_lookup);
+            profile_start!(hdip, mod_select);
+            
+            let r = mod_render::select(mods, 
+                primCount, NumVertices, 
+                GLOBAL_STATE.metrics.total_frames);
+            profile_end!(hdip, mod_select);
             r
         })
         .and_then(|nmod| {

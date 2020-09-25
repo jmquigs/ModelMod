@@ -29,6 +29,7 @@ mod input_commands;
 mod hook_device;
 //mod hook_constants;
 mod toolbox;
+mod mod_render;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};

@@ -30,12 +30,17 @@ pub struct FrameMetrics {
     pub low_framerate: bool,
 }
 
+pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
+
+pub struct LoadedModState {
+    pub mods: LoadedModsMap,
+    pub mods_by_name: FnvHashMap<String,u32>,
+}
 pub struct HookState {
     pub clr_pointer: Option<u64>,
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
-    pub loaded_mods: Option<FnvHashMap<u32, Vec<native_mod::NativeModData>>>,
-    pub mods_by_name: Option<FnvHashMap<String,u32>>,
+    pub loaded_mods: Option<LoadedModState>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<*mut IDirect3DBaseTexture9>>,
@@ -91,7 +96,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     interop_state: None,
     //is_global: true,
     loaded_mods: None,
-    mods_by_name: None,
     active_texture_set: None,
     active_texture_list: None,
     making_selection: false,
