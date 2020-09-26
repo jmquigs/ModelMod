@@ -340,8 +340,8 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         let mut parent_names: HashSet<String> = HashSet::new();
         for nmod in nmodv.iter() {
             if nmod.parent_mod_name.is_empty() {
-                write_log_file(&format!("Error: mod '{}' ({} prims,{} verts) has no parent \
-mod but it overlaps with another mod.  This won't render correctly.",
+                write_log_file(&format!("Note: mod '{}' ({} prims,{} verts) has no parent \
+mod but it overlaps with another mod.  Use the variant key to select this.",
                 nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count));
             } else {
                 parent_names.insert(nmod.parent_mod_name.to_string());
@@ -349,7 +349,7 @@ mod but it overlaps with another mod.  This won't render correctly.",
             
         }
         if nmodv.len() != parent_names.len() {
-            write_log_file("Error: mod overlap found, check that all of these mods have proper/unique parents:");
+            write_log_file("Variants found:");
             for nmod in nmodv.iter() {
                 write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parent: {}",
                 nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count, nmod.parent_mod_name));
@@ -370,5 +370,6 @@ mod but it overlaps with another mod.  This won't render correctly.",
     GLOBAL_STATE.loaded_mods = Some(LoadedModState {
         mods: loaded_mods,
         mods_by_name: mods_by_name,
+        selected_variant: global_state::new_fnv_map(16),
     } );
 }

@@ -20,6 +20,24 @@ pub struct NativeModData {
 }
 
 impl NativeModData {
+    pub fn new() -> Self {
+        use std::ptr::null_mut;
+        
+        Self {
+            mod_data: ModData::new(),
+            vb_data: null_mut(),
+            ib_data: null_mut(),
+            decl_data: null_mut(),
+            vb: null_mut(),
+            ib: null_mut(),
+            decl: null_mut(),
+            textures: [null_mut(); 4],
+            is_parent: false,
+            parent_mod_name: "".to_owned(),
+            last_frame_render: 0,
+            name: "".to_owned(),
+        }
+    }
     pub fn mod_key(vert_count: u32, prim_count: u32) -> u32 {
         //https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
         ((vert_count + prim_count) * (vert_count + prim_count + 1) / 2) + prim_count

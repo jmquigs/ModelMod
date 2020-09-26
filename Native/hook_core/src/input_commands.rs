@@ -289,6 +289,54 @@ fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
     };
 }
 
+fn select_next_variant() {
+    // for any mods that have a variant, select the next one, wrapping around to first if needed.
+    // this is currently pretty dumb, since it advances _all_ mods with variants.  if there
+    // were a lot of variants of different sizes, it might be better to have multiple keybinds
+    // to advance a particular size category, and then partition everything into one of those 
+    // buckets.  or maybe that means its time to put an imgui UI in here for this purpose.
+    let hookstate = unsafe { &mut GLOBAL_STATE };
+    let lastframe = hookstate.metrics.total_frames;
+    
+    hookstate.loaded_mods.as_mut().map(|mstate| {
+        for (mkey, nmdv) in mstate.mods.iter() {
+            if nmdv.len() <= 1 {
+                // most mods have no variants
+                continue;
+            }
+            
+            // don't change the selection if none have been rendered recently
+            let foundrecent = nmdv.iter().find(|nmd| nmd.recently_rendered(lastframe));
+            if foundrecent.is_none() {
+                continue;
+            }
+            
+            // get the current variant for this mod
+            let sel_index_entry = mstate.selected_variant.entry(*mkey).or_insert(0);
+            let mut sel_index = *sel_index_entry;
+            let start = sel_index;
+            // select next, skipping over child mods.  stop if we wrap to where we started
+            sel_index += 1;
+            loop {
+                if sel_index >= nmdv.len() {
+                    sel_index = 0;
+                }
+                if sel_index == start {
+                    break;
+                }
+                if nmdv[sel_index].parent_mod_name.is_empty() {
+                    // found one
+                    write_log_file(&format!("selected next variant: {}", nmdv[sel_index].name));
+                    *sel_index_entry = sel_index;
+                    break;
+                }
+                // keep looking
+                sel_index += 1;
+            }
+        }
+    });
+}
+
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
@@ -311,6 +359,9 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
+    inp.add_press_fn(input::DIK_F9, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
+    
     // Disabling this because its ineffective: the reload will complete without error, but
     // The old managed code will still be used.  The old C++ code
     // used a custom domain manager to support reloading, but I'd rather just move to the

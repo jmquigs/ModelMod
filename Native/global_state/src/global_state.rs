@@ -31,10 +31,16 @@ pub struct FrameMetrics {
 }
 
 pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
+pub type ModsByNameMap = FnvHashMap<String,u32>;
+pub type SelectedVariantMap = FnvHashMap<u32, usize>;
+pub fn new_fnv_map<A,B> (capacity:usize) -> FnvHashMap<A,B> {
+    FnvHashMap::with_capacity_and_hasher(capacity, Default::default())
+}
 
 pub struct LoadedModState {
     pub mods: LoadedModsMap,
-    pub mods_by_name: FnvHashMap<String,u32>,
+    pub mods_by_name: ModsByNameMap,
+    pub selected_variant: SelectedVariantMap,
 }
 pub struct HookState {
     pub clr_pointer: Option<u64>,

@@ -43,6 +43,12 @@ pub struct ModData {
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
 }
 
+impl ModData {
+    pub fn new() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
 #[repr(C)]
 pub struct SnapshotData {
     pub sd_size: u32,
