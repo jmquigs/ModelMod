@@ -814,11 +814,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
                     // write_log_file(&format!("snap save dir: {}", dir));
                     // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let vc = &GLOBAL_STATE.vertex_constants;
-                    let pc = &GLOBAL_STATE.pixel_constants;
-
+                    let (gotpix,gotvert) = shader_capture::take_snapshot(&dir, &sprefix);
+                    let vc = if gotvert { &GLOBAL_STATE.vertex_constants } else { &None };
+                    let pc = if gotpix { &GLOBAL_STATE.pixel_constants } else { &None };
                     constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
-                    shader_capture::take_snapshot(&dir, &sprefix);
 
                     if blendstates.len() > 0 {
                         let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
