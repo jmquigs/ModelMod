@@ -939,7 +939,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             }
 
             // set the override tex, which is the (usually) the selection tex.  this might overwrite
-            // the mod tex tex we just set.
+            // the mod tex we just set.
             let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
             let _st_rod = {
                 if override_texture != null_mut() {

@@ -33,7 +33,7 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
     let mod_key = NativeModData::mod_key(vert_count, prim_count);
     let r = mstate.mods.get(&mod_key);
     // just get out of here if we didn't have a match
-    if let None = r {
+    if r.is_none() {
         return None;
     }
     // found at least one mod.  do some more checks to see if each has a parent, and if the parent
@@ -123,11 +123,11 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
         }
     });
     // return if we aren't rendering it.
-    if let None = r2 {
+    if r2.is_none() {
         return None;
     }
-    // ok, we're rendering it, but it might be a parent mod too, so we have to set
-    // the last frame on it, which requires a mutable reference.  we couldn't use a
+    // ok, we're rendering it, so need to update last render frame on it,
+    // which requires a mutable reference.  we couldn't use a
     // mutable ref earlier, because we had to do two simultaneous lookups on the hash table.
     // so we have to refetch as mutable, set the frame value and then (for safety)
     // refetch as immutable again so that we can pass that value on.  that's three
@@ -141,6 +141,8 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
                 target_mod_index, nmods.len()));
         } else {
             let nmod = &mut nmods[target_mod_index];
+            // we set the last frame render on all mods (not just parents) because 
+            // variant-tracking uses it.
             nmod.last_frame_render = current_frame_num;
         }
     });
