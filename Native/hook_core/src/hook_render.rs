@@ -9,8 +9,8 @@ use winapi::um::wingdi::RGNDATA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 
 use dnclr::{init_clr, reload_managed_dll};
-use types::native_mod::NativeModData;
-use util;
+
+ use util;
 use constant_tracking;
 use mod_load;
 use mod_load::AsyncLoadState;

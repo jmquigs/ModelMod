@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "constant_tracking",
+    "hook_core",
+    "d3dx",
+    "device_state",
+    "dnclr",
+    "global_state",
+    "input",
+    "interop",
+    "mod_load",
+    "profiler",
+    "shader_capture",
+    "shared_dx9",
+    "types",
+    "util",
+    "snaplib",
+]
