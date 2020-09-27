@@ -671,11 +671,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let do_snap = (this_is_selected || autosnap) && GLOBAL_STATE.is_snapping;
 
+    let mut pre_rc = 0;
     if do_snap {
         write_log_file("Snap started");
 
         (*THIS).AddRef();
-        let pre_rc = (*THIS).Release();
+        pre_rc = (*THIS).Release();
 
         GLOBAL_STATE.device = Some(THIS);
 
@@ -851,6 +852,11 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 }
             });
         }
+        GLOBAL_STATE.device = None;
+    }
+    if do_snap {
+        // check for resource leak, we do this in another block so that all the release on 
+        // drops activated.
         (*THIS).AddRef();
         let post_rc = (*THIS).Release();
         if pre_rc != post_rc {
@@ -860,8 +866,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 pre_rc, post_rc
             ));
         }
-
-        GLOBAL_STATE.device = None;
     }
 
     profile_start!(hdip, main_combinator);
