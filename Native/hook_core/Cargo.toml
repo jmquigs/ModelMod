@@ -30,15 +30,6 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 [lib]
 crate_type = ["cdylib"]
 
-[profile.release]
-opt-level = 3
-#debug = true
-#rpath = false
-#lto = false
-#debug-assertions = false
-codegen-units = 1
-panic = 'unwind'
-
 [features]
 default = []
 profile = []
