@@ -12,6 +12,9 @@ fn find_parent<'a>(name:&str, mvec:&'a mut Vec<NativeModData>) -> Option<&'a mut
 }
 
 fn lookup_parent_mod<'a>(nmod:&NativeModData, mstate: &'a LoadedModState) -> Option<&'a NativeModData> {
+    if nmod.parent_mod_name.is_empty() {
+        return None
+    }
     mstate.mods_by_name.get(&nmod.parent_mod_name)
     .and_then(|parmodkey| mstate.mods.get(parmodkey))
     .and_then(|parent_mods| {
@@ -45,32 +48,13 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
         let mut num_active_parents = 0;
         let num_mods = nmods.len();
         for (midx,nmod) in nmods.iter().enumerate() {
-            if !nmod.parent_mod_name.is_empty() {
-                mstate.mods_by_name.get(&nmod.parent_mod_name)
-                    .and_then(|parmodkey| mstate.mods.get(parmodkey))
-                    .map(|parent_mods| {
-                        // count any active parents
-                        for parent_mod in parent_mods.iter() {
-                            if num_active_parents > 1 {
-                                // fail, ambiguity
-                                break;
-                            }
-                            if parent_mod.recently_rendered(current_frame_num) {
-                                // parent is active
-                                num_active_parents += 1;
-
-                                // if this parent is for the mod we are looking at,
-                                // remember that mod index.  note that we'll slam this if we
-                                // have multiple active parents for multiple mods,
-                                // but we are screwed anyway in that case.
-                                if nmod.parent_mod_name == parent_mod.name {
-                                    active_parent_name = &parent_mod.name;
-                                    target_mod_index = midx;
-                                }
-                            }
-                        }
-                    });
-            }
+            lookup_parent_mod(nmod, mstate).map(|parent| {
+                if parent.recently_rendered(current_frame_num) {
+                    target_mod_index = midx;
+                    active_parent_name = &parent.name;
+                    num_active_parents += 1;
+                }
+            });
         }
         
         // return Some(()) if we found a valid one.
@@ -205,6 +189,13 @@ mod tests {
             selected_variant: global_state::new_fnv_map(16),
         }
     }
+    
+    fn get_parent<'a>(mstate:&'a mut LoadedModState, pname:&str) -> &'a mut NativeModData {
+        let pkey = mstate.mods_by_name.get(&pname.to_owned()).expect("no parent");
+        let pmods = mstate.mods.get_mut(pkey).expect("no parent");
+        let pmod = find_parent(pname, pmods).expect("no parent");
+        pmod
+    }
     #[test]
     fn test_select_basic() {
         let mut modmap:LoadedModsMap = new_fnv_map(10);
@@ -246,9 +237,7 @@ mod tests {
         let r = select(&mut mstate, 101, 201, 1);
         assert!(r.is_none());
         // update so that we have just one recent parent
-        let pkey = mstate.mods_by_name.get(&"Mod1P".to_owned()).expect("no parent");
-        let pmods = mstate.mods.get_mut(pkey).expect("no parent");
-        let pmod = find_parent("Mod1P", pmods).expect("no parent");
+        let pmod = get_parent(&mut mstate, "Mod1P");
         pmod.last_frame_render = 50;
         // trying to select child when one parent has rendered recently should find it 
         let r = select(&mut mstate, 101, 201, 50);
@@ -265,6 +254,32 @@ mod tests {
             },
             _ => panic!("test failed")
         }
+    }
+    
+    #[test]
+    fn test_exact_parent() {
+        // when there are multiple variants with the same mesh params as a mod parent,
+        // the child should only render if that parent is active, 
+        // not if some other random mod with the same params is active.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("Mod1P", 100, 200));
+        add_mod(&mut modmap, new_mod("Mod4P", 100, 200));
+        let mut child = new_mod("ModC", 101, 201);
+        child.parent_mod_name = "Mod4P".to_string();
+        add_mod(&mut modmap, child);
+        
+        let mut mstate = new_state(modmap);
+        // Make Mod1P active recently, which should not matter for us because it isn't
+        // our parent.
+        let pmod = get_parent(&mut mstate, "Mod1P");     
+        pmod.last_frame_render = 50;
+        let r = select(&mut mstate, 101, 201, 50);
+        assert!(r.is_none());
+        // and if we update our parent, we should be selected now
+        let pmod = get_parent(&mut mstate, "Mod4P");         
+        pmod.last_frame_render = 50;
+        let r = select(&mut mstate, 101, 201, 50);
+        assert!(r.is_some());
     }
     
     #[test]
