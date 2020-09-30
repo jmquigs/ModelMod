@@ -11,15 +11,47 @@ fn find_parent<'a>(name:&str, mvec:&'a mut Vec<NativeModData>) -> Option<&'a mut
     return None
 }
 
-fn lookup_parent_mod<'a>(nmod:&NativeModData, mstate: &'a LoadedModState) -> Option<&'a NativeModData> {
-    if nmod.parent_mod_name.is_empty() {
-        return None
+/// Run a function on each parent mod of `nmod`.  May run it zero times if there are no parents.
+fn iter_parent_mods<'a, F>(nmod:&NativeModData, mstate: &'a LoadedModState, f:&mut F) -> ()
+where F: FnMut(&'a NativeModData) -> ()
+{
+    if nmod.parent_mod_names.is_empty() {
+        return;
     }
-    mstate.mods_by_name.get(&nmod.parent_mod_name)
-    .and_then(|parmodkey| mstate.mods.get(parmodkey))
-    .and_then(|parent_mods| {
-        parent_mods.iter().find(|p| p.name == nmod.parent_mod_name)
-    })
+    nmod.parent_mod_names.iter().for_each(|pmod| {
+        mstate.mods_by_name.get(pmod)
+            .and_then(|parmodkey| mstate.mods.get(parmodkey))
+            .and_then(|parent_mods| {
+                parent_mods.iter().find(|p| p.name == *pmod)
+            }).map(|pmod| {
+                f(pmod)
+            });
+    });
+}
+
+/// Return a vector of references to any parent mods that the target mod has, or an empty vec
+/// if there are none.  Caller should check `nmod.parent_mod_names.is_empty()` before calling this 
+/// to avoid an unnecessary vector allocation in the empty case.  
+/// If you just want to run a function on each parent mod, use iter_parent_mods instead, which 
+/// avoids allocating any vecs.
+fn lookup_parent_mods<'a>(nmod:&NativeModData, mstate: &'a LoadedModState) -> Vec<&'a NativeModData> {
+    let mut res = vec![];
+    if nmod.parent_mod_names.is_empty() {
+        return res;
+    }
+    iter_parent_mods(nmod, mstate, &mut |pmod| {
+        res.push(pmod);
+    });
+    res
+}
+
+const ENABLE_DEBUG_SPAM:bool = false;
+macro_rules! debug_spam {
+    ($v:expr) => {
+        if (ENABLE_DEBUG_SPAM) {
+            write_log_file(&$v());
+        }
+    };
 }
 
 /// Select a mod for rendering, if any.
@@ -43,16 +75,22 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
     // is active.  count the active parents we find because if more than one is active,
     // we have ambiguity and can't render any of them.
     let mut target_mod_index:usize = 0;
-    let mut active_parent_name:&str = "";
     let r2 = r.and_then(|nmods| {
         let mut num_active_parents = 0;
         let num_mods = nmods.len();
         for (midx,nmod) in nmods.iter().enumerate() {
-            lookup_parent_mod(nmod, mstate).map(|parent| {
+            if nmod.parent_mod_names.is_empty() {
+                debug_spam!(|| format!("no parents for {} (num mods {})", nmod.name, num_mods));
+                continue;
+            }
+            debug_spam!(|| format!("check parents for {} (nummods: {}, parents: {:?})", nmod.name, num_mods, nmod.parent_mod_names));
+            iter_parent_mods(nmod, mstate, &mut |parent:&NativeModData| {
                 if parent.recently_rendered(current_frame_num) {
                     target_mod_index = midx;
-                    active_parent_name = &parent.name;
                     num_active_parents += 1;
+                    debug_spam!(|| format!(" par {} of mod {} is active, num active: {}", parent.name, nmod.name, num_active_parents));
+                } else {
+                    debug_spam!(|| format!(" par {} is not active (mod {})", parent.name, nmod.name));
                 }
             });
         }
@@ -67,7 +105,7 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
                 Some(())
             },
             // just one mod it doesn't have a parent, or if it does and there is just one parent
-            n if n == 1 && (nmods[0].parent_mod_name.is_empty() || num_active_parents == 1) => {
+            n if n == 1 && (nmods[0].parent_mod_names.is_empty() || num_active_parents == 1) => {
                 // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents",
                 // nmods[target_mod_index].name, nmods[0].parent_mod_name, num_active_parents));
                 Some(())
@@ -81,23 +119,12 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
                     // currently child mods can't be variants - this avoids messy cases with 
                     // one or more children whose parents may or may not have rendered recently.
                     nmods.get(*sel_index).and_then(|nmod| {
-                        if !nmod.parent_mod_name.is_empty() {
+                        if !nmod.parent_mod_names.is_empty() {
                             None
                         } else {
                             target_mod_index = *sel_index;
                             Some(())
                         }
-                        //
-                        // let p = lookup_parent_mod(nmod, mstate);
-                        // match p {
-                        //     Some(p) if !p.recently_rendered(current_frame_num) => {
-                        //         None
-                        //     },
-                        //     _ => {
-                        //         target_mod_index = *sel_index;
-                        //         Some(())
-                        //     },
-                        // }
                     })
                 } else {
                     None
@@ -167,18 +194,21 @@ mod tests {
         use std::collections::HashSet;
         let mut parent_mods:HashSet<String> = HashSet::new();
         
-        for (mk,nmdv) in mmap.iter() {
-            for nmod in nmdv.iter() {
+        let mut mmap = mmap;
+        for (mk,nmdv) in mmap.iter_mut() {
+            for nmod in nmdv.iter_mut() {
+                // by convention mod names in internal structures are lowercased 
+                nmod.name = nmod.name.to_lowercase();
                 mods_by_name.insert(nmod.name.to_owned(), *mk);
-                if !nmod.parent_mod_name.is_empty() {
-                    parent_mods.insert(nmod.parent_mod_name.to_owned());
-                }
+                nmod.parent_mod_names.iter_mut().for_each(|pmod| {
+                    *pmod = pmod.to_lowercase();
+                    parent_mods.insert(pmod.to_owned());
+                });
             }
         }
-        let mut mmap = mmap;
         // mark parents
         for parent in parent_mods {
-            let pmk = mods_by_name.get(&parent).expect("no parent");
+            let pmk = mods_by_name.get(&parent).expect(&format!("no parent: {}", parent));
             let pmods = mmap.get_mut(&pmk).expect("no parent mods");
             let pmod = find_parent(&parent, pmods).expect("no parent");
             pmod.is_parent = true;
@@ -191,9 +221,10 @@ mod tests {
     }
     
     fn get_parent<'a>(mstate:&'a mut LoadedModState, pname:&str) -> &'a mut NativeModData {
-        let pkey = mstate.mods_by_name.get(&pname.to_owned()).expect("no parent");
+        let pname = pname.to_lowercase();
+        let pkey = mstate.mods_by_name.get(&pname.to_owned()).expect(&format!("no parent: {}", pname));
         let pmods = mstate.mods.get_mut(pkey).expect("no parent");
-        let pmod = find_parent(pname, pmods).expect("no parent");
+        let pmod = find_parent(&pname, pmods).expect("no parent");
         pmod
     }
     #[test]
@@ -208,9 +239,9 @@ mod tests {
         let r = select(&mut mstate, 100, 202, 1);
         assert!(r.is_none());
         let r = select(&mut mstate, 100, 200, 1);
-        assert_eq!(r.expect("no mod found").name, "Mod1".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
         let r = select(&mut mstate, 101, 201, 1);
-        assert_eq!(r.expect("no mod found").name, "Mod2".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod2".to_string());
     }
     
     #[test]
@@ -223,11 +254,11 @@ mod tests {
         add_mod(&mut modmap, new_mod("Mod1P", 100, 200));
         add_mod(&mut modmap, new_mod("Mod4P", 99, 200));
         let mut child = new_mod("Mod2C", 101, 201);
-        child.parent_mod_name = "Mod1P".to_string();
+        child.parent_mod_names.push("Mod1P".to_string());
         add_mod(&mut modmap, child);
         // add another child for a different parent
         let mut child = new_mod("Mod3C", 101, 201);
-        child.parent_mod_name = "Mod4P".to_string();
+        child.parent_mod_names.push("Mod4P".to_string());
         add_mod(&mut modmap, child);
         let mut mstate = new_state(modmap);
         // when both parents have rendered recently, trying to select either child will be None
@@ -241,7 +272,7 @@ mod tests {
         pmod.last_frame_render = 50;
         // trying to select child when one parent has rendered recently should find it 
         let r = select(&mut mstate, 101, 201, 50);
-        assert_eq!(r.expect("no mod found").name, "Mod2C".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod2c".to_string());
         // and should not when parent hasn't been rendered
         let r = select(&mut mstate, 101, 201, 100);
         assert!(r.is_none());
@@ -249,7 +280,7 @@ mod tests {
         let r = select(&mut mstate, 100, 200, 60);
         match r {
             Some(nmod) => {
-                assert_eq!(nmod.name, "Mod1P".to_string());
+                assert_eq!(nmod.name, "mod1p".to_string());
                 assert_eq!(nmod.last_frame_render, 60);
             },
             _ => panic!("test failed")
@@ -265,21 +296,48 @@ mod tests {
         add_mod(&mut modmap, new_mod("Mod1P", 100, 200));
         add_mod(&mut modmap, new_mod("Mod4P", 100, 200));
         let mut child = new_mod("ModC", 101, 201);
-        child.parent_mod_name = "Mod4P".to_string();
+        child.parent_mod_names.push("Mod4P".to_string());
         add_mod(&mut modmap, child);
         
         let mut mstate = new_state(modmap);
         // Make Mod1P active recently, which should not matter for us because it isn't
         // our parent.
-        let pmod = get_parent(&mut mstate, "Mod1P");     
+        let pmod = get_parent(&mut mstate, "Mod1P");
         pmod.last_frame_render = 50;
         let r = select(&mut mstate, 101, 201, 50);
         assert!(r.is_none());
         // and if we update our parent, we should be selected now
-        let pmod = get_parent(&mut mstate, "Mod4P");         
+        let pmod = get_parent(&mut mstate, "Mod4P");
         pmod.last_frame_render = 50;
         let r = select(&mut mstate, 101, 201, 50);
-        assert!(r.is_some());
+        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+    }
+    
+    #[test]
+    fn test_multi_parent() {
+        // if we have two parents, we should render if one or the other is recently rendered.  
+        // but not if both are.  technically we could render if both are active but this might
+        // obscure problems in how the parents are set up, which may cause problems later.  so 
+        // hide it.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("Mod1P", 100, 200));
+        add_mod(&mut modmap, new_mod("Mod4P", 100, 200));
+        let mut child = new_mod("ModC", 101, 201);
+        child.parent_mod_names.push("Mod4P".to_string());
+        child.parent_mod_names.push("Mod1P".to_string());
+        add_mod(&mut modmap, child);
+        let mut mstate = new_state(modmap);
+        // both recent = no child render
+        let r = select(&mut mstate, 101, 201, 0);
+        assert!(r.is_none());
+        let pmod = get_parent(&mut mstate, "Mod4P");
+        pmod.last_frame_render = 50;
+        let r = select(&mut mstate, 101, 201, 50);
+        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+        let pmod = get_parent(&mut mstate, "Mod1P");
+        pmod.last_frame_render = 100;
+        let r = select(&mut mstate, 101, 201, 100);
+        assert_eq!(r.expect("no mod found").name, "modc".to_string());
     }
     
     #[test]
@@ -289,26 +347,26 @@ mod tests {
         add_mod(&mut modmap, new_mod("Mod2", 100, 200));
         add_mod(&mut modmap, new_mod("ModP", 101, 201));
         let mut child = new_mod("ModC", 100, 200);
-        child.parent_mod_name = "ModP".to_string();
+        child.parent_mod_names.push("ModP".to_string());
         add_mod(&mut modmap, child);
         let mut mstate = new_state(modmap);
         // selecting 100/200 mod should return the ModC because its parent is active - the other 
         // two have no parent and so are lower priority, so we exclude them.
         let r = select(&mut mstate, 100, 200, 0);
-        assert_eq!(r.expect("no mod found").name, "ModC".to_string());
+        assert_eq!(r.expect("no mod found").name, "modc".to_string());
         // now select with a more recent frame to exclude the parent, this should return the first
         // mod, because we haven't selected a variant yet, so the default is the first
         let r = select(&mut mstate, 100, 200, 50);
         //assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
-        assert_eq!(r.expect("no mod found").name, "Mod1".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
         // now pick a variant.  the indexes will be the same as the mod insertion order.
         let mk = NativeModData::mod_key(200, 100);
         mstate.selected_variant.insert(mk, 0);
         let r = select(&mut mstate, 100, 200, 50);
-        assert_eq!(r.expect("no mod found").name, "Mod1".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 1;
         let r = select(&mut mstate, 100, 200, 50);
-        assert_eq!(r.expect("no mod found").name, "Mod2".to_string());
+        assert_eq!(r.expect("no mod found").name, "mod2".to_string());
         // select() should not return a selected child 
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 2;
         let r = select(&mut mstate, 100, 200, 50);

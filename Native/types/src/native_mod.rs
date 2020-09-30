@@ -13,7 +13,7 @@ pub struct NativeModData {
     pub decl: *mut IDirect3DVertexDeclaration9,
     pub textures: [LPDIRECT3DTEXTURE9; 4],
     pub is_parent: bool,
-    pub parent_mod_name: String,
+    pub parent_mod_names: Vec<String>,
     pub last_frame_render: u64, // only set for parent mods
     pub name: String,
     //IDirect3DPixelShader9* pixelShader;
@@ -33,7 +33,7 @@ impl NativeModData {
             decl: null_mut(),
             textures: [null_mut(); 4],
             is_parent: false,
-            parent_mod_name: "".to_owned(),
+            parent_mod_names: vec![],
             last_frame_render: 0,
             name: "".to_owned(),
         }
@@ -48,6 +48,10 @@ impl NativeModData {
             return true;
         }
         curr_frame_num - self.last_frame_render <= 10 // last 150ms or so ought to be fine
+    }
+    /// Utility function to split a potentially or'ed list of parents into individual strings
+    pub fn split_parent_string(pstr:&str) -> Vec<String> {
+        pstr.trim().split(" or ").map(|p| p.trim()).filter(|p| !p.is_empty()).map(|p| p.to_owned()).collect()
     }
 }
 

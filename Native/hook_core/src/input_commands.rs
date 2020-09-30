@@ -324,7 +324,7 @@ fn select_next_variant() {
                 if sel_index == start {
                     break;
                 }
-                if nmdv[sel_index].parent_mod_name.is_empty() {
+                if nmdv[sel_index].parent_mod_names.is_empty() {
                     // found one
                     write_log_file(&format!("selected next variant: {}", nmdv[sel_index].name));
                     *sel_index_entry = sel_index;
