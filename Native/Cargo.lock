@@ -95,10 +95,31 @@ dependencies = [
  "dnclr",
  "fnv",
  "global_state",
+ "hook_snapshot",
  "input",
  "interop",
  "lazy_static",
  "mod_load",
+ "profiler",
+ "shader_capture",
+ "shared_dx9",
+ "snaplib",
+ "types",
+ "util",
+ "winapi",
+]
+
+[[package]]
+name = "hook_snapshot"
+version = "0.1.0"
+dependencies = [
+ "constant_tracking",
+ "d3dx",
+ "device_state",
+ "fnv",
+ "global_state",
+ "interop",
+ "lazy_static",
  "profiler",
  "shader_capture",
  "shared_dx9",

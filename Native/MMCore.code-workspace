@@ -1,6 +1,9 @@
 {
 	"folders": [
 		{
+			"path": "..\\..\\Docs"
+		},
+		{
 			"path": "hook_core"
 		},
 		{
@@ -43,7 +46,7 @@
 			"path": "snaplib"
 		},
 		{
-			"path": "..\\..\\Docs"
+			"path": "hook_snapshot"
 		}
 	],
 	"settings": {}

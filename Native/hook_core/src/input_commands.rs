@@ -24,10 +24,9 @@ use util::*;
 use winapi::ctypes::c_void;
 use std::time::SystemTime;
 
-use crate::toolbox::init_toolbox;
 use snaplib::anim_snap_state::AnimSnapState;
 use snaplib::anim_snap_state::AnimConstants;
-use crate::hook_render::SNAP_CONFIG;
+use hook_snapshot::SNAP_CONFIG;
 
 use snaplib::snap_config::SnapConfig;
 use std::collections::HashMap;
@@ -74,9 +73,7 @@ pub fn init_snapshot_mode() {
         };
 
         if snap_conf.snap_anim {
-            init_toolbox().map_err(|e| {
-                write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
-            }).unwrap_or_default();
+            hook_snapshot::reset();
 
             let expected_primverts:HashSet<(UINT,UINT)> =
                 match snap_conf.autosnap.as_ref() {
@@ -177,12 +174,8 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
     tryload_snap_config().map_err(|e| {
         write_log_file(&format!("failed to load snap config: {:?}", e))
     }).unwrap_or_default();
-
-    unsafe {
-        init_toolbox().map_err(|e| {
-            write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
-        }).unwrap_or_default();
-     };
+    
+    hook_snapshot::reset();
 
     unsafe {
         GLOBAL_STATE

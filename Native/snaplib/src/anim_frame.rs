@@ -48,7 +48,10 @@ where T: Serialize {
 pub struct AnimFrame {
     pub snapped_at: std::time::SystemTime,
     pub floats: std::collections::BTreeMap<UINT, Vec4<f32>>,
-    pub player_transform: Option<Vec4<f32>>,
+    pub transform1: Option<Vec4<f32>>,
+    pub transform2: Option<Vec4<f32>>,
+    pub transform3: Option<Vec4<f32>>,
+    pub transform4: Option<Vec4<f32>>,
 }
 
 #[derive(Serialize)]

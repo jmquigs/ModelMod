@@ -14,6 +14,7 @@ members = [
     "shared_dx9",
     "types",
     "util",
+    "hook_snapshot",
     "snaplib",
 ]
 
