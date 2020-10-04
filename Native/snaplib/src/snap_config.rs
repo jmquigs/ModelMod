@@ -40,6 +40,7 @@ pub struct SnapConfig {
     pub vconsts_to_capture: usize,
     pub pconsts_to_capture: usize,
     pub autosnap:Option<HashSet<AutoSnapMesh>>,
+    pub plugins:Option<Vec<String>>,
 }
 impl fmt::Display for SnapConfig {
     // This trait requires `fmt` with this exact signature.
@@ -67,6 +68,7 @@ impl fmt::Display for SnapConfig {
                 }
             }
         }
+        writeln!(f, "  plugins: {:?}", self.plugins)?;
         
         writeln!(f, "}}")
     }
@@ -82,6 +84,7 @@ impl SnapConfig {
             vconsts_to_capture: 224,
             pconsts_to_capture: 224,
             autosnap: None,
+            plugins: None,
         }
     }
     pub fn max_const_sequences(&self) -> usize {

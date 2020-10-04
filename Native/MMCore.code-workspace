@@ -47,6 +47,9 @@
 		},
 		{
 			"path": "hook_snapshot"
+		},
+		{
+			"path": "snap_plugin"
 		}
 	],
 	"settings": {}

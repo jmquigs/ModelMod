@@ -45,6 +45,7 @@ where T: Serialize {
 }
 
 #[derive(Serialize)]
+#[repr(C)]
 pub struct AnimFrame {
     pub snapped_at: std::time::SystemTime,
     pub floats: std::collections::BTreeMap<UINT, Vec4<f32>>,

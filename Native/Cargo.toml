@@ -15,7 +15,8 @@ members = [
     "types",
     "util",
     "hook_snapshot",
-    "snaplib",
+    "snap_plugin",
+    "snaplib"
 ]
 
 [profile.release]

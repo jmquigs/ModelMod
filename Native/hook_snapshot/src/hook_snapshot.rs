@@ -46,6 +46,7 @@ lazy_static! {
         pconsts_to_capture: 224,
         autosnap: None,
         require_gpu: None,
+        plugins: None,
     }));
 }
 
