@@ -19,7 +19,6 @@ use snaplib::anim_frame::RenderStateMap;
 use snaplib::anim_frame::write_obj_to_file;
 use snaplib::anim_snap_state::AnimSnapState;
 
-use crate::toolbox::TBSTATE;
 use std::collections::HashMap;
 
 use std::sync::RwLock;
@@ -36,7 +35,7 @@ lazy_static! {
     // Using a window makes it much more likely that something useful is captured, at the expense of
     // some duplicates; even though
     // some objects may still be missed.  Some investigation to make this more reliable would be useful.
-    
+
     pub static ref SNAP_CONFIG: Arc<RwLock<SnapConfig>> = Arc::new(RwLock::new(SnapConfig {
         snap_ms: 250,
         snap_anim: false,
@@ -100,9 +99,9 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
         };
 
     let mut autosnap = false;
-    
+
     let gs = unsafe {&mut GLOBAL_STATE };
-    
+
     if gs.anim_snap_state.is_some() {
         let ass = gs.anim_snap_state.as_mut().unwrap();
         let primvert = &(sd.prim_count,sd.num_vertices);
@@ -143,9 +142,12 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
                     next.capture_count = *cap_count;
                     ass.next_vconst_idx += 1;
                     unsafe {
-                        TBSTATE.as_mut().map(|tbstate| {
-                            next.player_transform = tbstate.get_player_transform();
-                        });
+                        //this was where I would call into the external toolbox app to get the
+                        //player transform.  I removed this module because it was game-specific
+                        //and not generalized, but the code still exists in the gamesnap branch.
+                        // TBSTATE.as_mut().map(|tbstate| {
+                        //     next.player_transform = tbstate.get_player_transform();
+                        // });
                     }
                 }
             }
@@ -159,9 +161,9 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
             }
         }
     }
-    
+
     let do_snap = (this_is_selected || autosnap) && gs.is_snapping;
-    
+
     if !do_snap {
         return;
     }
@@ -284,7 +286,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
             // fill in remaining snap data
             sd.vert_decl = vert_decl;
             sd.index_buffer = ib;
-            
+
             write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
             GLOBAL_STATE.interop_state.as_mut().map(|is| {
                 let cb = is.callbacks;
@@ -343,7 +345,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
         }
         gs.device = None;
     }
-    // check for resource leak, we do this in another block so that all the release on 
+    // check for resource leak, we do this in another block so that all the release on
     // drops activated.
     unsafe {
         (*device).AddRef();
@@ -354,7 +356,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
                 equal count after snapshot ({}), likely resources were leaked",
                 pre_rc, post_rc
             ));
-        }    
+        }
     }
 }
 
@@ -442,9 +444,9 @@ pub fn present_process() {
         },
         Ok(c) => c.snap_ms
     };
-    
+
     let gs = unsafe { &mut GLOBAL_STATE };
-    
+
     if gs.is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(snap_ms as u64);
@@ -467,11 +469,6 @@ pub fn present_process() {
 }
 
 /// Called when the clear texture key is pressed, and when a new snapshot is started.
-use crate::toolbox::init_toolbox;
 pub fn reset() {
-    unsafe {
-        init_toolbox().map_err(|e| {
-            write_log_file(&format!("failed to load toolbox, snapshot transforms will be incorrect: {:?}", e))
-        }).unwrap_or_default();
-     };
+    // this used to load/init the snapshot toolbox (removed)
 }
