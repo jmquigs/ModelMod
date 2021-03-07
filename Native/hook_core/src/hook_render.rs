@@ -9,15 +9,15 @@ use winapi::um::wingdi::RGNDATA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 
 use dnclr::{init_clr, reload_managed_dll};
-use types::native_mod::NativeModData;
+
 use util;
-use constant_tracking;
 use mod_load;
 use mod_load::AsyncLoadState;
 use crate::input_commands;
-use d3dx;
+use crate::mod_render;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use device_state::dev_state;
+use hook_snapshot;
 
 use std;
 use std::ptr::null_mut;
@@ -29,22 +29,6 @@ use shared_dx9::error::*;
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
 pub (crate) const MAX_STAGE: usize = 16;
-
-// Snapshotting currently stops after a certain amount of real time has passed from the start of
-// the snap, specified by this constant.
-// One might expect that just snapping everything drawn within a single begin/end scene combo is
-// sufficient, but this often misses data,
-// and sometimes fails to snapshot anything at all.  This may be because the game is using multiple
-// begin/end combos, so maybe
-// present->present would be more reliable (TODO: check this)
-// Using a window makes it much more likely that something useful is captured, at the expense of
-// some duplicates; even though
-// some objects may still be missed.  Some investigation to make this more reliable would be useful.
-static SNAP_MS: u32 = 250;
-
-fn snapshot_extra() -> bool {
-    return constant_tracking::is_enabled() || shader_capture::is_enabled()
-}
 
 fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
     unsafe {
@@ -292,16 +276,8 @@ pub unsafe extern "system" fn hook_present(
     }
 
     if GLOBAL_STATE.is_snapping {
-        let now = SystemTime::now();
-        let max_dur = std::time::Duration::from_millis(SNAP_MS as u64);
-        if now
-            .duration_since(GLOBAL_STATE.snap_start)
-            .unwrap_or(max_dur)
-            >= max_dur
-        {
-            write_log_file("ending snapshot");
-            GLOBAL_STATE.is_snapping = false;
-        }
+        // this may set is_snapping = false if the snapshot is done
+        hook_snapshot::present_process();
     }
 
     present_ret
@@ -393,6 +369,9 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
 decl_profile_globals!(hdip);
 
+
+
+
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
     THIS: *mut IDirect3DDevice9,
     PrimitiveType: D3DPRIMITIVETYPE,
@@ -427,7 +406,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut metrics = &mut GLOBAL_STATE.metrics;
 
-    if metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off {
+    if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
         return (hookdevice.real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
@@ -457,103 +436,19 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         }
     };
 
-    if this_is_selected && GLOBAL_STATE.is_snapping {
-        write_log_file("Snap started");
-
-        (*THIS).AddRef();
-        let pre_rc = (*THIS).Release();
-
-        GLOBAL_STATE.device = Some(THIS);
-
-        if GLOBAL_STATE.d3dx_fn.is_none() {
-            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
-                .map_err(|e| {
-                    write_log_file(&format!(
-                        "failed to load d3dx: texture snapping not available: {:?}",
-                        e
-                    ));
-                    e
-                })
-                .ok();
-        }
-
-        // TODO: warn about active streams that are in use but not supported
-        let mut blending_enabled: DWORD = 0;
-        let hr = (*THIS).GetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, &mut blending_enabled);
-        if hr == 0 && blending_enabled > 0 {
-            write_log_file("WARNING: vertex blending is enabled, this mesh may not be supported");
-        }
-
-        let mut ok = true;
-        let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
-        // sharpdx does not expose GetVertexDeclaration, so need to do it here
-        let hr = (*THIS).GetVertexDeclaration(&mut vert_decl);
-
-        if hr != 0 {
-            write_log_file(&format!(
-                "Error, can't get vertex declaration.
-                Cannot snap; HR: {:x}",
-                hr
-            ));
-        }
-        let _vert_decl_rod = ReleaseOnDrop::new(vert_decl);
-
-        ok = ok && hr == 0;
-        let mut ib: *mut IDirect3DIndexBuffer9 = null_mut();
-        let hr = (*THIS).GetIndices(&mut ib);
-        if hr != 0 {
-            write_log_file(&format!(
-                "Error, can't get index buffer.  Cannot snap; HR: {:x}",
-                hr
-            ));
-        }
-        let _ib_rod = ReleaseOnDrop::new(ib);
-
-        ok = ok && hr == 0;
-
-        if ok {
-            let mut sd = types::interop::SnapshotData {
-                sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
-                prim_type: PrimitiveType as i32,
-                base_vertex_index: BaseVertexIndex,
-                min_vertex_index: MinVertexIndex,
-                num_vertices: NumVertices,
-                start_index: startIndex,
-                prim_count: primCount,
-                vert_decl: vert_decl,
-                index_buffer: ib,
-            };
-            write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
-            GLOBAL_STATE.interop_state.as_mut().map(|is| {
-                let cb = is.callbacks;
-                let res = (cb.TakeSnapshot)(THIS, &mut sd);
-                if res == 0 && snapshot_extra() {
-                    let sresult = *(cb.GetSnapshotResult)();
-                    let dir = &sresult.directory[0..(sresult.directory_len as usize)];
-                    let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
-
-                    let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
-                    let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
-                    // write_log_file(&format!("snap save dir: {}", dir));
-                    // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let vconst = &GLOBAL_STATE.vertex_constants;
-                    let pconst = &GLOBAL_STATE.pixel_constants;
-                    constant_tracking::take_snapshot(&dir, &sprefix, vconst, pconst);
-                    shader_capture::take_snapshot(&dir, &sprefix);
-                }
-            });
-        }
-        (*THIS).AddRef();
-        let post_rc = (*THIS).Release();
-        if pre_rc != post_rc {
-            write_log_file(&format!(
-                "WARNING: device ref count before snapshot ({}) does not
-             equal count after snapshot ({}), likely resources were leaked",
-                pre_rc, post_rc
-            ));
-        }
-
-        GLOBAL_STATE.device = None;
+    if GLOBAL_STATE.is_snapping {
+        let mut sd = types::interop::SnapshotData {
+            sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
+            prim_type: PrimitiveType as i32,
+            base_vertex_index: BaseVertexIndex,
+            min_vertex_index: MinVertexIndex,
+            num_vertices: NumVertices,
+            start_index: startIndex,
+            prim_count: primCount,
+            vert_decl: null_mut(), // filled in by take()
+            index_buffer: null_mut(), // filled in by take()
+        };
+        hook_snapshot::take(THIS, &mut sd, this_is_selected);
     }
 
     profile_start!(hdip, main_combinator);
@@ -564,110 +459,16 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     let mut drew_mod = false;
 
     // if there is a matching mod, render it
-    let modded = 
+    let modded =
         GLOBAL_STATE.loaded_mods.as_mut()
         .and_then(|mods| {
             profile_end!(hdip, mod_key_prep);
-            profile_start!(hdip, mod_key_lookup);
-            let mod_key = NativeModData::mod_key(NumVertices, primCount);
-            let r = mods.get(&mod_key);
-            // just get out of here if we didn't have a match
-            if let None = r {
-                profile_end!(hdip, mod_key_lookup);
-                return None;
-            }
-            // found at least one mod.  do some more checks to see if each has a parent, and if the parent
-            // is active.  count the active parents we find because if more than one is active, 
-            // we have ambiguity and can't render any of them.
-            let mut target_mod_index:usize = 0;
-            let mut active_parent_name:&str = "";
-            let r2 = r.and_then(|nmods| {
-                let mut num_active_parents = 0;
-                for (midx,nmod) in nmods.iter().enumerate() {
-                    if !nmod.parent_mod_name.is_empty() {
-                        GLOBAL_STATE.mods_by_name.as_ref() 
-                            .and_then(|mbn| mbn.get(&nmod.parent_mod_name))
-                            .and_then(|parmodkey| mods.get(parmodkey))
-                            .map(|parent_mods| {
-                                // count any active parents
-                                for parent_mod in parent_mods.iter() {
-                                    if num_active_parents > 1 {
-                                        // fail, ambiguity
-                                        break;
-                                    }
-                                    if parent_mod.recently_rendered(GLOBAL_STATE.metrics.total_frames) {
-                                        // parent is active
-                                        num_active_parents += 1;
-                                        
-                                        // if this parent is for the mod we are looking at, 
-                                        // remember that mod index.  not that we'll slam this if we 
-                                        // have multiple active parents for multiple mods, 
-                                        // but we are screwed anyway in that case.
-                                        if nmod.parent_mod_name == parent_mod.name {
-                                            active_parent_name = &parent_mod.name;
-                                            target_mod_index = midx;
-                                        }
-                                    }
-                                }
-                            });
-                    } 
-                }
-                // return Some(()) if we found a valid one.
-                // if multiple mods but only one parent, we're good
-                if nmods.len() > 1 && num_active_parents == 1 {
-                    // write_log_file(&format!("rend mod {} because just one active parent named '{}'", 
-                    //     nmods[target_mod_index].name, active_parent_name));
-                    Some(())
-                }
-                // if just one mod it doesn't have a parent, or if it does and there is just one parent,
-                // also good.
-                else if nmods.len() == 1 && (nmods[0].parent_mod_name.is_empty() || num_active_parents == 1) {
-                    // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents", 
-                    // nmods[target_mod_index].name, nmods[0].parent_mod_name, num_active_parents));
-
-                    Some(())
-                } else {
-                    None
-                }
-            });
-            // return if we aren't rendering it.
-            if let None = r2 {
-                profile_end!(hdip, mod_key_lookup);
-                return None;
-            }
-            // ok, we're rendering it, but it might be a parent mod too, so we have to set 
-            // the last frame on it, which requires a mutable reference.  we couldn't use a 
-            // mutable ref earlier, because we had to do two lookups on the hash table.
-            // so we have to refetch as mutable, set the frame value and then (for safety)
-            // refetch as immutable again so that we can pass that value on.  that's three
-            // hash lookups guaranteed but fortunately we're only doing this for active mods.
-            // we also can't be clever and return an immutable ref now if it isn't a parent, 
-            // because we won't be able to even write the code that checks for the parent 
-            // since it would require the get_mut call and thus a mutable and immutable ref 
-            // would be active at the same time.
-            // TODO: this bullshit could be avoided by using a refcell on the native mods.
-            drop(r);
-            drop(r2);
-            mods.get_mut(&mod_key).map(|nmods| {
-                if target_mod_index >= nmods.len() {
-                    // error, spam the log i guess
-                    write_log_file(&format!("selected target mod index {} exceeds number of mods {}", 
-                        target_mod_index, nmods.len()));
-                } else {
-                    let nmod = &mut nmods[target_mod_index];
-                    if nmod.is_parent {
-                        nmod.last_frame_render = GLOBAL_STATE.metrics.total_frames;
-                    }
-                }
-            });
-            let r = mods.get(&mod_key).and_then(|nmods| {
-                if target_mod_index < nmods.len() {
-                    Some(&nmods[target_mod_index])
-                } else { 
-                    None
-                }
-            });
-            profile_end!(hdip, mod_key_lookup);
+            profile_start!(hdip, mod_select);
+            
+            let r = mod_render::select(mods, 
+                primCount, NumVertices, 
+                GLOBAL_STATE.metrics.total_frames);
+            profile_end!(hdip, mod_select);
             r
         })
         .and_then(|nmod| {
@@ -722,9 +523,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                     _st_rods.push(ReleaseOnDrop::new(save));
                 }
             }
-            
+
             // set the override tex, which is the (usually) the selection tex.  this might overwrite
-            // the mod tex tex we just set.
+            // the mod tex we just set.
             let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
             let _st_rod = {
                 if override_texture != null_mut() {

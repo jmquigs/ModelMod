@@ -26,6 +26,8 @@ pub enum HookError {
     CStrConvertFailed(std::str::Utf8Error),
     SnapshotFailed(String),
     CaptureFailed(String),
+    SnapshotPluginError(String),
+    NoShader(),
     SerdeError(String),
 }
 

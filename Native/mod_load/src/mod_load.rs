@@ -13,7 +13,7 @@ use std;
 use std::ptr::null_mut;
 use shared_dx9::util::*;
 use device_state::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LoadedModState};
 use types::interop;
 use types::native_mod;
 
@@ -38,7 +38,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let mods = GLOBAL_STATE.loaded_mods.take();
     let mut cnt = 0;
     mods.map(|mods| {
-        for (_key, modvec) in mods.into_iter() {
+        for (_key, modvec) in mods.mods.into_iter() {
             for nmd in modvec {
                 cnt += 1;
                 if nmd.vb != null_mut() {
@@ -60,7 +60,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
             }
         }
     });
-    GLOBAL_STATE.mods_by_name = None;
+    GLOBAL_STATE.loaded_mods = None;
 
     (*device).AddRef();
     let post_rc = (*device).Release();
@@ -122,7 +122,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
 
     // temporary list of all mods that have been referenced as a parent by something
     use std::collections::HashSet;
-    let mut parent_mods:HashSet<String> = HashSet::new();
+    let mut all_parent_mods:HashSet<String> = HashSet::new();
     for midx in 0..mod_count {
         let mdat: *mut interop::ModData = (callbacks.GetModData)(midx);
 
@@ -132,15 +132,17 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         }
         let mod_name = util::from_wide_str(&(*mdat).modName).unwrap_or_else(|_e| "".to_owned());
         let mod_name = mod_name.trim().to_owned();
-        let parent_mod = util::from_wide_str(&(*mdat).parentModName).unwrap_or_else(|_e| "".to_owned());
-        let parent_mod = parent_mod.trim().to_owned();
+        let parent_mods = util::from_wide_str(&(*mdat).parentModName).unwrap_or_else(|_e| "".to_owned());
+        let parent_mods = parent_mods.trim();
+        // check for an "or" list of parents
+        let parent_mods:Vec<String> = native_mod::NativeModData::split_parent_string(&parent_mods);
         let (prims,verts) = if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
             ((*mdat).numbers.ref_prim_count as u32,(*mdat).numbers.ref_vert_count as u32)
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        write_log_file(&format!("==> Initializing mod: name '{}', parent '{}', type {}, prims {}, verts {}", 
-            mod_name, parent_mod, (*mdat).numbers.mod_type, prims, verts));
+        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {}", 
+            mod_name, parent_mods, (*mdat).numbers.mod_type, prims, verts));
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
             && mod_type != interop::ModType::Deletion as i32
@@ -164,18 +166,37 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
             decl: null_mut(),
             textures: [null_mut(); 4],
             is_parent: false,
-            parent_mod_name: "".to_owned(),
+            parent_mod_names: parent_mods,
             last_frame_render: 0,
             name: mod_name.to_owned(),
         };
-
+        
+        // get mod key
+        let mod_key = native_mod::NativeModData::mod_key(
+            native_mod_data.mod_data.numbers.ref_vert_count as u32,
+            native_mod_data.mod_data.numbers.ref_prim_count as u32,
+        );
+        
+        // wrangle names
+        if native_mod_data.parent_mod_names.len() > 0 {
+            // lowercase these and make parent mod entries for them
+            native_mod_data.parent_mod_names = native_mod_data.parent_mod_names.iter().map(|parent_mod| {
+                let plwr = parent_mod.to_lowercase();
+                all_parent_mods.insert(plwr.clone());
+                plwr
+            }).collect();
+        }
+        if !mod_name.is_empty() {
+            if mods_by_name.contains_key(&mod_name) {
+                write_log_file(&format!("error, duplicate mod name: ignoring dup: {}", mod_name));
+            } else {
+                mods_by_name.insert(mod_name, mod_key);
+            }
+        }
+        //write_log_file(&format!("mod: {}, parents: {:?}", native_mod_data.name, native_mod_data.parent_mod_names));
+        
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
-            let hash_code = native_mod::NativeModData::mod_key(
-                native_mod_data.mod_data.numbers.ref_vert_count as u32,
-                native_mod_data.mod_data.numbers.ref_prim_count as u32,
-            );
-
-            loaded_mods.entry(hash_code).or_insert(vec![]).push(native_mod_data);
+            loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
             // thats all we need to do for these.
             continue;
         }
@@ -283,23 +304,8 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         native_mod_data.textures[2] = load_tex(&(*mdat).texPath2);
         native_mod_data.textures[3] = load_tex(&(*mdat).texPath3);
 
-        let mod_key = native_mod::NativeModData::mod_key(
-            native_mod_data.mod_data.numbers.ref_vert_count as u32,
-            native_mod_data.mod_data.numbers.ref_prim_count as u32,
-        );
-        if !parent_mod.is_empty() {
-            native_mod_data.parent_mod_name = parent_mod.to_lowercase();
-            parent_mods.insert(native_mod_data.parent_mod_name.clone());
-        }
-        // TODO: is hashing the generated mod key better than just hashing a tuple of prims,verts?
         loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
-        if !mod_name.is_empty() {
-            if mods_by_name.contains_key(&mod_name) {
-                write_log_file(&format!("error, duplicate mod name: ignoring dup: {}", mod_name));
-            } else {
-                mods_by_name.insert(mod_name, mod_key);
-            }
-        }
+        
         write_log_file(&format!(
             "allocated vb/decl for mod data {}: {:?}",
             midx,
@@ -309,8 +315,8 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
     
     // mark all parent mods as such, and also warn about any parents that didn't load
     let mut resolved_parents = 0;
-    let num_parents = parent_mods.len();
-    for parent in parent_mods {
+    let num_parents = all_parent_mods.len();
+    for parent in all_parent_mods {
         match mods_by_name.get(&parent) {
             None => write_log_file(&format!("error, mod referenced as parent failed to load: {}", parent)),
             Some(modkey) => {
@@ -339,20 +345,23 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         // names.
         let mut parent_names: HashSet<String> = HashSet::new();
         for nmod in nmodv.iter() {
-            if nmod.parent_mod_name.is_empty() {
-                write_log_file(&format!("Error: mod '{}' ({} prims,{} verts) has no parent \
-mod but it overlaps with another mod.  This won't render correctly.",
+            if nmod.parent_mod_names.is_empty() {
+                write_log_file(&format!("Note: mod '{}' ({} prims,{} verts) has no parent \
+mod but it overlaps with another mod.  Use the variant key to select this.",
                 nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count));
             } else {
-                parent_names.insert(nmod.parent_mod_name.to_string());
+                nmod.parent_mod_names.iter().for_each(|parent_mod_name| {
+                    parent_names.insert(parent_mod_name.to_string());
+                });
             }
             
         }
         if nmodv.len() != parent_names.len() {
-            write_log_file("Error: mod overlap found, check that all of these mods have proper/unique parents:");
+            write_log_file("Variants found:");
             for nmod in nmodv.iter() {
-                write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parent: {}",
-                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count, nmod.parent_mod_name));
+                write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parents: {:?}",
+                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count, 
+                nmod.parent_mod_names));
             }
         }
     }
@@ -367,6 +376,9 @@ mod but it overlaps with another mod.  This won't render correctly.",
         diff, device as u64, (*DEVICE_STATE).d3d_resource_count
     ));
 
-    GLOBAL_STATE.loaded_mods = Some(loaded_mods);
-    GLOBAL_STATE.mods_by_name = Some(mods_by_name);
+    GLOBAL_STATE.loaded_mods = Some(LoadedModState {
+        mods: loaded_mods,
+        mods_by_name: mods_by_name,
+        selected_variant: global_state::new_fnv_map(16),
+    } );
 }

@@ -33,6 +33,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "d3dx"
+version = "0.1.0"
+dependencies = [
+ "global_state",
+ "shared_dx9",
+ "types",
+ "util",
+ "winapi",
+]
+
+[[package]]
+name = "device_state"
+version = "0.1.0"
+dependencies = [
+ "shared_dx9",
+]
+
+[[package]]
+name = "dnclr"
+version = "0.1.0"
+dependencies = [
+ "global_state",
+ "shared_dx9",
+ "util",
+ "winapi",
+]
+
+[[package]]
 name = "dtoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -58,6 +86,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "hook_core"
+version = "0.1.0"
+dependencies = [
+ "constant_tracking",
+ "d3dx",
+ "device_state",
+ "dnclr",
+ "fnv",
+ "global_state",
+ "hook_snapshot",
+ "input",
+ "interop",
+ "lazy_static",
+ "mod_load",
+ "profiler",
+ "shader_capture",
+ "shared_dx9",
+ "snaplib",
+ "types",
+ "util",
+ "winapi",
+]
+
+[[package]]
+name = "hook_snapshot"
+version = "0.1.0"
+dependencies = [
+ "constant_tracking",
+ "d3dx",
+ "device_state",
+ "fnv",
+ "global_state",
+ "interop",
+ "lazy_static",
+ "profiler",
+ "shader_capture",
+ "shared_dx9",
+ "snap_plugin",
+ "snaplib",
+ "types",
+ "util",
+ "winapi",
+]
+
+[[package]]
 name = "input"
 version = "0.1.0"
 dependencies = [
@@ -66,6 +139,18 @@ dependencies = [
  "shared_dx9",
  "util",
  "winapi",
+]
+
+[[package]]
+name = "interop"
+version = "0.1.0"
+dependencies = [
+ "d3dx",
+ "global_state",
+ "lazy_static",
+ "shared_dx9",
+ "types",
+ "util",
 ]
 
 [[package]]
@@ -81,10 +166,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
+name = "mod_load"
+version = "0.1.0"
+dependencies = [
+ "d3dx",
+ "device_state",
+ "fnv",
+ "global_state",
+ "shared_dx9",
+ "types",
+ "util",
+ "winapi",
+]
+
+[[package]]
 name = "proc-macro2"
-version = "1.0.21"
+version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36e28516df94f3dd551a587da5357459d9b36d945a7c37c3557928c1c2ff2a2c"
+checksum = "51ef7cd2518ead700af67bf9d1a658d90b6037d77110fd9c0445429d0ba1c6c9"
 dependencies = [
  "unicode-xid",
 ]
@@ -138,11 +237,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "shader_capture"
+version = "0.1.0"
+dependencies = [
+ "global_state",
+ "shared_dx9",
+ "winapi",
+]
+
+[[package]]
 name = "shared_dx9"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
  "winapi",
+]
+
+[[package]]
+name = "snap_plugin"
+version = "0.1.0"
+dependencies = [
+ "shared_dx9",
+ "snaplib",
+ "util",
 ]
 
 [[package]]
@@ -160,9 +277,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.41"
+version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6690e3e9f692504b941dc6c3b188fd28df054f7fb8469ab40680df52fdcc842b"
+checksum = "9c51d92969d209b54a98397e1b91c8ae82d8c87a7bb87df0b29aa2ad81454228"
 dependencies = [
  "proc-macro2",
  "quote",
