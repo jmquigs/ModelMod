@@ -38,11 +38,20 @@ module NativeLogging =
             member x.Error format = Printf.ksprintf (formatError) format
         }
 
+/// Only valid in "standalone" (development) mode
+type StandaloneState = {
+    callbacks: MMNative.ManagedCallbacks
+    globalStatePointer: uint64
+}
 /// Managed entry point.  Native code is hardcoded to look for Main.Main(arg:string), and call it after
 /// loading the assembly.
 type Main() =
     static let mutable oninitialized: ((MMNative.ManagedCallbacks * uint64) -> int) option = None
     static let mutable log:Logging.ILog option = None
+    static let mutable standaloneState:StandaloneState option = None
+
+    /// Will be None in non-development mode
+    static member StandaloneState with get() = standaloneState
 
     /// The OnInitialized callback provided by Native code.  This is set lazily once we know what
     /// module name (context) the native code is using.
@@ -91,6 +100,15 @@ type Main() =
             | "d3d9" ->
                 (NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
+            | "standalone" ->
+                let oninit (callbacks,gsp):int = 
+                    printfn "ONINITIALIZED"; 
+                    standaloneState <- Some({ callbacks = callbacks; globalStatePointer = gsp })
+                    0
+                let infof (cat:string,msg:string) = printfn "Info[%s]: %s" cat msg
+                let warnf (cat:string,msg:string) = printfn "Warn[%s]: %s" cat msg
+                let errf (cat:string,msg:string) =  printfn "ERR [%s]: %s" cat msg
+                (oninit, NativeLogging.factory infof warnf errf)
             | s ->
                 failwithf "unrecognized context: %s" s
         Main.OnInitialized <- Some(oninitialized)
