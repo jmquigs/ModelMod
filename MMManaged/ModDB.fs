@@ -121,7 +121,7 @@ module ModDB =
         
     /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Mod.
-    let buildMod (node:YamlMappingNode) filename:ModElement =
+    let buildMod (node:YamlMappingNode) (filename:string): ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
@@ -297,7 +297,7 @@ module ModDB =
 
     /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Reference.
-    let buildReference (node:YamlMappingNode) filename =
+    let buildReference (node:YamlMappingNode) (filename:string) =
         //log.Info "Building reference from %A" node
 
         let basePath = Path.GetDirectoryName filename
@@ -442,7 +442,7 @@ module ModDB =
         // walk the file list, loading the mods that are on the load list
         let nameMatches f1 f2 =
             f1 = f2 ||
-            Path.GetFileNameWithoutExtension(f1).ToLowerInvariant() = Path.GetFileNameWithoutExtension(f2).ToLowerInvariant()
+            Path.GetFileNameWithoutExtension(f1:string).ToLowerInvariant() = Path.GetFileNameWithoutExtension(f2).ToLowerInvariant()
 
         let modFiles = 
             modsToLoad |> List.fold (fun acc modName -> 

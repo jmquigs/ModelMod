@@ -1,0 +1,48 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>MMManaged</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Yaml.fs" />
+    <Compile Include="Logging.fs" />
+    <Compile Include="Util.fs" />
+    <Compile Include="CoreTypes.fs" />
+    <Compile Include="InteropTypes.fs" />
+    <Compile Include="RegConfig.fs" />
+    <Compile Include="MeshUtil.fs" />
+    <Compile Include="MeshTransform.fs" />
+    <Compile Include="StartConf.fs" />
+    <Compile Include="MemoryCache.fs" />
+    <Compile Include="MeshRelation.fs" />
+    <Compile Include="ModDB.fs" />
+    <Compile Include="SnapshotProfile.fs" />
+    <Compile Include="State.fs" />
+    <Compile Include="ModDBInterop.fs" />
+    <Compile Include="Snapshot.fs" />
+    <Compile Include="Interop.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D9">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D9.dll</HintPath>
+    </Reference>
+    <Reference Include="YamlDotNet">
+      <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
