@@ -50,7 +50,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
                 if nmd.decl != null_mut() {
                     (*nmd.decl).Release();
                 }
-                
+
                 for tex in nmd.textures.iter() {
                     if *tex != null_mut() {
                         let tex = *tex as *mut IDirect3DBaseTexture9;
@@ -94,7 +94,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         write_log_file("failed to lock global state to setup mod data");
         return;
     }
-    
+
     // need d3dx for textures
     GLOBAL_STATE.device = Some(device);
     if GLOBAL_STATE.d3dx_fn.is_none() {
@@ -115,9 +115,9 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
 
     let mut loaded_mods: FnvHashMap<u32, Vec<native_mod::NativeModData>> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
-    // map of modname -> mod key, which can then be indexed into loaded mods.  used by 
+    // map of modname -> mod key, which can then be indexed into loaded mods.  used by
     // child mods to find the parent.
-    let mut mods_by_name: FnvHashMap<String,u32> = 
+    let mut mods_by_name: FnvHashMap<String,u32> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
 
     // temporary list of all mods that have been referenced as a parent by something
@@ -141,10 +141,11 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {}", 
+        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {}",
             mod_name, parent_mods, (*mdat).numbers.mod_type, prims, verts));
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
+            && mod_type != interop::ModType::GPUAdditive as i32
             && mod_type != interop::ModType::Deletion as i32
         {
             write_log_file(&format!(
@@ -170,13 +171,13 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
             last_frame_render: 0,
             name: mod_name.to_owned(),
         };
-        
+
         // get mod key
         let mod_key = native_mod::NativeModData::mod_key(
             native_mod_data.mod_data.numbers.ref_vert_count as u32,
             native_mod_data.mod_data.numbers.ref_prim_count as u32,
         );
-        
+
         // wrangle names
         if native_mod_data.parent_mod_names.len() > 0 {
             // lowercase these and make parent mod entries for them
@@ -194,7 +195,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
             }
         }
         //write_log_file(&format!("mod: {}, parents: {:?}", native_mod_data.name, native_mod_data.parent_mod_names));
-        
+
         if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
             loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
             // thats all we need to do for these.
@@ -289,7 +290,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
                 "".to_owned()
             });
             let tex = tex.trim();
-            
+
             let mut outtex = null_mut();
             if !tex.is_empty() {
                 outtex = d3dx::load_texture(texpath.as_ptr()).map_err(|e| {
@@ -305,14 +306,14 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         native_mod_data.textures[3] = load_tex(&(*mdat).texPath3);
 
         loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
-        
+
         write_log_file(&format!(
             "allocated vb/decl for mod data {}: {:?}",
             midx,
             (*mdat).numbers
         ));
     }
-    
+
     // mark all parent mods as such, and also warn about any parents that didn't load
     let mut resolved_parents = 0;
     let num_parents = all_parent_mods.len();
@@ -335,7 +336,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         }
     }
     write_log_file(&format!("resolved {} of {} parent mods", resolved_parents, num_parents));
-    
+
     // verify that all multi-mod cases have parent mod names set.
     for nmodv in loaded_mods.values() {
         if nmodv.len() <= 1 {
@@ -354,13 +355,13 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
                     parent_names.insert(parent_mod_name.to_string());
                 });
             }
-            
+
         }
         if nmodv.len() != parent_names.len() {
             write_log_file("Variants found:");
             for nmod in nmodv.iter() {
                 write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parents: {:?}",
-                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count, 
+                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count,
                 nmod.parent_mod_names));
             }
         }

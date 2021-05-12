@@ -6,7 +6,7 @@ pub use winapi::shared::d3d9types::*;
 
 pub enum ModType {
     None = 0,
-    CPUAdditive,
+    GPUAdditive,
     CPUReplacement,
     GPUReplacement,
     GPUPertubation,

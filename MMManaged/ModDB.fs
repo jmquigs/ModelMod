@@ -106,6 +106,8 @@ module ModDB =
         
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
+        | "cpuadditive" /// This doesn't even exist anymore, but for data-file compatibiliity treat it as GPUAdditive
+        | "gpuadditive" -> ModType.GPUAdditive
         | "cpureplacement" -> ModType.CPUReplacement
         | "gpureplacement" -> ModType.GPUReplacement
         | "reference" -> ModType.Reference
@@ -150,6 +152,7 @@ module ModDB =
             | ModType.Reference -> failwithf "Illegal mod mesh: type is set to reference: %A" node
             | ModType.Deletion
             | ModType.CPUReplacement
+            | GPUAdditive
             | ModType.GPUReplacement -> ()
 
             // weight mode
@@ -164,8 +167,10 @@ module ModDB =
             | (ModType.Reference, _) 
             | (ModType.Deletion, _) -> ()
             | (ModType.CPUReplacement, None) 
+            | (ModType.GPUAdditive, None)
             | (ModType.GPUReplacement, None) -> failwithf "Illegal mod mesh: type %A requires reference name, but it was not found: %A" modType node
             | (ModType.CPUReplacement, _) 
+            | (ModType.GPUAdditive, _)
             | (ModType.GPUReplacement, _) -> ()
 
             let delGeometry = node |> Yaml.getOptionalValue "delGeometry" |> Yaml.toOptionalSequence
@@ -188,6 +193,7 @@ module ModDB =
                 | ModType.Deletion -> None
                 | ModType.Reference 
                 | ModType.CPUReplacement
+                | ModType.GPUAdditive
                 | ModType.GPUReplacement ->
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"

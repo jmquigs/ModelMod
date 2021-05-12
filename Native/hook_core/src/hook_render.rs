@@ -568,7 +568,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     // draw input if not modded or if mod is additive
     let draw_input = match modded {
         None => true,
-        Some(mtype) if types::interop::ModType::CPUAdditive as i32 == mtype => true,
+        Some(mtype) if types::interop::ModType::GPUAdditive as i32 == mtype => true,
         Some(_) => false,
     };
     profile_end!(hdip, draw_input_check);
