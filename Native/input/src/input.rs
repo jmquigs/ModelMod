@@ -137,6 +137,7 @@ pub struct Input {
     pub alt_pressed: bool,
     pub ctrl_pressed: bool,
     pub shift_pressed: bool,
+    pub setup_attempts: i32,
     keyboard: *mut IDirectInputDevice8W,
 }
 
@@ -159,6 +160,7 @@ impl Input {
             shift_pressed: false,
             ctrl_pressed: false,
             keyboard: null_mut(),
+            setup_attempts: 0
         };
         for _i in 0..256 {
             inp.keyboard_state.push(0);

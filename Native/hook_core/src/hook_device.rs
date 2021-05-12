@@ -37,6 +37,11 @@ unsafe fn hook_device(
     let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
     let real_draw_indexed_primitive = (*vtbl).DrawIndexedPrimitive;
+    // check for already hook devices (useful in late-hook case)
+    if real_draw_indexed_primitive as u64 == hook_draw_indexed_primitive as u64 {
+        write_log_file(&format!("error: device already appears to be hooked, skipping"));
+        return Err(HookError::D3D9DeviceHookFailed);
+    }
     //let real_begin_scene = (*vtbl).BeginScene;
     let real_release = (*vtbl).parent.Release;
     let real_present = (*vtbl).Present;
@@ -54,6 +59,17 @@ unsafe fn hook_device(
 
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
+    // This was used to debug an issue with reshade where something
+    // was unhooking the pointers after I hooked it.  possibly securom in
+    // mass effect 2.
+    // write_log_file(&format!("DrawIndexedPrimitive real: {:x}, hook: {:x}",
+    //     real_draw_indexed_primitive as u64,
+    //     hook_draw_indexed_primitive as u64,
+    // ));
+    // write_log_file(&format!("Present real: {:x}, hook: {:x}",
+    //     real_present as u64,
+    //     hook_present as u64,
+    // ));
     (*vtbl).DrawIndexedPrimitive = hook_draw_indexed_primitive;
     //(*vtbl).BeginScene = hook_begin_scene;
     (*vtbl).Present = hook_present;
@@ -173,6 +189,7 @@ pub unsafe extern "system" fn hook_create_device(
         ppReturnedDeviceInterface,
     );
 
+    // TODO: need to do this on late-hook path, not here
     // create input, but don't fail everything if we can't (may be able to still use read-only mode)
     input::Input::new()
         .map(|inp| {
@@ -247,7 +264,7 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
     }
 }
 
-pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
+fn init_device_state_once() {
     unsafe {
         if DEVICE_STATE == null_mut() {
             DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
@@ -258,6 +275,136 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             }));
         }
     };
+}
+
+fn mm_verify_load() -> Option<String> {
+    match get_mm_conf_info() {
+        Ok((true, Some(dir))) => return Some(dir),
+        Ok((false, _)) => {
+            write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
+            return None;
+        }
+        Ok((true, None)) => {
+            write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
+            return None;
+        }
+        Err(e) => {
+            write_log_file(&format!(
+                "ModelMod not initializing due to conf error: {:?}",
+                e
+            ));
+            return None;
+        }
+    };
+}
+
+fn init_log(mm_root:&str) {
+    // try to create log file using module name and root dir.  if it fails then just
+    // let logging go to the temp dir file.
+    get_module_name()
+        .and_then(|mod_name| {
+            use std::path::PathBuf;
+
+            let stem = {
+                let pb = PathBuf::from(&mod_name);
+                let s = pb
+                    .file_stem()
+                    .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
+                let s = s
+                    .to_str()
+                    .ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
+                (*s).to_owned()
+            };
+
+            let file_name = format!("ModelMod.{}.log", stem);
+
+            let mut tdir = mm_root.to_owned();
+            tdir.push_str("\\Logs\\");
+            let mut tname = tdir.to_owned();
+            tname.push_str(&file_name);
+
+            use std::fs::OpenOptions;
+            use std::io::Write;
+            // controls whether log file is cleared on each run
+            let clear_log_file = true;
+            let mut f = OpenOptions::new()
+                .create(clear_log_file)
+                .write(true)
+                .truncate(clear_log_file)
+                .open(&tname)?;
+            writeln!(f, "ModelMod initialized\r")?;
+
+            // if that succeeded then we can set the file name now
+            set_log_file_path(&tdir, &file_name)?;
+
+            eprintln!("Log File: {}", tname);
+
+            Ok(())
+        })
+        .map_err(|e| {
+            write_log_file(&format!("error setting custom log file name: {:?}", e));
+        })
+        .unwrap_or(());
+}
+
+#[allow(unused)]
+#[no_mangle]
+/// Experimental api for hooking a device that was created externally,
+/// for example, inside reshade.  This is incomplete, and requires a
+/// version of reshade that supports addons as well as an addon specific
+/// to modelmod to load it (see ReshadeAddon in the root of this volume)
+pub fn late_hook_device(deviceptr: u64) -> i32 {
+    init_device_state_once();
+    let mm_root = match mm_verify_load() {
+        Some(dir) => dir,
+        None => {
+            return 1;
+        }
+    };
+    init_log(&mm_root);
+    unsafe {
+        GLOBAL_STATE.mm_root = Some(mm_root);
+    }
+
+    if deviceptr == 0 {
+        return 2;
+    }
+
+    unsafe {
+        #[cfg(target_arch = "x86")]
+        let praw:u32 = deviceptr as u32;
+        #[cfg(target_arch = "x86_64")]
+        let praw:u64 = deviceptr;
+
+        let device:LPDIRECT3DDEVICE9 = std::mem::transmute(praw);
+
+        let hookit = || -> Result<()> {
+            let lock = GLOBAL_STATE_LOCK
+            .lock()
+            .map_err(|_err| HookError::GlobalLockError)?;
+
+            // TODO should not hook more than once! (need to remember it somehow, compare fn
+            // pointers in the vtable?)
+            let hook_d3d9device = hook_device(device, &lock)?;
+
+            //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
+            (*DEVICE_STATE).hook_direct3d9device = Some(hook_d3d9device);
+            write_log_file(&format!(
+                "hooked device on thread {:?}",
+                std::thread::current().id()
+            ));
+
+            Ok(())
+        };
+
+        hookit();
+    }
+
+    0
+}
+
+pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
+    init_device_state_once();
 
     let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
     let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
@@ -271,70 +418,14 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     };
 
     unsafe {
-        let mm_root = match get_mm_conf_info() {
-            Ok((true, Some(dir))) => dir,
-            Ok((false, _)) => {
-                write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
-                return Ok(make_it());
-            }
-            Ok((true, None)) => {
-                write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
-                return Ok(make_it());
-            }
-            Err(e) => {
-                write_log_file(&format!(
-                    "ModelMod not initializing due to conf error: {:?}",
-                    e
-                ));
-                return Ok(make_it());
+        let mm_root = match mm_verify_load() {
+            Some(dir) => dir,
+            None => {
+                return Ok(make_it())
             }
         };
 
-        // try to create log file using module name and root dir.  if it fails then just
-        // let logging go to the temp dir file.
-        get_module_name()
-            .and_then(|mod_name| {
-                use std::path::PathBuf;
-
-                let stem = {
-                    let pb = PathBuf::from(&mod_name);
-                    let s = pb
-                        .file_stem()
-                        .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
-                    let s = s
-                        .to_str()
-                        .ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
-                    (*s).to_owned()
-                };
-
-                let file_name = format!("ModelMod.{}.log", stem);
-
-                let mut tdir = mm_root.to_owned();
-                tdir.push_str("\\Logs\\");
-                let mut tname = tdir.to_owned();
-                tname.push_str(&file_name);
-
-                use std::fs::OpenOptions;
-                use std::io::Write;
-                // don't open append first time so that log is cleared.
-                let mut f = OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .open(&tname)?;
-                writeln!(f, "ModelMod initialized\r")?;
-
-                // if that succeeded then we can set the file name now
-                set_log_file_path(&tdir, &file_name)?;
-
-                eprintln!("Log File: {}", tname);
-
-                Ok(())
-            })
-            .map_err(|e| {
-                write_log_file(&format!("error setting custom log file name: {:?}", e));
-            })
-            .unwrap_or(());
+        init_log(&mm_root);
 
         let direct3d9 = make_it();
         write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));

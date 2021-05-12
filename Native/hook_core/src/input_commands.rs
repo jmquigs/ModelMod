@@ -174,7 +174,7 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
     tryload_snap_config().map_err(|e| {
         write_log_file(&format!("failed to load snap config: {:?}", e))
     }).unwrap_or_default();
-    
+
     hook_snapshot::reset();
 
     unsafe {
@@ -286,24 +286,24 @@ fn select_next_variant() {
     // for any mods that have a variant, select the next one, wrapping around to first if needed.
     // this is currently pretty dumb, since it advances _all_ mods with variants.  if there
     // were a lot of variants of different sizes, it might be better to have multiple keybinds
-    // to advance a particular size category, and then partition everything into one of those 
+    // to advance a particular size category, and then partition everything into one of those
     // buckets.  or maybe that means its time to put an imgui UI in here for this purpose.
     let hookstate = unsafe { &mut GLOBAL_STATE };
     let lastframe = hookstate.metrics.total_frames;
-    
+
     hookstate.loaded_mods.as_mut().map(|mstate| {
         for (mkey, nmdv) in mstate.mods.iter() {
             if nmdv.len() <= 1 {
                 // most mods have no variants
                 continue;
             }
-            
+
             // don't change the selection if none have been rendered recently
             let foundrecent = nmdv.iter().find(|nmd| nmd.recently_rendered(lastframe));
             if foundrecent.is_none() {
                 continue;
             }
-            
+
             // get the current variant for this mod
             let sel_index_entry = mstate.selected_variant.entry(*mkey).or_insert(0);
             let mut sel_index = *sel_index_entry;
@@ -354,7 +354,7 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
     inp.add_press_fn(input::DIK_F9, Box::new(move || select_next_variant()));
     inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
-    
+
     // Disabling this because its ineffective: the reload will complete without error, but
     // The old managed code will still be used.  The old C++ code
     // used a custom domain manager to support reloading, but I'd rather just move to the
@@ -378,13 +378,27 @@ fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
 pub fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
     use std::ffi::CStr;
 
+    // if we fail to set it up repeatedly, don't spam log forever
+    inp.setup_attempts += 1;
+    if inp.setup_attempts == 10 {
+        return Err(HookError::DInputCreateFailed(String::from(
+            "too many calls to setup_input, further calls will be ignored",
+        )));
+    }
+    if inp.setup_attempts > 10 {
+        //return Ok(())
+        return Err(HookError::DInputCreateFailed(format!(
+            "ignoring setup call: {}", inp.setup_attempts
+        )));
+    }
+
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
     // TODO: should push this out to conf file eventually so that they can be customized without rebuild
     let interop_state = unsafe { &GLOBAL_STATE.interop_state };
     interop_state
         .as_ref()
         .ok_or(HookError::DInputCreateFailed(String::from(
-            "no interop state",
+            "no interop state: was device created?",
         )))
         .and_then(|is| {
             let carr_ptr = &is.conf_data.InputProfile[0] as *const i8;

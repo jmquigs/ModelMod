@@ -464,9 +464,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         .and_then(|mods| {
             profile_end!(hdip, mod_key_prep);
             profile_start!(hdip, mod_select);
-            
-            let r = mod_render::select(mods, 
-                primCount, NumVertices, 
+
+            let r = mod_render::select(mods,
+                primCount, NumVertices,
                 GLOBAL_STATE.metrics.total_frames);
             profile_end!(hdip, mod_select);
             r
