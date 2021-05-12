@@ -1,11 +1,15 @@
-set -e 
+set -e
 
-DIRS="hook_core shared_dx9 d3dx constant_tracking global_state input profiler types util device_state dnclr mod_load interop"
+DIRS=$(ls)
 
 WD=$(pwd)
-for d in $DIRS; do 
-    cd $WD/$d
-    echo "Resetting link in $WD/$d"
-    rm -rf ./target 
-    sh ../setjunc.sh ModelMod
+for d in $DIRS; do
+    libsrc="$WD/$d/src/lib.rs"
+    echo "Checking $libsrc"
+    if [ -f "$libsrc" ]; then
+        cd $WD/$d
+        echo "Resetting link in $WD/$d"
+        rm -rf ./target
+        sh ../setjunc.sh ModelMod
+    fi
 done
