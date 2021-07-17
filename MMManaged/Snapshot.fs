@@ -166,6 +166,17 @@ module Snapshot =
     /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
     /// Returns 0 on success.
     let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
+        let mutable vb:VertexBuffer = null
+        let mutable ib:IndexBuffer = null
+        let mutable vbLocked = false
+        let mutable ibLocked = false
+
+        let unlock() = 
+            log.Info ("unlocking snapshot buffers")
+            if ibLocked then 
+                ib.Unlock()
+            if vbLocked then 
+                vb.Unlock()
         try
             incr snapshotNum
             log.Info "Snapshot: number %d" snapshotNum.Value
@@ -208,7 +219,6 @@ module Snapshot =
 
             // get active stream information for stream 0.  currently we ignore other streams (will log a warning below if the declaration
             // uses data from non-stream 0).
-            let mutable vb:VertexBuffer = null
             let mutable offsetBytes = 0
             let mutable strideBytes = 0
 
@@ -229,7 +239,7 @@ module Snapshot =
 
             // index buffer
             if sd.IndexBuffer = 0n then failwith "Index buffer is null"
-            let ib = new IndexBuffer(sd.IndexBuffer) // do not dispose, native code owns it
+            ib <- new IndexBuffer(sd.IndexBuffer) // do not dispose, native code owns it
             let ibDesc = ib.Description
             log.Info"IndexBuffer: Format: %A, Usage: %A, Pool: %A, Size: %d" ibDesc.Format ibDesc.Usage ibDesc.Pool ibDesc.Size
 
@@ -260,10 +270,12 @@ module Snapshot =
 
             // lock vb and ib
             let vbDS = vb.Lock(0, vb.Description.SizeInBytes, LockFlags.ReadOnly)
+            // sharpdx always appears to return a valid object even if lock fails, so consider it locked
+            vbLocked <- true
             if not vbDS.CanRead then failwith "Failed to lock vertex buffer for reading"
             use vbReader = new BinaryReader(vbDS) // disposable
-
             let ibDS = ib.Lock(0, ib.Description.Size, LockFlags.ReadOnly)
+            ibLocked <- true
             if not ibDS.CanRead then failwith "Failed to lock index buffer for reading"
             use ibReader = new BinaryReader(ibDS) // disposable
 
@@ -365,6 +377,7 @@ module Snapshot =
                 |> List.map (fun i ->
                     let texName = sprintf "%s_texture%d.dds" sbasename i
                     let texPath = Path.Combine(baseDir, texName)
+                    // log.Info "Saving texture %d to %s" i texPath
                     if saveTexture(i, texPath) then
                         i,(texName,texPath)
                     else
@@ -484,32 +497,13 @@ module Snapshot =
                     let fname = Path.Combine(baseDir, (sprintf "%s_Transforms.txt" sbasename))
                     File.WriteAllText(fname, s.ToString())
 
-            // TODO: vertex shader & constants
-
-            // TODO: pixel shader constants
-            let mutable psDat = InteropTypes.NativeMemoryBuffer()
-
-            let getPS = false
-
-            if getPS && getPixelShader(NativeInterop.NativePtr.toNativeInt &&psDat) && psDat.Size > 0 then
-                let pixName = sprintf "%s_pixelshader.dat" sbasename
-                let pixPath = Path.Combine(baseDir, pixName)
-
-                let data:byte[] = Array.zeroCreate psDat.Size
-                Marshal.Copy(psDat.Data, data, 0, psDat.Size)
-                let crc = CRC32.single_step data |> CRC32.toU32
-                File.WriteAllBytes(pixPath, data)
-                let crcPath = Path.Combine(baseDir, sprintf "%s_pixelshader_crc32.txt" sbasename )
-                File.WriteAllText(crcPath, sprintf "%d" crc)
-                log.Info "Wrote pixel shader of size %A with crc %d to %s" psDat.Size crc crcPath
-
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
 
-            ib.Unlock()
-            vb.Unlock()
-
+            unlock()
             0
         with
             e ->
                 log.Error "%A" e
+                // Note, don't do this, it crashes.
+                //unlock()
                 InteropTypes.GenericFailureCode

@@ -15,6 +15,8 @@ use types::interop;
 use types::native_mod;
 use types::d3dx;
 
+use snaplib::anim_snap_state::AnimSnapState;
+
 pub (crate) const MAX_STAGE: usize = 16;
 
 pub struct FrameMetrics {
@@ -28,12 +30,23 @@ pub struct FrameMetrics {
     pub low_framerate: bool,
 }
 
+pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
+pub type ModsByNameMap = FnvHashMap<String,u32>;
+pub type SelectedVariantMap = FnvHashMap<u32, usize>;
+pub fn new_fnv_map<A,B> (capacity:usize) -> FnvHashMap<A,B> {
+    FnvHashMap::with_capacity_and_hasher(capacity, Default::default())
+}
+
+pub struct LoadedModState {
+    pub mods: LoadedModsMap,
+    pub mods_by_name: ModsByNameMap,
+    pub selected_variant: SelectedVariantMap,
+}
 pub struct HookState {
     pub clr_pointer: Option<u64>,
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
-    pub loaded_mods: Option<FnvHashMap<u32, Vec<native_mod::NativeModData>>>,
-    pub mods_by_name: Option<FnvHashMap<String,u32>>,
+    pub loaded_mods: Option<LoadedModState>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<*mut IDirect3DBaseTexture9>>,
@@ -55,6 +68,7 @@ pub struct HookState {
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
+    pub anim_snap_state: Option<AnimSnapState>,
 }
 
 impl HookState {
@@ -79,16 +93,15 @@ lazy_static! {
 }
 
 // TODO: maybe create read/write accessors for this
-// TODO: actually the way global state is handled is super gross.  at a minimum it seems 
-// like it should be a behind a RW lock, and if I made it a pointer/box I could get rid of some 
-// of the option types that are only there due to Rust limitations on what can be used to 
+// TODO: actually the way global state is handled is super gross.  at a minimum it seems
+// like it should be a behind a RW lock, and if I made it a pointer/box I could get rid of some
+// of the option types that are only there due to Rust limitations on what can be used to
 // init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
     interop_state: None,
     //is_global: true,
     loaded_mods: None,
-    mods_by_name: None,
     active_texture_set: None,
     active_texture_list: None,
     making_selection: false,
@@ -105,7 +118,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     snap_start: std::time::UNIX_EPOCH,
     vertex_constants: None,
     pixel_constants: None,
-
+    anim_snap_state: None,
     d3dx_fn: None,
     device: None,
     metrics: FrameMetrics {

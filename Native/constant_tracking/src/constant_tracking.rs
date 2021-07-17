@@ -34,6 +34,17 @@ pub struct Vec4<T: Serialize> {
     d: T
 }
 
+
+pub fn vecToVec4<T>(vec:&Vec<T>, offset: usize) -> Vec4<T>
+where T: Copy + serde::Serialize {
+    Vec4 {
+        a: vec[offset+0],
+        b: vec[offset+1],
+        c: vec[offset+2],
+        d: vec[offset+3],
+    }
+}
+
 // This is like the 'From' trait except that it allows the caller to specify an offset
 // from the source that they want converted.  Useful for doing (dangerous) raw pointer reads.
 pub trait FromOffset<T> {
@@ -191,7 +202,7 @@ pub fn take_snapshot(snap_dir:&str, snap_prefix:&str, vconst:&Option<ConstantGro
 }
 
 #[derive(Serialize)]
-struct GroupFile {
+pub struct GroupFile {
     pub floats: std::collections::BTreeMap<UINT, Vec4<f32>>,
     pub ints: std::collections::BTreeMap<UINT, Vec4<i32>>,
     pub bools: std::collections::BTreeMap<UINT, BOOL>,

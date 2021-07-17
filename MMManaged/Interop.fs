@@ -38,11 +38,29 @@ module NativeLogging =
             member x.Error format = Printf.ksprintf (formatError) format
         }
 
+/// Only valid in "standalone" (development) mode
+type StandaloneState = {
+    callbacks: MMNative.ManagedCallbacks
+    globalStatePointer: uint64
+}
+
+[<Struct>]
+[<StructLayout(LayoutKind.Sequential)>]
+/// Used when loaded via Core CLR api.
+type InteropInitStruct =
+    [<MarshalAs(UnmanagedType.LPWStr)>]
+    val mutable SParam:string
+    val mutable IParam:int32
+
 /// Managed entry point.  Native code is hardcoded to look for Main.Main(arg:string), and call it after
 /// loading the assembly.
 type Main() =
     static let mutable oninitialized: ((MMNative.ManagedCallbacks * uint64) -> int) option = None
     static let mutable log:Logging.ILog option = None
+    static let mutable standaloneState:StandaloneState option = None
+
+    /// Will be None in non-development mode
+    static member StandaloneState with get() = standaloneState
 
     /// The OnInitialized callback provided by Native code.  This is set lazily once we know what
     /// module name (context) the native code is using.
@@ -91,6 +109,15 @@ type Main() =
             | "d3d9" ->
                 (NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
+            | "standalone" ->
+                let oninit (callbacks,gsp):int =
+                    printfn "ONINITIALIZED";
+                    standaloneState <- Some({ callbacks = callbacks; globalStatePointer = gsp })
+                    0
+                let infof (cat:string,msg:string) = printfn "Info[%s]: %s" cat msg
+                let warnf (cat:string,msg:string) = printfn "Warn[%s]: %s" cat msg
+                let errf (cat:string,msg:string) =  printfn "ERR [%s]: %s" cat msg
+                (oninit, NativeLogging.factory infof warnf errf)
             | s ->
                 failwithf "unrecognized context: %s" s
         Main.OnInitialized <- Some(oninitialized)
@@ -166,5 +193,46 @@ type Main() =
         with
             | e ->
                 // print it, but it will likely go nowhere
+                printfn "An exception occured."
                 printfn "Exception: %A" e
                 InteropTypes.Assplosion
+
+    /// Weirdly named function use to ad-hoc test load from coreclr.
+    static member WankTest(MainArgs, MMRoot, GameExe) =
+        printfn "ModelMod Main Stub starting"
+        // initialize in standalone mode with a null global state pointer (don't need that, only native uses it).
+        let r = Main.Main(MainArgs)
+        if r <> 0 then
+            failwithf "Interop main failed, code %A" r
+        match Main.StandaloneState with
+        | None -> failwithf "Standalone state not initialized"
+        | Some(state) ->
+            let cd = state.callbacks.SetPaths.Invoke(MMRoot, GameExe)
+            // the returned conf data is always valid, but it might just contain defaults if a profile could not be loaded.
+            // SetPaths() doesn't return an error in that case for whatever reason.
+            // oh well, just try loading
+            let res = state.callbacks.LoadModDB.Invoke()
+            let mutable loading = true
+            while loading do
+                let loadstate = state.callbacks.GetLoadingState.Invoke()
+                loading <- loadstate = ModelMod.InteropTypes.AsyncLoadInProgress || loadstate = ModelMod.InteropTypes.AsyncLoadPending
+                if loading then
+                    System.Threading.Thread.Sleep(250)
+
+        printfn "ModelMod Main Stub exiting, code: %A" r
+        0
+
+    /// Entrypoint use to ad-hoc test load from coreclr.
+    static member MainCoreClr(arg:IntPtr, argLen:int):int =
+        let expectedSize = sizeof<InteropInitStruct>
+        if argLen <> expectedSize then
+            printfn "init struct size mismatch: %d/%d" argLen expectedSize
+            1
+        else if arg = System.IntPtr.Zero then
+            printfn "null struct pointer"
+            2
+        else
+            let strct = Marshal.PtrToStructure(arg, typeof<InteropInitStruct>) :?> InteropInitStruct
+            printfn "Initializing with %A (ignored: %d)" strct.SParam strct.IParam
+            //Main.Main(strct.SParam)
+            Main.WankTest(strct.SParam, @"M:\ModelMod", @"F:\Guild Wars 2\Gw2.exe")

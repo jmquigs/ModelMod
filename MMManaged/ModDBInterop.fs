@@ -187,11 +187,13 @@ module ModDBInterop =
     let modTypeToInt modType =
         match modType with
         | CPUReplacement -> 2
+        | GPUAdditive -> 1
         | GPUReplacement -> 3
         | Deletion -> 5
         | Reference -> failwith "A mod has type set to reference"
     let intToModType ival =
         match ival with
+        | 1 -> GPUAdditive
         | 2 -> CPUReplacement
         | 3 -> GPUReplacement
         | 5 -> Deletion
@@ -488,8 +490,9 @@ module ModDBInterop =
             let moddb = State.Data.Moddb
 
             let md = getModData modIndex
-            if (intToModType md.ModType) <> GPUReplacement then
-                failwithf "unsupported mod type: %d" md.ModType
+            if (intToModType md.ModType) <> GPUReplacement 
+                && (intToModType md.ModType) <> GPUAdditive
+                then failwithf "unsupported mod type: %d" md.ModType
 
             // grab more stuff that we'll need
             let meshrel = List.nth (moddb.MeshRelations) modIndex

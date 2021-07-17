@@ -10,11 +10,6 @@ use std::ffi::OsString;
 
 use shared_dx9::error::*;
 
-
-
-
-
-
 pub unsafe fn protect_memory(
     target: *mut winapi::ctypes::c_void,
     size: usize,
@@ -232,9 +227,9 @@ pub fn from_wide_str(ws: &[u16]) -> Result<String> {
     // use winapi::um::libloaderapi::*;
 
     // HACK: should use the widestring crate
-    // find the "null terminator". I don't have a great understanding of wide strings but I think 
+    // find the "null terminator". I don't have a great understanding of wide strings but I think
     // its valid for some to be null terminated, but maybe not all.
-    // the MM managed code will fill in the whole array with null, and it looks like from_wide 
+    // the MM managed code will fill in the whole array with null, and it looks like from_wide
     // just happily treats those as part of the string - i.e finding the length is our problem.
     // this would probably break paths that actually have certain unicode chars in them, but oh well.
     let mut null_pos = None;

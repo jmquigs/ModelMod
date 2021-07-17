@@ -141,6 +141,8 @@ module CoreTypes =
         /// Animated on the GPU; mod is expected to contain at least blend index data and usually blend weights as well.
         /// Mesh data is also usually not scaled or translated in world space in any way.
         GPUReplacement 
+        /// Animated on GPU as with GPUReplacement, however the original mesh is also drawn, so the mod is "added" to it.
+        | GPUAdditive
         /// Animated on the CPU.  A snapshot of this kind of data usually results in a fully world-transformed and 
         /// animated mesh - pretty useless for modding.  ModelMod doesn't not currently support this type of mod,
         /// even though it is technically possible.

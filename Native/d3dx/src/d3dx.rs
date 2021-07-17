@@ -52,14 +52,14 @@ pub unsafe fn load_texture(path:*const u16) -> Result<LPDIRECT3DTEXTURE9> {
         .device
         .as_ref()
         .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
-        
+
     let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
     let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
     let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(*device_ptr, path, ptext);
     if hr != 0 {
         return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
     }
-    
+
     Ok(tex)
 }
 

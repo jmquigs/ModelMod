@@ -1,6 +1,9 @@
 {
 	"folders": [
 		{
+			"path": "..\\..\\Docs"
+		},
+		{
 			"path": "hook_core"
 		},
 		{
@@ -38,6 +41,15 @@
 		},
 		{
 			"path": "interop"
+		},
+		{
+			"path": "snaplib"
+		},
+		{
+			"path": "hook_snapshot"
+		},
+		{
+			"path": "snap_plugin"
 		}
 	],
 	"settings": {}

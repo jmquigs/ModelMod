@@ -158,6 +158,7 @@ module MeshRelation =
                 match modMesh.Type with 
                 | CPUReplacement -> buildTris modMesh, buildTris refMesh
                 | GPUReplacement
+                | GPUAdditive
                 | Deletion 
                 | Reference -> [||],[||]
                 
@@ -207,6 +208,7 @@ module MeshRelation =
                     match modMesh.Type with 
                     | Reference 
                     | Deletion
+                    | GPUAdditive
                     | GPUReplacement -> None
                     | CPUReplacement ->
                         failwith "Looks like its time to implement cpu skinning relation code!"

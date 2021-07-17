@@ -24,6 +24,16 @@ use util::*;
 use winapi::ctypes::c_void;
 use std::time::SystemTime;
 
+use snaplib::anim_snap_state::AnimSnapState;
+use snaplib::anim_snap_state::AnimConstants;
+use hook_snapshot::SNAP_CONFIG;
+
+use snaplib::snap_config::SnapConfig;
+use std::collections::HashMap;
+use std::collections::HashSet;
+
+use shared_dx9::error::Result;
+
 pub fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     hookstate.making_selection = true;
@@ -53,6 +63,64 @@ pub fn init_snapshot_mode() {
         if GLOBAL_STATE.is_snapping {
             return;
         }
+
+        let snap_conf = match SNAP_CONFIG.read() {
+            Err(e) => {
+                write_log_file(&format!("failed to lock snap config: {}", e));
+                return;
+            },
+            Ok(c) => c
+        };
+
+        if snap_conf.snap_anim {
+            hook_snapshot::reset();
+
+            let expected_primverts:HashSet<(UINT,UINT)> =
+                match snap_conf.autosnap.as_ref() {
+                    Some(hm) => hm.iter().map(|m| (m.prims,m.verts) ).collect(),
+                    None => {
+                        write_log_file("autosnap hashmap not populated, can't snap anim without it");
+                        return;
+                    },
+                };
+
+            let numcombos = expected_primverts.len();
+            let mut anim_state = AnimSnapState {
+                next_vconst_idx: 0,
+                seen_all: false,
+                expected_primverts: expected_primverts,
+                seen_primverts: HashSet::new(),
+                sequence_vconstants: Vec::new(),
+                sequence_start_time: SystemTime::now(), // this will get overwritten when we actually start the constant sequences
+                snap_dir: "".to_owned(),
+                curr_frame: 0,
+                start_frame: 0,
+                capture_count_this_frame: HashMap::new(),
+            };
+            anim_state.seen_primverts.reserve(numcombos * 2);// double to avoid resize while snapping
+            anim_state.capture_count_this_frame.reserve(numcombos * 2);
+            // prealloc constant array; hopefully we won't exceed this
+            let max_seq = snap_conf.max_const_sequences();
+            let snap_on_count = snap_conf.snap_anim_on_count;
+            anim_state.sequence_vconstants.resize_with(max_seq, || AnimConstants {
+                snapped_at: std::time::SystemTime::UNIX_EPOCH,
+                prim_count: 0,
+                vert_count: 0,
+                sequence: 0,
+                constants: constant_tracking::ConstantGroup::new(),
+                capture_count: 0,
+                frame: 0,
+                player_transform: Err(HookError::SnapshotFailed("".to_owned())),
+                snap_on_count: snap_on_count,
+                // worldmat: std::mem::zeroed(),
+                // viewmat: std::mem::zeroed(),
+                // projmat: std::mem::zeroed(),
+            });
+
+            // TODO: should prealloc the scratch arrays used to read from the device in set_vconsts()
+            GLOBAL_STATE.anim_snap_state = Some(anim_state);
+        }
+
         GLOBAL_STATE.is_snapping = true;
         GLOBAL_STATE.snap_start = SystemTime::now();
     }
@@ -102,7 +170,13 @@ pub fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-pub fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
+fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
+    tryload_snap_config().map_err(|e| {
+        write_log_file(&format!("failed to load snap config: {:?}", e))
+    }).unwrap_or_default();
+
+    hook_snapshot::reset();
+
     unsafe {
         GLOBAL_STATE
             .active_texture_list
@@ -120,6 +194,7 @@ pub fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
 
         // TODO: this was an attempt to fix the issue with the selection
         // texture getting clobbered after alt-tab, but it didn't work.
+        // for now I just use windowed mode.
         // if GLOBAL_STATE.selection_texture != null_mut() {
         //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
         //     if tex != null_mut() {
@@ -207,6 +282,54 @@ fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
     };
 }
 
+fn select_next_variant() {
+    // for any mods that have a variant, select the next one, wrapping around to first if needed.
+    // this is currently pretty dumb, since it advances _all_ mods with variants.  if there
+    // were a lot of variants of different sizes, it might be better to have multiple keybinds
+    // to advance a particular size category, and then partition everything into one of those
+    // buckets.  or maybe that means its time to put an imgui UI in here for this purpose.
+    let hookstate = unsafe { &mut GLOBAL_STATE };
+    let lastframe = hookstate.metrics.total_frames;
+
+    hookstate.loaded_mods.as_mut().map(|mstate| {
+        for (mkey, nmdv) in mstate.mods.iter() {
+            if nmdv.len() <= 1 {
+                // most mods have no variants
+                continue;
+            }
+
+            // don't change the selection if none have been rendered recently
+            let foundrecent = nmdv.iter().find(|nmd| nmd.recently_rendered(lastframe));
+            if foundrecent.is_none() {
+                continue;
+            }
+
+            // get the current variant for this mod
+            let sel_index_entry = mstate.selected_variant.entry(*mkey).or_insert(0);
+            let mut sel_index = *sel_index_entry;
+            let start = sel_index;
+            // select next, skipping over child mods.  stop if we wrap to where we started
+            sel_index += 1;
+            loop {
+                if sel_index >= nmdv.len() {
+                    sel_index = 0;
+                }
+                if sel_index == start {
+                    break;
+                }
+                if nmdv[sel_index].parent_mod_names.is_empty() {
+                    // found one
+                    write_log_file(&format!("selected next variant: {}", nmdv[sel_index].name));
+                    *sel_index_entry = sel_index;
+                    break;
+                }
+                // keep looking
+                sel_index += 1;
+            }
+        }
+    });
+}
+
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
@@ -229,6 +352,9 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
+    inp.add_press_fn(input::DIK_F9, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
+
     // Disabling this because its ineffective: the reload will complete without error, but
     // The old managed code will still be used.  The old C++ code
     // used a custom domain manager to support reloading, but I'd rather just move to the
@@ -249,8 +375,22 @@ fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
 
-pub (crate) fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
+pub fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
     use std::ffi::CStr;
+
+    // if we fail to set it up repeatedly, don't spam log forever
+    inp.setup_attempts += 1;
+    if inp.setup_attempts == 10 {
+        return Err(HookError::DInputCreateFailed(String::from(
+            "too many calls to setup_input, further calls will be ignored",
+        )));
+    }
+    if inp.setup_attempts > 10 {
+        //return Ok(())
+        return Err(HookError::DInputCreateFailed(format!(
+            "ignoring setup call: {}", inp.setup_attempts
+        )));
+    }
 
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
     // TODO: should push this out to conf file eventually so that they can be customized without rebuild
@@ -258,7 +398,7 @@ pub (crate) fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input
     interop_state
         .as_ref()
         .ok_or(HookError::DInputCreateFailed(String::from(
-            "no interop state",
+            "no interop state: was device created?",
         )))
         .and_then(|is| {
             let carr_ptr = &is.conf_data.InputProfile[0] as *const i8;
@@ -337,4 +477,19 @@ pub (crate) fn create_selection_texture(device: *mut IDirect3DDevice9) {
 
         GLOBAL_STATE.selection_texture = tex;
     }
+}
+
+
+fn tryload_snap_config() -> Result<()> {
+    let (_,dir) = get_mm_conf_info()?;
+    let dir = dir.ok_or_else(|| HookError::SnapshotFailed("no mm root dir".to_owned()))?;
+
+    let sc = SnapConfig::load(&dir)?;
+    let mut sclock = SNAP_CONFIG.write().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    *sclock = sc;
+    drop(sclock);
+
+    let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
+    write_log_file(&format!("loaded snap config: {}", *sclock));
+    Ok(())
 }

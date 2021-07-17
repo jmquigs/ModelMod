@@ -6,7 +6,7 @@ pub use winapi::shared::d3d9types::*;
 
 pub enum ModType {
     None = 0,
-    CPUAdditive,
+    GPUAdditive,
     CPUReplacement,
     GPUReplacement,
     GPUPertubation,
@@ -41,6 +41,12 @@ pub struct ModData {
     pub modName: [WCHAR; MAX_MOD_NAME_LEN],
     pub parentModName: [WCHAR; MAX_MOD_NAME_LEN],
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
+}
+
+impl ModData {
+    pub fn new() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
 }
 
 #[repr(C)]

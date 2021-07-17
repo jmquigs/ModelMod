@@ -23,7 +23,7 @@ fn check_hr(hr:i32, context:&str) -> Result<()> {
 // Old skool "generic" because I'm too lazy to make a Trait to abstract the two variants
 macro_rules! impl_save_shader {
     ($name:ident, $ptrtype:ident, $getfn:ident) => {
-        unsafe fn $name(snap_dir:&str, snap_prefix:&str, suffix:&str) -> Result<()> {
+        unsafe fn $name(snap_dir:&str, snap_prefix:&str, suffix:&str) -> Result<bool> {
             let device_ptr = GLOBAL_STATE
                 .device
                 .as_ref()
@@ -70,7 +70,7 @@ macro_rules! impl_save_shader {
             file.write_all(wslice)?;
             util::write_log_file(&format!("wrote shader disassembly to {}", fout));
             
-            Ok(())
+            Ok(true)
         }
     };
 }
@@ -78,11 +78,17 @@ macro_rules! impl_save_shader {
 impl_save_shader!(save_pixel_shader, IDirect3DPixelShader9, GetPixelShader);
 impl_save_shader!(save_vertex_shader, IDirect3DVertexShader9, GetVertexShader);
 
-pub fn take_snapshot(snap_dir:&str, snap_prefix:&str) {
+pub fn take_snapshot(snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
     unsafe {
-        save_pixel_shader(snap_dir, snap_prefix, "_pshader").unwrap_or_else(|e| 
-            util::write_log_file(&format!("failed to save shader: {:?}", e)));
-        save_vertex_shader(snap_dir, snap_prefix, "_vshader").unwrap_or_else(|e| 
-            util::write_log_file(&format!("failed to save shader: {:?}", e)));
+        let gotpix = save_pixel_shader(snap_dir, snap_prefix, "_pshader").unwrap_or_else(|e| {
+            util::write_log_file(&format!("failed to save shader: {:?}", e));
+            false
+        });
+        let gotvert = save_vertex_shader(snap_dir, snap_prefix, "_vshader").unwrap_or_else(|e| {
+            util::write_log_file(&format!("failed to save shader: {:?}", e));
+            false
+        });
+            
+        (gotpix, gotvert)
     }
 }

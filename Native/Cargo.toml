@@ -1,0 +1,35 @@
+[workspace]
+members = [
+    "constant_tracking",
+    "hook_core",
+    "d3dx",
+    "device_state",
+    "dnclr",
+    "global_state",
+    "input",
+    "interop",
+    "mod_load",
+    "profiler",
+    "shader_capture",
+    "shared_dx9",
+    "types",
+    "util",
+    "hook_snapshot",
+    "snap_plugin",
+    "snaplib"
+]
+
+[profile.release]
+opt-level = 3
+# this controls how many crates llvm processes in parallel, reducing it might 
+# improve run time performance, but slows down compilation.  leaving it off for now 
+# since I use the release build for routine dev so the compilation time is a bigger factor.
+# https://doc.rust-lang.org/rustc/codegen-options/index.html
+#codegen-units = 1
+panic = 'unwind'
+
+# other stuff
+#debug = true
+#rpath = false
+#lto = false
+#debug-assertions = false

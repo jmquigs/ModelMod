@@ -118,6 +118,7 @@ pub const DIK_F7: u8 = 0x41;
 pub const DIK_F8: u8 = 0x42;
 pub const DIK_F9: u8 = 0x43;
 pub const DIK_F10: u8 = 0x44;
+pub const DIK_NUMPAD9: u8 = 0x49;
 
 #[derive(Debug)]
 pub struct KeyEvent {
@@ -136,6 +137,7 @@ pub struct Input {
     pub alt_pressed: bool,
     pub ctrl_pressed: bool,
     pub shift_pressed: bool,
+    pub setup_attempts: i32,
     keyboard: *mut IDirectInputDevice8W,
 }
 
@@ -158,6 +160,7 @@ impl Input {
             shift_pressed: false,
             ctrl_pressed: false,
             keyboard: null_mut(),
+            setup_attempts: 0
         };
         for _i in 0..256 {
             inp.keyboard_state.push(0);

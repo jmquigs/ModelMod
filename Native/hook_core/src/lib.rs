@@ -10,7 +10,8 @@ extern crate fnv;
 #[cfg(windows)]
 extern crate winapi;
 
-//#[macro_use]
+extern crate lazy_static;
+
 extern crate shared_dx9;
 extern crate global_state;
 extern crate util;
@@ -25,7 +26,8 @@ extern crate profiler;
 mod hook_render;
 mod input_commands;
 mod hook_device;
-mod hook_constants;
+//mod hook_constants;
+mod mod_render;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
