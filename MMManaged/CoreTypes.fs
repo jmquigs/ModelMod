@@ -74,11 +74,15 @@ module CoreTypes =
         ReverseNormals: bool
         /// Command line arguments that should be passed to the game when launched.
         CommandLineArguments: string
+        /// An alternate name for the game data directory data directory in case the exe base name does not map to any extant directory.
+        /// Can also be a full absolute path.
+        DataPathName: string
     }
 
     let DefaultGameProfile = {
         ReverseNormals = false
         CommandLineArguments = ""
+        DataPathName = ""
     }
 
     /// A run config for modelmod.  These are stored in the registry.
@@ -107,6 +111,8 @@ module CoreTypes =
         DocRoot: string 
         /// Period of time that the Loader will wait for the game to start before exiting.
         LaunchWindow: int
+        /// MinimumFPS desired.  Below this number, modelmod will temporarily shut off mod rendering in an effort to improve FPS.
+        MinimumFPS: int
     } 
 
     /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot 
@@ -122,6 +128,7 @@ module CoreTypes =
         GameProfile = DefaultGameProfile
         DocRoot = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),"ModelMod")
         LaunchWindow = 15
+        MinimumFPS = 28
     }
 
     // ------------------------------------------------------------------------
@@ -134,6 +141,8 @@ module CoreTypes =
         /// Animated on the GPU; mod is expected to contain at least blend index data and usually blend weights as well.
         /// Mesh data is also usually not scaled or translated in world space in any way.
         GPUReplacement 
+        /// Animated on GPU as with GPUReplacement, however the original mesh is also drawn, so the mod is "added" to it.
+        | GPUAdditive
         /// Animated on the CPU.  A snapshot of this kind of data usually results in a fully world-transformed and 
         /// animated mesh - pretty useless for modding.  ModelMod doesn't not currently support this type of mod,
         /// even though it is technically possible.
@@ -273,6 +282,7 @@ module CoreTypes =
         WeightMode: WeightMode
         PixelShader: string
         Attributes: ModAttributes
+        ParentModName: string option
     }
 
     /// Union Parent type for the yaml objects.

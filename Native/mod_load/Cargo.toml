@@ -1,0 +1,21 @@
+[package]
+name = "mod_load"
+version = "0.1.0"
+authors = ["John Quigley <jmquigs@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+    "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
+    "dinput"] }
+    
+[dependencies]
+fnv = "1.0.6"
+shared_dx9 = { path = "../shared_dx9" }
+util = { path = "../util" }
+global_state = { path = "../global_state" }
+types = { path = "../types" }
+d3dx = { path = "../d3dx" }
+device_state = { path = "../device_state" }

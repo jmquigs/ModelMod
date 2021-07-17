@@ -52,11 +52,20 @@ module ModDB =
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))
             |> List.map (fun imod ->
                 imod.Attributes.DeletedGeometry |> List.map (fun delPair -> 
+                    let parentMod = 
+                        match imod.ParentModName with 
+                        | Some(par) -> par
+                        | None -> ""
+
                     { InteropTypes.EmptyModData with
                         InteropTypes.ModData.ModType = 5
                         PrimType = 4
+                        VertCount = delPair.VertCount
+                        PrimCount = delPair.PrimCount
                         RefVertCount = delPair.VertCount
                         RefPrimCount = delPair.PrimCount
+                        ModName = imod.Name
+                        ParentModName = parentMod
                     }
                 )
             )
@@ -97,6 +106,8 @@ module ModDB =
         
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
+        | "cpuadditive" /// This doesn't even exist anymore, but for data-file compatibiliity treat it as GPUAdditive
+        | "gpuadditive" -> ModType.GPUAdditive
         | "cpureplacement" -> ModType.CPUReplacement
         | "gpureplacement" -> ModType.GPUReplacement
         | "reference" -> ModType.Reference
@@ -112,7 +123,7 @@ module ModDB =
         
     /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Mod.
-    let buildMod (node:YamlMappingNode) filename:ModElement =
+    let buildMod (node:YamlMappingNode) (filename:string): ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
@@ -141,6 +152,7 @@ module ModDB =
             | ModType.Reference -> failwithf "Illegal mod mesh: type is set to reference: %A" node
             | ModType.Deletion
             | ModType.CPUReplacement
+            | GPUAdditive
             | ModType.GPUReplacement -> ()
 
             // weight mode
@@ -155,8 +167,10 @@ module ModDB =
             | (ModType.Reference, _) 
             | (ModType.Deletion, _) -> ()
             | (ModType.CPUReplacement, None) 
+            | (ModType.GPUAdditive, None)
             | (ModType.GPUReplacement, None) -> failwithf "Illegal mod mesh: type %A requires reference name, but it was not found: %A" modType node
             | (ModType.CPUReplacement, _) 
+            | (ModType.GPUAdditive, _)
             | (ModType.GPUReplacement, _) -> ()
 
             let delGeometry = node |> Yaml.getOptionalValue "delGeometry" |> Yaml.toOptionalSequence
@@ -179,6 +193,7 @@ module ModDB =
                 | ModType.Deletion -> None
                 | ModType.Reference 
                 | ModType.CPUReplacement
+                | ModType.GPUAdditive
                 | ModType.GPUReplacement ->
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
@@ -198,6 +213,8 @@ module ModDB =
 
             mesh,modType,weightMode,attrs
 
+        let parentModName = node |> Yaml.getOptionalValue "ParentModName" |> Yaml.toOptionalString
+
         let md = { 
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
@@ -206,6 +223,7 @@ module ModDB =
             WeightMode = weightMode
             Attributes = attrs
             PixelShader = pixelShader
+            ParentModName = parentModName
         }
 
         let numOverrideTextures = 
@@ -285,7 +303,7 @@ module ModDB =
 
     /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Reference.
-    let buildReference (node:YamlMappingNode) filename =
+    let buildReference (node:YamlMappingNode) (filename:string) =
         //log.Info "Building reference from %A" node
 
         let basePath = Path.GetDirectoryName filename
@@ -430,7 +448,7 @@ module ModDB =
         // walk the file list, loading the mods that are on the load list
         let nameMatches f1 f2 =
             f1 = f2 ||
-            Path.GetFileNameWithoutExtension(f1).ToLowerInvariant() = Path.GetFileNameWithoutExtension(f2).ToLowerInvariant()
+            Path.GetFileNameWithoutExtension(f1:string).ToLowerInvariant() = Path.GetFileNameWithoutExtension(f2).ToLowerInvariant()
 
         let modFiles = 
             modsToLoad |> List.fold (fun acc modName -> 

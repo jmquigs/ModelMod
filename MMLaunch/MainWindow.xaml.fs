@@ -399,8 +399,9 @@ type MainViewModel() as self =
 
     let observableProfiles = 
         new ObservableCollection<ProfileModel>(
-            RegConfig.loadAll() |> 
-                Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
+            RegConfig.loadAll() 
+            |> Array.sortBy (fun gp -> gp.ProfileName.ToLowerInvariant().Trim())
+            |> Array.fold (fun (acc: ResizeArray<ProfileModel>) rc -> acc.Add( ProfileModel(rc)); acc ) (new ResizeArray<ProfileModel>()))
 
     let timer = new DispatcherTimer()
     do 

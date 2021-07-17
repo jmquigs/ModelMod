@@ -35,9 +35,11 @@ module RegKeys =
     let ProfSnapshotProfile = "SnapshotProfile"
     let ProfInputProfile = "InputProfile"
     let ProfLaunchWindow = "LaunchWindow"
+    let ProfMinimumFPS = "MinimumFPS"
     // Game profile settings are currently exploded out into individual keys
     let ProfGPReverseNormals = "GameProfileReverseNormals"
     let ProfGPCommandLineArguments = "GameProfileCommandLineArguments"
+    let ProfGPDataPathName = "GameProfileDataPathName"
       
 /// Various registry access utilities.
 module RegUtil = 
@@ -90,6 +92,11 @@ module RegConfig =
         let NormalRegLoc = new RegLoc(fun _ -> @"Software\ModelMod")
         let TestRegLoc = new RegLoc(fun _ -> @"Software\ModelModTEST")
         let FailsauceRegLoc = new RegLoc(fun _ -> failwith "root is not set") // must call either Init() or InitForTest()
+
+    let testSetUnicodePath() = 
+        let rl = RegLocTypes.TestRegLoc;
+        Registry.SetValue(rl.HiveRoot, "MMRoot", "D:\Dev\モデルModディレクトリ");
+        ()
 
     // mutable so that unit test can change it, via Init functions below
     let mutable private regLoc = RegLocTypes.FailsauceRegLoc
@@ -226,10 +233,12 @@ module RegConfig =
                 
                 DocRoot = "" // custom doc root not yet supported
                 LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
+                MinimumFPS = profSave RegKeys.ProfMinimumFPS conf.MinimumFPS
                 GameProfile = 
                     { 
                         ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
                         CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
+                        DataPathName = profSave RegKeys.ProfGPDataPathName conf.GameProfile.DataPathName
                     }
             })
 
@@ -279,10 +288,12 @@ module RegConfig =
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string
             SnapshotProfile = regget(profPath,RegKeys.ProfSnapshotProfile, DefaultRunConfig.SnapshotProfile) :?> string
             LaunchWindow = regget(profPath,RegKeys.ProfLaunchWindow, DefaultRunConfig.LaunchWindow) :?> int
+            MinimumFPS = regget(profPath,RegKeys.ProfMinimumFPS, DefaultRunConfig.MinimumFPS) :?> int
             GameProfile =
                 {
                     ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)
                     CommandLineArguments = regget(profPath, RegKeys.ProfGPCommandLineArguments, DefaultGameProfile.CommandLineArguments) :?> string
+                    DataPathName = regget(profPath, RegKeys.ProfGPDataPathName, DefaultGameProfile.DataPathName) :?> string
                 }
             
         }
@@ -316,7 +327,8 @@ module RegConfig =
                 match targetProfile with
                 | None -> 
                     let pRoot = regLoc.Hive.Name @@ regLoc.ProfRoot
-                    log.Info "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
+                    log.Warn "No profile subkey located in %A for executable %A; using defaults" pRoot exePath
+                    log.Warn "This is probably not what you want.  Consider creating a profile in MMLaunch for exe named %A" exePath
                     // if this defaults key is missing, then we just use the hardcoded defaults below
                     let prof = loadDefaultProfile()
                     // the default profile won't have an exe path, so set it
@@ -324,8 +336,9 @@ module RegConfig =
                 | Some profName -> 
                     loadFromProfileKey profName
 
-            if not (runConfig.ExePath.Equals(exePath,StringComparison.InvariantCultureIgnoreCase)) then
-                failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
+            // due to potential exe name remapping, this is ok now
+            // if not (runConfig.ExePath.Equals(exePath,StringComparison.InvariantCultureIgnoreCase)) then
+            //    failwithf "Woops, loaded profile does not match exe: (want %s, got profile: %A; loaded from key %A)" exePath runConfig targetProfile
             runConfig
 
         conf

@@ -1,0 +1,28 @@
+[package]
+name = "hook_snapshot"
+version = "0.1.0"
+authors = ["John Quigley <jmquigs@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fnv = "1.0.6"
+shared_dx9 = { path = "../shared_dx9" }
+profiler = { path = "../profiler" }
+global_state = { path = "../global_state" }
+util = { path = "../util" }
+constant_tracking = { path = "../constant_tracking" }
+d3dx = { path = "../d3dx" }
+types = { path = "../types" }
+device_state = { path = "../device_state" }
+interop = { path = "../interop" }
+shader_capture = { path = "../shader_capture" }
+snaplib = { path = "../snaplib" }
+snap_plugin = { path = "../snap_plugin" }
+lazy_static = "1.1.0"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+    "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
+    "dinput"] }

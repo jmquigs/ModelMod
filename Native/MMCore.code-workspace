@@ -1,0 +1,56 @@
+{
+	"folders": [
+		{
+			"path": "..\\..\\Docs"
+		},
+		{
+			"path": "hook_core"
+		},
+		{
+			"path": "shared_dx9"
+		},
+		{
+			"path": "d3dx"
+		},
+		{
+			"path": "constant_tracking"
+		},
+		{
+			"path": "global_state"
+		},
+		{
+			"path": "input"
+		},
+		{
+			"path": "profiler"
+		},
+		{
+			"path": "types"
+		},
+		{
+			"path": "util"
+		},
+		{
+			"path": "device_state"
+		},
+		{
+			"path": "dnclr"
+		},
+		{
+			"path": "mod_load"
+		},
+		{
+			"path": "interop"
+		},
+		{
+			"path": "snaplib"
+		},
+		{
+			"path": "hook_snapshot"
+		},
+		{
+			"path": "snap_plugin"
+		}
+	],
+	"settings": {}
+}

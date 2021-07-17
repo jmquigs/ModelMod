@@ -1,0 +1,5 @@
+Type: Reference
+MeshPath: FT_CrateRef.mmobj
+VertDeclPath: FT_CrateRef_VBDecl.dat
+ExpectedPrimCount: 586
+ExpectedVertCount: 765
