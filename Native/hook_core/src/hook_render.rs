@@ -650,6 +650,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
 
 #[cfg(test)]
+// these tests require access to test internals which is nightly only
+// to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
+#[cfg(nightly)]
 mod tests {
     use super::*;
 

@@ -2,8 +2,8 @@
 // this is here to silence the spammy warnings from the COM macro definitions in dnclr.
 // need to turn this on periodically to find the try dead code.
 #![allow(dead_code)]
-#![feature(test)]
-extern crate test;
+//#![feature(test)]
+//extern crate test;
 
 extern crate fnv;
 
