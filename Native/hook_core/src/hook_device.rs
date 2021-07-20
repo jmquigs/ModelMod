@@ -406,8 +406,26 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
 pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     init_device_state_once();
 
-    let handle = util::load_lib("c:\\windows\\system32\\d3d9.dll")?; // Todo: use GetSystemDirectory
-    let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
+    // load d3d9 lib.  do this before trying to load managed lib, because if we can't load d3d9
+    // there is no point in loading the managed stuff.  however this means that if this fails,
+    // the logging will go to the %temp%\ModelMod.log file.
+    // Note: _handle is never unloaded, IDK if there is a reason a game would ever do that
+    let (_handle,addr) = unsafe {
+        let bsize:u32 = 65535;
+        let mut syswide: Vec<u16> = Vec::with_capacity(bsize as usize);
+        let res = winapi::um::sysinfoapi::GetSystemDirectoryW(syswide.as_mut_ptr(), bsize);
+        if res == 0 {
+            write_log_file("Failed to get system directory, can't load d3d9.dll");
+            return Err(HookError::D3D9HookFailed);
+        }
+        syswide.set_len(res as usize);
+        let mut sd = util::from_wide_fixed(&syswide)?;
+        sd.push_str("\\d3d9.dll");
+
+        let handle = util::load_lib(&sd)?;
+        let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
+        (handle,addr)
+    };
 
     let make_it = || unsafe {
         let create: Direct3DCreate9Fn = std::mem::transmute(addr);

@@ -221,8 +221,21 @@ pub fn get_managed_dll_path(mm_root: &str) -> Result<String> {
                 .and_then(|spath| Ok(String::from(spath)))
         })
 }
-pub fn from_wide_str(ws: &[u16]) -> Result<String> {
+
+/// Get a string from wide slice using exact length of slice
+pub fn from_wide_fixed(ws: &[u16]) -> Result<String> {
     use std::os::windows::prelude::*;
+
+    let len = ws.len();
+    let s = unsafe { std::slice::from_raw_parts(ws.as_ptr(), len as usize) };
+    let s = OsString::from_wide(&s).into_string()?;
+    Ok(s)
+}
+
+/// Get a string from wide slice.  This version will look for a "null" character in the slice and
+/// stop at that character, excluding it and everything after it.  If no null character found
+/// it takes the whole slice.
+pub fn from_wide_str(ws: &[u16]) -> Result<String> {
     // use winapi::shared::minwindef::DWORD;
     // use winapi::um::libloaderapi::*;
 
@@ -244,11 +257,10 @@ pub fn from_wide_str(ws: &[u16]) -> Result<String> {
         None => ws
     };
 
-    let len = ws.len();
-    let s = unsafe { std::slice::from_raw_parts(ws.as_ptr(), len as usize) };
-    let s = OsString::from_wide(&s).into_string()?;
-    Ok(s)
+    from_wide_fixed(ws)
 }
+
+/// Convert string to wide array and append null
 pub fn to_wide_str(s: &str) -> Vec<u16> {
     use std::ffi::OsStr;
     use std::iter::once;
@@ -289,6 +301,22 @@ pub use winapi::shared::d3d9::{IDirect3DBaseTexture9,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    pub fn test_nasty_string_utils() {
+        // to_wide_str will append a null terminator
+        let mut disgusting = super::to_wide_str("GROSS💩");
+        // from_wide_fixed will take everything in the slice including the null
+        assert_eq!("GROSS💩\u{0}", super::from_wide_fixed(&disgusting).unwrap());
+
+        // from_wide_str will exclude the null and everything after it.
+        let crap:Vec<u16> = vec![80, 81];
+        disgusting.extend_from_slice(&crap);
+        assert_eq!("GROSS💩", super::from_wide_str(&disgusting).unwrap());
+        // buf if there is no null, it takes everything
+        let crap:Vec<u16> = vec![71, 82, 79, 83, 83, 0xD83D, 0xDCA9];
+        assert_eq!("GROSS💩", super::from_wide_str(&crap).unwrap());
+    }
 
     #[test]
     pub fn test_get_mm_conf_info() {
