@@ -1,4 +1,7 @@
-rustup default nightly-i686-pc-windows-msvc
+SPATH=$(dirname $0)
+. $SPATH/shutil.sh
+REQ=i686
+check_tc $REQ
 
 if [ "$1" == "profile" ]; then
     BCMD="cargo build --release --features=profile"
