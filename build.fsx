@@ -41,9 +41,12 @@ Target "Default" (fun _ ->
 )
 
 Target "BuildNative" (fun _ ->
-    !! "**/ModelMod.sln"
-      |> MSBuildRelease buildBin "Build" // note, native code ignores the buildBin override, so we have to copy manually later
-      |> Log "BuildNative-Output: "
+    let result = ExecProcess(fun info ->
+        // obviously this won't work on CI
+        info.FileName <- @"C:\Program Files\Git\git-bash.exe"
+        info.Arguments <- "./hook_core/buildrel.sh"
+        info.WorkingDirectory <- @"M:\ModelMod\Native") (System.TimeSpan.FromMinutes 3.0)
+    if result <> 0 then failwithf "MyProc.exe returned with a non-zero exit code"
 )
 
 Target "MakeAssInfo" (fun _ ->
@@ -116,13 +119,26 @@ Target "Test" (fun _ ->
 )
 
 Target "CopyNative" (fun _ ->
-    !! (nativeOut + "/**/*.*")
+    [
+        //!! (nativeOut + "/**/*.*")
+        !! (nativeOut + "/modelmod_32/*.*")
+        !! (nativeOut + "/modelmod_64/*.*")
         -- "**/*.iobj"
         -- "**/*.ipdb"
         -- "**/*.exp"
         -- "**/*.lib"
-        -- "**/*.pdb"
-        |> CopyFiles buildBin
+        -- "**/*.pdb"]
+        |> CopyWithSubfoldersTo buildBin
+    // The "Release" directory will be included and is unneeded,
+    // so clean that up
+    let moveBinDir (dirname) =
+        let targ = buildBin + "/" + dirname
+        if Directory.Exists(targ) then
+            Directory.Delete(targ, true)
+        Directory.Move((buildBin + "/Release/" + dirname), targ)
+    moveBinDir "modelmod_32"
+    moveBinDir "modelmod_64"
+    Directory.Delete(buildBin + "/Release")
 )
 
 Target "CopyStuff" (fun _ ->
@@ -158,6 +174,7 @@ Target "UpdateVersions" (fun _ ->
 )
 
 // Signing stuff
+// Unused, I no longer sign anything since I can't afford signing certs
 Target "SignBuild" (fun _ ->
     let certExpired = System.DateTime.Parse("11/10/2016")
     if (System.DateTime.Now > certExpired) then
