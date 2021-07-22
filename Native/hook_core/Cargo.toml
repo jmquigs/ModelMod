@@ -3,6 +3,7 @@ name = "hook_core"
 version = "0.1.0"
 authors = ["John Quigley <jmquigs@gmail.com>"]
 edition = "2018"
+build = "build.rs"
 
 [dependencies]
 fnv = "1.0.6"
@@ -30,6 +31,15 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 
 [lib]
 crate_type = ["cdylib"]
+
+[build-dependencies]
+winres = "0.1"
+
+[package.metadata.winres]
+ProductName= "ModelMod"
+FileDescription="D3D9 wrapper for ModelMod"
+OriginalFilename = "hook_core.dll"
+LegalCopyright = "Copyright © 2021"
 
 [features]
 default = []
