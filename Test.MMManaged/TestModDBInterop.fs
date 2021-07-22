@@ -29,8 +29,14 @@ let ``ModDBInterop: module functions``() =
     let mcount = ModDBInterop.getModCount()
     Assert.AreEqual (mcount, 3 , "incorrect mod count")
 
+    [0..2] |> List.iter (fun modidx -> 
+        let mmod = ModDBInterop.getModData(modidx)
+        printfn "Mod %A: type %A, pc %A, vc %A" modidx mmod.ModType mmod.PrimCount mmod.VertCount
+    )
+
     let () = 
         let mmod = ModDBInterop.getModData(0) // monolith
+        
         Assert.AreEqual (mmod.ModType, (ModDBInterop.modTypeToInt GPUReplacement) , sprintf "incorrect mod type: %A" mmod)
         Assert.AreEqual (mmod.PrimType, 4 , sprintf "incorrect prim type: %A" mmod)
         Assert.AreEqual (mmod.PrimCount, 36 , sprintf "incorrect prim count: %A" mmod)
@@ -50,8 +56,8 @@ let ``ModDBInterop: module functions``() =
         let mmod = ModDBInterop.getModData(index) 
         Assert.AreEqual (mmod.ModType, (ModDBInterop.modTypeToInt Deletion) , sprintf "incorrect mod type: %A" mmod)
         Assert.AreEqual (mmod.PrimType, 4 , sprintf "incorrect prim type: %A" mmod)
-        Assert.AreEqual (mmod.PrimCount, 0 , sprintf "incorrect prim count: %A" mmod)
-        Assert.AreEqual (mmod.VertCount, 0 , sprintf "incorrect vert count: %A" mmod)
+        Assert.AreEqual (mmod.PrimCount, pCount, sprintf "incorrect prim count, want %A, got %A" pCount mmod.PrimCount)
+        Assert.AreEqual (mmod.VertCount, vCount, sprintf "incorrect vert count: want %A, got %A" vCount mmod.VertCount)
         Assert.AreEqual (mmod.RefPrimCount, pCount , sprintf "incorrect ref prim count: %A" mmod)
         Assert.AreEqual (mmod.RefVertCount, vCount , sprintf "incorrect ref vert count: %A" mmod)
         Assert.AreEqual (mmod.IndexCount, 0 , sprintf "incorrect index count: %A" mmod)
