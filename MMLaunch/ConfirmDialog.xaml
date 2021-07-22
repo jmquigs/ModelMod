@@ -3,29 +3,29 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Confirm" Width="500" Height="250"
+    Title="Confirm" Width="500" Height="316.083"
     ResizeMode="NoResize">
 
     <Window.DataContext>
         <local:ConfirmDialogViewModel/>
     </Window.DataContext>
-    <Grid Margin="10,10,4,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273">
+    <Grid Margin="10,10,4,0" VerticalAlignment="Top" RenderTransformOrigin="1.441,1.273" Height="255">
         <Grid.Resources>
         </Grid.Resources>
         <Button Content="OK" 
                 Command="{Binding Path=Confirm}"
-                HorizontalAlignment="Left" Margin="128,173,0,0" VerticalAlignment="Top" Width="100"/>
+                HorizontalAlignment="Left" Margin="121,228,0,-55" VerticalAlignment="Top" Width="100"/>
         <Button Content="Cancel" 
                 Command="{Binding Path=Cancel}"
-                HorizontalAlignment="Left" Margin="243,173,0,0" VerticalAlignment="Top" Width="100"/>
+                HorizontalAlignment="Left" Margin="239,228,0,-55" VerticalAlignment="Top" Width="100"/>
         <TextBlock 
                 Text="{Binding Path=Text}" 
-                HorizontalAlignment="Left" Margin="10,10,0,0" TextWrapping="Wrap" VerticalAlignment="Top" RenderTransformOrigin="-0.14,-2.375" Height="130" Width="460"/>
+                HorizontalAlignment="Left" Margin="10,10,0,0" TextWrapping="Wrap" VerticalAlignment="Top" RenderTransformOrigin="-0.14,-2.375" Height="193" Width="460"/>
         <CheckBox 
             Content="{Binding Path=CheckBoxText}" 
             Visibility="{Binding Path=CheckBoxVisibility}"
             IsChecked="{Binding Path=CheckboxChecked}"
-            HorizontalAlignment="Left" Margin="10,145,0,0" VerticalAlignment="Top" Width="460"/>
+            HorizontalAlignment="Left" Margin="10,208,0,0" VerticalAlignment="Top" Width="460" RenderTransformOrigin="0.488,0.572"/>
     </Grid>
 
 </Window>
