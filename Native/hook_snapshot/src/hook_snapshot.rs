@@ -102,6 +102,8 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
 
     let gs = unsafe {&mut GLOBAL_STATE };
 
+    // experimental animation snapping. not normally used and no modding support at this time.
+    // VERY game and even model specific, hard to generalize.
     if gs.anim_snap_state.is_some() {
         let ass = gs.anim_snap_state.as_mut().unwrap();
         let primvert = &(sd.prim_count,sd.num_vertices);
@@ -141,14 +143,14 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
                     next.frame = ass.curr_frame;
                     next.capture_count = *cap_count;
                     ass.next_vconst_idx += 1;
-                    unsafe {
+                    //unsafe {
                         //this was where I would call into the external toolbox app to get the
                         //player transform.  I removed this module because it was game-specific
                         //and not generalized, but the code still exists in the gamesnap branch.
                         // TBSTATE.as_mut().map(|tbstate| {
                         //     next.player_transform = tbstate.get_player_transform();
                         // });
-                    }
+                    //}
                 }
             }
             else if !ass.seen_primverts.contains(primvert) {

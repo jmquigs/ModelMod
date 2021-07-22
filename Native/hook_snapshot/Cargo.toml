@@ -19,7 +19,7 @@ device_state = { path = "../device_state" }
 interop = { path = "../interop" }
 shader_capture = { path = "../shader_capture" }
 snaplib = { path = "../snaplib" }
-snap_plugin = { path = "../snap_plugin" }
+#snap_plugin = { path = "../snap_plugin" }
 lazy_static = "1.1.0"
 
 [target.'cfg(windows)'.dependencies]

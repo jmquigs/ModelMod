@@ -15,14 +15,15 @@ members = [
     "types",
     "util",
     "hook_snapshot",
-    "snap_plugin",
+    #"snap_plugin",
     "snaplib"
 ]
+exclude=["snap_plugin"]
 
 [profile.release]
 opt-level = 3
-# this controls how many crates llvm processes in parallel, reducing it might 
-# improve run time performance, but slows down compilation.  leaving it off for now 
+# this controls how many crates llvm processes in parallel, reducing it might
+# improve run time performance, but slows down compilation.  leaving it off for now
 # since I use the release build for routine dev so the compilation time is a bigger factor.
 # https://doc.rust-lang.org/rustc/codegen-options/index.html
 #codegen-units = 1
