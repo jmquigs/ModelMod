@@ -81,8 +81,9 @@ Target "MakeAssInfo" (fun _ ->
 )
 
 Target "UpdateRcVersions" (fun _ ->
-    updateRcVersions ("./ModelMod/ModelMod.rc")
-    updateRcVersions ("./MMLoader/MMLoader.rc")
+    ()
+    //updateRcVersions ("./ModelMod/ModelMod.rc")
+    //updateRcVersions ("./MMLoader/MMLoader.rc")
 )
 
 Target "BuildCS" (fun _ ->
@@ -94,12 +95,14 @@ Target "BuildCS" (fun _ ->
 Target "BuildFS" (fun _ ->
     !! "**/*.fsproj"
       -- "**/Test.*"
+      -- "**/Dn5*.fsproj"
       |> MSBuildRelease buildBin "Build"
       |> Log "BuildFS-Output: "
 )
 
 Target "BuildTest" (fun _ ->
     !! "**/Test.*.fsproj"
+      -- "**/Test.ManagedLaunch.fsproj"
       |> MSBuildRelease testDir "Build"
       |> Log "BuildTest-Output: "
 )
@@ -175,9 +178,9 @@ Target "SignBuild" (fun _ ->
 
     Directory.CreateDirectory zipTemp |> ignore
 
-    Unzip zipTemp targetZip 
+    Unzip zipTemp targetZip
 
-    let files = 
+    let files =
         [
             "ModelMod.exe";
             "Bin\ModelMod.exe";
@@ -189,12 +192,12 @@ Target "SignBuild" (fun _ ->
             "Bin\MMManaged.dll";
             "Bin\ModelModCLRAppDomain.dll";
         ] |> List.map (fun p -> Path.Combine(zipTemp,p))
-        
+
     files |> List.iter (fun f ->
         if not (File.Exists f) then
             failwithf "File does not exist: %A" f
     )
-    
+
     let certPathFile = "certpath.txt"
     if not (File.Exists certPathFile) then
         failwithf "PK path file not found: %s" certPathFile
@@ -220,7 +223,7 @@ Target "SignBuild" (fun _ ->
     if (Directory.Exists outDir) then
         Directory.Delete (outDir,true)
     Directory.CreateDirectory outDir |> ignore
-    
+
     let outZip = Path.Combine(outDir, Path.GetFileName(targetZip))
 
     CreateZip zipTemp outZip "modelmod" 9 false (Directory.GetFiles(zipTemp,"*.*",SearchOption.AllDirectories))
@@ -230,7 +233,7 @@ Target "SignBuild" (fun _ ->
 
 // Top level targets
 
-Target "FullBuild" (fun _ -> 
+Target "FullBuild" (fun _ ->
     Run "AppveyorBuild"
     Run "AppveyorTest"
     Run "AppveyorPackage"
@@ -250,7 +253,7 @@ Target "AppveyorPackage" ignore
     ==> "CopyStuff"
     ==> "Zip"
     ==> "Package"
-    
+
 "UpdateVersions"
     ==> "Clean"
     ==> "BuildCS"
