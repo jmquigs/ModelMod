@@ -82,6 +82,8 @@ struct CLRGlobalState {
     runtime_host: *mut ICLRRuntimeHost
 }
 
+const NATIVE_CODE_VERSION:i32 = 1;
+
 static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
     runtime_host: null_mut()
 };
@@ -201,14 +203,14 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
         .as_ref()
         .ok_or(HookError::UnableToLocatedManagedDLL(
             "No MM Root has been set".to_owned(),
-        ))?;    
+        ))?;
     let managed_dll = util::get_managed_dll_path(mm_root)?;
-    
-    // copy the managed_dll to a temp name prior 
+
+    // copy the managed_dll to a temp name prior
     let attempts = 0..255;
     let pb = std::path::Path::new(&managed_dll);
     let pb = pb.parent().ok_or(HookError::CLRInitFailed("managed dll has no parent".to_owned()))?;
-    
+
     let mut dll_copy:Option<String> = None;
     let mut _reload_idx = 0;
     for idx in attempts {
@@ -226,7 +228,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
             break;
         }
     }
-    
+
     let managed_dll = dll_copy.ok_or(
         HookError::CLRInitFailed("copied dll path error 2".to_owned()))?;
 
@@ -244,11 +246,12 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
         ));
 
         let argument = util::to_wide_str(&format!(
-            "{}|{}",
+            "{}|{}|{}",
             global_state_ptr as u64,
-            get_run_context()
+            get_run_context(),
+            NATIVE_CODE_VERSION
         ));
-    unsafe {        
+    unsafe {
         let mut ret: u32 = 0xFFFFFFFF;
         let hr = (*CLR_GLOBAL_STATE.runtime_host).ExecuteInDefaultAppDomain(
             app.as_ptr(),
@@ -263,10 +266,18 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
                 hr
             )));
         }
+        if ret != 0 {
+            let msg =
+                match ret {
+                    48 => format!("Error: Managed code version mismatch.  Ensure that the d3d9.dll loaded by the game is the latest version.  You may need to copy the new version in from your ModelMod directory.  Click 'Start' in the ModelMod Launcher for more details."),
+                    _ => format!("Error: Managed code failed to initialize; return code: {}", ret)
+                };
+            return Err(HookError::CLRInitFailed(msg));
+        }
     }
 
-        // TODO: release things?
-        write_log_file(&format!("clr initialized"));
+    // TODO: release things?
+    write_log_file(&format!("clr initialized"));
 
     Ok(())
 }

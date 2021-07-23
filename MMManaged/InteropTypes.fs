@@ -175,6 +175,10 @@ module InteropTypes =
     /// failures occurr.
     let GenericFailureCode = 47
 
+    /// Returned when native code with a different version attempts to initialize this managed dll.  
+    /// Versions must be an exact match, otherwise a crash is possible.
+    let NativeCodeMismatch = 48
+
     /// Return value when log initialization fails, which "should never happen" but is fundamental enough that
     /// we have a special return code for it.
     let LogInitFailed = 50

@@ -55,6 +55,10 @@ type InteropInitStruct =
 /// Managed entry point.  Native code is hardcoded to look for Main.Main(arg:string), and call it after
 /// loading the assembly.
 type Main() =
+    /// The native code version that this managed code is compatible with.  This should be bumped each
+    /// time the interop interface (e.g struct layouts) change.
+    static let NativeCodeVersion = 1
+
     static let mutable oninitialized: ((MMNative.ManagedCallbacks * uint64) -> int) option = None
     static let mutable log:Logging.ILog option = None
     static let mutable standaloneState:StandaloneState option = None
@@ -171,6 +175,7 @@ type Main() =
                 InteropTypes.GenericFailureCode
 
     static member Main(args:string) =
+        let mutable ret = InteropTypes.Assplosion
         try
             // args are | delimited, first arg is nativeGlobalState handle (opaque to managed code)
             // second is load context (i.e is the native code in d3d9.dll or mm_native.dll)
@@ -179,23 +184,37 @@ type Main() =
             let nativeGlobalState = uint64 (args.[0])
             let context = args.[1]
 
+            let mutable versionChecked = false
+            if args.Length > 1 then
+                let callNativeVersion = int (args.[2])
+                if callNativeVersion <> NativeCodeVersion then
+                    // can't even try to log if this doesn't match so just get out of here
+                    ret <- InteropTypes.NativeCodeMismatch
+                    failwithf "Bad native code version"
+                versionChecked <- true
+
             State.Context <- context
 
             Main.InitNativeInterface(context)
 
-            let ret = Main.IdentifyInLog()
-            let r =
-                if ret <> 0 then
-                    ret
-                else
-                    Main.InitCallbacks(nativeGlobalState,context)
-            r
+            ret <- Main.IdentifyInLog()
+            if ret <> 0 then
+                failwithf "Log init failed: %A" ret
+
+            if not versionChecked then
+                Main.Log.Warn "Native code did not pass a version, a crash is possible."
+
+            ret <- Main.InitCallbacks(nativeGlobalState,context)
+            ret
         with
             | e ->
                 // print it, but it will likely go nowhere
                 printfn "An exception occured."
                 printfn "Exception: %A" e
-                InteropTypes.Assplosion
+                if ret = 0 then
+                    InteropTypes.Assplosion
+                else
+                    ret
 
     /// Weirdly named function use to ad-hoc test load from coreclr.
     static member WankTest(MainArgs, MMRoot, GameExe) =
