@@ -117,7 +117,7 @@ pub fn init_snapshot_mode() {
                 // projmat: std::mem::zeroed(),
             });
 
-            // TODO: should prealloc the scratch arrays used to read from the device in set_vconsts()
+            // TODO(perf): should prealloc the scratch arrays used to read from the device in set_vconsts()
             GLOBAL_STATE.anim_snap_state = Some(anim_state);
         }
 
@@ -194,7 +194,7 @@ fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
 
         // TODO: this was an attempt to fix the issue with the selection
         // texture getting clobbered after alt-tab, but it didn't work.
-        // for now I just use windowed mode.
+        // for now I just use windowed mode in the affected game.  Doesn't happen with all games.
         // if GLOBAL_STATE.selection_texture != null_mut() {
         //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
         //     if tex != null_mut() {
@@ -333,8 +333,6 @@ fn select_next_variant() {
 fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
-    // _fKeyMap[DIK_F1] = [&]() { this->loadMods(); };
-    // _fKeyMap[DIK_F7] = [&]() { this->requestSnap(); };
 
     // Allow the handlers to take a copy of the device pointer in the closure.
     // This means that these handlers must be cleared when the device is destroyed,
@@ -352,7 +350,7 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
-    inp.add_press_fn(input::DIK_F9, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(move || select_next_variant()));
     inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
 
     // Disabling this because its ineffective: the reload will complete without error, but
@@ -362,16 +360,26 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     //inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 }
 
-fn setup_punct_input(_device: *mut IDirect3DDevice9, _inp: &mut input::Input) {
+fn setup_punct_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     write_log_file("using punct key input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
-    // TODO: hook these up
-    // _punctKeyMap[DIK_BACKSLASH] = [&]() { this->loadMods(); };
-    // _punctKeyMap[DIK_RBRACKET] = [&]() { this->toggleShowModMesh(); };
-    // _punctKeyMap[DIK_SEMICOLON] = [&]() { this->clearTextureLists(); };
-    // _punctKeyMap[DIK_COMMA] = [&]() { this->selectNextTexture(); };
-    // _punctKeyMap[DIK_PERIOD] = [&]() { this->selectPrevTexture(); };
-    // _punctKeyMap[DIK_SLASH] = [&]() { this->requestSnap(); };
+    inp.add_press_fn(input::DIK_BACKSLASH, Box::new(move || cmd_reload_mods(device)));
+    inp.add_press_fn(input::DIK_RBRACKET, Box::new(|| cmd_toggle_show_mods()));
+    inp.add_press_fn(input::DIK_SEMICOLON, Box::new(move || cmd_clear_texture_lists(device)));
+    inp.add_press_fn(
+        input::DIK_COMMA,
+        Box::new(move || cmd_select_next_texture(device)),
+    );
+    inp.add_press_fn(
+        input::DIK_PERIOD,
+        Box::new(move || cmd_select_prev_texture(device)),
+    );
+    inp.add_press_fn(input::DIK_SLASH, Box::new(move || cmd_take_snapshot()));
+
+    // Running out of punct!  oh well use these
+    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
+
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
 

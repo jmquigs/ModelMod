@@ -118,7 +118,15 @@ pub const DIK_F7: u8 = 0x41;
 pub const DIK_F8: u8 = 0x42;
 pub const DIK_F9: u8 = 0x43;
 pub const DIK_F10: u8 = 0x44;
+pub const DIK_NUMPAD8: u8 = 0x48;
 pub const DIK_NUMPAD9: u8 = 0x49;
+
+pub const DIK_BACKSLASH: u8 = 0x2B;
+pub const DIK_RBRACKET: u8 = 0x1B;
+pub const DIK_SEMICOLON: u8 = 0x27;
+pub const DIK_COMMA: u8 = 0x33;
+pub const DIK_PERIOD: u8 = 0x34;
+pub const DIK_SLASH: u8 = 0x35;
 
 #[derive(Debug)]
 pub struct KeyEvent {
