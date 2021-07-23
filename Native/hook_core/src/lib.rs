@@ -5,6 +5,10 @@
 //#![feature(test)]
 //extern crate test;
 
+//build.rs sets these, we log them to the logfile on startup.
+const RUSTCVER:&str = env!("RUSTCVER");
+const RUSTCDATE:&str = env!("RUSTCDATE");
+
 extern crate fnv;
 
 #[cfg(windows)]

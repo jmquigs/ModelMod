@@ -332,7 +332,7 @@ fn init_log(mm_root:&str) {
                 .write(true)
                 .truncate(clear_log_file)
                 .open(&tname)?;
-            writeln!(f, "ModelMod initialized\r")?;
+            writeln!(f, "ModelMod initialized, built with rustc: {} {}\r", super::RUSTCVER, super::RUSTCDATE)?;
 
             // if that succeeded then we can set the file name now
             set_log_file_path(&tdir, &file_name)?;

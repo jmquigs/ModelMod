@@ -34,6 +34,7 @@ crate_type = ["cdylib"]
 
 [build-dependencies]
 winres = "0.1"
+rustc_version = "0.2"
 
 [package.metadata.winres]
 ProductName= "ModelMod"
