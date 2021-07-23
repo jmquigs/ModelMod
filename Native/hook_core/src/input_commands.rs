@@ -386,10 +386,10 @@ pub fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Res
         )));
     }
     if inp.setup_attempts > 10 {
-        //return Ok(())
-        return Err(HookError::DInputCreateFailed(format!(
-            "ignoring setup call: {}", inp.setup_attempts
-        )));
+        return Ok(())
+        // return Err(HookError::DInputCreateFailed(format!(
+        //     "ignoring setup call: {}", inp.setup_attempts
+        // )));
     }
 
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
