@@ -41,6 +41,7 @@ ProductName= "ModelMod"
 FileDescription="D3D9 wrapper for ModelMod"
 OriginalFilename = "hook_core.dll"
 LegalCopyright = "Copyright © 2021"
+ProductVersion = "1.1.0.0"
 
 [features]
 default = []
