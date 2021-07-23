@@ -189,7 +189,7 @@ pub unsafe extern "system" fn hook_create_device(
         ppReturnedDeviceInterface,
     );
 
-    // TODO: need to do this on late-hook path, not here
+    // TODO: should do this on late-hook path, not here
     // create input, but don't fail everything if we can't (may be able to still use read-only mode)
     input::Input::new()
         .map(|inp| {
@@ -383,8 +383,6 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
             .lock()
             .map_err(|_err| HookError::GlobalLockError)?;
 
-            // TODO should not hook more than once! (need to remember it somehow, compare fn
-            // pointers in the vtable?)
             let hook_d3d9device = hook_device(device, &lock)?;
 
             //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
