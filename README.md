@@ -5,14 +5,48 @@ It works by replacing 3D models (and textures, optionally) at the renderer level
 
 You start by selecting and snapshotting a model in the game.
 This snapshot can then be edited in a 3D modeling tool
-(Blender 2.79b) and re-exported.  Then you load it back into the game, where it will be automatically
+and re-exported.  Then you load it back into the game, where it will be automatically
 rendered in place of the original.
+
+# Requirements
+
+* **Warning: Using ModelMod may violate the terms of service of a game.  The
+developer might ban your account.  Use at your own risk.**
+  * I'm not aware of anyone that has been banned for ModelMod, and my
+  accounts have not been banned.  However there is always risk so
+  you should be careful.
+* Windows.
+* A supported D3D9 game.  On windows 10 you may need to install the D3D9 runtime to capture textures
+(https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.)
+  * Only a few games have been tested.  Programming effort is usually required.  [game compatibility list](https://github.com/jmquigs/ModelMod/wiki/Game-Compatibility-List)
+
+* Blender 2.79b is the only 3D tool supported.  Later versions changed the python API and this has broken
+ModelMod's custom importer/exporter.
+  * Download 2.79b here.  https://download.blender.org/release/Blender2.79/
+* .Net Runtime 4.5 or newer (this may already be installed on your machine): https://www.microsoft.com/en-us/download/details.aspx?id=30653.  Developers can skip this.
+* For animated models, the target game
+must use GPU based animation.  Support for CPU animation, common in older games, is
+known to be possible but is not currently implemented.
 
 <!--
 [comment]: [![appveyor](https://ci.appveyor.com/api/projects/status/gqsf2f001h46q1tn?svg=true)](https://ci.appveyor.com/project/jmquigs/modelmod)
 -->
 
-# Warning: experimental shit
+
+Installation
+------------
+
+Non-programmers should use the [release package](https://github.com/jmquigs/ModelMod/releases).
+
+I used to have tutorial docs and videos but they were deleted.  You can
+check out the [User's Guide](Docs/userguide/README.md).
+
+Development
+-----------
+
+For install & build instructions, [check out the Dev Guide](Docs/devguide/README.md).
+
+### Experimental port
 
 This is an experimental port of the C++ portion of modelmod to Rust.
 A large portion of this has already been completed but
@@ -31,63 +65,21 @@ This repository also contains some experimental new capturing systems such as sh
 and shaders.  These are intended to capture larger portions of scenes, though there is no modding
 capability for them at this time.
 
-Newer versions of blender (>2.79b) are not yet supported because those dudes
-keep changing their python API and I can't keep up with it.
 
-Due to the state of (horrible) related laws in the US, I do not explicitly
-name the games that work with ModelMod.  Its a pretty small number of games, though.  Use it at your own risk
-and with the full knowledge that you may be banned by the game's developer,
-if that is possible and they discover your usage and are mad about it.
-There also are no official releases of this branch at this time.
+### Note for Rust language safety police
 
-## Note for Rust language safety police
-
-This isn't a traditional Rust project in that there is a lot of unsafe code.  It must be this way
-because the thread model of the game is unknown (and unknowable, since it changes with each game),
+This isn't a traditional Rust project in that there is a lot of unsafe code.  The thread model of the game is unknown,
 so the Rust compiler cannot do all the lifetime and ownership checking that you might normally
-expect.  Think of this project as being written in the
+expect.  There are also a lot of raw pointers because of all the use
+of low level windows APIs.
+
+Think of this project as being written in the
 subset of Rust known as "Unsafe Rust".
 
-Since there has been some drama in the Rust community when the subfaction of Safety Zealots
-discover a Rust project has "too much" unsafe code, I'm writing this a helpful signpost to suggest
-those people just buzz off.  If your eyes bleed and you whip out a holy symbol every time you
-see `unsafe` in Rust code, I recommend you close this browser tab now and forget you ever found this.
+If you don't like `unsafe` in Rust code, I recommend you close this browser tab now and forget you ever found this.
 
 That being said, I _am_ very interested in fixing any Undefined Behavior (UB) that might exist in
 this code, and I welcome comments/PRs from people interested in the code from this perspective.
-
-## Old Readme follows (somewhat out of date)
-
-Requirements
-------------
-
-* Windows.
-* 32-bit only games at the moment.
-* The game must use D3D9 for rendering.  Make sure you have the D3D9 runtime installed.  This is an especially true for Windows 10 systems.  Developers can skip this since you need the DX SDK instead.  https://www.microsoft.com/en-us/download/details.aspx?displayLang=en&id=35.
-* .Net Runtime 4.5 or newer (this may already be installed on your machine): https://www.microsoft.com/en-us/download/details.aspx?id=30653.  Developers can skip this.
-* Only a few games have been tested.  Programming effort is usually required
-to get new games to work.
-* For animated models, the target game
-must use GPU based animation.  Support for CPU animation, common in older games, is
-known to be possible but is not currently implemented.
-* Blender is the only 3D modeling tool supported at this time.
-If you want to write an exporter for something else, See [Contributing](#Contributing).
-
-Installation
-------------
-
-Non-programmers should use the [release package](https://github.com/jmquigs/ModelMod/releases).
-
-Also, check out the [game compatibility list](https://github.com/jmquigs/ModelMod/wiki/Game-Compatibility-List), and [look at the User's Guide](Docs/userguide/README.md).
-
-Development
------------
-
-ModelMod is written in a combination of C++ and [F#](http://fsharp.org/).  Most of the core code
-is in F#, so hacking on it can be easier than you might think, assuming you
-know or are willing to learn F#.
-
-For install & build instructions, [check out the Dev Guide](Docs/devguide/README.md).
 
 ### Contributing
 
