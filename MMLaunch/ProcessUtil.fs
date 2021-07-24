@@ -41,43 +41,39 @@ module ProcessUtil =
              (-5, "Could not create mutex, another instance of target may be running")
             ]
 
-    let private loaderSearchPath = ["."; 
-        // Make a dev tree path in case it isn't found in current directory.
-        // I used to have this always use Release in the dev build, but then I got bitten in the ass by the fact
-        // that I was running this project in debug and thus the release MMManaged assembly wasn't getting updated.
-        // so now it uses release or debug as specified by config
-#if DEBUG
-        "../../../Debug" ;
-#else
-        "../../../Release" ;
-#endif
-    ]
     let LoaderName = "MMLoader.exe"
 
-    let getLoaderPath() =
-        let lp = 
-            loaderSearchPath 
-            |> List.map (fun path -> Path.Combine(path, LoaderName))
-            |> List.tryFind File.Exists
-        match lp with 
-        | None -> ""
-        | Some (path) -> path
-
     let getMMRoot() =
-        let lp = getLoaderPath()
-        match lp with 
-        | "" -> failwith "Unable to find MM root"
-        | s -> Path.Combine(Path.GetDirectoryName(s), "..")
+        // MMRoot is not officially stored in the registry, so by convention its where one of the files below lives
+
+        let rootSearchPath = ["."; 
+            // Make a dev tree path in case it isn't found in current directory.
+            "../../.." ;
+        ]
+        let rootFiles = [
+            "MMDotNet.sln"; // for dev runs
+            "ModelMod.exe"]
+
+        let root =
+            rootSearchPath 
+            |> List.tryPick (fun rootpath -> 
+                rootFiles 
+                |> List.map (fun filepath -> Path.Combine(rootpath, filepath))
+                |> List.tryPick (fun filepath -> if File.Exists(filepath) then Some(filepath) else None)
+            )
+        match root with 
+        | None -> failwith "Unable to find MM root"
+        | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
+
+    /// Loader isn't used anymore so this is just a placeholder until I remove the related code.
+    let getLoaderPath() =
+        Path.Combine([|getMMRoot(); "Bin"; LoaderName |])
                 
     // Returns the log directory
     let private getLogPath() =
-        let lp = getLoaderPath()
-        match lp with 
-        | "" -> ""
-        | path ->
-            let loaderPar = Directory.GetParent(path);
-            let logDir = Path.Combine(loaderPar.FullName, "..", "Logs")
-            logDir
+        let root = getMMRoot()
+        let logDir = Path.Combine(root, "Logs")
+        logDir
 
     let private getInjectionLog (exePath:string) =
         let lp = getLogPath()
@@ -115,7 +111,7 @@ module ProcessUtil =
             let loaderPath = 
                 let lp = getLoaderPath()
                 if not (File.Exists(lp))
-                    then failwithf "Can't find %s; searched in %A" LoaderName loaderSearchPath
+                    then failwithf "Can't find %s" LoaderName
                 lp
 
             let proc = new Process()

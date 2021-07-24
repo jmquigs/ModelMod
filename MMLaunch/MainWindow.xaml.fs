@@ -221,10 +221,7 @@ module MainViewUtil =
         ViewModelUtil.pushSelectFileDialog (initialDir,LocStrings.Misc.ExeFilesFilter + "|*.exe")
 
     let getDirLocator (profile:ProfileModel) =
-        let lp = ProcessUtil.getLoaderPath()
-        if lp = "" then failwithf LocStrings.Errors.CantFindLoader ProcessUtil.LoaderName
-        let root = Directory.GetParent(lp).FullName
-        let root = Path.Combine(root, "..")
+        let root = ProcessUtil.getMMRoot()
         let dl = State.DirLocator(root, profile.Config)
         dl
 
@@ -764,8 +761,8 @@ type MainViewModel() as self =
         // currently we just tell the user what they need to do,
         // and we don't start anything.
         let promptCopy mainWin selectedProfile =
-            let launchPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location)
-            let msg = sprintf LocStrings.Misc.StartCopy launchPath launchPath
+            let binPath = Path.Combine(ProcessUtil.getMMRoot(), "Bin")
+            let msg = sprintf LocStrings.Misc.StartCopy binPath binPath
             let view,vm = MainViewUtil.makeConfirmDialog mainWin
             vm.CheckBoxText <- ""
             vm.Text <- msg

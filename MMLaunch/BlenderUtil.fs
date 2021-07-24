@@ -212,10 +212,8 @@ module BlenderUtil =
         | e -> Err(e.Message)
 
     let getScriptSourceDir() = 
-        let lp = ProcessUtil.getLoaderPath()
-        let root = Path.Combine(Path.GetDirectoryName(lp), "..")
-
-        Path.GetFullPath(Path.Combine(root,SourceScriptDir))
+        let sdir = Path.GetFullPath(Path.Combine(ProcessUtil.getMMRoot(),SourceScriptDir))
+        sdir        
 
     let checkScriptStatus (currInstallDir:string):Result<ScriptStatus,string> = 
         try
