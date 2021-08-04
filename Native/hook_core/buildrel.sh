@@ -1,5 +1,7 @@
 set -e
 
+CLEANARG=$1
+
 TC_X64=stable-x86_64-pc-windows-msvc
 TC_X32=stable-i686-pc-windows-msvc
 
@@ -22,15 +24,23 @@ function copy_to_dest {
 }
 
 rustup default $TC_X64
-cargo clean
+if [ "$CLEANARG" != "noclean" ]; then
+    cargo clean
+fi
 cargo build --release
 copy_to_dest modelmod_64
 
 rustup default $TC_X32
-cargo clean
+if [ "$CLEANARG" != "noclean" ]; then
+    cargo clean
+fi
+
 cargo build --release
 copy_to_dest modelmod_32
 
 rustup default $ACTIVE_TC
-cargo clean
+if [ "$CLEANARG" != "noclean" ]; then
+    cargo clean
+fi
+
 echo "=== Toolchain reset to $TC_X64"
