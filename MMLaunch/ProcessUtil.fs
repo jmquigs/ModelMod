@@ -46,20 +46,22 @@ module ProcessUtil =
     let getMMRoot() =
         // MMRoot is not officially stored in the registry, so by convention its where one of the files below lives
 
-        let rootSearchPath = ["."; 
+        let rootSearchPath = ["."; "..";
             // Make a dev tree path in case it isn't found in current directory.
             "../../.." ;
         ]
         let rootFiles = [
             "MMDotNet.sln"; // for dev runs
-            "ModelMod.exe"]
+            "Bin"]
 
         let root =
             rootSearchPath 
             |> List.tryPick (fun rootpath -> 
                 rootFiles 
                 |> List.map (fun filepath -> Path.Combine(rootpath, filepath))
-                |> List.tryPick (fun filepath -> if File.Exists(filepath) then Some(filepath) else None)
+                |> List.tryPick (fun filepath -> 
+                    eprintfn "try %A" (Path.GetFullPath(filepath))
+                    if (Directory.Exists(filepath) || File.Exists(filepath)) then Some(filepath) else None)
             )
         match root with 
         | None -> failwith "Unable to find MM root"
