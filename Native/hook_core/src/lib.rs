@@ -8,6 +8,8 @@
 //build.rs sets these, we log them to the logfile on startup.
 const RUSTCVER:&str = env!("RUSTCVER");
 const RUSTCDATE:&str = env!("RUSTCDATE");
+const GIT_HASH:&str = env!("GIT_HASH");
+const BUILD_TS:&str = env!("BUILD_TS");
 
 extern crate fnv;
 
