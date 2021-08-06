@@ -217,16 +217,16 @@ type Main() =
                     ret
 
     /// Weirdly named function use to ad-hoc test load from coreclr.
-    static member WankTest(MainArgs, MMRoot, GameExe) =
+    static member WankTest(mainArgs, mmRoot, gameExe) =
         printfn "ModelMod Main Stub starting"
         // initialize in standalone mode with a null global state pointer (don't need that, only native uses it).
-        let r = Main.Main(MainArgs)
+        let r = Main.Main(mainArgs)
         if r <> 0 then
             failwithf "Interop main failed, code %A" r
         match Main.StandaloneState with
         | None -> failwithf "Standalone state not initialized"
         | Some(state) ->
-            let cd = state.callbacks.SetPaths.Invoke(MMRoot, GameExe)
+            let cd = state.callbacks.SetPaths.Invoke(mmRoot, gameExe)
             // the returned conf data is always valid, but it might just contain defaults if a profile could not be loaded.
             // SetPaths() doesn't return an error in that case for whatever reason.
             // oh well, just try loading
