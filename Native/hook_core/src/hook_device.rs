@@ -332,7 +332,8 @@ fn init_log(mm_root:&str) {
                 .write(true)
                 .truncate(clear_log_file)
                 .open(&tname)?;
-            writeln!(f, "ModelMod initialized, built with rustc: {} {}\r", super::RUSTCVER, super::RUSTCDATE)?;
+            writeln!(f, "ModelMod initialized, built with rustc: {} {}", super::RUSTCVER, super::RUSTCDATE)?;
+            writeln!(f, "Detected root directory (from registry, set by MMLaunch): {}", mm_root)?;
 
             // if that succeeded then we can set the file name now
             set_log_file_path(&tdir, &file_name)?;
