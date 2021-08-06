@@ -118,28 +118,28 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
         use std::os::windows::prelude::*;
 
         // first check if it is active
-        {
-            let sk = to_wide_str(reg_root);
-            let kv = to_wide_str("Active");
-            let mut active: DWORD = 0;
-            let p_active: *mut c_void = std::mem::transmute(&mut active);
-            let mut out_active_sz: DWORD = std::mem::size_of::<DWORD>() as DWORD;
-            let res = RegGetValueW(
-                HKEY_CURRENT_USER,
-                sk.as_ptr(),
-                kv.as_ptr(),
-                RRF_RT_REG_DWORD,
-                std::ptr::null_mut(),
-                p_active,
-                &mut out_active_sz,
-            );
-            if res as DWORD != ERROR_SUCCESS {
-                return Err(HookError::ConfReadFailed(format!("Error reading Active registry key: {}.  You must start ModelMod using its launcher.", res)));
-            }
-            if active != 1 {
-                return Ok((false, None));
-            }
-        }
+        // {
+        //     let sk = to_wide_str(reg_root);
+        //     let kv = to_wide_str("Active");
+        //     let mut active: DWORD = 0;
+        //     let p_active: *mut c_void = std::mem::transmute(&mut active);
+        //     let mut out_active_sz: DWORD = std::mem::size_of::<DWORD>() as DWORD;
+        //     let res = RegGetValueW(
+        //         HKEY_CURRENT_USER,
+        //         sk.as_ptr(),
+        //         kv.as_ptr(),
+        //         RRF_RT_REG_DWORD,
+        //         std::ptr::null_mut(),
+        //         p_active,
+        //         &mut out_active_sz,
+        //     );
+        //     if res as DWORD != ERROR_SUCCESS {
+        //         return Err(HookError::ConfReadFailed(format!("Error reading Active registry key: {}.  You must start ModelMod using its launcher.", res)));
+        //     }
+        //     if active != 1 {
+        //         return Ok((false, None));
+        //     }
+        // }
 
         // its active, so get path and make sure it exists
         {
