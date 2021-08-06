@@ -90,7 +90,7 @@ module ProcessUtil =
         match lp with 
         | "" -> ""
         | path ->
-            let logExeName = Path.GetFileName(exePath)
+            let logExeName = Path.GetFileNameWithoutExtension(exePath)
             Path.Combine(path, (sprintf "modelmod.%s.log" logExeName))
 
     let getLoaderExitReason (proc:Process) (defReason:string) =
