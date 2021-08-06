@@ -27,6 +27,7 @@ module RegKeys =
     let LastSelectedBlender = "LastSelectedBlender"
     let LastScriptInstallDir = "LastScriptInstallDir"
     let RecycleSnapshots = "RecycleSnapshots"
+    let MMRoot = "MMRoot"
     let DocRoot = "DocRoot"
     let ProfExePath = "ExePath"
     let ProfName = "ProfileName"
@@ -265,6 +266,12 @@ module RegConfig =
             { rc with ProfileName = getDefaultProfileName rc.ExePath }
         else 
             rc
+
+    /// Get the MM installation root dir.  This value is set by MMLaunch on startup.
+    let getMMRoot():string =
+        regget(regLoc.HiveRoot, RegKeys.MMRoot, "") :?> string
+    let setMMRoot(r:string) = 
+        setGlobalValue RegKeys.MMRoot r
 
     /// Get the global document/data root.
     let getDocRoot():string = 

@@ -428,6 +428,12 @@ type MainViewModel() as self =
 
     member x.PeriodicUpdate() =
 
+        // If the registry mmroot does not match the current load path, reset it.  
+        let currentRoot = ProcessUtil.getMMRoot()
+        let regRoot = RegConfig.getMMRoot()
+        if currentRoot <> regRoot then 
+            RegConfig.setMMRoot currentRoot |> ignore
+
         x.UpdateLoaderState <|
             match loaderState with
             | NotStarted
