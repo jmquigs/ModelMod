@@ -154,6 +154,8 @@ Target "CopyStuff" (fun _ ->
         |> CopyFiles (buildDir + "/BlenderScripts/io_scene_mmobj")
     !! ("./LICENSE.txt")
         |> CopyFiles (buildDir)
+    !! ("./TPLib/*.*")
+        |> CopyFiles (buildDir + "/TPLib")
     !! ("./Docs/binpackage/README.md")
         |> CopyFiles (buildDir)
 
