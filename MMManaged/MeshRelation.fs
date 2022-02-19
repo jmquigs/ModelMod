@@ -75,6 +75,9 @@ module MeshRelation =
             | None -> failwith "cannot build vertrel for mod with no mesh"
             | Some (mesh) -> mesh
         let refMesh = ref.Mesh
+        // Note: if this calculation is modified in the future to use something 
+        // other than mesh data, the caching assumptions on reload may change 
+        // (see `loadModDB`)
 
         let buildTris (mesh:Mesh) =
             let tris = mesh.Triangles |> Array.map (fun iTri -> 

@@ -128,7 +128,7 @@ module ModDBInterop =
                 StartConf.Conf.AppSettings = None
             }
 
-            let mdb =  ModDB.loadModDB conf
+            let mdb =  ModDB.loadModDB(conf,Some(State.Data.Moddb))
             Locking.write (fun _ -> State.Data.Moddb <- mdb)
 
             Util.reportMemoryUsage()
@@ -226,8 +226,8 @@ module ModDBInterop =
         let indexElemSizeBytes = 0
 
         let mname = meshrel.DBMod.Name
-        let parentModName = 
-            match meshrel.DBMod.ParentModName with 
+        let parentModName =
+            match meshrel.DBMod.ParentModName with
             | None -> ""
             | Some(name) -> name
 
@@ -490,7 +490,7 @@ module ModDBInterop =
             let moddb = State.Data.Moddb
 
             let md = getModData modIndex
-            if (intToModType md.ModType) <> GPUReplacement 
+            if (intToModType md.ModType) <> GPUReplacement
                 && (intToModType md.ModType) <> GPUAdditive
                 then failwithf "unsupported mod type: %d" md.ModType
 

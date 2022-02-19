@@ -337,6 +337,7 @@ module MeshUtil =
             Tex1Path = ""
             Tex2Path = ""
             Tex3Path = ""
+            Cached = false
         }
 
         ret

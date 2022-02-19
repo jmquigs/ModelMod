@@ -35,7 +35,7 @@ let load() =
                 StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
-            })
+            }, None)
     mdb
 
 let timeLoads(allowCache) = 

@@ -17,7 +17,7 @@ let ``ModDB: load mod db``() =
                 StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
-            })
+            }, None)
 
     Assert.AreEqual (mdb.Mods.Length, 2, sprintf "incorrect number of mods: %A" mdb.Mods)
     Assert.AreEqual (mdb.References.Length, 1, sprintf "incorrect number of references: %A" mdb.References)

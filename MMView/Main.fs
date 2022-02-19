@@ -84,7 +84,7 @@ module Main =
                 | Some position -> 
                     resetCamera(graphics.Viewport) position
 
-            let moddb = ModDB.loadModDB(conf)
+            let moddb = ModDB.loadModDB(conf, None)
             setModDB moddb
 
             for ref in moddb.References do

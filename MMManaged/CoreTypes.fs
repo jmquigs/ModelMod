@@ -16,7 +16,7 @@
 
 namespace ModelMod
 
-open SharpDX.Direct3D9 
+open SharpDX.Direct3D9
 
 // Shorthand type defs
 
@@ -24,18 +24,18 @@ type SDXVertexElement = SharpDX.Direct3D9.VertexElement
 type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage
 type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
 
-/// Contains the name of all available input profiles.  An input profile is just a set of keybindings for 
-/// controlling ModelMod in games.  Different games and systems require different input layouts, so that 
+/// Contains the name of all available input profiles.  An input profile is just a set of keybindings for
+/// controlling ModelMod in games.  Different games and systems require different input layouts, so that
 /// ModelMod doesn't interfere too much with the game.  Some games make heavy use of the F keys, for instance,
-/// so the punctuation layout is a better choice.  Its expected that some games won't work well with either of 
+/// so the punctuation layout is a better choice.  Its expected that some games won't work well with either of
 /// these, and some new layouts will need to be defined.
-/// The managed code generally doesn't care about the precise definition of each layout, with the exception of 
-/// The launcher app, which describes the layout in the UI.  Native code (specificaly RenderState.cpp) is 
+/// The managed code generally doesn't care about the precise definition of each layout, with the exception of
+/// The launcher app, which describes the layout in the UI.  Native code (specificaly RenderState.cpp) is
 /// responsible for actually setting up the bindings.
-module InputProfiles = 
+module InputProfiles =
     let PunctRock = "PunctuationKeys"
     let FItUp = "FKeys"
-    
+
     let ValidProfiles = [ PunctRock; FItUp ]
 
     let DefaultProfile = FItUp
@@ -88,34 +88,34 @@ module CoreTypes =
     /// A run config for modelmod.  These are stored in the registry.
     type RunConfig = {
         /// Reg key that this profile is stored under, e.g "Profile0000"
-        ProfileKeyName: string 
+        ProfileKeyName: string
         /// Friendly name for profile (if missing, defaults to exe base name)
-        ProfileName: string 
+        ProfileName: string
         /// Path to exe
-        ExePath: string 
+        ExePath: string
         /// If true, mods will be load and displayed on startup; otherwise they must be loaded
         /// and displayed manually with keyboard commands
         LoadModsOnStart: bool
-        /// Whether the current/next run is in full (snapshot) mode or playback only.  This is really for 
-        /// future use, since right now we don't have a separate "playback" mode (the idea is that we could be 
+        /// Whether the current/next run is in full (snapshot) mode or playback only.  This is really for
+        /// future use, since right now we don't have a separate "playback" mode (the idea is that we could be
         /// slightly more efficient by disabling certain things, like shader constant tracking,
         /// when we know we are only playing back mods).
-        RunModeFull: bool 
+        RunModeFull: bool
         /// Input profile (i.e.: input key layout)
-        InputProfile: string 
-        /// Snapshot profile (i.e.: model transforms for snapshot) 
-        SnapshotProfile: string 
-        /// Game profile 
+        InputProfile: string
+        /// Snapshot profile (i.e.: model transforms for snapshot)
+        SnapshotProfile: string
+        /// Game profile
         GameProfile: GameProfile
         /// Doc root for this profile.  Currently ignored.
-        DocRoot: string 
+        DocRoot: string
         /// Period of time that the Loader will wait for the game to start before exiting.
         LaunchWindow: int
         /// MinimumFPS desired.  Below this number, modelmod will temporarily shut off mod rendering in an effort to improve FPS.
         MinimumFPS: int
-    } 
+    }
 
-    /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot 
+    /// When no run configuration is available in the registry, this is what is used.  The Input and Snapshot
     /// modules define their own defaults.  The default DocRoot is <MyDocuments>\ModelMod.
     let DefaultRunConfig = {
         ProfileKeyName = ""
@@ -137,36 +137,36 @@ module CoreTypes =
     /// List of available mod types.  Really this is "file type", since a reference isn't really a mod (though you can
     /// define things like vertex group exclusions in a reference).
     /// "Replacement" mods replace the original game data; "Addition" mods draw the mod on top of the original game data.
-    type ModType = 
+    type ModType =
         /// Animated on the GPU; mod is expected to contain at least blend index data and usually blend weights as well.
         /// Mesh data is also usually not scaled or translated in world space in any way.
-        GPUReplacement 
+        GPUReplacement
         /// Animated on GPU as with GPUReplacement, however the original mesh is also drawn, so the mod is "added" to it.
         | GPUAdditive
-        /// Animated on the CPU.  A snapshot of this kind of data usually results in a fully world-transformed and 
+        /// Animated on the CPU.  A snapshot of this kind of data usually results in a fully world-transformed and
         /// animated mesh - pretty useless for modding.  ModelMod doesn't not currently support this type of mod,
         /// even though it is technically possible.
-        | CPUReplacement 
-        /// Removal mod.  These don't define meshes, but instead just list a primitive and vertex count.  Whenever 
+        | CPUReplacement
+        /// Removal mod.  These don't define meshes, but instead just list a primitive and vertex count.  Whenever
         /// _anything_ is drawn with that exact primitive and vert count, it is not displayed.  This can lead to some
-        /// artifacts (especially with things like particle emitters which have very regular and common low-numbered 
+        /// artifacts (especially with things like particle emitters which have very regular and common low-numbered
         /// vert/primitive counts), so should be used with care.
-        | Deletion 
-        /// Reference.  Generally you don't want to touch the reference file.  However, it is possible to change it 
+        | Deletion
+        /// Reference.  Generally you don't want to touch the reference file.  However, it is possible to change it
         /// so that you can do vertex inclusion/exclusion groups.
-        | Reference 
+        | Reference
 
-    /// These types control how weighting is done in MeshRelation, in particular where the 
+    /// These types control how weighting is done in MeshRelation, in particular where the
     /// blend indices and blend weights are expected to be found.
-    type WeightMode = 
-        /// Get blend data from mod mesh.  Mod author must ensure that all verts are propertly 
-        /// weighted in the 3d tool.  This can be tedious, especially with symmetric parts, so this 
+    type WeightMode =
+        /// Get blend data from mod mesh.  Mod author must ensure that all verts are propertly
+        /// weighted in the 3d tool.  This can be tedious, especially with symmetric parts, so this
         /// mode is primarily here for advanced users and control freaks.
-        Mod 
+        Mod
 
         /// Get blend data from the ref.  This is the default and easiest mode to use.
-        | Ref 
-        /// Get blend data from the binary ref data.  This is mostly a developer debug mode - it doesn't 
+        | Ref
+        /// Get blend data from the binary ref data.  This is mostly a developer debug mode - it doesn't
         /// support vertex annotation group filtering, amongst other limitations.
         | BinaryRef
 
@@ -176,7 +176,7 @@ module CoreTypes =
     /// A triangle composed of PTNIndex recrods.
     type IndexedTri = {
         /// Always 3 elements long
-        Verts: PTNIndex[] 
+        Verts: PTNIndex[]
     }
 
     /// The vertex declaration specifies the D3D vertex layout; it is usually captured at snapshot
@@ -194,23 +194,23 @@ module CoreTypes =
     /// Various options for reading meshes.
     type MeshReadFlags = {
         /// Whether to read any associated .mtl files.  If true and an .mtl file is available, Tex0Path
-        /// will be set to whatever texture is defined in the material file.  This is primarily intended for tools; 
+        /// will be set to whatever texture is defined in the material file.  This is primarily intended for tools;
         /// Mods only respect texture overrides that are definied in the mod .yaml file.
         ReadMaterialFile: bool
         /// Whether to reverse snapshot transforms on load.  Since meshes in tool-space
         /// are generally useless in game, this usually always
-        /// happens.  It can be useful to turn it off in tools, so that the mod is displayed in post-snapshot 
+        /// happens.  It can be useful to turn it off in tools, so that the mod is displayed in post-snapshot
         /// space (the same view that the tool will see).  The launcher preview window, for instance, turns this off.
         ReverseTransform: bool
     }
 
     /// Default read flags; used when no overriding flags are specified.
     let DefaultReadFlags = {
-        ReadMaterialFile = false 
+        ReadMaterialFile = false
         ReverseTransform = true
     }
 
-    /// Basic storage for everything that we consider to be "mesh data".  This is intentionally pretty close to the 
+    /// Basic storage for everything that we consider to be "mesh data".  This is intentionally pretty close to the
     /// renderer level; i.e. we don't have fields like "NormalMap" because the texture stage used for will vary
     /// across games or even within the same game.  Generally if you want to customize a texture its up to you to make
     /// sure its installed on the correct stage.
@@ -240,13 +240,15 @@ module CoreTypes =
         /// List of uv transforms that have been applied.  Derived from snapshot transform profile.
         AppliedUVTransforms: string[]
         /// Texture 0 path.  Generally only set if an override texture is being used, though the mesh read flags can affect this.
-        Tex0Path: string 
+        Tex0Path: string
         /// Texture 1 path.  Generally only set if an override texture is being used, though the mesh read flags can affect this.
-        Tex1Path: string 
+        Tex1Path: string
         /// Texture 2 path.  Generally only set if an override texture is being used, though the mesh read flags can affect this.
-        Tex2Path: string 
+        Tex2Path: string
         /// Texture 3 path.  Generally only set if an override texture is being used, though the mesh read flags can affect this.
-        Tex3Path: string 
+        Tex3Path: string
+        /// Whether this mesh instance was loaded from disk or the cache on the last load
+        Cached: bool
     }
 
     // ------------------------------------------------------------------------
@@ -286,8 +288,8 @@ module CoreTypes =
     }
 
     /// Union Parent type for the yaml objects.
-    type ModElement = 
-        Unknown 
+    type ModElement =
+        Unknown
         | MReference of DBReference
         | Mod of DBMod
 

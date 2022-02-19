@@ -420,6 +420,7 @@ module Snapshot =
                 Tex2Path = texName 2
                 Tex3Path = texName 3
                 AnnotatedVertexGroups = [||]
+                Cached = false
             }
 
             // apply tranforms

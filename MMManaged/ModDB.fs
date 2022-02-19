@@ -45,15 +45,15 @@ module ModDB =
     /// Root type for the Mod Database; everything is stored in here.
     type ModDB(refObjects,modObjects,meshRels) =
         // explode deletion mods into interop representation now.
-        // this is a little weird because it makes moddb use interop types, but it 
+        // this is a little weird because it makes moddb use interop types, but it
         // is more convenient to do this here than in ModDBInterop.
-        let deletionMods = 
-            modObjects 
+        let deletionMods =
+            modObjects
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))
             |> List.map (fun imod ->
-                imod.Attributes.DeletedGeometry |> List.map (fun delPair -> 
-                    let parentMod = 
-                        match imod.ParentModName with 
+                imod.Attributes.DeletedGeometry |> List.map (fun delPair ->
+                    let parentMod =
+                        match imod.ParentModName with
                         | Some(par) -> par
                         | None -> ""
 
@@ -84,26 +84,28 @@ module ModDB =
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
     /// Load specified mesh, bypassing the cache.
-    let loadUncachedMesh(path, (modType:ModType), flags) = 
+    let loadUncachedMesh(path, (modType:ModType), flags) =
         let mesh = MeshUtil.readFrom(path, modType, flags)
-        if flags.ReverseTransform && 
+        if flags.ReverseTransform &&
             (mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0) then
-            let mesh = MeshTransform.reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh 
+            let mesh = MeshTransform.reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh
             // clear out applied transforms, since they have been reversed.
             { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
         else
             mesh
 
     /// Load specified mesh, using cached version if available.
-    let loadMesh(path, (modType:ModType), flags) = 
-        match MemoryCache.get (path,modType,flags) with 
-        | None -> 
+    let loadMesh(path, (modType:ModType), flags) =
+        match MemoryCache.get (path,modType,flags) with
+        | None ->
             let mesh = loadUncachedMesh(path,modType,flags)
             MemoryCache.save(path,modType,flags,mesh)
+            let mesh = { mesh with Cached = false }
             mesh
         | Some mesh ->
+            let mesh = { mesh with Cached = true }
             mesh
-        
+
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
         | "cpuadditive" /// This doesn't even exist anymore, but for data-file compatibiliity treat it as GPUAdditive
@@ -120,16 +122,16 @@ module ModDB =
         | "ref" -> WeightMode.Ref
         | "binaryref" -> WeightMode.BinaryRef
         | x -> failwithf "unsupported weight mode: %A" x
-        
+
     /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Mod.
     let buildMod (node:YamlMappingNode) (filename:string): ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
-        let unpackPath = 
-            let useEmptyStringForMissing (x:string option) = 
-                match x with 
+        let unpackPath =
+            let useEmptyStringForMissing (x:string option) =
+                match x with
                 | None -> ""
                 | Some s when s.Trim() = "" -> ""
                 | Some s -> s
@@ -140,7 +142,7 @@ module ModDB =
                 | _ -> Path.GetFullPath(Path.Combine(basePath,path))
 
             Yaml.toOptionalString >> useEmptyStringForMissing >> makeAbsolute
-        
+
         let refName = node |> Yaml.getOptionalValue "ref" |> Yaml.toOptionalString
 
         let pixelShader = node |> Yaml.getOptionalValue "pixelshader" |> unpackPath
@@ -156,7 +158,7 @@ module ModDB =
             | ModType.GPUReplacement -> ()
 
             // weight mode
-            let weightMode = 
+            let weightMode =
                 let wstr = (node |> Yaml.getOptionalValue "weightmode" |> Yaml.toOptionalString)
                 match wstr with
                 | None -> WeightMode.Ref
@@ -164,34 +166,34 @@ module ModDB =
 
             // non-deletion and non-reference types require a refname
             match (modType,refName) with
-            | (ModType.Reference, _) 
+            | (ModType.Reference, _)
             | (ModType.Deletion, _) -> ()
-            | (ModType.CPUReplacement, None) 
+            | (ModType.CPUReplacement, None)
             | (ModType.GPUAdditive, None)
             | (ModType.GPUReplacement, None) -> failwithf "Illegal mod mesh: type %A requires reference name, but it was not found: %A" modType node
-            | (ModType.CPUReplacement, _) 
+            | (ModType.CPUReplacement, _)
             | (ModType.GPUAdditive, _)
             | (ModType.GPUReplacement, _) -> ()
 
             let delGeometry = node |> Yaml.getOptionalValue "delGeometry" |> Yaml.toOptionalSequence
-            let delGeometry = 
+            let delGeometry =
                 match delGeometry with
                 | None -> []
-                | Some delSeq -> 
+                | Some delSeq ->
                     [ for c in delSeq.Children do
                         let node = Yaml.toMapping "expected an object for delGeometry element" c
 
-                        yield { 
+                        yield {
                             GeomDeletion.PrimCount = node |> Yaml.getValue "pc" |> Yaml.toInt
                             GeomDeletion.VertCount = node |> Yaml.getValue "vc" |> Yaml.toInt
                         }
                     ]
 
             let attrs = { EmptyModAttributes with DeletedGeometry = delGeometry }
-            let mesh = 
-                match modType with 
+            let mesh =
+                match modType with
                 | ModType.Deletion -> None
-                | ModType.Reference 
+                | ModType.Reference
                 | ModType.CPUReplacement
                 | ModType.GPUAdditive
                 | ModType.GPUReplacement ->
@@ -200,11 +202,11 @@ module ModDB =
                     Some (loadMesh (Path.Combine(basePath, meshPath),modType,CoreTypes.DefaultReadFlags))
 
             // fill in texture paths (if any) from yaml
-            let mesh = 
-                match mesh with 
+            let mesh =
+                match mesh with
                 | None -> None
-                | Some(m) -> 
-                    Some({ m with 
+                | Some(m) ->
+                    Some({ m with
                             Tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath
                             Tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath
                             Tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath
@@ -215,7 +217,7 @@ module ModDB =
 
         let parentModName = node |> Yaml.getOptionalValue "ParentModName" |> Yaml.toOptionalString
 
-        let md = { 
+        let md = {
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
             Name = modName
@@ -226,12 +228,12 @@ module ModDB =
             ParentModName = parentModName
         }
 
-        let numOverrideTextures = 
+        let numOverrideTextures =
             match mesh with
             | None -> 0
             | Some mesh ->
                 let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
-                oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path 
+                oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path
 
         log.Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
         Mod(md)
@@ -262,7 +264,7 @@ module ModDB =
         writer.Write(byte ve.Usage)
         writer.Write(byte ve.UsageIndex)
 
-    /// Load a binary vertex declaration file; returns the raw bytes and an unpacked representation of the 
+    /// Load a binary vertex declaration file; returns the raw bytes and an unpacked representation of the
     /// vertex.
     let loadBinVertDeclData (path:string) =
         let dat = File.ReadAllBytes(path)
@@ -274,10 +276,10 @@ module ModDB =
 
         let numElements = dat.Length / structSize
         let reader = new BinaryReader(new MemoryStream(dat))
-        let elements = 
+        let elements =
             [ for i in [1..numElements] do
                 yield readVertexElement reader
-            ] 
+            ]
         dat, elements
 
     /// Load binary vertex data from the specified path.  Normally not used.
@@ -313,29 +315,29 @@ module ModDB =
         let mesh = loadMesh (Path.Combine(basePath, meshPath),ModType.Reference,CoreTypes.DefaultReadFlags)
 
         // load vertex elements (binary)
-        let binVertDeclPath = 
-            let nval = node |> Yaml.getOptionalValue "VertDeclPath" 
-            match nval with 
+        let binVertDeclPath =
+            let nval = node |> Yaml.getOptionalValue "VertDeclPath"
+            match nval with
             // try alternate name if not found
             | None -> node |> Yaml.getOptionalValue "rawMeshVertDeclPath" |> Yaml.toOptionalString
             | _ -> nval |> Yaml.toOptionalString
 
-        let declData = 
+        let declData =
             match binVertDeclPath with
             | None -> None
-            | Some path -> 
+            | Some path ->
                 let bytes,elements = loadBinVertDeclData (Path.Combine(basePath, path))
                 log.Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
                 Some (bytes,elements)
-                
+
         // load vertex data (binary)
         let binVertDataPath = node |> Yaml.getOptionalValue "rawMeshVBPath" |> Yaml.toOptionalString
-        let binVertData = 
+        let binVertData =
             match binVertDataPath with
             | None -> None
             | Some path ->
                 let vdata = loadBinVertData (Path.Combine(basePath, path))
-                log.Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length 
+                log.Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length
                 Some vdata
 
         // look for expected prim/vert counts.  if set, these take priority over the actual mmobj geometry
@@ -357,43 +359,43 @@ module ModDB =
               PrimCount = pCount
               VertCount = vCount
             })
-        
-    /// Load a file.  Supported types are yaml and mmobj files.  Other types (such as binary vertex data), cannot be 
+
+    /// Load a file.  Supported types are yaml and mmobj files.  Other types (such as binary vertex data), cannot be
     /// loaded directly; they must be specified in a yaml file.
     let loadFile (conf:StartConf.Conf) (filename) =
         use sw = new Util.StopwatchTracker("load file: " + filename)
 
         let ext = Path.GetExtension(filename).ToLowerInvariant()
 
-        match ext with 
+        match ext with
         | ".yaml" ->
             let docs = Yaml.load filename
             let (objects:ModElement list) = [
                 for d in docs do
                     let mapNode = Yaml.toOptionalMapping (Some(d.RootNode))
-                    match mapNode with 
-                    | Some mapNode -> 
+                    match mapNode with
+                    | Some mapNode ->
                         // locate type field
                         let nType = mapNode |> Yaml.getValue "type"
-                        match nType with 
+                        match nType with
                         | StringValueIgnoreCase "reference" ->
-                            yield buildReference mapNode filename 
+                            yield buildReference mapNode filename
                         | StringValueIgnoreCase "mod" ->
-                            yield buildMod mapNode filename 
+                            yield buildMod mapNode filename
                         | _ -> failwithf "Illegal 'type' field in yaml file: %s" filename
-            
+
                     | _ -> failwithf "Don't know how to process yaml node type: %A in file %s" (d.RootNode.GetType()) filename
             ]
 
             objects
         | ".mmobj" ->
-            let mesh = 
+            let mesh =
                 // load it as a reference, but allow conf to control whether it should be transformed (normally it is, but if loading
                 // for UI display, we might omit the transform because we want it displayed in tool format, not game-format)
-                match conf.AppSettings with 
-                | None -> 
+                match conf.AppSettings with
+                | None ->
                     loadMesh (filename,ModType.Reference, CoreTypes.DefaultReadFlags)
-                | Some settings -> 
+                | Some settings ->
                     loadMesh (filename,ModType.Reference, settings.MeshReadFlags)
 
             let refName = Path.GetFileNameWithoutExtension filename
@@ -401,7 +403,7 @@ module ModDB =
                 { DBReference.Name = refName
                   Mesh = mesh
                   // override values for these can only come from yaml, so since we don't have a yaml file, just use the mesh values
-                  PrimCount = mesh.Triangles.Length 
+                  PrimCount = mesh.Triangles.Length
                   VertCount = mesh.Positions.Length
                 })]
         | _ -> failwithf "Don't know how to load: %s" filename
@@ -409,10 +411,10 @@ module ModDB =
     /// Load a mod index file.  The file contains a list of mods by name, and optionall whether each mod is active.
     /// If no active flag is present, a mod is assumed to be active.
     /// The mod names in the list refer to the base names of .yaml files in the entire directory structure
-    /// below the mod index file.  The mods may link to references files which similarly use base names.  
+    /// below the mod index file.  The mods may link to references files which similarly use base names.
     /// Any reference required by a mod will be loaded by this function.  The structure of the directory tree
     /// is irrelevant; only base names matter.
-    /// If yaml files contain other file names (such as texture or mmobj files), those paths are relative to the 
+    /// If yaml files contain other file names (such as texture or mmobj files), those paths are relative to the
     /// containing yaml file.
     let loadIndexObjects (filename:string) (activeOnly:bool) conf =
         // load the index, find all the mods that we are interested in.
@@ -425,13 +427,13 @@ module ModDB =
         // type should be "index"
         let nType = mapNode |> Yaml.getValue "type"
 
-        let modsToLoad = 
+        let modsToLoad =
             match nType with
-            | StringValueIgnoreCase "index" -> 
+            | StringValueIgnoreCase "index" ->
                 // get the mod list
                 let mods = mapNode |> Yaml.getValue "mods" |> Yaml.toSequence "'mods' sequence not found"
-                let mods = 
-                    mods 
+                let mods =
+                    mods
                     |> Seq.map (fun modnode -> Yaml.toMapping "expected an object for 'mods' element" modnode )
                     |> Seq.filter (fun modMapping ->
                         let active = modMapping |> Yaml.getOptionalValue "active" |> Yaml.toBool true
@@ -450,67 +452,68 @@ module ModDB =
             f1 = f2 ||
             Path.GetFileNameWithoutExtension(f1:string).ToLowerInvariant() = Path.GetFileNameWithoutExtension(f2).ToLowerInvariant()
 
-        let modFiles = 
-            modsToLoad |> List.fold (fun acc modName -> 
+        let modFiles =
+            modsToLoad |> List.fold (fun acc modName ->
                 let foundFile = allFiles |> Array.tryFind (fun diskFile -> nameMatches diskFile modName)
-                match foundFile with 
-                | None -> 
+                match foundFile with
+                | None ->
                     log.Warn "No mod file found for mod named '%s'" modName
                     acc
-                | Some file -> 
+                | Some file ->
                     file::acc
             ) []
 
         let modObjects = modFiles |> List.map (loadFile conf) |> List.concat
 
         // examine all the mods and get list of ref files to load
-        let refsToLoad = 
-            modObjects 
+        let refsToLoad =
+            modObjects
             |> List.filter (function
                 // if some file was miscategorized, it may not actually be Mod - get rid of these
                 | Mod(_) -> true
                 | _ -> false)
             |> List.map (fun melem ->
                 match melem with
-                | Mod (imod) -> 
+                | Mod (imod) ->
                     match imod.RefName with
                     | None -> ""
                     | Some name -> name.Trim()
-                | Unknown 
+                | Unknown
                 | MReference _ -> failwithf "derp, bad filtering: expected Mod but got %A" melem)
             |> List.filter (fun n -> n <> "" )
             |> Set.ofList // cheapo-dedup
 
         // walk the file list again, loading the references this time
         let refFiles =
-            allFiles |> Array.filter (fun diskFile -> 
+            allFiles |> Array.filter (fun diskFile ->
                     refsToLoad |> Seq.tryFind (fun loadRefFile -> nameMatches diskFile loadRefFile) <> None)
         let refObjects = refFiles |> Array.map (loadFile conf) |> List.concat
-                                             
+
         // return a list of the refs and objects
         modObjects @ refObjects
 
     /// Load the ModDB, using the index file or other files specified in the start configuration.
-    let loadModDB(conf:StartConf.Conf) = 
+    /// An old mod db can be passed if available, some parts of it may be reused if possible.
+    let loadModDB(conf:StartConf.Conf, oldModDb:ModDB option) =
         use sw = new Util.StopwatchTracker("LoadModDB")
 
         // read index if available, loading active mods (only) from index
-        let indexObjects = 
+        let indexObjects =
             match conf.ModIndexFile with
             | None -> []
             | Some path -> loadIndexObjects path true conf
 
-        let extraObjects = [ 
+        let extraObjects = [
             for file in conf.FilesToLoad do
                 yield! loadFile conf file
         ]
 
         let objects = indexObjects @ extraObjects
 
-        let refs,mods = 
-            objects |> 
-                List.fold (fun acc x -> 
-                    match x with 
+        let refs,mods =
+            objects |>
+                List.fold (fun acc x ->
+                    match x with
                     | MReference ref -> (ref::(fst acc)), snd acc
                     | Mod mmod -> fst acc, mmod::(snd acc)
                     | Unknown -> failwith "unknown object type was loaded: %A x"
@@ -521,27 +524,62 @@ module ModDB =
             match refName with
             | None -> None
             | Some refName ->
-                let found = refs |> List.tryFind (fun ref -> 
+                let found = refs |> List.tryFind (fun ref ->
                     ref.Name.ToLower() = refName.ToLower() )
                 match found with
                 | Some(x) -> Some(x)
                 | _ -> failwithf "failed to find reference with name: %s" refName
 
-        let mods = mods |> List.map 
+        let mods = mods |> List.map
                     (fun m ->
                         let ref = lookupRef m.RefName
-                        
-                        { m with 
+
+                        { m with
                             Ref = ref
                         }
                     )
 
-        let meshRels = 
-            mods 
-            |> List.filter (fun m -> m.Ref <> None)
-            |> List.map (fun m ->
-                new MeshRelation(m, Option.get m.Ref)
-            )
+        // build mesh relation objects.
+        // optimization: for each mod, if both the ref and mod were loaded from cache,
+        // and we have a previous meshrelation, we don't need to rebuild it.
+        // if a lot of mods are loaded, this can
+        // save a lot of time when reloading after doing iterative development on a single mod.
+        // Note: this optimization assumes the mesh relation is based _only_ on the
+        // mesh data which is the only thing cached.  if that assumption changes this
+        // will need to change too.
+
+        let meshRels =
+            let allowCached = true
+
+            use sw = new Util.StopwatchTracker("LoadModDB-BuildMeshRels")
+            let mutable nCached = 0
+            let mutable nBuilt = 0
+            let meshRels =
+                mods
+                |> List.filter (fun m -> m.Ref <> None)
+                |> List.map (fun dbmod ->
+
+                    let newMeshRel() =
+                        nBuilt <- nBuilt + 1
+                        new MeshRelation(dbmod, Option.get dbmod.Ref)
+
+                    match (allowCached, oldModDb, dbmod.Mesh, dbmod.Ref) with
+                    | (true, Some(oldModDb), Some(modMesh), Some(dbRef) ) when modMesh.Cached = true && dbRef.Mesh.Cached = true ->
+                        // use linear search, fine when there are 10s of meshrels, may not be fine if there are a lot more
+                        let oldMeshRel = oldModDb.MeshRelations |> List.tryFind (fun (meshrel:MeshRelation) ->
+                            dbmod.Name.Equals(meshrel.DBMod.Name, StringComparison.InvariantCultureIgnoreCase)
+                            && dbRef.Name.Equals(meshrel.DBRef.Name, StringComparison.InvariantCultureIgnoreCase)
+                        )
+                        match oldMeshRel with
+                        | Some(meshRel) ->
+                            nCached <- nCached + 1
+                            //log.Info "Using cached mesh rel for mod %A, ref %A" meshRel.DBMod.Name meshRel.DBRef.Name
+                            meshRel
+                        | None -> newMeshRel()
+                    | _ -> newMeshRel()
+                )
+            log.Info "MeshRelations: %d cached, %d built" nCached nBuilt
+            meshRels
 
         new ModDB(refs,mods,meshRels)
 
@@ -549,8 +587,8 @@ module ModDB =
     let createUsageOffsetLookupMap(elements:SDXVertexElement list) =
         // ...actually this is an array, because the usage values are really small, and using an array is a bit faster
         // that a mutable dictionary - roughly 33% as measured.  Its almost 10x faster than an immutable dictionary.
-        let elements = 
-            elements 
+        let elements =
+            elements
             // filter out unused elements and usageindexes > 0 (they are just repeats)
             |> List.filter (fun el -> el.Type <> SDXVertexDeclType.Unused && el.UsageIndex = (byte 0))
         let min = elements |> List.minBy (fun el -> el.Usage)
@@ -563,7 +601,7 @@ module ModDB =
 
         let lookupArray:int[] = Array.zeroCreate (maxIdx + 1)
         let offsetLookup = elements |> List.fold (fun (arr:int[]) el -> arr.[int el.Usage] <- int el.Offset; arr ) lookupArray
-        offsetLookup 
+        offsetLookup
 
     /// Faciliates looking up particular types of binary vertex data.
     type BinaryLookupHelper(bvd:BinaryVertexData,elements:SDXVertexElement list) =
