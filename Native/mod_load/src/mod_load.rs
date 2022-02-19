@@ -95,6 +95,8 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         return;
     }
 
+    let ml_start = std::time::SystemTime::now();
+
     // need d3dx for textures
     GLOBAL_STATE.device = Some(device);
     if GLOBAL_STATE.d3dx_fn.is_none() {
@@ -187,7 +189,22 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
                 plwr
             }).collect();
         }
+
+        let is_deletion_mod = (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32);
         if !mod_name.is_empty() {
+            // if it is a deletion mod, then there may be multiple mods with the same name
+            // (one for each prim/vert combo that is deleted).  construct a new name that includes
+            // the prim and vert count
+            let mod_name = if is_deletion_mod {
+                let new_mod_name = format!("{}_{}_{}", mod_name,
+                    native_mod_data.mod_data.numbers.ref_prim_count,
+                    native_mod_data.mod_data.numbers.ref_vert_count);
+                write_log_file(&format!("using mod name {} for deletion mod: {}", new_mod_name, mod_name));
+                new_mod_name
+            } else {
+                mod_name
+            };
+
             if mods_by_name.contains_key(&mod_name) {
                 write_log_file(&format!("error, duplicate mod name: ignoring dup: {}", mod_name));
             } else {
@@ -196,7 +213,7 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         }
         //write_log_file(&format!("mod: {}, parents: {:?}", native_mod_data.name, native_mod_data.parent_mod_names));
 
-        if (*mdat).numbers.mod_type == (interop::ModType::Deletion as i32) {
+        if is_deletion_mod {
             loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
             // thats all we need to do for these.
             continue;
@@ -376,6 +393,12 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
         "mod loading added {} to device {:x} ref count, new count: {}",
         diff, device as u64, (*DEVICE_STATE).d3d_resource_count
     ));
+
+    let now = std::time::SystemTime::now();
+    let elapsed = now.duration_since(ml_start);
+    if let Ok(elapsed) = elapsed {
+        write_log_file(&format!("mod load complete in {}ms", elapsed.as_millis()));
+    };
 
     GLOBAL_STATE.loaded_mods = Some(LoadedModState {
         mods: loaded_mods,
