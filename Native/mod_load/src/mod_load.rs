@@ -1,4 +1,5 @@
 
+use types::native_mod::NativeModData;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -24,6 +25,32 @@ pub enum AsyncLoadState {
     Complete,
 }
 
+/// Release any d3d resources owned by a mod.
+fn clear_d3d_data(nmd:&mut NativeModData) {
+        match nmd.d3d_data {
+            native_mod::ModD3DState::Loaded(ref d3dd) => {
+                if d3dd.vb != null_mut() {
+                    unsafe { (*d3dd.vb).Release(); }
+                }
+                if d3dd.ib != null_mut() {
+                    unsafe { (*d3dd.ib).Release(); }
+                }
+                if d3dd.decl != null_mut() {
+                    unsafe { (*d3dd.decl).Release(); }
+                }
+
+                for tex in d3dd.textures.iter() {
+                    if *tex != null_mut() {
+                        let tex = *tex as *mut IDirect3DBaseTexture9;
+                        unsafe { (*tex).Release(); }
+                    }
+                }
+            },
+            native_mod::ModD3DState::Unloaded => {}
+        };
+        nmd.d3d_data = native_mod::ModD3DState::Unloaded;
+}
+
 pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let lock = GLOBAL_STATE_LOCK.lock();
     if let Err(_e) = lock {
@@ -39,28 +66,14 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     let mut cnt = 0;
     mods.map(|mods| {
         for (_key, modvec) in mods.mods.into_iter() {
-            for nmd in modvec {
+            for mut nmd in modvec {
                 cnt += 1;
-                if nmd.vb != null_mut() {
-                    (*nmd.vb).Release();
-                }
-                if nmd.ib != null_mut() {
-                    (*nmd.ib).Release();
-                }
-                if nmd.decl != null_mut() {
-                    (*nmd.decl).Release();
-                }
-
-                for tex in nmd.textures.iter() {
-                    if *tex != null_mut() {
-                        let tex = *tex as *mut IDirect3DBaseTexture9;
-                        (*tex).Release();
-                    }
-                }
+                clear_d3d_data(&mut nmd);
             }
         }
     });
     GLOBAL_STATE.loaded_mods = None;
+    GLOBAL_STATE.load_on_next_frame.as_mut().map(|hs| hs.clear());
 
     (*device).AddRef();
     let post_rc = (*device).Release();
@@ -75,6 +88,136 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     }
 
     write_log_file(&format!("unloaded {} mods", cnt));
+}
+
+/// Create D3D resources for a mod using the data loaded by managed code. This usually consists of a
+/// vertex buffer, declaration and optionally one or more textures.  `midx` is the mod index
+/// into the current mod DB (and should be less than GetModCount()).
+pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks,
+    midx: i32, nmd: &mut NativeModData) {
+    let mdat = &nmd.mod_data;
+
+    if let native_mod::ModD3DState::Loaded(_) = nmd.d3d_data {
+        // bug, should have been cleared first
+        write_log_file(&format!(
+            "Error, d3d data for mod {} already loaded",
+            nmd.name
+        ));
+        return;
+    }
+
+    let decl_size = mdat.numbers.decl_size_bytes;
+    // vertex declaration construct copies the vec bytes, so just keep a temp vector reference for the data
+    let (decl_data, _decl_vec) = if decl_size > 0 {
+        let mut decl_vec: Vec<u8> = Vec::with_capacity(decl_size as usize);
+        let decl_data: *mut u8 = decl_vec.as_mut_ptr();
+        (decl_data, Some(decl_vec))
+    } else {
+        (null_mut(), None)
+    };
+
+    let vb_size = (*mdat).numbers.prim_count * 3 * (*mdat).numbers.vert_size_bytes;
+    let mut vb_data: *mut u8 = null_mut();
+
+    // index buffers not currently supported
+    let ib_size = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
+    let ib_data: *mut u8 = null_mut();
+
+    // create vb
+    let mut out_vb: *mut IDirect3DVertexBuffer9 = null_mut();
+    let out_vb: *mut *mut IDirect3DVertexBuffer9 = &mut out_vb;
+    let hr = (*device).CreateVertexBuffer(
+        vb_size as UINT,
+        D3DUSAGE_WRITEONLY,
+        0,
+        D3DPOOL_MANAGED,
+        out_vb,
+        null_mut(),
+    );
+    if hr != 0 {
+        write_log_file(&format!(
+            "failed to create vertex buffer for mod {}: HR {:x}",
+            nmd.name, hr
+        ));
+        return;
+    }
+
+    let vb = *out_vb;
+
+    // lock vb to obtain write buffer
+    let hr = (*vb).Lock(0, 0, std::mem::transmute(&mut vb_data), 0);
+    if hr != 0 {
+        write_log_file(&format!("failed to lock vertex buffer: {:x}", hr));
+        return;
+    }
+
+    // fill all data buckets with managed code
+    let ret = (callbacks.FillModData)(
+        midx, decl_data, decl_size, vb_data, vb_size, ib_data, ib_size,
+    );
+
+    let hr = (*vb).Unlock();
+    if hr != 0 {
+        write_log_file(&format!("failed to unlock vertex buffer: {:x}", hr));
+        (*vb).Release();
+        return;
+    }
+
+    if ret != 0 {
+        write_log_file(&format!("failed to fill mod data: {}", ret));
+        (*vb).Release();
+        return;
+    }
+
+    let mut d3dd = native_mod::ModD3DData::new();
+
+    d3dd.vb = vb;
+
+    // create vertex declaration
+    let mut out_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
+    let pp_out_decl: *mut *mut IDirect3DVertexDeclaration9 = &mut out_decl;
+    let hr =
+        (*device).CreateVertexDeclaration(decl_data as *const D3DVERTEXELEMENT9, pp_out_decl);
+    if hr != 0 {
+        write_log_file(&format!("failed to create vertex declaration: {}", hr));
+        (*vb).Release();
+        return;
+    }
+    if out_decl == null_mut() {
+        write_log_file("vertex declaration is null");
+        (*vb).Release();
+        return;
+    }
+    d3dd.decl = out_decl;
+
+    let load_tex = |texpath:&[u16]| {
+        let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
+            write_log_file(&format!("failed to load texture: {:?}", e));
+            "".to_owned()
+        });
+        let tex = tex.trim();
+
+        let mut outtex = null_mut();
+        if !tex.is_empty() {
+            outtex = d3dx::load_texture(texpath.as_ptr()).map_err(|e| {
+                write_log_file(&format!("failed to load texture: {:?}", e));
+            }).unwrap_or(null_mut());
+            write_log_file(&format!("Loaded tex: {:?} {:x}", tex, outtex as u64));
+        }
+        outtex
+    };
+    d3dd.textures[0] = load_tex(&(*mdat).texPath0);
+    d3dd.textures[1] = load_tex(&(*mdat).texPath1);
+    d3dd.textures[2] = load_tex(&(*mdat).texPath2);
+    d3dd.textures[3] = load_tex(&(*mdat).texPath3);
+
+    write_log_file(&format!(
+        "allocated vb/decl for mod {}, idx {}: {:?}", nmd.name,
+        midx,
+        mdat.numbers
+    ));
+
+    nmd.d3d_data = native_mod::ModD3DState::Loaded(d3dd);
 }
 
 pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks) {
@@ -160,14 +303,9 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
         // names are case insensitive
         let mod_name = mod_name.to_lowercase();
         let mut native_mod_data = native_mod::NativeModData {
+            midx: midx,
             mod_data: (*mdat),
-            vb_data: null_mut(),
-            ib_data: null_mut(),
-            decl_data: null_mut(),
-            vb: null_mut(),
-            ib: null_mut(),
-            decl: null_mut(),
-            textures: [null_mut(); 4],
+            d3d_data: native_mod::ModD3DState::Unloaded,
             is_parent: false,
             parent_mod_names: parent_mods,
             last_frame_render: 0,
@@ -219,116 +357,11 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
             continue;
         }
 
-        let decl_size = (*mdat).numbers.decl_size_bytes;
-        // vertex declaration construct copies the vec bytes, so just keep a temp vector reference for the data
-        let (decl_data, _decl_vec) = if decl_size > 0 {
-            let mut decl_vec: Vec<u8> = Vec::with_capacity(decl_size as usize);
-            let decl_data: *mut u8 = decl_vec.as_mut_ptr();
-            (decl_data, Some(decl_vec))
-        } else {
-            (null_mut(), None)
-        };
-
-        let vb_size = (*mdat).numbers.prim_count * 3 * (*mdat).numbers.vert_size_bytes;
-        let mut vb_data: *mut u8 = null_mut();
-
-        // index buffers not currently supported
-        let ib_size = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
-        let ib_data: *mut u8 = null_mut();
-
-        // create vb
-        let mut out_vb: *mut IDirect3DVertexBuffer9 = null_mut();
-        let out_vb: *mut *mut IDirect3DVertexBuffer9 = &mut out_vb;
-        let hr = (*device).CreateVertexBuffer(
-            vb_size as UINT,
-            D3DUSAGE_WRITEONLY,
-            0,
-            D3DPOOL_MANAGED,
-            out_vb,
-            null_mut(),
-        );
-        if hr != 0 {
-            write_log_file(&format!(
-                "failed to create vertex buffer for mod {}: HR {:x}",
-                midx, hr
-            ));
-            return;
-        }
-
-        let vb = *out_vb;
-
-        // lock vb to obtain write buffer
-        let hr = (*vb).Lock(0, 0, std::mem::transmute(&mut vb_data), 0);
-        if hr != 0 {
-            write_log_file(&format!("failed to lock vertex buffer: {:x}", hr));
-            return;
-        }
-
-        // fill all data buckets with managed code
-        let ret = (callbacks.FillModData)(
-            midx, decl_data, decl_size, vb_data, vb_size, ib_data, ib_size,
-        );
-
-        let hr = (*vb).Unlock();
-        if hr != 0 {
-            write_log_file(&format!("failed to unlock vertex buffer: {:x}", hr));
-            (*vb).Release();
-            return;
-        }
-
-        if ret != 0 {
-            write_log_file(&format!("failed to fill mod data: {}", ret));
-            (*vb).Release();
-            return;
-        }
-
-        native_mod_data.vb = vb;
-
-        // create vertex declaration
-        let mut out_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
-        let pp_out_decl: *mut *mut IDirect3DVertexDeclaration9 = &mut out_decl;
-        let hr =
-            (*device).CreateVertexDeclaration(decl_data as *const D3DVERTEXELEMENT9, pp_out_decl);
-        if hr != 0 {
-            write_log_file(&format!("failed to create vertex declaration: {}", hr));
-            (*vb).Release();
-            return;
-        }
-        if out_decl == null_mut() {
-            write_log_file("vertex declaration is null");
-            (*vb).Release();
-            return;
-        }
-        native_mod_data.decl = out_decl;
-
-        let load_tex = |texpath:&[u16]| {
-            let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
-                write_log_file(&format!("failed to load texture: {:?}", e));
-                "".to_owned()
-            });
-            let tex = tex.trim();
-
-            let mut outtex = null_mut();
-            if !tex.is_empty() {
-                outtex = d3dx::load_texture(texpath.as_ptr()).map_err(|e| {
-                    write_log_file(&format!("failed to load texture: {:?}", e));
-                }).unwrap_or(null_mut());
-                write_log_file(&format!("Loaded tex: {:?} {:x}", tex, outtex as u64));
-            }
-            outtex
-        };
-        native_mod_data.textures[0] = load_tex(&(*mdat).texPath0);
-        native_mod_data.textures[1] = load_tex(&(*mdat).texPath1);
-        native_mod_data.textures[2] = load_tex(&(*mdat).texPath2);
-        native_mod_data.textures[3] = load_tex(&(*mdat).texPath3);
+        // used to load the d3d resources here for all mods, but now that is delayed until the
+        // mod is actually referenced so that we don't clog d3d with a bunch of possibly unused
+        // stuff. (see `load_deferred_mods`)
 
         loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
-
-        write_log_file(&format!(
-            "allocated vb/decl for mod data {}: {:?}",
-            midx,
-            (*mdat).numbers
-        ));
     }
 
     // mark all parent mods as such, and also warn about any parents that didn't load
@@ -405,4 +438,60 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
         mods_by_name: mods_by_name,
         selected_variant: global_state::new_fnv_map(16),
     } );
+}
+
+pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks) {
+        let lock = GLOBAL_STATE_LOCK.lock();
+        if let Err(_e) = lock {
+            write_log_file("failed to lock global state to setup mod data");
+            return;
+        }
+
+        let to_load = match GLOBAL_STATE.load_on_next_frame {
+            Some(ref mut hs) if hs.len() > 0 => hs,
+            _ => { return; }
+        };
+
+        let ml_start = std::time::SystemTime::now();
+
+        // get device ref count prior to adding mod
+        (*device).AddRef();
+        let pre_rc = (*device).Release();
+
+        let (mods,mods_by_name) = match GLOBAL_STATE.loaded_mods {
+            Some(ref mut gs) => (&mut gs.mods, &gs.mods_by_name),
+            _ => { return; }
+        };
+
+        let mut cnt = 0;
+        for nmd in to_load.iter() {
+            let mkey = mods_by_name.get(nmd);
+            if let Some(mkey) = mkey {
+                let nmods = mods.get_mut(mkey);
+                if let Some(nmods) = nmods {
+                    let mut nmod = nmods.iter_mut().find(|nmod| &nmod.name == nmd);
+                    if let Some(ref mut nmod) = nmod {
+                        load_d3d_data(device, callbacks, nmod.midx, nmod);
+                        cnt += 1;
+                    }
+                }
+            }
+        }
+
+        to_load.clear();
+
+        // get new ref count
+        (*device).AddRef();
+        let post_rc = (*device).Release();
+        let diff = post_rc - pre_rc;
+        (*DEVICE_STATE).d3d_resource_count += diff;
+
+        let now = std::time::SystemTime::now();
+        let elapsed = now.duration_since(ml_start);
+        if let Ok(elapsed) = elapsed {
+            write_log_file(
+                &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
+                cnt, elapsed.as_millis(), diff, device as u64, (*DEVICE_STATE).d3d_resource_count
+            ));
+        };
 }

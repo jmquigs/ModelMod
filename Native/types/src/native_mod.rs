@@ -3,8 +3,8 @@ pub use winapi::shared::d3d9::*;
 //pub use winapi::shared::d3d9types::*;
 use crate::interop::ModData;
 
-pub struct NativeModData {
-    pub mod_data: ModData,
+/// Container for D3D resources of a mod.
+pub struct ModD3DData {
     pub vb_data: *mut c_char,
     pub ib_data: *mut c_char,
     pub decl_data: *mut c_char,
@@ -12,6 +12,32 @@ pub struct NativeModData {
     pub ib: *mut IDirect3DIndexBuffer9,
     pub decl: *mut IDirect3DVertexDeclaration9,
     pub textures: [LPDIRECT3DTEXTURE9; 4],
+}
+
+impl ModD3DData {
+    pub fn new() -> Self {
+        use std::ptr::null_mut;
+
+        Self {
+            vb_data: null_mut(),
+            ib_data: null_mut(),
+            decl_data: null_mut(),
+            vb: null_mut(),
+            ib: null_mut(),
+            decl: null_mut(),
+            textures: [null_mut(); 4],
+        }
+    }
+}
+
+pub enum ModD3DState {
+    Unloaded,
+    Loaded(ModD3DData)
+}
+pub struct NativeModData {
+    pub midx: i32,
+    pub mod_data: ModData,
+    pub d3d_data: ModD3DState,
     pub is_parent: bool,
     pub parent_mod_names: Vec<String>,
     pub last_frame_render: u64, // only set for parent mods
@@ -21,17 +47,10 @@ pub struct NativeModData {
 
 impl NativeModData {
     pub fn new() -> Self {
-        use std::ptr::null_mut;
-        
         Self {
+            midx: -1,
             mod_data: ModData::new(),
-            vb_data: null_mut(),
-            ib_data: null_mut(),
-            decl_data: null_mut(),
-            vb: null_mut(),
-            ib: null_mut(),
-            decl: null_mut(),
-            textures: [null_mut(); 4],
+            d3d_data: ModD3DState::Unloaded,
             is_parent: false,
             parent_mod_names: vec![],
             last_frame_render: 0,

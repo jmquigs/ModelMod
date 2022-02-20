@@ -18,6 +18,7 @@ use crate::mod_render;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use device_state::dev_state;
 use hook_snapshot;
+use types::native_mod;
 
 use std;
 use std::ptr::null_mut;
@@ -125,6 +126,14 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
             is.done_loading_mods = true;
 
             unsafe { mod_load::setup_mod_data(device, is.callbacks) };
+        }
+
+        let has_pending_mods =
+            unsafe {&GLOBAL_STATE}.load_on_next_frame
+                .as_ref().map_or(false, |hs| hs.len() > 0);
+
+        if has_pending_mods && is.done_loading_mods && !is.loading_mods {
+            unsafe { mod_load::load_deferred_mods(device, is.callbacks) };
         }
     });
     Ok(())
@@ -475,6 +484,21 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
                 return Some(nmod.mod_data.numbers.mod_type);
             }
+            // if the mod d3d data isn't loaded, can't render
+            let d3dd = match nmod.d3d_data {
+                native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
+                native_mod::ModD3DState::Unloaded => {
+                    // tried to render an unloaded mod, make a note that it should be loaded
+                    let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
+                        || fnv::FnvHashSet::with_capacity_and_hasher(
+                            100,
+                            Default::default(),
+                        ));
+                    load_next_hs.insert(nmod.name.to_owned());
+                    return None;
+                }
+            };
+
             profile_start!(hdip, mod_render);
             // save state
             let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
@@ -507,13 +531,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
             // Note: C++ code did not change StreamSourceFreq...may need it for some games.
             // draw override
-            (*THIS).SetVertexDeclaration(nmod.decl);
-            (*THIS).SetStreamSource(0, nmod.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
+            (*THIS).SetVertexDeclaration(d3dd.decl);
+            (*THIS).SetStreamSource(0, d3dd.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
 
             // and set mod textures
             let mut save_tex:[Option<*mut IDirect3DBaseTexture9>; 4] = [None; 4];
             let mut _st_rods:Vec<ReleaseOnDrop<*mut IDirect3DBaseTexture9>> = vec![];
-            for (i,tex) in nmod.textures.iter().enumerate() {
+            for (i,tex) in d3dd.textures.iter().enumerate() {
                 if *tex != null_mut() {
                     //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as u64, NumVertices, primCount));
                     let mut save:*mut IDirect3DBaseTexture9 = null_mut();

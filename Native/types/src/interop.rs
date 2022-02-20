@@ -32,6 +32,9 @@ pub struct ModNumbers {
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
+/// Contains information and data associated with a mod, but _not_ any D3D resources.
+/// This structure is passed to/from managed code so must have a defined layout, and can
+/// only contain types that can be marshalled over the interop boundary.
 pub struct ModData {
     pub numbers: ModNumbers,
     pub texPath0: [WCHAR; MAX_TEX_PATH_LEN],

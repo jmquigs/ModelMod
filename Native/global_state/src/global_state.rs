@@ -47,6 +47,10 @@ pub struct HookState {
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
     pub loaded_mods: Option<LoadedModState>,
+    /// List of mod names that should have the d3d resources loaded on the next frame.
+    /// Mods are added to this by `hook_draw_indexed_primitive` when it discovers that is
+    /// trying to render a mod that hasn't been loaded yet.
+    pub load_on_next_frame: Option<FnvHashSet<String>>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<*mut IDirect3DBaseTexture9>>,
@@ -101,6 +105,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     clr_pointer: None,
     interop_state: None,
     //is_global: true,
+    load_on_next_frame: None,
     loaded_mods: None,
     active_texture_set: None,
     active_texture_list: None,
