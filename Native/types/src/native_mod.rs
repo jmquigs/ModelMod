@@ -1,13 +1,8 @@
-use std::os::raw::c_char;
 pub use winapi::shared::d3d9::*;
-//pub use winapi::shared::d3d9types::*;
 use crate::interop::ModData;
 
 /// Container for D3D resources of a mod.
 pub struct ModD3DData {
-    pub vb_data: *mut c_char,
-    pub ib_data: *mut c_char,
-    pub decl_data: *mut c_char,
     pub vb: *mut IDirect3DVertexBuffer9,
     pub ib: *mut IDirect3DIndexBuffer9,
     pub decl: *mut IDirect3DVertexDeclaration9,
@@ -19,9 +14,6 @@ impl ModD3DData {
         use std::ptr::null_mut;
 
         Self {
-            vb_data: null_mut(),
-            ib_data: null_mut(),
-            decl_data: null_mut(),
             vb: null_mut(),
             ib: null_mut(),
             decl: null_mut(),
