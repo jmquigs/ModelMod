@@ -60,8 +60,10 @@ unsafe fn hook_device(
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
     // This was used to debug an issue with reshade where something
-    // was unhooking the pointers after I hooked it.  possibly securom in
-    // mass effect 2.
+    // was unhooking the pointers after I hooked it. this issue exists
+    // with multiple games when run under reshade, so it must be something
+    // to do with how reshade manages that (possibly interference from
+    // minhook or imgui)
     // write_log_file(&format!("DrawIndexedPrimitive real: {:x}, hook: {:x}",
     //     real_draw_indexed_primitive as u64,
     //     hook_draw_indexed_primitive as u64,
@@ -264,7 +266,7 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
     }
 }
 
-fn init_device_state_once() {
+pub fn init_device_state_once() {
     unsafe {
         if DEVICE_STATE == null_mut() {
             DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
@@ -277,7 +279,7 @@ fn init_device_state_once() {
     };
 }
 
-fn mm_verify_load() -> Option<String> {
+pub fn mm_verify_load() -> Option<String> {
     match get_mm_conf_info() {
         Ok((true, Some(dir))) => return Some(dir),
         Ok((false, _)) => {
@@ -298,7 +300,7 @@ fn mm_verify_load() -> Option<String> {
     };
 }
 
-fn init_log(mm_root:&str) {
+pub fn init_log(mm_root:&str) {
     // try to create log file using module name and root dir.  if it fails then just
     // let logging go to the temp dir file.
     get_module_name()
@@ -403,6 +405,25 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
     0
 }
 
+pub fn load_d3d_lib(name:&str) -> Result<*mut HINSTANCE__> {
+    unsafe {
+        let bsize:u32 = 65535;
+        let mut syswide: Vec<u16> = Vec::with_capacity(bsize as usize);
+        let res = winapi::um::sysinfoapi::GetSystemDirectoryW(syswide.as_mut_ptr(), bsize);
+        if res == 0 {
+            write_log_file(&format!("Failed to get system directory, can't load {}", name));
+            return Err(HookError::D3D9HookFailed);
+        }
+        syswide.set_len(res as usize);
+        let mut sd = util::from_wide_fixed(&syswide)?;
+        sd.push_str("\\");
+        sd.push_str(name);
+
+        let handle = util::load_lib(&sd)?;
+        Ok(handle)
+    }
+}
+
 pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     init_device_state_once();
 
@@ -410,19 +431,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     // there is no point in loading the managed stuff.  however this means that if this fails,
     // the logging will go to the %temp%\ModelMod.log file.
     // Note: _handle is never unloaded, IDK if there is a reason a game would ever do that
-    let (_handle,addr) = unsafe {
-        let bsize:u32 = 65535;
-        let mut syswide: Vec<u16> = Vec::with_capacity(bsize as usize);
-        let res = winapi::um::sysinfoapi::GetSystemDirectoryW(syswide.as_mut_ptr(), bsize);
-        if res == 0 {
-            write_log_file("Failed to get system directory, can't load d3d9.dll");
-            return Err(HookError::D3D9HookFailed);
-        }
-        syswide.set_len(res as usize);
-        let mut sd = util::from_wide_fixed(&syswide)?;
-        sd.push_str("\\d3d9.dll");
-
-        let handle = util::load_lib(&sd)?;
+    let (_handle,addr) = {
+        let handle = load_d3d_lib("d3d9.dll")?;
         let addr = util::get_proc_address(handle, "Direct3DCreate9")?;
         (handle,addr)
     };

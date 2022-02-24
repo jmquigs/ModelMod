@@ -25,7 +25,7 @@ hook_snapshot = { path = "../hook_snapshot" }
 lazy_static = "1.1.0"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "dxgi", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput", "sysinfoapi"] }
 
