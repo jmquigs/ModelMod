@@ -21,9 +21,17 @@ pub struct HookDirect3D9Device {
     pub real_set_pixel_sc_b: SetPixelShaderConstantBFn,
 }
 
+pub struct HookD3D9State {
+    pub d3d9: Option<HookDirect3D9>,
+    pub device: Option<HookDirect3D9Device>,
+}
+
+pub enum HookDeviceState {
+    D3D9(HookD3D9State)
+}
+
 pub struct DeviceState {
-    pub hook_direct3d9: Option<HookDirect3D9>,
-    pub hook_direct3d9device: Option<HookDirect3D9Device>,
+    pub hook: Option<HookDeviceState>,
     pub d3d_window: HWND,
     pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
 }

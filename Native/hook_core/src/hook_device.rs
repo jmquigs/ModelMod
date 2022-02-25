@@ -23,7 +23,7 @@ Would be nice to move this into a separate crate, but it needs to know about the
 that we want to hook and override.  So its probably stuck here.
 */
 
-unsafe fn hook_device(
+unsafe fn hook_d3d9_device(
     device: *mut IDirect3DDevice9,
     _guard: &std::sync::MutexGuard<()>,
 ) -> Result<HookDirect3D9Device> {
@@ -130,9 +130,15 @@ unsafe fn create_and_hook_device(
         return Err(HookError::BadStateError("no device state pointer??".to_owned()));
     }
     (*DEVICE_STATE)
-        .hook_direct3d9
+        .hook
         .as_mut()
         .ok_or(HookError::Direct3D9InstanceNotFound)
+        .and_then(|hook| {
+            match hook {
+                HookDeviceState::D3D9(ds) if ds.d3d9.is_some() => Ok(ds),
+                _ => Err(HookError::D3D9HookFailed)
+            }
+        })
         .and_then(|hd3d9| {
             write_log_file(&format!("calling real create device"));
             if BehaviorFlags & D3DCREATE_MULTITHREADED == D3DCREATE_MULTITHREADED {
@@ -140,7 +146,8 @@ unsafe fn create_and_hook_device(
                     "Notice: device being created with D3DCREATE_MULTITHREADED"
                 ));
             }
-            let result = (hd3d9.real_create_device)(
+            // option is_some() checked earlier
+            let result = (hd3d9.d3d9.as_ref().unwrap().real_create_device)(
                 THIS,
                 Adapter,
                 DeviceType,
@@ -154,10 +161,13 @@ unsafe fn create_and_hook_device(
                 return Err(HookError::CreateDeviceFailed(result));
             }
             (*DEVICE_STATE).d3d_window = hFocusWindow;
-            hook_device(*ppReturnedDeviceInterface, &lock)
+            hook_d3d9_device(*ppReturnedDeviceInterface, &lock)
         })
         .and_then(|hook_d3d9device| {
-            (*DEVICE_STATE).hook_direct3d9device = Some(hook_d3d9device);
+            match (*DEVICE_STATE).hook {
+                Some(HookDeviceState::D3D9(ref mut d3d9)) => d3d9.device = Some(hook_d3d9device),
+                _ => ()
+            };
             write_log_file(&format!(
                 "hooked device on thread {:?}",
                 std::thread::current().id()
@@ -270,8 +280,7 @@ pub fn init_device_state_once() {
     unsafe {
         if DEVICE_STATE == null_mut() {
             DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
-                hook_direct3d9: None,
-                hook_direct3d9device: None,
+                hook: None,
                 d3d_window: null_mut(),
                 d3d_resource_count: 0,
             }));
@@ -387,10 +396,13 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
             .lock()
             .map_err(|_err| HookError::GlobalLockError)?;
 
-            let hook_d3d9device = hook_device(device, &lock)?;
+            let hook_d3d9device = hook_d3d9_device(device, &lock)?;
 
             //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
-            (*DEVICE_STATE).hook_direct3d9device = Some(hook_d3d9device);
+            (*DEVICE_STATE).hook = Some(HookDeviceState::D3D9(HookD3D9State {
+                d3d9: None,
+                device: Some(hook_d3d9device)
+            }));
             write_log_file(&format!(
                 "hooked device on thread {:?}",
                 std::thread::current().id()
@@ -466,9 +478,13 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             .lock()
             .map_err(|_err| HookError::D3D9HookFailed)?;
 
-        if (*DEVICE_STATE).hook_direct3d9.is_some() {
-            return Ok(direct3d9);
-        }
+        match (*DEVICE_STATE).hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: ref what, device: _ })) => {
+                let _ = what;
+                return Ok(direct3d9);
+            },
+            _ => {}
+        };
 
         GLOBAL_STATE.mm_root = Some(mm_root);
 
@@ -495,7 +511,11 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             real_create_device: real_create_device,
         };
 
-        (*DEVICE_STATE).hook_direct3d9 = Some(hd3d9);
+        (*DEVICE_STATE).hook =
+            Some(HookDeviceState::D3D9(HookD3D9State {
+                d3d9: Some(hd3d9),
+                device: None
+            }));
 
         Ok(direct3d9)
     }

@@ -26,6 +26,7 @@ use std::time::SystemTime;
 
 use shared_dx9::util::*;
 use shared_dx9::error::*;
+use shared_dx9::types::*;
 
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
@@ -167,7 +168,12 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
         }
     }
 
-    (dev_state().hook_direct3d9device.as_ref().unwrap().real_set_texture)(THIS, Stage, pTexture)
+    match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            (dev.real_set_texture)(THIS, Stage, pTexture)
+        },
+        _ => E_FAIL
+    }
 }
 
 // TODO: hook this up to device release at the proper time
@@ -196,14 +202,23 @@ pub unsafe extern "system" fn hook_present(
     pDirtyRegion: *const RGNDATA,
 ) -> HRESULT {
     //write_log_file("present");
+
+    let call_real_present = || {
+        match (dev_state()).hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+                (dev.real_present)(
+                    THIS,
+                    pSourceRect,
+                    pDestRect,
+                    hDestWindowOverride,
+                    pDirtyRegion,
+                )
+            },
+            _ => E_FAIL
+        }
+    };
     if GLOBAL_STATE.in_any_hook_fn() {
-        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_present)(
-            THIS,
-            pSourceRect,
-            pDestRect,
-            hDestWindowOverride,
-            pDirtyRegion,
-        );
+        return call_real_present();
     }
 
     if let Err(e) = do_per_frame_operations(THIS) {
@@ -211,13 +226,7 @@ pub unsafe extern "system" fn hook_present(
             "unexpected error from do_per_scene_operations: {:?}",
             e
         ));
-        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_present)(
-            THIS,
-            pSourceRect,
-            pDestRect,
-            hDestWindowOverride,
-            pDirtyRegion,
-        );
+        return call_real_present()
     }
 
     let min_fps = GLOBAL_STATE
@@ -227,9 +236,9 @@ pub unsafe extern "system" fn hook_present(
 
     let metrics = &mut GLOBAL_STATE.metrics;
     let present_ret = dev_state()
-        .hook_direct3d9device
+        .hook
         .as_mut()
-        .map_or(S_OK, |hookdevice| {
+        .map_or(S_OK, |_hdstate| {
             metrics.frames += 1;
             metrics.total_frames += 1;
             if metrics.frames % 90 == 0 {
@@ -260,13 +269,7 @@ pub unsafe extern "system" fn hook_present(
                     metrics.frames = 0;
                 }
             }
-            (hookdevice.real_present)(
-                THIS,
-                pSourceRect,
-                pDestRect,
-                hDestWindowOverride,
-                pDirtyRegion,
-            )
+            call_real_present()
         });
 
     if GLOBAL_STATE.selection_texture == null_mut() {
@@ -294,16 +297,39 @@ pub unsafe extern "system" fn hook_present(
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // TODO: hack to work around Release on device while in DIP
+
+    // I don't think release can "fail" normally but in rare/weird cases this
+    // version might (see below) so this is what we return in those.
+    let failret:ULONG = 0xFFFFFFFF;
+    let oops_log_release_fail = || {
+        write_log_file(&format!("OOPS lol release returning {} do to bad state", failret));
+    };
+
     if GLOBAL_STATE.in_hook_release {
-        return (dev_state().hook_direct3d9device.as_ref().unwrap().real_release)(THIS);
+        return match (dev_state()).hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+                (dev.real_release)(THIS)
+            },
+            _ => {
+                oops_log_release_fail();
+                failret
+            }
+        };
     }
 
     GLOBAL_STATE.in_hook_release = true;
 
-    let r = dev_state()
-        .hook_direct3d9device
+    // dev_state() used to return an Option, but doesn't now,
+    // so Some() it for compat with old combinator flow
+    let r = Some(dev_state())
         .as_mut()
-        .map_or(0xFFFFFFFF, |hookdevice| {
+        .map_or(failret, |hookds| {
+            let hookdevice = match hookds.hook {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => {
+                    dev
+                },
+                _ => { return failret; } // "should never happen"
+            };
             hookdevice.ref_count = (hookdevice.real_release)(THIS);
 
             // if hookdevice.ref_count < 100 {
@@ -352,6 +378,10 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             hookdevice.ref_count
         });
     GLOBAL_STATE.in_hook_release = false;
+
+    if r == failret {
+        oops_log_release_fail();
+    }
     r
 }
 
@@ -404,12 +434,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, state_begin);
 
-    let hookdevice = match dev_state().hook_direct3d9device {
-        None => {
+    let hookdevice = match dev_state().hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => dev,
+        _ => {
             write_log_file(&format!("DIP: No d3d9 device found"));
             return E_FAIL;
-        }
-        Some(ref mut hookdevice) => hookdevice,
+        },
     };
     profile_end!(hdip, state_begin);
 
