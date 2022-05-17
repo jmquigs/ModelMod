@@ -26,8 +26,13 @@ pub struct HookD3D9State {
     pub device: Option<HookDirect3D9Device>,
 }
 
+pub struct HookD3D11State {
+    pub context: HookDirect3D911Context,
+}
+
 pub enum HookDeviceState {
-    D3D9(HookD3D9State)
+    D3D9(HookD3D9State),
+    D3D11(HookD3D11State),
 }
 
 pub struct DeviceState {
@@ -66,4 +71,16 @@ impl HookDirect3D9Device {
             ref_count: 0,
         }
     }
+}
+// ===========================================================================
+// D3D11
+
+pub struct HookDirect3D911Context {
+    pub real_draw: DrawFn,
+    pub real_draw_auto: DrawAutoFn,
+    pub real_draw_indexed: DrawIndexedFn,
+    pub real_draw_instanced: DrawInstancedFn,
+    pub real_draw_indexed_instanced: DrawIndexedInstancedFn,
+    pub real_draw_instanced_indirect: DrawInstancedIndirectFn,
+    pub real_draw_indexed_instanced_indirect: DrawIndexedInstancedIndirectFn,
 }

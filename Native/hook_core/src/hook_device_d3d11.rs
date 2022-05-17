@@ -8,7 +8,7 @@ use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::shared::dxgi::DXGI_SWAP_CHAIN_DESC;
 use winapi::shared::dxgi::IDXGISwapChain;
 use shared_dx9::defs::HMODULE;
-use shared_dx9::defs::UINT;
+use shared_dx9::defs::{UINT};
 use shared_dx9::defs::HRESULT;
 use shared_dx9::defs::FARPROC;
 use winapi::shared::winerror::E_FAIL;
