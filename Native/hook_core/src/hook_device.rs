@@ -8,6 +8,7 @@ pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std;
 use std::ptr::null_mut;
 use shared_dx9::types::*;
+use shared_dx9::types_dx9::*;
 use shared_dx9::util::*;
 use shared_dx9::error::*;
 use input;

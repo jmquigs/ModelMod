@@ -1,5 +1,5 @@
 use shared_dx9::error::*;
-use shared_dx9::defs::*;
+use shared_dx9::defs_dx9::*;
 use util;
 use global_state::{ GLOBAL_STATE };
 use std::ptr::null_mut;

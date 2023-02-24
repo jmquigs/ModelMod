@@ -4,7 +4,7 @@ use global_state::GLOBAL_STATE;
 
 use shared_dx9::util::ReleaseOnDrop;
 
-use shared_dx9::defs::*;
+use shared_dx9::defs_dx9::*;
 use std::ptr::null_mut;
 
 //enum ShaderType { Vertex, Pixel }
@@ -32,7 +32,7 @@ macro_rules! impl_save_shader {
             check_hr((*(*device_ptr)).$getfn(&mut shader), "get shader")?;
             if shader == null_mut() {
                 return Err(HookError::CaptureFailed("no shader".to_owned()));
-            }    
+            }
             let _rod = ReleaseOnDrop::new(shader);
             let mut size:UINT = 0;
             check_hr( (*shader).GetFunction(null_mut(), &mut size), "get shader function size")?;
@@ -45,19 +45,19 @@ macro_rules! impl_save_shader {
             let mut out_buf: Vec<u8> = vec![0; size as usize];
             let out_ptr = out_buf.as_mut_ptr() as *mut winapi::ctypes::c_void;
             check_hr( (*shader).GetFunction(out_ptr, &mut size), "get shader function data")?;
-            
+
             let fout = snap_dir.to_owned()  + "/" + snap_prefix + suffix + ".dat";
             use std::io::Write;
             let mut file = std::fs::File::create(&fout)?;
             file.write_all(&out_buf)?;
             util::write_log_file(&format!("wrote {} shader bytes to {}", out_buf.len(), fout));
-            
+
             // disassemble
             let d3dx_fn = GLOBAL_STATE
                 .d3dx_fn
                 .as_ref()
                 .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
-            
+
             let mut buf: *mut ID3DXBuffer = null_mut();
             let out_ptr = out_ptr as *const DWORD;
             check_hr( (d3dx_fn.D3DXDisassembleShader)(out_ptr, FALSE, null_mut(), &mut buf), "disassemble")?;
@@ -69,7 +69,7 @@ macro_rules! impl_save_shader {
             let mut file = std::fs::File::create(&fout)?;
             file.write_all(wslice)?;
             util::write_log_file(&format!("wrote shader disassembly to {}", fout));
-            
+
             Ok(true)
         }
     };
@@ -88,7 +88,7 @@ pub fn take_snapshot(snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
             util::write_log_file(&format!("failed to save shader: {:?}", e));
             false
         });
-            
+
         (gotpix, gotvert)
     }
 }

@@ -1,4 +1,4 @@
-use shared_dx9::defs::UINT;
+use shared_dx9::defs_dx9::UINT;
 use std::time::SystemTime;
 use shared_dx9::error::Result;
 
