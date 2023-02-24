@@ -324,12 +324,12 @@ mod tests {
         // just assuming they are there.
         let res = get_mm_conf_info();
         match res {
-            Err(e) => assert!(false, format!("conf test failed: {:?}", e)),
+            Err(e) => assert!(false, "conf test failed: {:?}", e),
             Ok((ref active, ref _path)) if *active == false => {
-                assert!(false, format!("mm should be active"))
+                assert!(false, "mm should be active")
             }
             Ok((ref active, ref path)) if *active == true && path.is_none() => {
-                assert!(false, format!("if active, path must be set"))
+                assert!(false, "if active, path must be set")
             }
             Ok(_) => {}
         }
@@ -339,11 +339,11 @@ mod tests {
     pub fn test_get_managed_dll_path() {
         if let Err(e) = get_managed_dll_path("C:\\Dev\\modelmod.new") {
             // TODO unhardcode
-            assert!(false, format!("file should exist: {:?}", e))
+            assert!(false, "file should exist: {:?}", e)
         }
         if let Ok(f) = get_managed_dll_path("C:\\Dev\\modelmod.foo") {
             // TODO unhardcode
-            assert!(false, format!("file should not exist: {:?}", f))
+            assert!(false, "file should not exist: {:?}", f)
         }
     }
 
