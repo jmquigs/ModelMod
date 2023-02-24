@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 use winapi::shared::d3d9::*;
 //use winapi::shared::d3d9types::*;
-use shared_dx9::defs_dx9::*;
+use shared_dx::defs_dx9::*;
 
 pub type D3DXCreateTextureFromFileWFn = unsafe extern "system" fn(
     pDevice: LPDIRECT3DDEVICE9,

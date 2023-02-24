@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 fnv = "1.0.6"
 util = { path = "../util" }
-shared_dx9 = { path = "../shared_dx9" }
+shared_dx = { path = "../shared_dx" }
 profiler = { path = "../profiler" }
 
 [target.'cfg(windows)'.dependencies]

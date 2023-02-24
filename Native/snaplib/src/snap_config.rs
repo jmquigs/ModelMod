@@ -3,8 +3,8 @@ use winapi::shared::minwindef::UINT;
 //use fnv::FnvHashSet;
 use std::collections::HashSet;
 use std::fmt;
-use shared_dx9::util::write_log_file;
-use shared_dx9::error::{HookError, Result};
+use shared_dx::util::write_log_file;
+use shared_dx::error::{HookError, Result};
 
 // Snapshotting currently stops after a certain amount of real time has passed from the start of
 // the snap, specified by the config (snap_ms)
@@ -69,7 +69,7 @@ impl fmt::Display for SnapConfig {
             }
         }
         writeln!(f, "  plugins: {:?}", self.plugins)?;
-        
+
         writeln!(f, "}}")
     }
 }
@@ -94,43 +94,43 @@ impl SnapConfig {
         }
         seqs as usize
     }
-    
+
     pub fn load(rootdir:&str) -> Result<Self> {
         write_log_file("loading snap config");
-        
+
         use std::path::PathBuf;
         let mut pb = PathBuf::from(&rootdir);
         pb.push("\\snapconfig.yaml");
-        
+
         if !pb.is_file() {
             write_log_file(&format!("Snap confile does not exist: {:?}", pb));
             write_log_file(&format!("Using defaults"));
             return Ok(SnapConfig::new())
         }
-                
+
         use std::fs::File;
         use std::io::BufReader;
 
         let file = File::open(pb)?;
         let reader = BufReader::new(file);
         let s: SnapConfig = serde_yaml::from_reader(reader).map_err(|e| HookError::SnapshotFailed(format!("deserialize error: {}", e)))?;
-        
+
         // let mut sclock = SNAP_CONFIG.write().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
         // *sclock = s;
         // drop(sclock);
-        
+
         // let sclock = SNAP_CONFIG.read().map_err(|e| HookError::SnapshotFailed(format!("failed to lock snap config: {}", e)))?;
         // write_log_file(&format!("loaded snap config: {}", *sclock));
-        
+
         Ok(s)
-        
+
     }
-    
+
     // This is useful for generating a new config file.  but I am leaving it commented out because
     // since it does serde-y stuff it might increase compile times.
     // fn save(&self, rootdir:&str) -> Result<()> {
     //     write_log_file("saving snap config");
-        
+
     //     use std::path::PathBuf;
     //     let mut pb = PathBuf::from(&rootdir);
     //     pb.push("\\snapconfig.yaml");
@@ -142,19 +142,19 @@ impl SnapConfig {
     //     //     (*sc).autosnap = Some(autosnap);
     //     //     drop(sc);
     //     // }
-        
+
     //     // write_log_file(&format!("reread sc for {:?}", pb));
     //     // let conf = SNAP_CONFIG.read().map_err(|e| {
     //     //     // convert error here because I don't want to make shared dx9 depend on serde
     //     //     HookError::SerdeError(format!("Serialization error: {:?}", e))
     //     // })?;
-        
+
     //     write_log_file(&format!("cereal sc to {:?}", pb));
     //     let s = serde_yaml::to_string(&*self).map_err(|e| {
     //         // convert error here because I don't want to make shared dx9 depend on serde
     //         HookError::SerdeError(format!("Serialization error: {:?}", e))
     //     })?;
-        
+
     //     write_log_file(&format!("writef to {:?}", pb));
     //     use std::io::Write;
     //     let mut file = std::fs::File::create(&*pb.to_string_lossy())?;

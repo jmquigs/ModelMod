@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.1.0"
-shared_dx9 = { path = "../shared_dx9" }
+shared_dx = { path = "../shared_dx" }
 global_state = { path = "../global_state" }
 util = { path = "../util" }
 d3dx = { path = "../d3dx" }

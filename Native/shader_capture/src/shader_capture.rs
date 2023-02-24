@@ -1,10 +1,10 @@
-use shared_dx9::error::*;
-use shared_dx9::util;
+use shared_dx::error::*;
+use shared_dx::util;
 use global_state::GLOBAL_STATE;
 
-use shared_dx9::util::ReleaseOnDrop;
+use shared_dx::util::ReleaseOnDrop;
 
-use shared_dx9::defs_dx9::*;
+use shared_dx::defs_dx9::*;
 use std::ptr::null_mut;
 
 //enum ShaderType { Vertex, Pixel }

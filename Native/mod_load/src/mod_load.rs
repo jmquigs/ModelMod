@@ -12,7 +12,7 @@ use util;
 use d3dx;
 use std;
 use std::ptr::null_mut;
-use shared_dx9::util::*;
+use shared_dx::util::*;
 use device_state::*;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LoadedModState};
 use types::interop;

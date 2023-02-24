@@ -10,11 +10,11 @@ use winapi::shared::dxgi::IDXGISwapChain;
 use winapi::shared::winerror::HRESULT;
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::winerror::E_FAIL;
-use shared_dx9::error::*;
+use shared_dx::error::*;
 
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
-use shared_dx9::util::write_log_file;
-//use shared_dx9::util::{set_log_file_path};
+use shared_dx::util::write_log_file;
+//use shared_dx::util::{set_log_file_path};
 
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 

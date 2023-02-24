@@ -8,7 +8,7 @@ use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
 use std::ffi::OsString;
 
-use shared_dx9::error::*;
+use shared_dx::error::*;
 
 pub unsafe fn protect_memory(
     target: *mut winapi::ctypes::c_void,

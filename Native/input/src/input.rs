@@ -20,8 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 //extern HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter);
 use util;
-use shared_dx9::error::*;
-use shared_dx9::util::write_log_file;
+use shared_dx::error::*;
+use shared_dx::util::write_log_file;
 
 use std;
 use std::ptr::null_mut;

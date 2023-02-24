@@ -7,7 +7,7 @@ build = "build.rs"
 
 [dependencies]
 fnv = "1.0.6"
-shared_dx9 = { path = "../shared_dx9" }
+shared_dx = { path = "../shared_dx" }
 profiler = { path = "../profiler" }
 global_state = { path = "../global_state" }
 util = { path = "../util" }

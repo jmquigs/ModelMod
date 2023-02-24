@@ -7,7 +7,7 @@
 			"path": "hook_core"
 		},
 		{
-			"path": "shared_dx9"
+			"path": "shared_dx"
 		},
 		{
 			"path": "d3dx"

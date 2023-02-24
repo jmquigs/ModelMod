@@ -131,8 +131,8 @@ macro_rules! profile_summarize {
 #[cfg(test)]
 mod tests {
     use std;
-    
-    use shared_dx9::util::*;
+
+    use shared_dx::util::*;
 
     decl_profile_globals!(test_profiler);
 

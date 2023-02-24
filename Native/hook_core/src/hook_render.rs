@@ -24,9 +24,9 @@ use std;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
-use shared_dx9::util::*;
-use shared_dx9::error::*;
-use shared_dx9::types::*;
+use shared_dx::util::*;
+use shared_dx::error::*;
+use shared_dx::types::*;
 
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
@@ -179,7 +179,7 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
         // also only write these out when we also just wrote a dip summary line
         // above.
         if global_state::METRICS_TRACK_PRIMS && wrote_dip_stats {
-            let logname = shared_dx9::util::get_log_file_path();
+            let logname = shared_dx::util::get_log_file_path();
             if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
                 let p = std::path::Path::new(&logname);
                 match p.parent() {

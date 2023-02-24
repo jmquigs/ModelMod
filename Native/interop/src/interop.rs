@@ -4,7 +4,7 @@ use std::os::raw::c_char;
 use std;
 use util;
 use d3dx;
-use shared_dx9::util::write_log_file;
+use shared_dx::util::write_log_file;
 use global_state::HookState;
 use types::interop::*;
 

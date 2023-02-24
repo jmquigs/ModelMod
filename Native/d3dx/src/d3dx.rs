@@ -1,9 +1,9 @@
-use shared_dx9::error::*;
-use shared_dx9::defs_dx9::*;
+use shared_dx::error::*;
+use shared_dx::defs_dx9::*;
 use util;
 use global_state::{ GLOBAL_STATE };
 use std::ptr::null_mut;
-use shared_dx9::util::ReleaseOnDrop;
+use shared_dx::util::ReleaseOnDrop;
 
 use types::d3dx::*;
 

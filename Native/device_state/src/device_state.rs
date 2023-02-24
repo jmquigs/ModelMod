@@ -1,6 +1,6 @@
-use shared_dx9::types::DeviceState;
+use shared_dx::types::DeviceState;
 use std::ptr::null_mut;
-use shared_dx9::util::write_log_file;
+use shared_dx::util::write_log_file;
 
 pub static mut DEVICE_STATE: *mut DeviceState = null_mut();
 

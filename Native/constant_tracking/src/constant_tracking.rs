@@ -5,8 +5,8 @@ pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 
-use shared_dx9::error::*;
-use shared_dx9::util;
+use shared_dx::error::*;
+use shared_dx::util;
 
 
 pub use std::collections::HashMap;

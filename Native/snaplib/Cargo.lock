@@ -28,7 +28,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -101,7 +101,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shared_dx9"
+name = "shared_dx"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
@@ -117,7 +117,7 @@ dependencies = [
  "constant_tracking",
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 

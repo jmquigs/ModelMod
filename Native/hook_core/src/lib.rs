@@ -18,7 +18,7 @@ extern crate winapi;
 
 extern crate lazy_static;
 
-extern crate shared_dx9;
+extern crate shared_dx;
 extern crate global_state;
 extern crate util;
 extern crate input;

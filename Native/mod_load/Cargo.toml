@@ -13,7 +13,7 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 
 [dependencies]
 fnv = "1.0.6"
-shared_dx9 = { path = "../shared_dx9" }
+shared_dx = { path = "../shared_dx" }
 util = { path = "../util" }
 global_state = { path = "../global_state" }
 types = { path = "../types" }

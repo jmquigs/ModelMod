@@ -12,7 +12,7 @@ version = "0.1.0"
 dependencies = [
  "fnv",
  "profiler",
- "shared_dx9",
+ "shared_dx",
  "util",
  "winapi",
 ]
@@ -27,11 +27,11 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 name = "profiler"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
 ]
 
 [[package]]
-name = "shared_dx9"
+name = "shared_dx"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
@@ -42,7 +42,7 @@ dependencies = [
 name = "util"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 

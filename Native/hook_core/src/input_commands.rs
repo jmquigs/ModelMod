@@ -8,7 +8,7 @@ pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashSet;
 use std;
 use std::ptr::null_mut;
-use shared_dx9::util::*;
+use shared_dx::util::*;
 use global_state::GLOBAL_STATE;
 use device_state::dev_state;
 use crate::hook_render::hook_set_texture;
@@ -19,7 +19,7 @@ use mod_load::AsyncLoadState;
 use mod_load;
 use dnclr::reload_managed_dll;
 
-use shared_dx9::error::*;
+use shared_dx::error::*;
 use util::*;
 use winapi::ctypes::c_void;
 use std::time::SystemTime;
@@ -32,7 +32,7 @@ use snaplib::snap_config::SnapConfig;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use shared_dx9::error::Result;
+use shared_dx::error::Result;
 
 pub fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };

@@ -1,6 +1,6 @@
-use shared_dx9::defs::LPDIRECT3DDEVICE9;
-use shared_dx9::error::Result;
-use shared_dx9::error::HookError;
+use shared_dx::defs::LPDIRECT3DDEVICE9;
+use shared_dx::error::Result;
+use shared_dx::error::HookError;
 use snaplib::anim_frame::AnimFrame;
 
 use util;
@@ -44,7 +44,7 @@ impl SnapPlugin {
 }
 pub fn load(path:&str) -> Result<SnapPlugin> {
     let h = util::load_lib(path)?;
-    
+
     let load = || {
         unsafe {
             let getver:GetVersionFn = std::mem::transmute(util::get_proc_address(h, "get_version")?);
@@ -55,7 +55,7 @@ pub fn load(path:&str) -> Result<SnapPlugin> {
             // all functions must be available before we call init
             let capture_fn:AnimFrameCaptureFn = std::mem::transmute(util::get_proc_address(h, "anim_frame_capture")?);
             let process_fn:AnimFrameProcessFn = std::mem::transmute(util::get_proc_address(h, "anim_frame_process")?);
-            
+
             let init:InitFn = std::mem::transmute(util::get_proc_address(h, "init")?);
             init()?;
             Ok(SnapPlugin{
@@ -64,7 +64,7 @@ pub fn load(path:&str) -> Result<SnapPlugin> {
             })
         }
     };
-    
+
     let res = load();
     if res.is_err() {
         util::unload_lib(h)?;

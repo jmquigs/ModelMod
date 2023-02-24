@@ -23,7 +23,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -96,7 +96,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shared_dx9"
+name = "shared_dx"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
@@ -107,7 +107,7 @@ dependencies = [
 name = "snap_plugin"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
  "snaplib",
  "util",
 ]
@@ -121,7 +121,7 @@ dependencies = [
  "constant_tracking",
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -146,7 +146,7 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 name = "util"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 

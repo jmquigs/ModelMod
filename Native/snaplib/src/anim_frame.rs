@@ -8,8 +8,8 @@ use winapi::shared::minwindef::*;
 //use winapi::um::winnt::{HRESULT, LPCWSTR};
 
 //use hookd3d9::{ dev_state, GLOBAL_STATE };
-use shared_dx9::error::*;
-use shared_dx9::util;
+use shared_dx::error::*;
+use shared_dx::util;
 
 // use std::collections::HashMap;
 use serde::{Serialize};

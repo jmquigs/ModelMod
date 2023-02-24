@@ -11,7 +11,7 @@ members = [
     "mod_load",
     "profiler",
     "shader_capture",
-    "shared_dx9",
+    "shared_dx",
     "types",
     "util",
     "hook_snapshot",

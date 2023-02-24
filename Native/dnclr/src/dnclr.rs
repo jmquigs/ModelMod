@@ -10,8 +10,8 @@ use winapi::um::winnt::{HANDLE, LPCSTR, LPCWSTR, LPWSTR};
 
 use std::ptr::null_mut;
 use util;
-use shared_dx9::error::*;
-use shared_dx9::util::*;
+use shared_dx::error::*;
+use shared_dx::util::*;
 use util::{get_proc_address, load_lib};
 
 DEFINE_GUID!{CLSID_CLR_META_HOST,

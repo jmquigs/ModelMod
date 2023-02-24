@@ -10,8 +10,8 @@ use std;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
-use shared_dx9::util::*;
-use shared_dx9::error::*;
+use shared_dx::util::*;
+use shared_dx::error::*;
 
 use snaplib::snap_config::{SnapConfig};
 use snaplib::anim_frame::{AnimFrame, AnimFrameFile};

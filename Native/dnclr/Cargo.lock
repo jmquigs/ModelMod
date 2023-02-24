@@ -28,7 +28,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -37,7 +37,7 @@ name = "dnclr"
 version = "0.1.0"
 dependencies = [
  "global_state",
- "shared_dx9",
+ "shared_dx",
  "util",
  "winapi",
 ]
@@ -73,7 +73,7 @@ version = "0.1.0"
 dependencies = [
  "fnv",
  "profiler",
- "shared_dx9",
+ "shared_dx",
  "util",
  "winapi",
 ]
@@ -103,7 +103,7 @@ dependencies = [
 name = "profiler"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
 ]
 
 [[package]]
@@ -148,7 +148,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shared_dx9"
+name = "shared_dx"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
@@ -164,7 +164,7 @@ dependencies = [
  "constant_tracking",
  "serde",
  "serde_yaml",
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -183,7 +183,7 @@ dependencies = [
 name = "types"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
@@ -197,7 +197,7 @@ checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
 name = "util"
 version = "0.1.0"
 dependencies = [
- "shared_dx9",
+ "shared_dx",
  "winapi",
 ]
 
