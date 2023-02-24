@@ -17,6 +17,24 @@ pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
     }
 }
 
+/// Return the log file path or "" if there was an error.  This function will temporarily lock
+/// a global mutex protecting access to the variable.
+pub fn get_log_file_path() -> String {
+    let lock = LOG_FILE_NAME.lock();
+    match lock {
+        Err(e) => {
+            eprintln!(
+                "ModelMod: derp, can't write log file due to lock error: {}",
+                e
+            );
+            "".to_owned()
+        }
+        Ok(fname) => {
+            (*fname).to_owned()
+        }
+    }
+}
+
 pub fn write_log_file(msg: &str) -> () {
     use std::env::temp_dir;
     use std::fs::OpenOptions;

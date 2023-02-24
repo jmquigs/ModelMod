@@ -137,6 +137,82 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
             unsafe { mod_load::load_deferred_mods(device, is.callbacks) };
         }
     });
+
+    let metrics = &mut unsafe {&mut GLOBAL_STATE}.metrics;
+
+    if metrics.dip_calls > 1_000_000 {
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(metrics.last_call_log);
+        let mut wrote_dip_stats = false;
+        match elapsed {
+            Ok(d) => {
+                let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+                if secs >= 3.0 {
+                    let dipsec = metrics.dip_calls as f64 / secs;
+
+                    let epocht = now
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or(std::time::Duration::from_secs(1))
+                        .as_secs()
+                        * 1000;
+
+                    wrote_dip_stats = true;
+                    write_log_file(&format!(
+                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
+                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
+                    ));
+                    unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
+                        write_log_file(&format!(
+                            "active texture set contains: {} textures",
+                            set.len()
+                        ))
+                    });
+                    metrics.last_call_log = now;
+                }
+            }
+            Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
+        }
+        metrics.dip_calls = 0;
+
+        // dump out the prim list every so often if we are tracking that.
+        // note this only dumps out the primitives for the most recent frame.
+        // also only write these out when we also just wrote a dip summary line
+        // above.
+        if global_state::METRICS_TRACK_PRIMS && wrote_dip_stats {
+            let logname = shared_dx9::util::get_log_file_path();
+            if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
+                let p = std::path::Path::new(&logname);
+                match p.parent() {
+                    Some(par) => {
+                        let mut pb = par.to_path_buf();
+                        // TODO: should probably include exe name
+                        pb.push("rendered_last_frame.txt");
+                        let w = || -> std::io::Result<()> {
+                            write_log_file(&format!("writing {} frame prim metrics to '{}'", &metrics.rendered_prims.len(), pb.as_path().display()));
+                            let mut res_combined = String::new();
+                            for (prim,vert) in &metrics.rendered_prims {
+                                //writeln!(res_combined, "{},{}\r", prim, vert);
+                                // PERF: ugh, a lot of little allocations here...
+                                res_combined.push_str(&format!("{},{}\r", prim, vert));
+                            }
+
+                            use std::fs::OpenOptions;
+                            use std::io::Write;
+
+                            let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(&pb)?;
+                            writeln!(f, "{}", res_combined)?;
+                            Ok(())
+                        };
+
+                        w().unwrap_or_else(|e| write_log_file(&format!("metrics file write error: {}", e)));
+                    },
+                    None => {}
+                }
+            }
+        }
+    }
+    unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+
     Ok(())
 }
 
@@ -497,6 +573,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut drew_mod = false;
 
+    if global_state::METRICS_TRACK_PRIMS {
+        metrics.rendered_prims.push((primCount, NumVertices));
+    }
+
     // if there is a matching mod, render it
     let modded =
         GLOBAL_STATE.loaded_mods.as_mut()
@@ -657,42 +737,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, real_dip);
 
-    profile_start!(hdip, statistics);
-    // statistics
     metrics.dip_calls += 1;
-    if metrics.dip_calls % 500_000 == 0 {
-        let now = SystemTime::now();
-        let elapsed = now.duration_since(metrics.last_call_log);
-        match elapsed {
-            Ok(d) => {
-                let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                if secs >= 10.0 {
-                    let dipsec = metrics.dip_calls as f64 / secs;
 
-                    let epocht = now
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or(std::time::Duration::from_secs(1))
-                        .as_secs()
-                        * 1000;
-
-                    write_log_file(&format!(
-                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
-                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
-                    ));
-                    GLOBAL_STATE.active_texture_set.as_ref().map(|set| {
-                        write_log_file(&format!(
-                            "active texture set contains: {} textures",
-                            set.len()
-                        ))
-                    });
-                    metrics.last_call_log = now;
-                    metrics.dip_calls = 0;
-                }
-            }
-            Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
-        }
-    }
-    profile_end!(hdip, statistics);
 
     GLOBAL_STATE.in_dip = false;
     profile_end!(hdip, hook_dip);

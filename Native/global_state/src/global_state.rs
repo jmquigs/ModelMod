@@ -19,6 +19,15 @@ use snaplib::anim_snap_state::AnimSnapState;
 
 pub (crate) const MAX_STAGE: usize = 16;
 
+/// Enable this to dump out a file containing metrics for primitives every
+/// few seconds.  The file is `rendered_last_frame.txt` and is stored in the
+/// same directory as logs.  It contains one line for each primitive count,
+/// vertex count pair that was observed in the frame prior to the dump.
+/// This is intended as a tool to roughly observe the frequence and count
+/// of primitives in a given frame.  Since it costs a bit of performance and
+/// I don't normally use it, it is off by default.
+pub const METRICS_TRACK_PRIMS: bool = false;
+
 pub struct FrameMetrics {
     pub dip_calls: u32,
     pub frames: u32,
@@ -28,6 +37,7 @@ pub struct FrameMetrics {
     pub last_fps: f64,
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
+    pub rendered_prims: Vec<(u32,u32)>,
 }
 
 pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
@@ -135,6 +145,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps_update: std::time::UNIX_EPOCH,
         last_fps: 120.0,
         low_framerate: false,
+        rendered_prims: vec![],
     },
 };
 
