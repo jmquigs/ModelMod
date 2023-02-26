@@ -1,10 +1,12 @@
 use std::ptr::null_mut;
 
+use winapi::ctypes::c_void;
 use winapi::um::d3dcommon::D3D_DRIVER_TYPE;
 use winapi::um::d3dcommon::D3D_FEATURE_LEVEL;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::shared::dxgi::IDXGIAdapter;
 use winapi::um::d3d11::ID3D11DeviceContext;
+use winapi::um::d3d11::ID3D11DeviceContextVtbl;
 use winapi::shared::dxgi::DXGI_SWAP_CHAIN_DESC;
 use winapi::shared::dxgi::IDXGISwapChain;
 use winapi::shared::winerror::HRESULT;
@@ -14,6 +16,12 @@ use shared_dx::error::*;
 
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
 use shared_dx::util::write_log_file;
+use shared_dx::types_dx11::HookDirect3D911Context;
+use shared_dx::types::HookDeviceState;
+use shared_dx::types::HookD3D11State;
+use device_state::DEVICE_STATE;
+use crate::hook_render_d3d11::*;
+
 //use shared_dx::util::{set_log_file_path};
 
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
@@ -126,8 +134,63 @@ pub extern "system" fn D3D11CreateDeviceAndSwapChain(
     }
 }
 
-fn hook_d3d11(_swapchain:*mut IDXGISwapChain, _context:*mut ID3D11DeviceContext) -> Result<()> {
-    Ok(())
+unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
+    Result<HookDirect3D911Context> {
+
+    write_log_file(&format!("hooking new d3d11 context: {:x}", context as u64));
+    let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
+    write_log_file(&format!("context vtbl: {:x}", vtbl as u64));
+    let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
+
+    let device_child = &mut (*vtbl).parent;
+    let iunknown = &mut (*device_child).parent;
+
+    let real_release = (*iunknown).Release;
+
+    let real_draw = (*vtbl).Draw;
+    let real_draw_auto = (*vtbl).DrawAuto;
+    let real_draw_indexed = (*vtbl).DrawIndexed;
+    let real_draw_indexed_instanced = (*vtbl).DrawIndexedInstanced;
+    let real_draw_instanced = (*vtbl).DrawInstanced;
+    let real_draw_indexed_instanced_indirect = (*vtbl).DrawIndexedInstancedIndirect;
+    let real_draw_instanced_indirect = (*vtbl).DrawInstancedIndirect;
+    // check for already hook devices (useful in late-hook case)
+    if real_release as u64 == hook_release as u64 {
+        write_log_file(&format!("error: device already appears to be hooked, skipping"));
+        return Err(HookError::D3D11DeviceHookFailed);
+    }
+
+    let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+
+    let mut func_hooked = 0;
+
+    (*iunknown).Release = hook_release; func_hooked += 1;
+
+    // (*vtbl).Draw = hook_draw; func_hooked += 1;
+    // (*vtbl).DrawAuto = hook_draw_auto; func_hooked += 1;
+    //(*vtbl).DrawIndexed = hook_draw_indexed; func_hooked += 1;
+    //(*vtbl).DrawInstanced = hook_draw_instanced; func_hooked += 1;
+    // TODO11: hook remaining draw functions
+
+    util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+
+    // Inc ref count on the device
+    (*context).AddRef(); // TODO11: where is this decremented?
+
+    write_log_file(&format!("context hook complete: {} functions hooked", func_hooked));
+
+    let hook_context = HookDirect3D911Context {
+        real_release,
+        real_draw,
+        real_draw_auto,
+        real_draw_indexed,
+        real_draw_instanced,
+        real_draw_indexed_instanced,
+        real_draw_instanced_indirect,
+        real_draw_indexed_instanced_indirect,
+    };
+
+    Ok(hook_context)
 }
 
 fn init_d3d11(swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
@@ -146,16 +209,14 @@ fn init_d3d11(swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
 
-        hook_d3d11(swapchain, context)?;
+        let h_context = hook_d3d11(swapchain, context)?;
 
-        // TODO: set in device state
+        (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
+            context: h_context,
+        }));
 
-        write_log_file(&format!("now would be a good time to hook the d3d11 device"));
-
-        //let hook_d3d9device = hook_device(device, &lock)?;
-
-        //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in d3d11
-        //(*DEVICE_STATE).hook_direct3d9device = Some(hook_d3d9device);
+        //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11
+        // TODO11: d3d9 also has: d3d_resource_count: 0,
 
         write_log_file(&format!(
             "hooked device on thread {:?}",

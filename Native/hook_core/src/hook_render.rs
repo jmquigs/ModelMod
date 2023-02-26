@@ -375,10 +375,11 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // TODO: hack to work around Release on device while in DIP
 
     // I don't think release can "fail" normally but in rare/weird cases this
-    // version might (see below) so this is what we return in those.
+    // version might because we lack a context (and therefore don't have the address
+    // of the real function) so this is what we return in those.
     let failret:ULONG = 0xFFFFFFFF;
     let oops_log_release_fail = || {
-        write_log_file(&format!("OOPS lol release returning {} do to bad state", failret));
+        write_log_file(&format!("OOPS hook_release returning {} due to bad state", failret));
     };
 
     if GLOBAL_STATE.in_hook_release {

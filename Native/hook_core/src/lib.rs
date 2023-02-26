@@ -30,6 +30,7 @@ extern crate types;
 extern crate profiler;
 
 mod hook_render;
+mod hook_render_d3d11;
 mod input_commands;
 mod hook_device;
 //mod hook_constants;
