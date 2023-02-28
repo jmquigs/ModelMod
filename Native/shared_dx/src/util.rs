@@ -1,7 +1,11 @@
 use crate::error::{HookError, Result};
+use std::time::{SystemTime};
+
+const LOG_TIME:bool = true;
 
 lazy_static! {
     static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    static ref LOG_INIT_TIME: std::sync::Mutex<SystemTime> = std::sync::Mutex::new(SystemTime::now());
 }
 
 pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
@@ -64,11 +68,29 @@ pub fn write_log_file(msg: &str) -> () {
                 }
             }
 
+            // set log time
+            let time_ms =
+                if LOG_TIME {
+                    match LOG_INIT_TIME.lock() {
+                        Ok(start) => {
+                            let since_start =
+                                SystemTime::now().duration_since(*start)
+                                .unwrap_or_else(|_| std::time::Duration::from_millis(0));
+                            let in_ms = since_start.as_secs() * 1000 +
+                            since_start.subsec_nanos() as u64 / 1_000_000;
+                            in_ms as u32
+                        },
+                        Err(_) => 0 as u32
+                    }
+                } else {
+                    0
+                };
+
             let tid = std::thread::current().id();
 
             let w = || -> std::io::Result<()> {
                 let mut f = OpenOptions::new().create(true).append(true).open(&*fname)?;
-                writeln!(f, "{:?}: {}\r", tid, msg)?;
+                writeln!(f, "{:?}/{}ms: {}\r", tid, time_ms, msg)?;
                 Ok(())
             };
 
