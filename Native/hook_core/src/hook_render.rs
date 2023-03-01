@@ -162,40 +162,46 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
     }
 }
 
-pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
-    // init the clr if needed
-    {
-        let hookstate = unsafe { &mut GLOBAL_STATE };
-        if hookstate.clr_pointer.is_none() {
-            let lock = GLOBAL_STATE_LOCK.lock();
-            match lock {
-                Ok(_ignored) => {
-                    if hookstate.clr_pointer.is_none() {
-                        // store something in clr_pointer even if it create fails,
-                        // so that we don't keep trying to create it.  clr_pointer is
-                        // really just a bool right now, it remains to be
-                        // seen whether storing anything related to clr in
-                        // global state is actually useful.
-                        write_log_file("creating CLR");
-                        init_clr(&hookstate.mm_root)
-                            .and_then(|_x| {
-                                reload_managed_dll(&hookstate.mm_root)
-                            })
-                            .and_then(|_x| {
-                                hookstate.clr_pointer = Some(CLR_OK);
-                                Ok(_x)
-                            })
-                            .map_err(|e| {
-                                write_log_file(&format!("Error creating CLR: {:?}", e));
-                                hookstate.clr_pointer = Some(CLR_FAIL);
-                                e
-                            })?;
-                    }
+/// Should be called periodically to complete initialization of the .net common language
+/// runtime.  In DX9, this is called by `do_per_frame_operations` once per frame.  No-ops if
+/// CLR is already loaded.  Should not be cpu-intensive to call this unless the CLR does need to
+/// be loaded, in which case its at least a few hundred ms, but it only happens once.
+pub fn frame_init_clr() -> Result<()> {
+    let hookstate = unsafe { &mut GLOBAL_STATE };
+    if hookstate.clr_pointer.is_none() {
+        let lock = GLOBAL_STATE_LOCK.lock();
+        match lock {
+            Ok(_ignored) => {
+                if hookstate.clr_pointer.is_none() {
+                    // store something in clr_pointer even if it create fails,
+                    // so that we don't keep trying to create it.  clr_pointer is
+                    // really just a bool right now, it remains to be
+                    // seen whether storing anything related to clr in
+                    // global state is actually useful.
+                    write_log_file("creating CLR");
+                    init_clr(&hookstate.mm_root)
+                        .and_then(|_x| {
+                            reload_managed_dll(&hookstate.mm_root)
+                        })
+                        .and_then(|_x| {
+                            hookstate.clr_pointer = Some(CLR_OK);
+                            Ok(_x)
+                        })
+                        .map_err(|e| {
+                            write_log_file(&format!("Error creating CLR: {:?}", e));
+                            hookstate.clr_pointer = Some(CLR_FAIL);
+                            e
+                        })?;
                 }
-                Err(e) => write_log_file(&format!("{:?} should never happen", e)),
-            };
-        }
+            }
+            Err(e) => write_log_file(&format!("{:?} should never happen", e)),
+        };
     }
+    Ok(())
+}
+pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
+    frame_init_clr()?;
+
     // write_log_file(&format!("performing per-scene ops on thread {:?}",
     //         std::thread::current().id()));
 
