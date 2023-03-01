@@ -3,12 +3,16 @@ use global_state::GLOBAL_STATE;
 use shared_dx::types::{HookDeviceState, HookD3D11State};
 use shared_dx::types_dx11::HookDirect3D911Context;
 use shared_dx::util::write_log_file;
+use winapi::um::d3d11::ID3D11Buffer;
 use winapi::shared::ntdef::ULONG;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
 use device_state::dev_state;
 use shared_dx::error::Result;
+
+use crate::hook_device_d3d11::apply_context_hooks;
+use crate::hook_render::process_metrics;
 
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D911Context> {
     let hookcontext = match dev_state().hook {
@@ -48,6 +52,35 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     GLOBAL_STATE.in_hook_release = false;
 
     rc
+}
+
+pub unsafe extern "system" fn hook_VSSetConstantBuffers(
+    THIS: *mut ID3D11DeviceContext,
+    StartSlot: UINT,
+    NumBuffers: UINT,
+    ppConstantBuffers: *const *mut ID3D11Buffer,
+) -> () {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    let func_hooked = apply_context_hooks(THIS);
+    match func_hooked {
+        Ok(_n) => {
+            //write_log_file(&format!("hook_VSSetConstantBuffers: {} funcs rehooked; call count: {}", n, GLOBAL_STATE.curr_texture_index));
+        },
+        _ => {
+            write_log_file("error late hooking");
+        }
+    };
+
+    (hook_context.real_vs_setconstantbuffers)(
+        THIS,
+        StartSlot,
+        NumBuffers,
+        ppConstantBuffers
+    )
 }
 
 pub unsafe extern "system" fn hook_draw(
@@ -101,13 +134,6 @@ pub unsafe extern "system" fn hook_draw_indexed(
     };
     GLOBAL_STATE.in_dip = true;
 
-    // horrible hack test to just log one time when this function is called
-    // (as if this writing, it isn't)
-    // if !GLOBAL_STATE.is_snapping {
-    //     write_log_file("congrats hook_draw_indexed was called at least once");
-    //     GLOBAL_STATE.is_snapping = true;
-    // }
-    //write_log_file("hook_draw_indexed called");
 
     (hook_context.real_draw_indexed)(
         THIS,
@@ -115,6 +141,18 @@ pub unsafe extern "system" fn hook_draw_indexed(
         StartIndexLocation,
         BaseVertexLocation,
     );
+
+    GLOBAL_STATE.metrics.dip_calls += 1;
+
+    // prim count, assuming triangle lists, = index count / 3??
+    // vertex count == ?? need to get that from the vertex buffer probably, because I
+    // don't think I can compute it here (a 2 primitive set could be 4 verts if the triangles
+    // make a square, 5 if they share only one point, or 6 if they are completely distinct)
+    // however based on initial observations the primtive count of indexcount/3 is accurate
+    // (at least assuming triangle lists, which I should also check)
+    GLOBAL_STATE.metrics.rendered_prims.push((IndexCount/3, 0));
+
+    process_metrics(&mut GLOBAL_STATE.metrics, true, 100000);
 
     GLOBAL_STATE.in_dip = false;
 }

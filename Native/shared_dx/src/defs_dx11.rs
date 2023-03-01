@@ -8,7 +8,13 @@ use winapi::um::unknwnbase::IUnknown;
 
 pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
 
- pub type DrawIndexedFn = unsafe extern "system" fn (
+pub type VSSetConstantBuffersFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    StartSlot: UINT,
+    NumBuffers: UINT,
+    ppConstantBuffers: *const *mut ID3D11Buffer,
+) -> ();
+pub type DrawIndexedFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
     StartIndexLocation: UINT,
