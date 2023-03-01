@@ -27,6 +27,11 @@ pub (crate) const MAX_STAGE: usize = 16;
 /// of primitives in a given frame.  Since it costs a bit of performance and
 /// I don't normally use it, it is off by default.
 pub const METRICS_TRACK_PRIMS: bool = false;
+/// Tracks rendered primitives like `METRICS_TRACK_PRIMS`, but only tracks primitives that
+/// has an active current mod, anything not modded is ignored.  `METRICS_TRACK_PRIMS`
+/// should be `FALSE` if you enable this, otherwise you get all prims.
+pub const METRICS_TRACK_MOD_PRIMS: bool = false;
+
 
 pub struct FrameMetrics {
     pub dip_calls: u32,

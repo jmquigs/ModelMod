@@ -16,6 +16,8 @@ use mod_load::AsyncLoadState;
 use crate::input_commands;
 use crate::mod_render;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::FrameMetrics;
+use global_state::METRICS_TRACK_MOD_PRIMS;
 use device_state::dev_state;
 use hook_snapshot;
 use types::native_mod;
@@ -57,6 +59,93 @@ fn get_selected_texture_stage() -> Option<DWORD> {
             }
         }
         None
+    }
+}
+
+/// Perform a metrics update if the number of dip calls exceeds `interval`.  If
+/// an update is performed, the tracked primitive list will also be cleared.  If there
+/// is no update it will be cleared too, unless the caller passes true for `preserve_prims`.
+/// This allows `process_metrics` to be called from high frequency functions such as
+/// d3d11 draw_indexed, and avoids clearing the list too soon in that case.
+pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:u32) {
+    if metrics.dip_calls > interval {
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(metrics.last_call_log);
+        let mut wrote_dip_stats = false;
+        match elapsed {
+            Ok(d) => {
+                let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+                if secs >= 3.0 {
+                    let dipsec = metrics.dip_calls as f64 / secs;
+
+                    let epocht = now
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or(std::time::Duration::from_secs(1))
+                        .as_secs()
+                        * 1000;
+
+                    wrote_dip_stats = true;
+                    write_log_file(&format!(
+                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
+                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
+                    ));
+                    unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
+                        write_log_file(&format!(
+                            "active texture set contains: {} textures",
+                            set.len()
+                        ))
+                    });
+                    metrics.last_call_log = now;
+                }
+            }
+            Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
+        }
+        metrics.dip_calls = 0;
+
+        // dump out the prim list every so often if we are tracking that.
+        // note this only dumps out the primitives for the most recent frame.
+        // also only write these out when we also just wrote a dip summary line
+        // above.
+        if global_state::METRICS_TRACK_PRIMS || global_state::METRICS_TRACK_MOD_PRIMS && wrote_dip_stats {
+            let logname = shared_dx::util::get_log_file_path();
+            if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
+                let p = std::path::Path::new(&logname);
+                match p.parent() {
+                    Some(par) => {
+                        let mut pb = par.to_path_buf();
+                        // TODO: should probably include exe name
+                        pb.push("rendered_last_frame.txt");
+                        let w = || -> std::io::Result<()> {
+                            write_log_file(&format!("writing {} frame prim metrics to '{}'", &metrics.rendered_prims.len(), pb.as_path().display()));
+                            let mut res_combined = String::new();
+                            for (prim,vert) in &metrics.rendered_prims {
+                                //writeln!(res_combined, "{},{}\r", prim, vert);
+                                // PERF: ugh, a lot of little allocations here...
+                                res_combined.push_str(&format!("{},{}\r", prim, vert));
+                            }
+
+                            use std::fs::OpenOptions;
+                            use std::io::Write;
+
+                            let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(&pb)?;
+                            writeln!(f, "{}", res_combined)?;
+                            Ok(())
+                        };
+
+                        w().unwrap_or_else(|e| write_log_file(&format!("metrics file write error: {}", e)));
+                    },
+                    None => {}
+                }
+            }
+        }
+        // always clear prims after an update, whether we wrote them or not (prevents them
+        // from accumulating)
+        unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+    } else {
+        // not time for update, but clear the prim list unless caller said not to
+        if !preserve_prims {
+            unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+        }
     }
 }
 
@@ -140,78 +229,8 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
 
     let metrics = &mut unsafe {&mut GLOBAL_STATE}.metrics;
 
-    if metrics.dip_calls > 1_000_000 {
-        let now = SystemTime::now();
-        let elapsed = now.duration_since(metrics.last_call_log);
-        let mut wrote_dip_stats = false;
-        match elapsed {
-            Ok(d) => {
-                let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                if secs >= 3.0 {
-                    let dipsec = metrics.dip_calls as f64 / secs;
-
-                    let epocht = now
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or(std::time::Duration::from_secs(1))
-                        .as_secs()
-                        * 1000;
-
-                    wrote_dip_stats = true;
-                    write_log_file(&format!(
-                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
-                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
-                    ));
-                    unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
-                        write_log_file(&format!(
-                            "active texture set contains: {} textures",
-                            set.len()
-                        ))
-                    });
-                    metrics.last_call_log = now;
-                }
-            }
-            Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
-        }
-        metrics.dip_calls = 0;
-
-        // dump out the prim list every so often if we are tracking that.
-        // note this only dumps out the primitives for the most recent frame.
-        // also only write these out when we also just wrote a dip summary line
-        // above.
-        if global_state::METRICS_TRACK_PRIMS && wrote_dip_stats {
-            let logname = shared_dx::util::get_log_file_path();
-            if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
-                let p = std::path::Path::new(&logname);
-                match p.parent() {
-                    Some(par) => {
-                        let mut pb = par.to_path_buf();
-                        // TODO: should probably include exe name
-                        pb.push("rendered_last_frame.txt");
-                        let w = || -> std::io::Result<()> {
-                            write_log_file(&format!("writing {} frame prim metrics to '{}'", &metrics.rendered_prims.len(), pb.as_path().display()));
-                            let mut res_combined = String::new();
-                            for (prim,vert) in &metrics.rendered_prims {
-                                //writeln!(res_combined, "{},{}\r", prim, vert);
-                                // PERF: ugh, a lot of little allocations here...
-                                res_combined.push_str(&format!("{},{}\r", prim, vert));
-                            }
-
-                            use std::fs::OpenOptions;
-                            use std::io::Write;
-
-                            let mut f = OpenOptions::new().create(true).write(true).truncate(true).open(&pb)?;
-                            writeln!(f, "{}", res_combined)?;
-                            Ok(())
-                        };
-
-                        w().unwrap_or_else(|e| write_log_file(&format!("metrics file write error: {}", e)));
-                    },
-                    None => {}
-                }
-            }
-        }
-    }
-    unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+    const METRICS_DIPS_INTERVAL:u32 = 1_000_000;
+    process_metrics(metrics, false, METRICS_DIPS_INTERVAL);
 
     Ok(())
 }
@@ -574,7 +593,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut drew_mod = false;
 
-    if global_state::METRICS_TRACK_PRIMS {
+    if global_state::METRICS_TRACK_PRIMS && !METRICS_TRACK_MOD_PRIMS {
         metrics.rendered_prims.push((primCount, NumVertices));
     }
 
@@ -594,6 +613,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         .and_then(|nmod| {
             if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
                 return Some(nmod.mod_data.numbers.mod_type);
+            }
+            if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
+                // Note that this logs what the game _wants_ to render which corresponds to MM
+                // ref values, not whatever it is in the mod.  To determine the associated mod,
+                // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
+                // match these.
+                metrics.rendered_prims.push((primCount, NumVertices));
             }
             // if the mod d3d data isn't loaded, can't render
             let d3dd = match nmod.d3d_data {
