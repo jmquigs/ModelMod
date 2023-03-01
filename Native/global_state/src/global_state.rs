@@ -32,6 +32,19 @@ pub const METRICS_TRACK_PRIMS: bool = false;
 /// should be `FALSE` if you enable this, otherwise you get all prims.
 pub const METRICS_TRACK_MOD_PRIMS: bool = false;
 
+/// Probably should move this to d3d11 device
+pub struct DX11Metrics {
+    /// Number of times `hook_VSSetConstantBuffers` was called
+    pub vs_set_const_buffers_calls: u32,
+    /// Number of times `hook_VSSetConstantBuffers` rehooked at least one function
+    pub vs_set_const_buffers_hooks: u32,
+}
+
+impl DX11Metrics {
+    pub fn new() -> Self {
+        DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 }
+    }
+}
 
 pub struct FrameMetrics {
     pub dip_calls: u32,
@@ -43,6 +56,7 @@ pub struct FrameMetrics {
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
     pub rendered_prims: Vec<(u32,u32)>,
+    pub dx11: DX11Metrics,
 }
 
 pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
@@ -151,6 +165,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps: 120.0,
         low_framerate: false,
         rendered_prims: vec![],
+        dx11: DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 }
     },
 };
 

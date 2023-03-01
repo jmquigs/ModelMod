@@ -65,9 +65,18 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
         Err(_) => return,
     };
 
+    // TODO11: probably need to get more zealous about locking around this as DX11 and later
+    // games are more likely to use multihreaded rendering, though hopefully i'll just never use
+    // MM with one of those :|
+
+    GLOBAL_STATE.metrics.dx11.vs_set_const_buffers_calls += 1;
+
     let func_hooked = apply_context_hooks(THIS);
     match func_hooked {
-        Ok(_n) => {
+        Ok(n) => {
+            if n > 0 {
+                GLOBAL_STATE.metrics.dx11.vs_set_const_buffers_hooks += 1;
+            }
             //write_log_file(&format!("hook_VSSetConstantBuffers: {} funcs rehooked; call count: {}", n, GLOBAL_STATE.curr_texture_index));
         },
         _ => {

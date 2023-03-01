@@ -18,6 +18,7 @@ use crate::mod_render;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use global_state::FrameMetrics;
 use global_state::METRICS_TRACK_MOD_PRIMS;
+use global_state::DX11Metrics;
 use device_state::dev_state;
 use hook_snapshot;
 use types::native_mod;
@@ -143,6 +144,16 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         // always clear prims after an update, whether we wrote them or not (prevents them
         // from accumulating)
         unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+
+        if metrics.dx11.vs_set_const_buffers_hooks > 0 {
+            write_log_file("dx11 metrics:");
+            write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
+                metrics.dx11.vs_set_const_buffers_calls,
+                metrics.dx11.vs_set_const_buffers_hooks
+            ));
+
+            metrics.dx11 = DX11Metrics::new();
+        }
     } else {
         // not time for update, but clear the prim list unless caller said not to
         if !preserve_prims {
