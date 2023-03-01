@@ -67,6 +67,8 @@ fn get_selected_texture_stage() -> Option<DWORD> {
 /// is no update it will be cleared too, unless the caller passes true for `preserve_prims`.
 /// This allows `process_metrics` to be called from high frequency functions such as
 /// d3d11 draw_indexed, and avoids clearing the list too soon in that case.
+/// If both global_state::METRICS_TRACK_PRIMS and global_state::METRICS_TRACK_MOD_PRIMS
+/// are false there shouldn't be any primitives in the list anyway.
 pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:u32) {
     if metrics.dip_calls > interval {
         let now = SystemTime::now();
