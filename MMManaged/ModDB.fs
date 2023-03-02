@@ -266,7 +266,7 @@ module ModDB =
 
     /// Load a binary vertex declaration file; returns the raw bytes and an unpacked representation of the
     /// vertex.
-    let loadBinVertDeclData (path:string) =
+    let loadBinVertDeclData (path:string) = // TODO11, but is this used?
         let dat = File.ReadAllBytes(path)
 
         // its an array of D3DVERTEXELEMENT9 elements.  Use SharpDX9's container to hold the data.
@@ -584,7 +584,7 @@ module ModDB =
         new ModDB(refs,mods,meshRels)
 
     /// Create a map of the elements by usage so that we can quickly look up the offset of a given usage.
-    let createUsageOffsetLookupMap(elements:SDXVertexElement list) =
+    let createUsageOffsetLookupMap(elements:SDXVertexElement list) = // TODO11 but possibly unused
         // ...actually this is an array, because the usage values are really small, and using an array is a bit faster
         // that a mutable dictionary - roughly 33% as measured.  Its almost 10x faster than an immutable dictionary.
         let elements =

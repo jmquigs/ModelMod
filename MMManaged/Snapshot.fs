@@ -1,4 +1,4 @@
-﻿// ModelMod: 3d data snapshotting & substitution program.
+// ModelMod: 3d data snapshotting & substitution program.
 // Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
@@ -55,7 +55,7 @@ module Extractors =
         a,b,c,d
 
 /// Snapshot utilities.
-module Snapshot =
+module Snapshot = // TODO11 lots of stuff below
 
     let private log = Logging.getLogger("Snapshot")
 

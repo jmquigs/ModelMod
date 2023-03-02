@@ -20,9 +20,9 @@ open SharpDX.Direct3D9
 
 // Shorthand type defs
 
-type SDXVertexElement = SharpDX.Direct3D9.VertexElement
-type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage
-type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType
+type SDXVertexElement = SharpDX.Direct3D9.VertexElement // TODO11
+type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage // TODO11
+type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType // TODO11
 
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that

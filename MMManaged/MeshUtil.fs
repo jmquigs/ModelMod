@@ -472,7 +472,7 @@ map_Kd $$filename
 
     /// Returns the total vertex size (in bytes), using the specified declaration
     /// list.
-    let getVertSize (elements:SDXVertexElement list) =
+    let getVertSize (elements:SDXVertexElement list) = // TODO11: needs port
         // find the element with the highest offset
         let hElement = elements |> List.maxBy (fun el -> el.Offset)
         // figure out how big its field is

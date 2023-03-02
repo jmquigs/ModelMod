@@ -215,7 +215,7 @@ module ModDBInterop =
 
         let modType = modTypeToInt modm.Type
 
-        let primType = 4 //D3DPT_TRIANGLELIST
+        let primType = 4 //D3DPT_TRIANGLELIST // TODO11
         let vertCount = modm.Positions.Length
         let primCount = modm.Triangles.Length
         let indexCount = 0
@@ -330,7 +330,7 @@ module ModDBInterop =
         bw.Write(v.Z)
 
     /// Helper functions for writing data.
-    module DataWriters =
+    module DataWriters = // TODO11 for anything that uses SDXVertexDeclType below
         let private round (x:float32) = System.Math.Round (float x)
 
         /// Write a blend index extracted from raw binary data as a 4-byte array.
