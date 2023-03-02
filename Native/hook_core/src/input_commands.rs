@@ -270,9 +270,10 @@ fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
     // TODO: should check for active snapshotting and anything else that might be using the managed
     // code
     let hookstate = unsafe { &mut GLOBAL_STATE };
-    match hookstate.clr_pointer {
+    match hookstate.clr.runtime_pointer {
         Some(x) if x == CLR_OK => {
-            let res = reload_managed_dll(&hookstate.mm_root);
+            let ctx = &hookstate.clr.run_context;
+            let res = reload_managed_dll(&hookstate.mm_root, Some(ctx));
             match res {
                 Ok(_) => write_log_file("managed dll reloaded"),
                 Err(e) => write_log_file(&format!("ERROR: reloading managed dll failed: {:?}", e))

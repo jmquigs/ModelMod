@@ -174,13 +174,13 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
 /// runtime.  In DX9, this is called by `do_per_frame_operations` once per frame.  No-ops if
 /// CLR is already loaded.  Should not be cpu-intensive to call this unless the CLR does need to
 /// be loaded, in which case its at least a few hundred ms, but it only happens once.
-pub fn frame_init_clr() -> Result<()> {
+pub fn frame_init_clr(run_context:&'static str) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };
-    if hookstate.clr_pointer.is_none() {
+    if hookstate.clr.runtime_pointer.is_none() {
         let lock = GLOBAL_STATE_LOCK.lock();
         match lock {
             Ok(_ignored) => {
-                if hookstate.clr_pointer.is_none() {
+                if hookstate.clr.runtime_pointer.is_none() {
                     // store something in clr_pointer even if it create fails,
                     // so that we don't keep trying to create it.  clr_pointer is
                     // really just a bool right now, it remains to be
@@ -189,15 +189,16 @@ pub fn frame_init_clr() -> Result<()> {
                     write_log_file("creating CLR");
                     init_clr(&hookstate.mm_root)
                         .and_then(|_x| {
-                            reload_managed_dll(&hookstate.mm_root)
+                            reload_managed_dll(&hookstate.mm_root, Some(run_context))
                         })
                         .and_then(|_x| {
-                            hookstate.clr_pointer = Some(CLR_OK);
+                            hookstate.clr.runtime_pointer = Some(CLR_OK);
+                            hookstate.clr.run_context = run_context.to_owned();
                             Ok(_x)
                         })
                         .map_err(|e| {
                             write_log_file(&format!("Error creating CLR: {:?}", e));
-                            hookstate.clr_pointer = Some(CLR_FAIL);
+                            hookstate.clr.runtime_pointer = Some(CLR_FAIL);
                             e
                         })?;
                 }
@@ -208,7 +209,7 @@ pub fn frame_init_clr() -> Result<()> {
     Ok(())
 }
 pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
-    frame_init_clr()?;
+    frame_init_clr(dnclr::RUN_CONTEXT_D3D9)?;
 
     // write_log_file(&format!("performing per-scene ops on thread {:?}",
     //         std::thread::current().id()));

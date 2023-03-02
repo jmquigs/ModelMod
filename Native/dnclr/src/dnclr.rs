@@ -88,13 +88,23 @@ static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
     runtime_host: null_mut()
 };
 
+/// Use when running outside of any known d3d renderer (i.e in tests).
+pub const RUN_CONTEXT_MMNATIVE:&'static str = "mm_native";
+/// Use when running in a d3d9 renderer context.
+pub const RUN_CONTEXT_D3D9:&'static str = "d3d9";
+/// Use when running in a d3d11 renderer context.
+pub const RUN_CONTEXT_D3D11:&'static str = "d3d11";
+
+// Defaults in case context is not specified.  Note, d3d9 or 11 could be automatically detected,
+// based on the filename of the dll or which was initialized, but this is not currently
+// implemented.
 #[cfg(test)]
 pub fn get_run_context() -> &'static str {
-    return "mm_native";
+    return RUN_CONTEXT_MMNATIVE;
 }
 #[cfg(not(test))]
 pub fn get_run_context() -> &'static str {
-    return "d3d9";
+    return RUN_CONTEXT_D3D9;
 }
 
 pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
@@ -195,7 +205,7 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
     }
 }
 
-pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
+pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static str>) -> Result<()> {
     if unsafe { CLR_GLOBAL_STATE.runtime_host } == null_mut() {
         return Err(HookError::CLRInitFailed("runtime host pointer is null".to_owned()))?
     }
@@ -205,6 +215,8 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
             "No MM Root has been set".to_owned(),
         ))?;
     let managed_dll = util::get_managed_dll_path(mm_root)?;
+
+    let run_context = run_context.unwrap_or_else(|| get_run_context());
 
     // copy the managed_dll to a temp name prior
     let attempts = 0..255;
@@ -242,13 +254,13 @@ pub fn reload_managed_dll(mm_root: &Option<String>) -> Result<()> {
         // can only pass one argument (a string), so delimit the arguments with pipe
         write_log_file(&format!(
             "using '{}' load context for CLR",
-            get_run_context()
+            run_context
         ));
 
         let argument = util::to_wide_str(&format!(
             "{}|{}|{}",
             global_state_ptr as u64,
-            get_run_context(),
+            run_context,
             NATIVE_CODE_VERSION
         ));
     unsafe {

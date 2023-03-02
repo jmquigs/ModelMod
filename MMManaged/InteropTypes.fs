@@ -214,6 +214,26 @@ module MMNative =
         GetSnapshotResult: InteropTypes.GetSnapshotResultCB
     }
 
+module NativeImportsAsD3D11 =
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall ) >]
+    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Saves a dds texture from the specified texture stage.  This is handled by native code, which has
+    /// direct access to the D3DX library; no easy equivalent here in managed land.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Fills in the specified NativeMemoryBuffer with the current pixel shader code.
+    /// WARNING: the argument must be an address of a NativeMemoryBuffer.  Otherwise it will crash.
+    /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
+    /// If you call this function twice in succession and then use the results from the first call, it will crash.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+
 module NativeImportsAsD3D9 =
     [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall ) >]
     extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)

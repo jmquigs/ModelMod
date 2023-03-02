@@ -13,7 +13,7 @@ use device_state::dev_state;
 use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics};
+use crate::hook_render::{process_metrics, frame_init_clr};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
@@ -293,10 +293,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
     // do "per frame" operations this often since I don't have any idea of when the frame
     // ends in this API right now
     if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
-        // this works, but I disabled it for now until I can update the managed code to deal with it
-        // (since right now it assumes it is running in a d3d9 context)
-        // frame_init_clr().unwrap_or_else(|e|
-        //     write_log_file(&format!("init clr failed: {:?}", e)));
+        frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
+            write_log_file(&format!("init clr failed: {:?}", e)));
     }
 
     process_metrics(&mut GLOBAL_STATE.metrics, true, 50000);

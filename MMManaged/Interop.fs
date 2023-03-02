@@ -113,6 +113,9 @@ type Main() =
             | "d3d9" ->
                 (NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
+            | "d3d11" ->
+                (NativeImportsAsD3D11.OnInitialized,
+                    NativeLogging.factory NativeImportsAsD3D11.LogInfo NativeImportsAsD3D11.LogWarn NativeImportsAsD3D11.LogError)
             | "standalone" ->
                 let oninit (callbacks,gsp):int =
                     printfn "ONINITIALIZED";

@@ -1,4 +1,4 @@
-// ModelMod: 3d data snapshotting & substitution program.
+﻿// ModelMod: 3d data snapshotting & substitution program.
 // Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
@@ -187,6 +187,8 @@ module Snapshot = // TODO11 lots of stuff below
                     (NativeImportsAsMMNative.SaveTexture, NativeImportsAsMMNative.GetPixelShader)
                 | "d3d9" ->
                     (NativeImportsAsD3D9.SaveTexture, NativeImportsAsD3D9.GetPixelShader)
+                | "d3d11" ->
+                    (NativeImportsAsD3D11.SaveTexture, NativeImportsAsD3D11.GetPixelShader)
                 | s ->
                     failwithf "unrecognized context: %s" s
 

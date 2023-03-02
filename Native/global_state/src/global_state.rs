@@ -81,8 +81,13 @@ pub struct LoadedModState {
     pub mods_by_name: ModsByNameMap,
     pub selected_variant: SelectedVariantMap,
 }
+
+pub struct ClrState {
+    pub runtime_pointer: Option<u64>,
+    pub run_context: String,
+}
 pub struct HookState {
-    pub clr_pointer: Option<u64>,
+    pub clr: ClrState,
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
     pub loaded_mods: Option<LoadedModState>,
@@ -143,7 +148,7 @@ lazy_static! {
 // of the option types that are only there due to Rust limitations on what can be used to
 // init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
-    clr_pointer: None,
+    clr: { ClrState { runtime_pointer: None, run_context: String::new() } },
     interop_state: None,
     //is_global: true,
     load_on_next_frame: None,
