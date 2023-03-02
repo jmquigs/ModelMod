@@ -95,12 +95,12 @@ module LocStrings =
         let StartCopy =
             Formatters.StringAnyRetString(
                 "This version of ModelMod does not automatically start the game." +
-                "\nYou must copy d3d9.dll into the game's executable directory, and then start the game manually." +
+                "\nYou must copy d3d9.dll or d3d11.dll into the game's executable directory, and then start the game manually." +
                 "\nThe destination may be the game's directory or a subdirectory (like 'bin64')." +
-                "\nIf the game is 32 bit, copy %s\modelmod_32\d3d9.dll." +
-                "\nIf the game is 64 bit, copy %s\modelmod_64\d3d9.dll." +
+                "\nIf the game is 32 bit, copy %s\modelmod_32\d3d9.dll. (or d3d11.dll)" +
+                "\nIf the game is 64 bit, copy %s\modelmod_64\d3d9.dll. (or d3d11.dll)" +
                 "\nIf you don't know where to copy the file, it is the same location Reshade would use." +
-                "\nRemove d3d9.dll from the game's directory to stop using ModelMod.")
+                "\nRemove d3d9.dll (or d3d11.dll) from the game's directory to stop using ModelMod.")
 
 module ProfileText =
     module Input =
@@ -428,10 +428,10 @@ type MainViewModel() as self =
 
     member x.PeriodicUpdate() =
 
-        // If the registry mmroot does not match the current load path, reset it.  
+        // If the registry mmroot does not match the current load path, reset it.
         let currentRoot = ProcessUtil.getMMRoot()
         let regRoot = RegConfig.getMMRoot()
-        if currentRoot <> regRoot then 
+        if currentRoot <> regRoot then
             RegConfig.setMMRoot currentRoot |> ignore
 
         x.UpdateLoaderState <|
