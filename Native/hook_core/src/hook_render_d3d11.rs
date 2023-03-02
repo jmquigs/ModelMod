@@ -163,39 +163,6 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
         pInputLayout
     )
 }
-pub unsafe extern "system" fn hook_draw(
-    THIS: *mut ID3D11DeviceContext,
-    VertexCount: UINT,
-    StartVertexLocation: UINT,
-) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
-
-    write_log_file("hook_draw called");
-
-    return (hook_context.real_draw)(
-        THIS,
-        VertexCount,
-        StartVertexLocation,
-    );
-}
-
-pub unsafe extern "system" fn hook_draw_auto (
-    THIS: *mut ID3D11DeviceContext,
-) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
-
-    write_log_file("hook_draw_auto called");
-
-    return (hook_context.real_draw_auto)(
-        THIS,
-    );
-}
 
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
@@ -302,6 +269,9 @@ pub unsafe extern "system" fn hook_draw_indexed(
     GLOBAL_STATE.in_dip = false;
 }
 
+//==============================================================================
+// Unimplemented draw function hooks
+
 pub unsafe extern "system" fn hook_draw_instanced(
     THIS: *mut ID3D11DeviceContext,
     VertexCountPerInstance: UINT,
@@ -314,7 +284,7 @@ pub unsafe extern "system" fn hook_draw_instanced(
         Err(_) => return,
     };
 
-    write_log_file("hook_draw_instanced called");
+    // write_log_file("hook_draw_instanced called");
 
     return (hook_context.real_draw_instanced)(
         THIS,
@@ -322,5 +292,39 @@ pub unsafe extern "system" fn hook_draw_instanced(
         InstanceCount,
         StartVertexLocation,
         StartInstanceLocation,
+    );
+}
+
+pub unsafe extern "system" fn hook_draw(
+    THIS: *mut ID3D11DeviceContext,
+    VertexCount: UINT,
+    StartVertexLocation: UINT,
+) -> () {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    // write_log_file("hook_draw called");
+
+    return (hook_context.real_draw)(
+        THIS,
+        VertexCount,
+        StartVertexLocation,
+    );
+}
+
+pub unsafe extern "system" fn hook_draw_auto (
+    THIS: *mut ID3D11DeviceContext,
+) -> () {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    // write_log_file("hook_draw_auto called");
+
+    return (hook_context.real_draw_auto)(
+        THIS,
     );
 }
