@@ -1,4 +1,5 @@
 
+use shared_dx::types::DevicePointer;
 use types::native_mod::NativeModData;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
@@ -51,7 +52,7 @@ fn clear_d3d_data(nmd:&mut NativeModData) {
         nmd.d3d_data = native_mod::ModD3DState::Unloaded;
 }
 
-pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
+pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     let lock = GLOBAL_STATE_LOCK.lock();
     if let Err(_e) = lock {
         write_log_file("failed to lock global state to clear mod data");
@@ -59,8 +60,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     }
 
     // get device ref count prior to adding everything
-    (*device).AddRef();
-    let pre_rc = (*device).Release();
+    let pre_rc = device.get_ref_count();
 
     let mods = GLOBAL_STATE.loaded_mods.take();
     let mut cnt = 0;
@@ -75,8 +75,7 @@ pub unsafe fn clear_loaded_mods(device: *mut IDirect3DDevice9) {
     GLOBAL_STATE.loaded_mods = None;
     GLOBAL_STATE.load_on_next_frame.as_mut().map(|hs| hs.clear());
 
-    (*device).AddRef();
-    let post_rc = (*device).Release();
+    let post_rc = (device).get_ref_count();
     let diff = pre_rc - post_rc;
     if (dev_state().d3d_resource_count as i64 - diff as i64) < 0 {
         write_log_file(&format!(
@@ -220,15 +219,15 @@ pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::M
     nmd.d3d_data = native_mod::ModD3DState::Loaded(d3dd);
 }
 
-pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks) {
+/// Set up mod data structures.  Should be called after the managed code is done loading
+/// on its side.  Note that this will also clear any previously loaded mods (and their DX
+/// resources, if any).  However it does not load any new DX resources, that is done
+/// by `load_deferred_mods`.
+pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
     clear_loaded_mods(device);
 
     let mod_count = (callbacks.GetModCount)();
     if mod_count <= 0 {
-        return;
-    }
-
-    if device == null_mut() {
         return;
     }
 
@@ -239,24 +238,6 @@ pub unsafe fn setup_mod_data(device: *mut IDirect3DDevice9, callbacks: interop::
     }
 
     let ml_start = std::time::SystemTime::now();
-
-    // need d3dx for textures
-    GLOBAL_STATE.device = Some(device);
-    if GLOBAL_STATE.d3dx_fn.is_none() {
-        GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
-            .map_err(|e| {
-                write_log_file(&format!(
-                    "failed to load d3dx: texture snapping not available: {:?}",
-                    e
-                ));
-                e
-            })
-            .ok();
-    }
-
-    // get device ref count prior to adding everything
-    (*device).AddRef();
-    let pre_rc = (*device).Release();
 
     let mut loaded_mods: FnvHashMap<u32, Vec<native_mod::NativeModData>> =
         FnvHashMap::with_capacity_and_hasher((mod_count * 10) as usize, Default::default());
@@ -417,15 +398,6 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
         }
     }
 
-    // get new ref count
-    (*device).AddRef();
-    let post_rc = (*device).Release();
-    let diff = post_rc - pre_rc;
-    (*DEVICE_STATE).d3d_resource_count += diff;
-    write_log_file(&format!(
-        "mod loading added {} to device {:x} ref count, new count: {}",
-        diff, device as u64, (*DEVICE_STATE).d3d_resource_count
-    ));
 
     let now = std::time::SystemTime::now();
     let elapsed = now.duration_since(ml_start);
@@ -445,6 +417,20 @@ pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: inter
         if let Err(_e) = lock {
             write_log_file("failed to lock global state to setup mod data");
             return;
+        }
+
+        // need d3dx for textures
+        GLOBAL_STATE.device = Some(device);
+        if GLOBAL_STATE.d3dx_fn.is_none() {
+            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
+                .map_err(|e| {
+                    write_log_file(&format!(
+                        "failed to load d3dx: texture snapping not available: {:?}",
+                        e
+                    ));
+                    e
+                })
+                .ok();
         }
 
         let to_load = match GLOBAL_STATE.load_on_next_frame {

@@ -1,6 +1,7 @@
 use std::ffi::CStr;
 use std::ptr::null_mut;
 
+use shared_dx::types::DevicePointer;
 use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::dxgiformat::DXGI_FORMAT;
@@ -283,6 +284,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 
         (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
             hooks,
+            devptr: DevicePointer::D3D11(device),
         }));
 
         //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11
@@ -300,9 +302,11 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 // ===============
 // device hook fns
 
+/// Returns the hooks for the device.  Note this does not actually return the device pointer,
+/// since it is assumed the caller already has that.
 fn get_hook_device<'a>() -> Result<&'a mut HookDirect3D11Device> {
     let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(HookD3D11State { hooks: ref mut h })) => h,
+        Some(HookDeviceState::D3D11(HookD3D11State { devptr: _p, hooks: ref mut h })) => h,
         _ => {
             write_log_file(&format!("draw: No d3d11 context found"));
             return Err(shared_dx::error::HookError::D3D11NoContext);

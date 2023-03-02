@@ -1,7 +1,7 @@
 use std::ptr::null_mut;
 
 use global_state::GLOBAL_STATE;
-use shared_dx::types::{HookDeviceState, HookD3D11State};
+use shared_dx::types::{HookDeviceState, HookD3D11State, DevicePointer};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::write_log_file;
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout};
@@ -13,12 +13,13 @@ use device_state::dev_state;
 use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics, frame_init_clr};
+use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 
+/// Return the d3d11 context hooks.
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
     let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(HookD3D11State { hooks: ref mut h })) => h,
+        Some(HookDeviceState::D3D11(HookD3D11State { devptr: _p, hooks: ref mut h })) => h,
         _ => {
             write_log_file(&format!("draw: No d3d11 context found"));
             return Err(shared_dx::error::HookError::D3D11NoContext);
@@ -260,13 +261,33 @@ pub unsafe extern "system" fn hook_draw_indexed(
     // do "per frame" operations this often since I don't have any idea of when the frame
     // ends in this API right now
     if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
-        frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
-            write_log_file(&format!("init clr failed: {:?}", e)));
+        draw_periodic();
     }
 
     process_metrics(&mut GLOBAL_STATE.metrics, true, 50000);
 
     GLOBAL_STATE.in_dip = false;
+}
+
+/// Call a function with the d3d11 device pointer if it's available.  If pointer is a different,
+/// type or is null, does nothing.
+fn with_dev_ptr<F>(f: F) where F: FnOnce(DevicePointer) {
+    match dev_state().hook {
+        Some(HookDeviceState::D3D11(ref dev)) => {
+            if !dev.devptr.is_null() {
+                f(dev.devptr);
+            }
+        }
+        _ => {},
+    };
+}
+
+/// Called by DrawIndexed every few 10s of MS but not exactly every frame.
+fn draw_periodic() {
+    frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
+        write_log_file(&format!("init clr failed: {:?}", e)));
+
+    with_dev_ptr(|deviceptr| frame_load_mods(deviceptr));
 }
 
 //==============================================================================

@@ -1,4 +1,5 @@
 
+use shared_dx::types::DevicePointer;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -240,7 +241,7 @@ pub fn cmd_clear_mods(device: *mut IDirect3DDevice9) {
         is.done_loading_mods = true;
 
         unsafe {
-            mod_load::clear_loaded_mods(device);
+            mod_load::clear_loaded_mods(DevicePointer::D3D9(device));
         }
     });
 }
@@ -266,7 +267,7 @@ fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
         write_log_file("cannot reload now; mods are loading");
         return;
     }
-    unsafe { mod_load::clear_loaded_mods(device) };
+    unsafe { mod_load::clear_loaded_mods(DevicePointer::D3D9(device)) };
     // TODO: should check for active snapshotting and anything else that might be using the managed
     // code
     let hookstate = unsafe { &mut GLOBAL_STATE };

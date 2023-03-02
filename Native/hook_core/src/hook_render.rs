@@ -208,14 +208,9 @@ pub fn frame_init_clr(run_context:&'static str) -> Result<()> {
     }
     Ok(())
 }
-pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
-    frame_init_clr(dnclr::RUN_CONTEXT_D3D9)?;
 
-    // write_log_file(&format!("performing per-scene ops on thread {:?}",
-    //         std::thread::current().id()));
-
+pub fn frame_load_mods(deviceptr: DevicePointer) {
     let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-
     interop_state.as_mut().map(|is| {
         if !is.loading_mods && !is.done_loading_mods && is.conf_data.LoadModsOnStart {
             let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
@@ -243,7 +238,13 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
             is.loading_mods = false;
             is.done_loading_mods = true;
 
-            unsafe { mod_load::setup_mod_data(device, is.callbacks) };
+            match deviceptr {
+                DevicePointer::D3D9(_device) =>
+                    unsafe { mod_load::setup_mod_data(deviceptr, is.callbacks) },
+                DevicePointer::D3D11(_device) =>
+                    unsafe { mod_load::setup_mod_data(deviceptr, is.callbacks) },
+                DevicePointer::NotSet => write_log_file("want to setup_mod_data but no device"),
+            }
         }
 
         let has_pending_mods =
@@ -251,9 +252,21 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
                 .as_ref().map_or(false, |hs| hs.len() > 0);
 
         if has_pending_mods && is.done_loading_mods && !is.loading_mods {
-            unsafe { mod_load::load_deferred_mods(device, is.callbacks) };
+            match deviceptr {
+                DevicePointer::D3D9(device) =>
+                    unsafe { mod_load::load_deferred_mods(device, is.callbacks) },
+                DevicePointer::D3D11(_device) => write_log_file(&format!("want to load_deferred_mods on dx11 but no device")),
+                DevicePointer::NotSet => write_log_file("want to load_deferred_mods but no device"),
+            }
         }
     });
+}
+pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
+    // write_log_file(&format!("performing per-scene ops on thread {:?}",
+    //         std::thread::current().id()));
+
+    frame_init_clr(dnclr::RUN_CONTEXT_D3D9)?;
+    frame_load_mods(DevicePointer::D3D9(device));
 
     let metrics = &mut unsafe {&mut GLOBAL_STATE}.metrics;
 
@@ -305,7 +318,7 @@ unsafe fn purge_device_resources(device: *mut IDirect3DDevice9) {
         write_log_file("WARNING: ignoring insane attempt to purge devices on a null device");
         return;
     }
-    mod_load::clear_loaded_mods(device);
+    mod_load::clear_loaded_mods(DevicePointer::D3D9(device));
     if GLOBAL_STATE.selection_texture != null_mut() {
         (*GLOBAL_STATE.selection_texture).Release();
         GLOBAL_STATE.selection_texture = null_mut();
