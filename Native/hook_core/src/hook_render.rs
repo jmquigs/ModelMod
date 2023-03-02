@@ -110,6 +110,7 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         // also only write these out when we also just wrote a dip summary line
         // above.
         if global_state::METRICS_TRACK_PRIMS || global_state::METRICS_TRACK_MOD_PRIMS && wrote_dip_stats {
+            use global_state::RenderedPrimType::{PrimVertCount, PrimCountVertSizeAndVBs};
             let logname = shared_dx::util::get_log_file_path();
             if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
                 let p = std::path::Path::new(&logname);
@@ -121,10 +122,17 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
                         let w = || -> std::io::Result<()> {
                             write_log_file(&format!("writing {} frame prim metrics to '{}'", &metrics.rendered_prims.len(), pb.as_path().display()));
                             let mut res_combined = String::new();
-                            for (prim,vert) in &metrics.rendered_prims {
-                                //writeln!(res_combined, "{},{}\r", prim, vert);
-                                // PERF: ugh, a lot of little allocations here...
-                                res_combined.push_str(&format!("{},{}\r", prim, vert));
+                            for tracked_prim in &metrics.rendered_prims {
+                                match &tracked_prim {
+                                    &PrimVertCount(prim,vert)=> {
+                                        //writeln!(res_combined, "{},{}\r", prim, vert);
+                                        // PERF: ugh, a lot of little allocations here...
+                                        res_combined.push_str(&format!("{},{}\r", prim, vert));
+                                    },
+                                    &PrimCountVertSizeAndVBs(prim, vsize, vbvec) => {
+                                        res_combined.push_str(&format!("{},{},{:?}\r", prim, vsize, vbvec));
+                                    }
+                                }
                             }
 
                             use std::fs::OpenOptions;
@@ -612,8 +620,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let mut drew_mod = false;
 
+    use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS && !METRICS_TRACK_MOD_PRIMS {
-        metrics.rendered_prims.push((primCount, NumVertices));
+        metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
     }
 
     // if there is a matching mod, render it
@@ -638,7 +647,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 // ref values, not whatever it is in the mod.  To determine the associated mod,
                 // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
                 // match these.
-                metrics.rendered_prims.push((primCount, NumVertices));
+                metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
             }
             // if the mod d3d data isn't loaded, can't render
             let d3dd = match nmod.d3d_data {

@@ -17,6 +17,8 @@ use types::d3dx;
 
 use snaplib::anim_snap_state::AnimSnapState;
 
+use crate::dx11rs::DX11RenderState;
+
 pub (crate) const MAX_STAGE: usize = 16;
 
 /// Enable this to dump out a file containing metrics for primitives every
@@ -42,8 +44,16 @@ pub struct DX11Metrics {
 
 impl DX11Metrics {
     pub fn new() -> Self {
-        DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 }
+        DX11Metrics {
+            vs_set_const_buffers_calls: 0,
+            vs_set_const_buffers_hooks: 0 }
     }
+}
+
+#[derive(Debug)]
+pub enum RenderedPrimType {
+    PrimVertCount(u32,u32),
+    PrimCountVertSizeAndVBs(u32,u32,Vec<(u32,u32,u32)>)
 }
 
 pub struct FrameMetrics {
@@ -55,7 +65,7 @@ pub struct FrameMetrics {
     pub last_fps: f64,
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
-    pub rendered_prims: Vec<(u32,u32)>,
+    pub rendered_prims: Vec<RenderedPrimType>,
     pub dx11: DX11Metrics,
 }
 
@@ -102,6 +112,8 @@ pub struct HookState {
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
     pub anim_snap_state: Option<AnimSnapState>,
+    /// DX11 render state (TODO11: move to device state)
+    pub dx11rs: DX11RenderState,
 }
 
 impl HookState {
@@ -165,8 +177,13 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps: 120.0,
         low_framerate: false,
         rendered_prims: vec![],
-        dx11: DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 }
+        dx11: DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 },
     },
+    dx11rs: DX11RenderState {
+        vb_state: vec![],
+        input_layouts_by_ptr: None,
+        current_input_layout: 0,
+    }
 };
 
 pub fn get_global_state_ptr() -> *mut HookState {

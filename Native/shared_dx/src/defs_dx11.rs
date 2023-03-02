@@ -1,18 +1,41 @@
+use winapi::ctypes::c_void;
+use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
-//use winapi::shared::windef::{HWND, RECT};
-//use winapi::shared::winerror::{E_FAIL, S_OK};
 
-use winapi::um::d3d11::ID3D11Buffer;
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
+use winapi::um::winnt::HRESULT;
 
 pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
+
+pub type CreateInputLayoutFn = unsafe extern "system" fn(
+    THIS: *mut ID3D11Device,
+    pInputElementDescs: *const D3D11_INPUT_ELEMENT_DESC,
+    NumElements: UINT,
+    pShaderBytecodeWithInputSignature: *const c_void,
+    BytecodeLength: SIZE_T,
+    ppInputLayout: *mut *mut ID3D11InputLayout,
+) -> HRESULT;
+
+pub type IASetVertexBuffersFn = unsafe extern "system" fn(
+    THIS: *mut ID3D11DeviceContext,
+    StartSlot: UINT,
+    NumBuffers: UINT,
+    ppVertexBuffers: *const *mut ID3D11Buffer,
+    pStrides: *const UINT,
+    pOffsets: *const UINT,
+) -> ();
 
 pub type VSSetConstantBuffersFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
     StartSlot: UINT,
     NumBuffers: UINT,
     ppConstantBuffers: *const *mut ID3D11Buffer,
+) -> ();
+pub type IASetInputLayoutFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    pInputLayout: *mut ID3D11InputLayout,
 ) -> ();
 pub type DrawIndexedFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,

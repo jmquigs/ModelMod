@@ -1,7 +1,13 @@
+use std::ffi::CStr;
 use std::ptr::null_mut;
 
 use winapi::ctypes::c_void;
-use winapi::um::d3d11::ID3D11DeviceChildVtbl;
+use winapi::shared::basetsd::SIZE_T;
+use winapi::shared::dxgiformat::DXGI_FORMAT;
+use winapi::um::d3d11::D3D11_APPEND_ALIGNED_ELEMENT;
+use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::ID3D11DeviceVtbl;
+use winapi::um::d3d11::ID3D11InputLayout;
 use winapi::um::d3dcommon::D3D_DRIVER_TYPE;
 use winapi::um::d3dcommon::D3D_FEATURE_LEVEL;
 use winapi::um::d3d11::ID3D11Device;
@@ -13,12 +19,18 @@ use winapi::shared::dxgi::IDXGISwapChain;
 use winapi::shared::winerror::HRESULT;
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::winerror::E_FAIL;
+
+use shared_dx::types_dx11::HookDirect3D11Context;
+use shared_dx::types_dx11::HookDirect3D11Device;
 use shared_dx::error::*;
-use winapi::um::unknwnbase::IUnknownVtbl;
+use device_state::dev_state;
+use global_state::new_fnv_map;
+use global_state::dx11rs::InputLayoutElem;
+use global_state::dx11rs::{VertexFormat};
 
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
 use shared_dx::util::write_log_file;
-use shared_dx::types_dx11::HookDirect3D911Context;
+use shared_dx::types_dx11::HookDirect3D11;
 use shared_dx::types::HookDeviceState;
 use shared_dx::types::HookD3D11State;
 use device_state::DEVICE_STATE;
@@ -79,7 +91,7 @@ pub extern "system" fn D3D11CreateDevice(
                 // swap chain comes from DXGI in this code path, I'm probably going to have to hook
                 // that too since I don't think there is another way to get the one the app creates.
                 // (its not available from context or device?)
-                match init_d3d11(std::ptr::null_mut(), (*ppImmediateContext)) {
+                match init_d3d11( (*ppDevice), std::ptr::null_mut(), (*ppImmediateContext)) {
                     Ok(_) => {},
                     Err(e) => { write_log_file(&format!("Error, init_d3d11 failed: {:?}", e))}
                 }
@@ -148,6 +160,8 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
 
     // TODO11: should only call this if I actually need to rehook
     // since it probably isn't cheap
+    // actually I think technically I may not need to do this as the vtable is part of the
+    // object and therefore unprotected memory (its not in the code segment).
     let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
     let device_child = &mut (*vtbl).parent;
     let iunknown = &mut (*device_child).parent;
@@ -166,14 +180,37 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
         (*vtbl).DrawIndexed = hook_draw_indexed;
         func_hooked += 1;
     }
+    if (*vtbl).IASetVertexBuffers as u64 != hook_IASetVertexBuffers as u64 {
+        (*vtbl).IASetVertexBuffers = hook_IASetVertexBuffers;
+        func_hooked += 1;
+    }
+    if (*vtbl).IASetInputLayout as u64 != hook_IASetInputLayout as u64 {
+        (*vtbl).IASetInputLayout = hook_IASetInputLayout;
+        func_hooked += 1;
+    }
     // TODO11: hook remaining draw functions (if needed)
 
     util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     Ok(func_hooked)
 }
 
-unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
-    Result<HookDirect3D911Context> {
+unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
+    Result<HookDirect3D11> {
+
+    let hook_device = {
+        write_log_file(&format!("hooking new d3d11 device: {:x}", device as u64));
+        let vtbl: *mut ID3D11DeviceVtbl = std::mem::transmute((*device).lpVtbl);
+        let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
+        let real_create_input_layout = (*vtbl).CreateInputLayout;
+
+        let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+        (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
+        util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+
+        HookDirect3D11Device {
+            real_create_input_layout,
+        }
+    };
 
     write_log_file(&format!("hooking new d3d11 context: {:x}", context as u64));
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
@@ -184,9 +221,7 @@ unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceCo
     //let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     let device_child = &mut (*vtbl).parent;
-    write_log_file(&format!("device_child vtbl: {:x}", device_child as *mut ID3D11DeviceChildVtbl as u64));
     let iunknown = &mut (*device_child).parent;
-    write_log_file(&format!("iunknown vtbl: {:x}", iunknown as *mut IUnknownVtbl as u64));
 
     let real_release = (*iunknown).Release;
     let real_vs_setconstantbuffers = (*vtbl).VSSetConstantBuffers;
@@ -197,6 +232,8 @@ unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceCo
     let real_draw_instanced = (*vtbl).DrawInstanced;
     let real_draw_indexed_instanced_indirect = (*vtbl).DrawIndexedInstancedIndirect;
     let real_draw_instanced_indirect = (*vtbl).DrawInstancedIndirect;
+    let real_ia_set_vertex_buffers = (*vtbl).IASetVertexBuffers;
+    let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
     // check for already hook devices (useful in late-hook case)
     if real_release as u64 == hook_release as u64 {
         write_log_file(&format!("error: device already appears to be hooked, skipping"));
@@ -209,7 +246,7 @@ unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceCo
     //(*context).AddRef(); // TODO11: dx9 does this, but needed here? and where is this decremented?
 
     write_log_file(&format!("context hook complete: {} functions hooked", func_hooked));
-    let hook_context = HookDirect3D911Context {
+    let hook_context = HookDirect3D11Context {
         real_release,
         real_vs_setconstantbuffers,
         real_draw,
@@ -219,12 +256,14 @@ unsafe fn hook_d3d11(_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceCo
         real_draw_indexed_instanced,
         real_draw_instanced_indirect,
         real_draw_indexed_instanced_indirect,
+        real_ia_set_vertex_buffers,
+        real_ia_set_input_layout,
     };
 
-    Ok(hook_context)
+    Ok(HookDirect3D11 { device: hook_device, context: hook_context })
 }
 
-fn init_d3d11(swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
+fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
     init_device_state_once();
     let mm_root = match mm_verify_load() {
         Some(dir) => dir,
@@ -240,10 +279,10 @@ fn init_d3d11(swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
 
-        let h_context = hook_d3d11(swapchain, context)?;
+        let hooks = hook_d3d11(device, swapchain, context)?;
 
         (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
-            context: h_context,
+            hooks,
         }));
 
         //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11
@@ -256,4 +295,150 @@ fn init_d3d11(swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -
     }
 
     Ok(())
+}
+
+// ===============
+// device hook fns
+
+fn get_hook_device<'a>() -> Result<&'a mut HookDirect3D11Device> {
+    let hooks = match dev_state().hook {
+        Some(HookDeviceState::D3D11(HookD3D11State { hooks: ref mut h })) => h,
+        _ => {
+            write_log_file(&format!("draw: No d3d11 context found"));
+            return Err(shared_dx::error::HookError::D3D11NoContext);
+        },
+    };
+    Ok(&mut hooks.device)
+}
+
+
+pub fn get_format_size_bytes(format:&DXGI_FORMAT) -> Option<u32> {
+    use winapi::shared::dxgiformat::*;
+    // there are a zillion formats and I don't care about most so just defining sizes
+    // for the ones I've observed
+    let size =
+        match format {
+            &DXGI_FORMAT_R32G32_FLOAT => 8,
+            &DXGI_FORMAT_R32G32B32_FLOAT => 12,
+            &DXGI_FORMAT_R32G32B32A32_FLOAT => 16,
+            &DXGI_FORMAT_R32G32_UINT => 8,
+            &DXGI_FORMAT_R32G32B32_UINT => 12,
+            &DXGI_FORMAT_R32G32B32A32_UINT => 16,
+            &DXGI_FORMAT_R32G32_SINT => 8,
+            &DXGI_FORMAT_R32G32B32_SINT => 12,
+            &DXGI_FORMAT_R32G32B32A32_SINT => 16,
+            _ => 0,
+        };
+    Some(size)
+}
+
+fn vertex_format_from_layout(layout: Vec<InputLayoutElem>) -> VertexFormat {
+    use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
+    use winapi::um::d3d11::D3D11_INPUT_PER_VERTEX_DATA;
+    // try to compute size, but if any offsets are D3D11_APPEND_ALIGNED_ELEMENT, give up
+    // because I don't want to write the code to interpret that right now.
+
+    // sort by offset, then size is highest offset + size of format for it
+    let mut layout = layout;
+    layout.sort_by_key( |el| el.offset);
+    let size = {
+        let append_aligned_found =
+            layout.iter().find(|x| x.offset == D3D11_APPEND_ALIGNED_ELEMENT);
+        if append_aligned_found.is_some() {
+            write_log_file(&format!("WARNING: vertex has dynamic size, not computed: {:?}",
+                layout));
+            0
+        } else {
+            let high_el = layout.iter().rev().find(|el|
+                el.format != DXGI_FORMAT_UNKNOWN && el.slot_class == D3D11_INPUT_PER_VERTEX_DATA);
+            match high_el {
+                Some(el) => {
+                    let fmtsize = get_format_size_bytes(&el.format)
+                        .unwrap_or_else(|| {
+                            write_log_file(&format!("ERROR: no size for format: {:?}", el.format));
+                            0
+                        });
+                    el.offset + fmtsize
+                },
+                None => {
+                    write_log_file(
+                        &format!("ERROR: can't compute vertex size, no high offset found: {:?}",
+                        layout));
+                    0
+                }
+            }
+        }
+    };
+    VertexFormat {
+        layout,
+        size
+    }
+}
+
+unsafe extern "system" fn hook_CreateInputLayoutFn(
+    THIS: *mut ID3D11Device,
+    pInputElementDescs: *const D3D11_INPUT_ELEMENT_DESC,
+    NumElements: UINT,
+    pShaderBytecodeWithInputSignature: *const c_void,
+    BytecodeLength: SIZE_T,
+    ppInputLayout: *mut *mut ID3D11InputLayout,
+) -> HRESULT {
+    let hook_device = match get_hook_device() {
+        Ok(dev) => dev,
+        Err(_) => {
+            write_log_file(&format!("OOPS hook_CreateInputLayoutFn returning {} due to bad state", E_FAIL));
+            return E_FAIL;
+        }
+    };
+
+    // ignore layouts that don't have "POSITION" (i.e. only want vertex layout)
+    let mut has_position = false;
+
+    let mut elements:Vec<InputLayoutElem> = Vec::new();
+    for i in 0..NumElements {
+        let p = *pInputElementDescs.offset(i as isize);
+        let name =  CStr::from_ptr(p.SemanticName).to_string_lossy().to_ascii_lowercase();
+        if name.starts_with("position") { // hopefully these idents aren't localized?
+            has_position = true;
+        }
+        elements.push(InputLayoutElem {
+            name,
+            index: p.SemanticIndex,
+            format: p.Format,
+            offset: p.AlignedByteOffset,
+            slot: p.InputSlot,
+            slot_class: p.InputSlotClass
+        });
+    }
+
+    let res = (hook_device.real_create_input_layout)(
+        THIS,
+        pInputElementDescs,
+        NumElements,
+        pShaderBytecodeWithInputSignature,
+        BytecodeLength,
+        ppInputLayout
+    );
+
+    if res == 0 && has_position && ppInputLayout != null_mut() && (*ppInputLayout) != null_mut() {
+        let vf = vertex_format_from_layout(elements);
+
+        if GLOBAL_STATE.dx11rs.input_layouts_by_ptr.is_none() {
+            GLOBAL_STATE.dx11rs.input_layouts_by_ptr = Some(new_fnv_map(1024));
+        }
+        // TODO11: when is this cleared?  what happens if it gets big?
+        // (maybe game recreates layouts on device reset?)
+        // could hook Release on the layout to remove them, ugh.
+        GLOBAL_STATE.dx11rs.input_layouts_by_ptr
+            .as_mut().map(|hm| {
+                hm.insert(*ppInputLayout as u64, vf);
+
+                if hm.len() % 20 == 0 {
+                    write_log_file(&format!("vertex layout table now has {} elements",
+                    hm.len()));
+                }
+            });
+    }
+
+    res
 }

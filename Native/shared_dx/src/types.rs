@@ -5,7 +5,7 @@ carries the device specific state for one or the other (but not both) at runtime
 use winapi::shared::windef::HWND;
 use crate::types_dx9::HookDirect3D9Device;
 use crate::types_dx9::HookDirect3D9;
-use crate::types_dx11::HookDirect3D911Context;
+use crate::types_dx11::HookDirect3D11;
 
 pub struct HookD3D9State {
     pub d3d9: Option<HookDirect3D9>,
@@ -13,7 +13,7 @@ pub struct HookD3D9State {
 }
 
 pub struct HookD3D11State {
-    pub context: HookDirect3D911Context,
+    pub hooks: HookDirect3D11,
 }
 
 pub enum HookDeviceState {
