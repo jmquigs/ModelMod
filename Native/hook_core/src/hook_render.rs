@@ -1,3 +1,5 @@
+use types::native_mod::ModD3DData;
+use types::native_mod::NativeModData;
 use winapi::um::unknwnbase::IUnknown;
 
 pub use winapi::shared::d3d9::*;
@@ -545,8 +547,156 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
 decl_profile_globals!(hdip);
 
+/// Render a mod using d3d9.  Returns true if the mod was rendered, false if not.
+unsafe fn render_mod_d3d9(THIS:*mut IDirect3DDevice9, d3dd:&ModD3DData, nmod:&NativeModData,
+    override_texture: *mut IDirect3DBaseTexture9, override_stage:u32,
+    primVerts:(u32,u32)) -> bool {
+    if THIS == null_mut() {
+        write_log_file("render_mod_d3d9: null device");
+        return false;
+    }
 
+    profile_start!(hdip, mod_render);
+    let (primCount,NumVertices) = primVerts;
+    // save state
+    let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
+    let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
+    let hr = (*THIS).GetVertexDeclaration(ppDecl);
+    if hr != 0 {
+        write_log_file(&format!(
+            "failed to save vertex declaration when trying to render mod {} {}",
+            NumVertices, primCount
+        ));
+        return false;
+    };
 
+    let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
+    let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
+    let mut offsetBytes: UINT = 0;
+    let mut stride: UINT = 0;
+
+    let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
+    if hr != 0 {
+        write_log_file(&format!(
+            "failed to save vertex data when trying to render mod {} {}",
+            NumVertices, primCount
+        ));
+        if pDecl != null_mut() {
+            (*pDecl).Release();
+        }
+        return false;
+    }
+
+    // Note: C++ code did not change StreamSourceFreq...may need it for some games.
+    (*THIS).SetVertexDeclaration(d3dd.decl);
+    (*THIS).SetStreamSource(0, d3dd.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
+
+    // set mod textures
+    let mut save_tex:[Option<*mut IDirect3DBaseTexture9>; 4] = [None; 4];
+    let mut _st_rods:Vec<ReleaseOnDrop<*mut IDirect3DBaseTexture9>> = vec![];
+    for (i,tex) in d3dd.textures.iter().enumerate() {
+        if *tex != null_mut() {
+            //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as u64, NumVertices, primCount));
+            let mut save:*mut IDirect3DBaseTexture9 = null_mut();
+            (*THIS).GetTexture(i as u32, &mut save);
+            save_tex[i] = Some(save);
+            (*THIS).SetTexture(i as u32, *tex as *mut IDirect3DBaseTexture9);
+            _st_rods.push(ReleaseOnDrop::new(save));
+        }
+    }
+
+    // set the override tex, which is the (usually) the selection tex.  this might overwrite
+    // the mod tex we just set.
+    let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
+    let _st_rod = {
+        if override_texture != null_mut() {
+            (*THIS).GetTexture(override_stage, &mut save_texture);
+            (*THIS).SetTexture(override_stage, override_texture);
+            Some(ReleaseOnDrop::new(save_texture))
+        } else {
+            None
+        }
+    };
+
+    // draw
+    (*THIS).DrawPrimitive(
+        nmod.mod_data.numbers.prim_type as u32,
+        0,
+        nmod.mod_data.numbers.prim_count as u32,
+    );
+
+    // restore state
+    (*THIS).SetVertexDeclaration(pDecl);
+    (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
+    // restore textures
+    for (i,tex) in save_tex.iter().enumerate() {
+        tex.map(|tex| {
+            (*THIS).SetTexture(i as u32, tex);
+        });
+    }
+    if override_texture != null_mut() {
+        (*THIS).SetTexture(override_stage, save_texture);
+    }
+    (*pDecl).Release();
+    (*pStreamVB).Release();
+    profile_end!(hdip, mod_render);
+
+    true
+}
+
+/// Check for a mod to render, and if one is found, render it using the supplied function.
+/// Returns the mod type if a mod was found and rendered, None otherwise.  If a mod was found,
+/// but d3d data is not loaded for it, it will be added to the global set of mods to load
+/// d3d data for at the next opportunity.  In this case None is still returned, since the mod
+/// was not rendered at this time.
+pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, rfunc:F) -> Option<i32>
+where F: FnOnce(&ModD3DData,&NativeModData) -> bool {
+    use global_state::RenderedPrimType::PrimVertCount;
+
+    GLOBAL_STATE.loaded_mods.as_mut()
+    .and_then(|mods| {
+        profile_start!(hdip, mod_select);
+
+        let r = mod_render::select(mods,
+            primCount, NumVertices,
+            GLOBAL_STATE.metrics.total_frames);
+        profile_end!(hdip, mod_select);
+        r
+    })
+    .and_then(|nmod| {
+        if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
+            return Some(nmod.mod_data.numbers.mod_type);
+        }
+        if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
+            // Note that this logs what the game _wants_ to render which corresponds to MM
+            // ref values, not whatever it is in the mod.  To determine the associated mod,
+            // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
+            // match these.
+            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
+        }
+        // if the mod d3d data isn't loaded, can't render
+        let d3dd = match nmod.d3d_data {
+            native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
+            native_mod::ModD3DState::Unloaded => {
+                // tried to render an unloaded mod, make a note that it should be loaded
+                let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
+                    || fnv::FnvHashSet::with_capacity_and_hasher(
+                        100,
+                        Default::default(),
+                    ));
+                load_next_hs.insert(nmod.name.to_owned());
+                return None;
+            }
+        };
+
+        let rendered = rfunc(d3dd,nmod);
+        if rendered {
+            Some(nmod.mod_data.numbers.mod_type)
+        } else {
+            None
+        }
+    })
+}
 
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
     THIS: *mut IDirect3DDevice9,
@@ -628,11 +778,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     profile_start!(hdip, main_combinator);
-    profile_start!(hdip, mod_key_prep);
 
     GLOBAL_STATE.in_dip = true;
-
-    let mut drew_mod = false;
 
     use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS && !METRICS_TRACK_MOD_PRIMS {
@@ -640,131 +787,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     // if there is a matching mod, render it
-    let modded =
-        GLOBAL_STATE.loaded_mods.as_mut()
-        .and_then(|mods| {
-            profile_end!(hdip, mod_key_prep);
-            profile_start!(hdip, mod_select);
-
-            let r = mod_render::select(mods,
-                primCount, NumVertices,
-                GLOBAL_STATE.metrics.total_frames);
-            profile_end!(hdip, mod_select);
-            r
-        })
-        .and_then(|nmod| {
-            if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
-                return Some(nmod.mod_data.numbers.mod_type);
-            }
-            if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
-                // Note that this logs what the game _wants_ to render which corresponds to MM
-                // ref values, not whatever it is in the mod.  To determine the associated mod,
-                // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
-                // match these.
-                metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
-            }
-            // if the mod d3d data isn't loaded, can't render
-            let d3dd = match nmod.d3d_data {
-                native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
-                native_mod::ModD3DState::Unloaded => {
-                    // tried to render an unloaded mod, make a note that it should be loaded
-                    let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
-                        || fnv::FnvHashSet::with_capacity_and_hasher(
-                            100,
-                            Default::default(),
-                        ));
-                    load_next_hs.insert(nmod.name.to_owned());
-                    return None;
-                }
-            };
-
-            profile_start!(hdip, mod_render);
-            // save state
-            let mut pDecl: *mut IDirect3DVertexDeclaration9 = null_mut();
-            let ppDecl: *mut *mut IDirect3DVertexDeclaration9 = &mut pDecl;
-            let hr = (*THIS).GetVertexDeclaration(ppDecl);
-            if hr != 0 {
-                write_log_file(&format!(
-                    "failed to save vertex declaration when trying to render mod {} {}",
-                    NumVertices, primCount
-                ));
-                return None;
-            };
-
-            let mut pStreamVB: *mut IDirect3DVertexBuffer9 = null_mut();
-            let ppStreamVB: *mut *mut IDirect3DVertexBuffer9 = &mut pStreamVB;
-            let mut offsetBytes: UINT = 0;
-            let mut stride: UINT = 0;
-
-            let hr = (*THIS).GetStreamSource(0, ppStreamVB, &mut offsetBytes, &mut stride);
-            if hr != 0 {
-                write_log_file(&format!(
-                    "failed to save vertex data when trying to render mod {} {}",
-                    NumVertices, primCount
-                ));
-                if pDecl != null_mut() {
-                    (*pDecl).Release();
-                }
-                return None;
-            }
-
-            // Note: C++ code did not change StreamSourceFreq...may need it for some games.
-            // draw override
-            (*THIS).SetVertexDeclaration(d3dd.decl);
-            (*THIS).SetStreamSource(0, d3dd.vb, 0, nmod.mod_data.numbers.vert_size_bytes as u32);
-
-            // and set mod textures
-            let mut save_tex:[Option<*mut IDirect3DBaseTexture9>; 4] = [None; 4];
-            let mut _st_rods:Vec<ReleaseOnDrop<*mut IDirect3DBaseTexture9>> = vec![];
-            for (i,tex) in d3dd.textures.iter().enumerate() {
-                if *tex != null_mut() {
-                    //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as u64, NumVertices, primCount));
-                    let mut save:*mut IDirect3DBaseTexture9 = null_mut();
-                    (*THIS).GetTexture(i as u32, &mut save);
-                    save_tex[i] = Some(save);
-                    (*THIS).SetTexture(i as u32, *tex as *mut IDirect3DBaseTexture9);
-                    _st_rods.push(ReleaseOnDrop::new(save));
-                }
-            }
-
-            // set the override tex, which is the (usually) the selection tex.  this might overwrite
-            // the mod tex we just set.
-            let mut save_texture: *mut IDirect3DBaseTexture9 = null_mut();
-            let _st_rod = {
-                if override_texture != null_mut() {
-                    (*THIS).GetTexture(sel_stage, &mut save_texture);
-                    (*THIS).SetTexture(sel_stage, override_texture);
-                    Some(ReleaseOnDrop::new(save_texture))
-                } else {
-                    None
-                }
-            };
-
-            (*THIS).DrawPrimitive(
-                nmod.mod_data.numbers.prim_type as u32,
-                0,
-                nmod.mod_data.numbers.prim_count as u32,
-            );
-            drew_mod = true;
-
-            // restore state
-            (*THIS).SetVertexDeclaration(pDecl);
-            (*THIS).SetStreamSource(0, pStreamVB, offsetBytes, stride);
-            // restore textures
-            for (i,tex) in save_tex.iter().enumerate() {
-                tex.map(|tex| {
-                    (*THIS).SetTexture(i as u32, tex);
-                });
-            }
-            if override_texture != null_mut() {
-                (*THIS).SetTexture(sel_stage, save_texture);
-            }
-            (*pDecl).Release();
-            (*pStreamVB).Release();
-            profile_end!(hdip, mod_render);
-
-            Some(nmod.mod_data.numbers.mod_type)
+    let modded = check_and_render_mod(primCount, NumVertices,
+        |d3dd,nmod| {
+            render_mod_d3d9(THIS, d3dd, nmod,
+                override_texture, sel_stage,
+                (primCount,NumVertices))
         });
+
     profile_end!(hdip, main_combinator);
 
     profile_start!(hdip, draw_input_check);

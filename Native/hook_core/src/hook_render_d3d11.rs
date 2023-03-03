@@ -13,7 +13,7 @@ use device_state::dev_state;
 use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods};
+use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 
 /// Return the d3d11 context hooks.
@@ -256,6 +256,23 @@ pub unsafe extern "system" fn hook_draw_indexed(
             PrimCountVertSizeAndVBs(prim_count, vert_size, GLOBAL_STATE.dx11rs.vb_state.clone()));
         }
 
+    }
+
+    if prim_count > 2 && vert_count > 2 {
+        // if there is a matching mod, render it
+        let _modded = check_and_render_mod(prim_count, vert_count,
+            |_d3dd,nmod| {
+                // this doesn't log ATM because there is no mod data loaded, but I can tell
+                // that it's finding a mod because its logging about how it wants to
+                // load deferred mods but can't due to missing device
+                if GLOBAL_STATE.metrics.dip_calls % 1000 == 0 {
+                    write_log_file(&format!("want to render mod {}", nmod.name));
+                }
+                false
+                // render_mod_d3d9(THIS, d3dd, nmod,
+                //     override_texture, sel_stage,
+                //     (primCount,NumVertices))
+            });
     }
 
     // do "per frame" operations this often since I don't have any idea of when the frame
