@@ -1,3 +1,4 @@
+use types::d3ddata::ModD3DData9;
 use types::native_mod::ModD3DData;
 use types::native_mod::NativeModData;
 use winapi::um::unknwnbase::IUnknown;
@@ -548,7 +549,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 decl_profile_globals!(hdip);
 
 /// Render a mod using d3d9.  Returns true if the mod was rendered, false if not.
-unsafe fn render_mod_d3d9(THIS:*mut IDirect3DDevice9, d3dd:&ModD3DData, nmod:&NativeModData,
+unsafe fn render_mod_d3d9(THIS:*mut IDirect3DDevice9, d3dd:&ModD3DData9, nmod:&NativeModData,
     override_texture: *mut IDirect3DBaseTexture9, override_stage:u32,
     primVerts:(u32,u32)) -> bool {
     if THIS == null_mut() {
@@ -789,9 +790,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     // if there is a matching mod, render it
     let modded = check_and_render_mod(primCount, NumVertices,
         |d3dd,nmod| {
-            render_mod_d3d9(THIS, d3dd, nmod,
-                override_texture, sel_stage,
-                (primCount,NumVertices))
+            if let ModD3DData::D3D9(d3dd) = d3dd {
+                render_mod_d3d9(THIS, d3dd, nmod,
+                    override_texture, sel_stage,
+                    (primCount,NumVertices))
+            } else {
+                false
+            }
         });
 
     profile_end!(hdip, main_combinator);

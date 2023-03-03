@@ -1,5 +1,6 @@
 
 use shared_dx::types::DevicePointer;
+use types::d3ddata;
 use types::native_mod::NativeModData;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
@@ -29,24 +30,7 @@ pub enum AsyncLoadState {
 /// Release any d3d resources owned by a mod.
 fn clear_d3d_data(nmd:&mut NativeModData) {
         match nmd.d3d_data {
-            native_mod::ModD3DState::Loaded(ref d3dd) => {
-                if d3dd.vb != null_mut() {
-                    unsafe { (*d3dd.vb).Release(); }
-                }
-                if d3dd.ib != null_mut() {
-                    unsafe { (*d3dd.ib).Release(); }
-                }
-                if d3dd.decl != null_mut() {
-                    unsafe { (*d3dd.decl).Release(); }
-                }
-
-                for tex in d3dd.textures.iter() {
-                    if *tex != null_mut() {
-                        let tex = *tex as *mut IDirect3DBaseTexture9;
-                        unsafe { (*tex).Release(); }
-                    }
-                }
-            },
+            native_mod::ModD3DState::Loaded(ref mut d3dd) => unsafe {d3dd.release();},
             native_mod::ModD3DState::Unloaded => {}
         };
         nmd.d3d_data = native_mod::ModD3DState::Unloaded;
@@ -168,7 +152,7 @@ pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::M
         return;
     }
 
-    let mut d3dd = native_mod::ModD3DData::new();
+    let mut d3dd = d3ddata::ModD3DData9::new();
 
     d3dd.vb = vb;
 
@@ -216,7 +200,7 @@ pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::M
         mdat.numbers
     ));
 
-    nmd.d3d_data = native_mod::ModD3DState::Loaded(d3dd);
+    nmd.d3d_data = native_mod::ModD3DState::Loaded(native_mod::ModD3DData::D3D9(d3dd));
 }
 
 /// Set up mod data structures.  Should be called after the managed code is done loading

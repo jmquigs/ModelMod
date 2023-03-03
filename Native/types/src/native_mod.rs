@@ -1,26 +1,5 @@
-pub use winapi::shared::d3d9::*;
-use crate::interop::ModData;
-
-/// Container for D3D resources of a mod.
-pub struct ModD3DData {
-    pub vb: *mut IDirect3DVertexBuffer9,
-    pub ib: *mut IDirect3DIndexBuffer9,
-    pub decl: *mut IDirect3DVertexDeclaration9,
-    pub textures: [LPDIRECT3DTEXTURE9; 4],
-}
-
-impl ModD3DData {
-    pub fn new() -> Self {
-        use std::ptr::null_mut;
-
-        Self {
-            vb: null_mut(),
-            ib: null_mut(),
-            decl: null_mut(),
-            textures: [null_mut(); 4],
-        }
-    }
-}
+use crate::{interop::ModData};
+pub use crate::d3ddata::ModD3DData;
 
 pub enum ModD3DState {
     Unloaded,
@@ -34,7 +13,6 @@ pub struct NativeModData {
     pub parent_mod_names: Vec<String>,
     pub last_frame_render: u64, // only set for parent mods
     pub name: String,
-    //IDirect3DPixelShader9* pixelShader;
 }
 
 impl NativeModData {
