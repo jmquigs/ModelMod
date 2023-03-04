@@ -40,8 +40,6 @@ pub struct DeviceState {
 /// to do work with the pointer will need to match on the type implement code to handle each
 /// API device type.
 pub enum DevicePointer {
-    /// No device pointer set.  May remove this variant eventually once I've verified it's not needed.
-    NotSet,
     D3D9(*mut IDirect3DDevice9),
     D3D11(*mut ID3D11Device),
 }

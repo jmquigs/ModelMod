@@ -532,7 +532,6 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                     DevicePointer::D3D11(_) => {
                         //load_d3d11_data(device, callbacks, nmod.midx, nmod);
                     },
-                    DevicePointer::NotSet => {},
                 }
             }
         }

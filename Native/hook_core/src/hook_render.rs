@@ -246,7 +246,6 @@ pub fn frame_load_mods(deviceptr: DevicePointer) {
                     unsafe { mod_load::setup_mod_data(deviceptr, is.callbacks) },
                 DevicePointer::D3D11(_device) =>
                     unsafe { mod_load::setup_mod_data(deviceptr, is.callbacks) },
-                DevicePointer::NotSet => write_log_file("want to setup_mod_data but no device"),
             }
         }
 
@@ -258,7 +257,6 @@ pub fn frame_load_mods(deviceptr: DevicePointer) {
             match deviceptr {
                 DevicePointer::D3D11(_) | DevicePointer::D3D9(_) =>
                     unsafe { mod_load::load_deferred_mods(deviceptr, is.callbacks) },
-                DevicePointer::NotSet => write_log_file("want to load_deferred_mods but no device"),
             }
         }
     });
