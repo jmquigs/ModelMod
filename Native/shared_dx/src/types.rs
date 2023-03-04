@@ -66,4 +66,12 @@ impl DevicePointer {
             _ => true,
         }
     }
+    /// Returns the pointer value as a u64.
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            DevicePointer::D3D9(d3d9) => *d3d9 as u64,
+            DevicePointer::D3D11(d3d11) => *d3d11 as u64,
+            _ => 0,
+        }
+    }
 }

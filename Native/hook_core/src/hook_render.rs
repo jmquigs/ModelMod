@@ -256,9 +256,8 @@ pub fn frame_load_mods(deviceptr: DevicePointer) {
 
         if has_pending_mods && is.done_loading_mods && !is.loading_mods {
             match deviceptr {
-                DevicePointer::D3D9(device) =>
-                    unsafe { mod_load::load_deferred_mods(device, is.callbacks) },
-                DevicePointer::D3D11(_device) => write_log_file(&format!("want to load_deferred_mods on dx11 but no device")),
+                DevicePointer::D3D11(_) | DevicePointer::D3D9(_) =>
+                    unsafe { mod_load::load_deferred_mods(deviceptr, is.callbacks) },
                 DevicePointer::NotSet => write_log_file("want to load_deferred_mods but no device"),
             }
         }
@@ -645,58 +644,78 @@ unsafe fn render_mod_d3d9(THIS:*mut IDirect3DDevice9, d3dd:&ModD3DData9, nmod:&N
     true
 }
 
-/// Check for a mod to render, and if one is found, render it using the supplied function.
-/// Returns the mod type if a mod was found and rendered, None otherwise.  If a mod was found,
-/// but d3d data is not loaded for it, it will be added to the global set of mods to load
-/// d3d data for at the next opportunity.  In this case None is still returned, since the mod
-/// was not rendered at this time.
-pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, rfunc:F) -> Option<i32>
-where F: FnOnce(&ModD3DData,&NativeModData) -> bool {
+/// Return values from `check_and_render_mod`
+pub enum CheckRenderModResult {
+    /// A mod was found and rendered, the value is the mod type of the mod.
+    Rendered(i32),
+    /// No mod was found to render.
+    NotRendered,
+    /// A mod was found but data is not loaded for it, data load is now queued.
+    /// The mod name is returned in case the caller needs to append any data
+    /// to the native mod structure that is required to complete the load.
+    NotRenderedButLoadRequested(String),
+}
+/// Check for a mod to render, and if one is found, render it using the supplied function `F`.
+/// Returns `CheckRenderModResult` to indicate to result of this check.
+pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, rfunc:F) -> CheckRenderModResult
+where
+    F: FnOnce(&ModD3DData,&NativeModData) -> bool {
     use global_state::RenderedPrimType::PrimVertCount;
 
-    GLOBAL_STATE.loaded_mods.as_mut()
-    .and_then(|mods| {
-        profile_start!(hdip, mod_select);
+    let mut loading_mod_name = None;
+    let res = GLOBAL_STATE.loaded_mods.as_mut()
+        .and_then(|mods| {
+            profile_start!(hdip, mod_select);
 
-        let r = mod_render::select(mods,
-            primCount, NumVertices,
-            GLOBAL_STATE.metrics.total_frames);
-        profile_end!(hdip, mod_select);
-        r
-    })
-    .and_then(|nmod| {
-        if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
-            return Some(nmod.mod_data.numbers.mod_type);
-        }
-        if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
-            // Note that this logs what the game _wants_ to render which corresponds to MM
-            // ref values, not whatever it is in the mod.  To determine the associated mod,
-            // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
-            // match these.
-            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
-        }
-        // if the mod d3d data isn't loaded, can't render
-        let d3dd = match nmod.d3d_data {
-            native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
-            native_mod::ModD3DState::Unloaded => {
-                // tried to render an unloaded mod, make a note that it should be loaded
-                let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
-                    || fnv::FnvHashSet::with_capacity_and_hasher(
-                        100,
-                        Default::default(),
-                    ));
-                load_next_hs.insert(nmod.name.to_owned());
-                return None;
+            let r = mod_render::select(mods,
+                primCount, NumVertices,
+                GLOBAL_STATE.metrics.total_frames);
+            profile_end!(hdip, mod_select);
+            r
+        })
+        .and_then(|nmod| {
+            if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
+                return Some(nmod.mod_data.numbers.mod_type);
             }
-        };
+            if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
+                // Note that this logs what the game _wants_ to render which corresponds to MM
+                // ref values, not whatever it is in the mod.  To determine the associated mod,
+                // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
+                // match these.
+                GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
+            }
+            // if the mod d3d data isn't loaded, can't render
+            let d3dd = match nmod.d3d_data {
+                native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
+                // could observe partial if we noted it previously but the deferred load
+                // hasn't happened yet (since it happens less often)
+                native_mod::ModD3DState::Partial(_)
+                | native_mod::ModD3DState::Unloaded => {
+                    // tried to render an unloaded mod, make a note that it should be loaded
+                    let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
+                        || fnv::FnvHashSet::with_capacity_and_hasher(
+                            100,
+                            Default::default(),
+                        ));
+                    loading_mod_name = Some(nmod.name.to_owned());
+                    load_next_hs.insert(nmod.name.to_owned());
+                    return None;
+                }
+            };
 
-        let rendered = rfunc(d3dd,nmod);
-        if rendered {
-            Some(nmod.mod_data.numbers.mod_type)
-        } else {
-            None
-        }
-    })
+            let rendered = rfunc(d3dd,nmod);
+            if rendered {
+                Some(nmod.mod_data.numbers.mod_type)
+            } else {
+                None
+            }
+        });
+
+    match (res,loading_mod_name) {
+        (Some(mod_type),_) => CheckRenderModResult::Rendered(mod_type),
+        (None,Some(name)) => CheckRenderModResult::NotRenderedButLoadRequested(name),
+        (None,None) => CheckRenderModResult::NotRendered,
+    }
 }
 
 pub unsafe extern "system" fn hook_draw_indexed_primitive(
@@ -788,7 +807,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     }
 
     // if there is a matching mod, render it
-    let modded = check_and_render_mod(primCount, NumVertices,
+    let mod_status = check_and_render_mod(primCount, NumVertices,
         |d3dd,nmod| {
             if let ModD3DData::D3D9(d3dd) = d3dd {
                 render_mod_d3d9(THIS, d3dd, nmod,
@@ -803,10 +822,12 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, draw_input_check);
     // draw input if not modded or if mod is additive
-    let draw_input = match modded {
-        None => true,
-        Some(mtype) if types::interop::ModType::GPUAdditive as i32 == mtype => true,
-        Some(_) => false,
+    use types::interop::ModType::GPUAdditive;
+    let draw_input = match mod_status {
+        CheckRenderModResult::NotRendered => true,
+        CheckRenderModResult::NotRenderedButLoadRequested(_) => true,
+        CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
+        CheckRenderModResult::Rendered(_) => false, // not additive mod was rendered
     };
     profile_end!(hdip, draw_input_check);
 

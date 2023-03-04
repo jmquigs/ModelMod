@@ -1,12 +1,19 @@
 
 use shared_dx::types::DevicePointer;
 use types::d3ddata;
+use types::native_mod::ModD3DState;
 use types::native_mod::NativeModData;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
+use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
+use winapi::um::d3d11::D3D11_BUFFER_DESC;
+use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
+use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
+use winapi::um::d3d11::ID3D11Buffer;
+use winapi::um::d3d11::ID3D11Device;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
 
@@ -31,6 +38,7 @@ pub enum AsyncLoadState {
 fn clear_d3d_data(nmd:&mut NativeModData) {
         match nmd.d3d_data {
             native_mod::ModD3DState::Loaded(ref mut d3dd) => unsafe {d3dd.release();},
+            native_mod::ModD3DState::Partial(ref mut d3dd) => unsafe {d3dd.release();},
             native_mod::ModD3DState::Unloaded => {}
         };
         nmd.d3d_data = native_mod::ModD3DState::Unloaded;
@@ -76,7 +84,7 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
 /// Create D3D resources for a mod using the data loaded by managed code. This usually consists of a
 /// vertex buffer, declaration and optionally one or more textures.  `midx` is the mod index
 /// into the current mod DB (and should be less than GetModCount()).
-pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks,
+pub unsafe fn load_d3d_data9(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks,
     midx: i32, nmd: &mut NativeModData) {
     let mdat = &nmd.mod_data;
 
@@ -201,6 +209,65 @@ pub unsafe fn load_d3d_data(device: *mut IDirect3DDevice9, callbacks: interop::M
     ));
 
     nmd.d3d_data = native_mod::ModD3DState::Loaded(native_mod::ModD3DData::D3D9(d3dd));
+}
+
+pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::ManagedCallbacks, midx: i32, nmd: &NativeModData) {
+    return; // TODO11: this code is not ready yet
+    let mdat = &nmd.mod_data;
+
+    if let native_mod::ModD3DState::Loaded(_) = nmd.d3d_data {
+        // bug, should have been cleared first
+        write_log_file(&format!(
+            "Error, d3d data for mod {} already loaded",
+            nmd.name
+        ));
+        return;
+    }
+
+    let decl_size = mdat.numbers.decl_size_bytes;
+    // vertex declaration construct copies the vec bytes, so just keep a temp vector reference for the data
+    let (decl_data, _decl_vec) = if decl_size > 0 {
+        let mut decl_vec: Vec<u8> = Vec::with_capacity(decl_size as usize);
+        let decl_data: *mut u8 = decl_vec.as_mut_ptr();
+        (decl_data, Some(decl_vec))
+    } else {
+        (null_mut(), None)
+    };
+
+    let vb_size = (*mdat).numbers.prim_count * 3 * (*mdat).numbers.vert_size_bytes;
+    let mut vb_data: *mut u8 = null_mut();
+
+    // index buffers not currently supported
+    let ib_size = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
+    let ib_data: *mut u8 = null_mut();
+
+    // create vb
+    let mut out_vb: *mut ID3D11Buffer = null_mut();
+    let out_vb: *mut *mut ID3D11Buffer = &mut out_vb;
+    let mut vb_desc = D3D11_BUFFER_DESC {
+        ByteWidth: vb_size as UINT,
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_VERTEX_BUFFER,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+        StructureByteStride: 0,
+    };
+    let mut vb_init_data = D3D11_SUBRESOURCE_DATA {
+        pSysMem: null_mut(),
+        SysMemPitch: 0,
+        SysMemSlicePitch: 0,
+    };
+    let hr = (*device).CreateBuffer(&mut vb_desc, &mut vb_init_data, out_vb);
+    if hr != 0 {
+        write_log_file(&format!(
+            "failed to create vertex buffer for mod {}: HR {:x}",
+            nmd.name, hr
+        ));
+        return;
+    }
+
+    let vb = *out_vb;
+
 }
 
 /// Set up mod data structures.  Should be called after the managed code is done loading
@@ -396,25 +463,46 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
     } );
 }
 
-pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: interop::ManagedCallbacks) {
+pub fn get_mod_by_name<'a>(name:&str, loaded_mods:&'a mut Option<LoadedModState>) -> Option<&'a mut NativeModData> {
+    let (mods,mods_by_name) =
+        match loaded_mods {
+            Some(ref mut gs) => (&mut gs.mods, &gs.mods_by_name),
+            _ => { return None; }
+        };
+
+    let mkey = mods_by_name.get(name);
+    if let Some(mkey) = mkey {
+        let nmods = mods.get_mut(mkey);
+        if let Some(nmods) = nmods {
+            return nmods.iter_mut().find(|nmod| &nmod.name == name);
+        }
+    }
+
+    None
+}
+
+pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
         let lock = GLOBAL_STATE_LOCK.lock();
         if let Err(_e) = lock {
             write_log_file("failed to lock global state to setup mod data");
             return;
         }
 
-        // need d3dx for textures
-        GLOBAL_STATE.device = Some(device);
-        if GLOBAL_STATE.d3dx_fn.is_none() {
-            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
-                .map_err(|e| {
-                    write_log_file(&format!(
-                        "failed to load d3dx: texture snapping not available: {:?}",
+        // TODO11: dx11 has its own version of this, so port it
+        if let DevicePointer::D3D9(dev) = device {
+            // need d3dx for textures
+            GLOBAL_STATE.device = Some(dev);
+            if GLOBAL_STATE.d3dx_fn.is_none() {
+                GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
+                    .map_err(|e| {
+                        write_log_file(&format!(
+                            "failed to load d3dx: texture snapping not available: {:?}",
+                            e
+                        ));
                         e
-                    ));
-                    e
-                })
-                .ok();
+                    })
+                    .ok();
+            }
         }
 
         let to_load = match GLOBAL_STATE.load_on_next_frame {
@@ -425,25 +513,26 @@ pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: inter
         let ml_start = std::time::SystemTime::now();
 
         // get device ref count prior to adding mod
-        (*device).AddRef();
-        let pre_rc = (*device).Release();
-
-        let (mods,mods_by_name) = match GLOBAL_STATE.loaded_mods {
-            Some(ref mut gs) => (&mut gs.mods, &gs.mods_by_name),
-            _ => { return; }
-        };
+        let pre_rc = device.get_ref_count();
 
         let mut cnt = 0;
         for nmd in to_load.iter() {
-            let mkey = mods_by_name.get(nmd);
-            if let Some(mkey) = mkey {
-                let nmods = mods.get_mut(mkey);
-                if let Some(nmods) = nmods {
-                    let mut nmod = nmods.iter_mut().find(|nmod| &nmod.name == nmd);
-                    if let Some(ref mut nmod) = nmod {
-                        load_d3d_data(device, callbacks, nmod.midx, nmod);
+            let mut nmod =
+                get_mod_by_name(&nmd, &mut GLOBAL_STATE.loaded_mods);
+            if let Some(ref mut nmod) = nmod {
+                if let ModD3DState::Loaded(_) = nmod.d3d_data {
+                    write_log_file(&format!("load_deferred_mods: mod already loaded: {}", nmod.name));
+                    continue;
+                }
+                match device {
+                    DevicePointer::D3D9(device) => {
+                        load_d3d_data9(device, callbacks, nmod.midx, nmod);
                         cnt += 1;
                     }
+                    DevicePointer::D3D11(_) => {
+                        //load_d3d11_data(device, callbacks, nmod.midx, nmod);
+                    },
+                    DevicePointer::NotSet => {},
                 }
             }
         }
@@ -451,8 +540,7 @@ pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: inter
         to_load.clear();
 
         // get new ref count
-        (*device).AddRef();
-        let post_rc = (*device).Release();
+        let post_rc = device.get_ref_count();
         let diff = post_rc - pre_rc;
         (*DEVICE_STATE).d3d_resource_count += diff;
 
@@ -461,7 +549,7 @@ pub unsafe fn load_deferred_mods(device: *mut IDirect3DDevice9, callbacks: inter
         if let Ok(elapsed) = elapsed {
             write_log_file(
                 &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
-                cnt, elapsed.as_millis(), diff, device as u64, (*DEVICE_STATE).d3d_resource_count
+                cnt, elapsed.as_millis(), diff, device.as_u64(), (*DEVICE_STATE).d3d_resource_count
             ));
         };
 }

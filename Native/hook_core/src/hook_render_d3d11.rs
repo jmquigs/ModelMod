@@ -1,9 +1,12 @@
 use std::ptr::null_mut;
 
 use global_state::GLOBAL_STATE;
+use global_state::dx11rs::DX11RenderState;
 use shared_dx::types::{HookDeviceState, HookD3D11State, DevicePointer};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::write_log_file;
+use types::d3ddata::ModD3DData11;
+use types::native_mod::{ModD3DData, ModD3DState};
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::unknwnbase::IUnknown;
@@ -13,7 +16,7 @@ use device_state::dev_state;
 use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod};
+use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 
 /// Return the d3d11 context hooks.
@@ -154,15 +157,72 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     };
 
     if pInputLayout != null_mut() {
-        GLOBAL_STATE.dx11rs.current_input_layout = pInputLayout as u64;
+        GLOBAL_STATE.dx11rs.current_input_layout = pInputLayout;
     } else {
-        GLOBAL_STATE.dx11rs.current_input_layout = 0;
+        GLOBAL_STATE.dx11rs.current_input_layout = null_mut();
     }
 
     (hook_context.real_ia_set_input_layout)(
         THIS,
         pInputLayout
     )
+}
+
+fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u32,u32)> {
+    if index_count <= 6 { // = 2 triangles generally, mods can't be this small or even close to this small
+        // don't bother
+        return None;
+    }
+    // TODO11 assumes triangle list, should get this from primitive topology
+    let prim_count = index_count / 3;
+
+    // vert count has to be computed from the current vertex buffer
+    // stream and the current input layout (vertex size)
+    let curr_input_layout = &rs.current_input_layout;
+    let curr_layouts = &rs.input_layouts_by_ptr;
+    let vb_state = &rs.vb_state;
+    let vb_size = match vb_state.len() {
+        1 => {
+            let (_index,byteWidth,_stride) = vb_state[0];
+            if byteWidth == 0 {
+                write_log_file("compute_prim_vert_count: current vb has zero byte size");
+                return None;
+            }
+            byteWidth
+        },
+        // TODO11: log warning but it could be spammy, maybe throttle it
+        0 => {
+            write_log_file("compute_prim_vert_count: no current vertex buffer set");
+            return None;
+        },
+        _n => {
+            // not sure how to figure out which one to use, maybe log warning
+            return None;
+        }
+    };
+    let vert_size = {
+        let curr_input_layout = *curr_input_layout as u64;
+        if curr_input_layout > 0 {
+            curr_layouts.as_ref().and_then(|hm| {
+                hm.get(&curr_input_layout)
+            }).and_then(|vf|
+                Some(vf.size)
+            ).unwrap_or(0)
+        } else {
+            0
+        }
+    };
+    if vert_size == 0 {
+        return None;
+    }
+
+    let vert_count = if vert_size > 0 {
+        vb_size / vert_size
+    } else {
+        0
+    };
+
+    Some((prim_count,vert_count))
 }
 
 pub unsafe extern "system" fn hook_draw_indexed(
@@ -192,87 +252,56 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     GLOBAL_STATE.metrics.dip_calls += 1;
 
-    // TODO11 assumes triangle list, should get this from primitive topology
-    let prim_count = IndexCount / 3;
-
-    // vert count has to be computed from the current vertex buffer
-    // stream and the current input layout (vertex size)
-    let curr_input_layout = &GLOBAL_STATE.dx11rs.current_input_layout;
-    let curr_layouts = &GLOBAL_STATE.dx11rs.input_layouts_by_ptr;
-    let vb_state = &GLOBAL_STATE.dx11rs.vb_state;
-    let compute_vert_info = || -> Option<(u32,u32)> {
-        let vb_size = match vb_state.len() {
-            1 => {
-                let (_index,byteWidth,_stride) = vb_state[0];
-                if byteWidth == 0 {
-                    write_log_file("hook draw indexed: current vb has zero byte size");
-                    return None;
+    match compute_prim_vert_count(IndexCount, &GLOBAL_STATE.dx11rs) {
+        Some((prim_count,vert_count)) if vert_count > 2  => {
+            // if primitive tracking is enabled, log just the primcount,vertcount if we were able
+            // to compute it, otherwise log whatever we have
+            if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
+                if vert_count > 0 {
+                    use global_state::RenderedPrimType::PrimVertCount;
+                    GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
+                } else {
+                    use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
+                    GLOBAL_STATE.metrics.rendered_prims.push(
+                    PrimCountVertSizeAndVBs(prim_count, vert_count, GLOBAL_STATE.dx11rs.vb_state.clone()));
                 }
-                byteWidth
-            },
-            // TODO11: log warning but it could be spammy, maybe throttle it
-            0 => {
-                write_log_file("hook draw indexed: no current vertex buffer set");
-                return None;
-            },
-            _n => {
-                // not sure how to figure out which one to use, maybe log warning
-                return None;
             }
-        };
-        let vert_size = {
-            if *curr_input_layout > 0 {
-                curr_layouts.as_ref().and_then(|hm| {
-                    hm.get(&curr_input_layout)
-                }).and_then(|vf|
-                    Some(vf.size)
-                ).unwrap_or(0)
-            } else {
-                0
-            }
-        };
-        if vert_size == 0 {
-            return None;
-        }
-        Some((vb_size,vert_size))
-    };
 
-    let (vb_size,vert_size) = compute_vert_info().unwrap_or((0,0));
-    let vert_count = if vert_size > 0 {
-        vb_size / vert_size
-    } else {
-        0
-    };
+            // if there is a matching mod, render it
+            let mod_status = check_and_render_mod(prim_count, vert_count,
+                |_d3dd,nmod| {
+                    // this doesn't log ATM because there is no mod data loaded, but I can tell
+                    // that it's finding a mod because its logging about how it wants to
+                    // load deferred mods but can't due to missing device
+                    if GLOBAL_STATE.metrics.dip_calls % 1000 == 0 {
+                        write_log_file(&format!("want to render mod {}", nmod.name));
+                    }
+                    false
+                    // render_mod_d3d9(THIS, d3dd, nmod,
+                    //     override_texture, sel_stage,
+                    //     (primCount,NumVertices))
+                });
 
-    // if primitive tracking is enabled, log just the primcount,vertcount if we were able
-    // to compute it, otherwise log whatever we have
-    if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
-        if vert_count > 0 {
-            use global_state::RenderedPrimType::PrimVertCount;
-            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
-        } else {
-            use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
-            GLOBAL_STATE.metrics.rendered_prims.push(
-            PrimCountVertSizeAndVBs(prim_count, vert_size, GLOBAL_STATE.dx11rs.vb_state.clone()));
-        }
-
-    }
-
-    if prim_count > 2 && vert_count > 2 {
-        // if there is a matching mod, render it
-        let _modded = check_and_render_mod(prim_count, vert_count,
-            |_d3dd,nmod| {
-                // this doesn't log ATM because there is no mod data loaded, but I can tell
-                // that it's finding a mod because its logging about how it wants to
-                // load deferred mods but can't due to missing device
-                if GLOBAL_STATE.metrics.dip_calls % 1000 == 0 {
-                    write_log_file(&format!("want to render mod {}", nmod.name));
+            if let CheckRenderModResult::NotRenderedButLoadRequested(name) = mod_status {
+                let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
+                if let Some(nmod) = nmod {
+                    // need to store current layout in the d3d data
+                    if let ModD3DState::Unloaded =  nmod.d3d_data {
+                        let il = GLOBAL_STATE.dx11rs.current_input_layout;
+                        if !il.is_null() {
+                            // we're officially keeping an extra reference to the input layout now
+                            // so note that.
+                            (*il).AddRef();
+                            nmod.d3d_data = ModD3DState::Partial(
+                                ModD3DData::D3D11(ModD3DData11::with_layout(il)));
+                            write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                        }
+                    }
                 }
-                false
-                // render_mod_d3d9(THIS, d3dd, nmod,
-                //     override_texture, sel_stage,
-                //     (primCount,NumVertices))
-            });
+            }
+
+        },
+        _ => {}
     }
 
     // do "per frame" operations this often since I don't have any idea of when the frame

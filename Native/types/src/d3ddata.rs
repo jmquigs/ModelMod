@@ -41,7 +41,7 @@ impl ModD3DData9 {
 pub struct ModD3DData11 {
     pub vb: *mut ID3D11Buffer,
     //pub ib: *mut ID3D11Buffer,
-    pub decl: *mut ID3D11InputLayout,
+    pub vlayout: *mut ID3D11InputLayout,
     pub textures: [*mut ID3D11Texture2D; 4],
 }
 
@@ -52,7 +52,18 @@ impl ModD3DData11 {
         Self {
             vb: null_mut(),
             //ib: null_mut(),
-            decl: null_mut(),
+            vlayout: null_mut(),
+            textures: [null_mut(); 4],
+        }
+    }
+    /// Create a new ModD3DData11 with the given layout.  AddRef is not called on the layout.
+    pub fn with_layout(layout: *mut ID3D11InputLayout) -> Self {
+        use std::ptr::null_mut;
+
+        Self {
+            vb: null_mut(),
+            //ib: null_mut(),
+            vlayout: layout,
             textures: [null_mut(); 4],
         }
     }
@@ -67,9 +78,9 @@ impl ModD3DData11 {
             //    (*self.ib).Release();
             //    self.ib = std::ptr::null_mut();
             //}
-            if !self.decl.is_null() {
-                (*self.decl).Release();
-                self.decl = std::ptr::null_mut();
+            if !self.vlayout.is_null() {
+                (*self.vlayout).Release();
+                self.vlayout = std::ptr::null_mut();
             }
             for tex in self.textures.iter_mut() {
                 if !tex.is_null() {

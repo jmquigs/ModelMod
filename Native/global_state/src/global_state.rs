@@ -187,7 +187,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     dx11rs: DX11RenderState {
         vb_state: vec![],
         input_layouts_by_ptr: None,
-        current_input_layout: 0,
+        current_input_layout: null_mut(),
     }
 };
 

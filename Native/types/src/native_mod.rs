@@ -3,6 +3,9 @@ pub use crate::d3ddata::ModD3DData;
 
 pub enum ModD3DState {
     Unloaded,
+    /// The mod data is partially available.  Used for DX11 before where we need a place to
+    /// store the input layout prior to obtaining the rest of the data.
+    Partial(ModD3DData),
     Loaded(ModD3DData)
 }
 pub struct NativeModData {
