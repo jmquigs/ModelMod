@@ -3,6 +3,7 @@ use shared_dx::types::DevicePointer;
 use types::d3ddata;
 use types::native_mod::ModD3DState;
 use types::native_mod::NativeModData;
+use winapi::ctypes::c_void;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -10,6 +11,7 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
+use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
 use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
 use winapi::um::d3d11::ID3D11Buffer;
@@ -211,9 +213,13 @@ pub unsafe fn load_d3d_data9(device: *mut IDirect3DDevice9, callbacks: interop::
     nmd.d3d_data = native_mod::ModD3DState::Loaded(native_mod::ModD3DData::D3D9(d3dd));
 }
 
-pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::ManagedCallbacks, midx: i32, nmd: &NativeModData) {
-    return; // TODO11: this code is not ready yet
+pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::ManagedCallbacks, midx: i32, nmd: &mut NativeModData) -> bool {
     let mdat = &nmd.mod_data;
+
+    if device.is_null() {
+        write_log_file(&format!("Error, device is null"));
+        return false;
+    }
 
     if let native_mod::ModD3DState::Loaded(_) = nmd.d3d_data {
         // bug, should have been cleared first
@@ -221,25 +227,73 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
             "Error, d3d data for mod {} already loaded",
             nmd.name
         ));
-        return;
+        return false;
     }
 
-    let decl_size = mdat.numbers.decl_size_bytes;
-    // vertex declaration construct copies the vec bytes, so just keep a temp vector reference for the data
-    let (decl_data, _decl_vec) = if decl_size > 0 {
-        let mut decl_vec: Vec<u8> = Vec::with_capacity(decl_size as usize);
-        let decl_data: *mut u8 = decl_vec.as_mut_ptr();
-        (decl_data, Some(decl_vec))
-    } else {
-        (null_mut(), None)
+    // extract the vertex layout pointer and d3d data to finish the load
+    let (vlayout,d3d_data) =
+        if let ModD3DState::Partial(native_mod::ModD3DData::D3D11(ref mut d3dd)) = nmd.d3d_data {
+            if d3dd.vlayout.is_null() {
+                write_log_file(&format!(
+                    "Error, d3d11 data for mod {} is missing vertex layout",
+                    nmd.name
+                ));
+                return false;
+            }
+            (d3dd.vlayout,d3dd)
+        } else {
+            write_log_file(&format!("Error, d3d11 data for mod {} has not been partially loaded", nmd.name));
+            return false;
+        };
+    // lookup actual layout data in render state using the pointer
+    let vlayout = {
+        let layout_u64 = vlayout as u64;
+        let res = GLOBAL_STATE.dx11rs.input_layouts_by_ptr
+            .as_ref().map(|hm| hm.get(&layout_u64)).flatten();
+        match res {
+            None => {
+                write_log_file(&format!(
+                    "Error, d3d11 data for mod {} has vertex layout but it is not in the render state",
+                    nmd.name
+                ));
+                return false;
+            },
+            Some(vf) => vf,
+        }
     };
 
-    let vb_size = (*mdat).numbers.prim_count * 3 * (*mdat).numbers.vert_size_bytes;
-    let mut vb_data: *mut u8 = null_mut();
+    // in dx11 I pass the layout as an _in_ parameter containing the layout.  Contrast with
+    // dx9 where the declaration is an _out_ parameter and receives the declaration from managed
+    // code.
+
+    // clone data because we need a mut pointer to pass it
+    let mut layout_data: Vec<_> = vlayout.layout.clone();
+    let decl_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * layout_data.len();
+    let decl_data = layout_data.as_mut_ptr();
+
+    // set vb size and create scratch buffer
+    let vert_size = vlayout.size as i32;
+    if vert_size == 0 {
+        // gawd get this far and size is zero??
+        write_log_file(&format!("Error, vertex size is zero for mod {}", nmd.name));
+        return false;
+    }
+    let vb_size = (*mdat).numbers.prim_count * 3 * vert_size;
+    let mut vb_data = vec![0u8; vb_size as usize];
 
     // index buffers not currently supported
     let ib_size = 0; //mdat->indexCount * mdat->indexElemSizeBytes;
     let ib_data: *mut u8 = null_mut();
+
+    // fill all data buckets with managed code.
+    let ret = (callbacks.FillModData)(
+        midx, decl_data as *mut u8, decl_size as i32, vb_data.as_mut_ptr() , vb_size, ib_data, ib_size,
+    );
+
+    if ret != 0 {
+        write_log_file(&format!("failed to fill mod data: {}", ret));
+        return false;
+    }
 
     // create vb
     let mut out_vb: *mut ID3D11Buffer = null_mut();
@@ -253,7 +307,7 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         StructureByteStride: 0,
     };
     let mut vb_init_data = D3D11_SUBRESOURCE_DATA {
-        pSysMem: null_mut(),
+        pSysMem: vb_data.as_mut_ptr() as *const c_void,
         SysMemPitch: 0,
         SysMemSlicePitch: 0,
     };
@@ -263,11 +317,21 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
             "failed to create vertex buffer for mod {}: HR {:x}",
             nmd.name, hr
         ));
-        return;
+        return false;
     }
 
-    let vb = *out_vb;
+    d3d_data.vb = *out_vb;
+    // TODO11
+    //d3d_data.textures
 
+    write_log_file(&format!(
+        "allocated vb for mod {}, idx {}: {:?}", nmd.name,
+        midx,
+        mdat.numbers
+    ));
+
+    nmd.d3d_data.set_loaded();
+    true
 }
 
 /// Set up mod data structures.  Should be called after the managed code is done loading
@@ -529,8 +593,10 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                         load_d3d_data9(device, callbacks, nmod.midx, nmod);
                         cnt += 1;
                     }
-                    DevicePointer::D3D11(_) => {
-                        //load_d3d11_data(device, callbacks, nmod.midx, nmod);
+                    DevicePointer::D3D11(device) => {
+                        if load_d3d_data11(device, callbacks, nmod.midx, nmod) {
+                            cnt += 1;
+                        }
                     },
                 }
             }

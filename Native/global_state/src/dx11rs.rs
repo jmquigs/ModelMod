@@ -1,21 +1,9 @@
 use fnv::FnvHashMap;
-use winapi::um::d3d11::{D3D11_INPUT_CLASSIFICATION, ID3D11InputLayout};
-use winapi::shared::dxgiformat::DXGI_FORMAT;
-use winapi::shared::minwindef::UINT;
+use winapi::um::d3d11::{ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC};
 
-#[derive(Debug)]
-pub struct InputLayoutElem {
-    pub name: String,
-    pub index: UINT,
-    pub format: DXGI_FORMAT,
-    pub offset: UINT,
-    pub slot: UINT,
-    pub slot_class: D3D11_INPUT_CLASSIFICATION,
-}
 
-#[derive(Debug)]
 pub struct VertexFormat {
-    pub layout: Vec<InputLayoutElem>,
+    pub layout: Vec<D3D11_INPUT_ELEMENT_DESC>,
     pub size: u32,
 }
 

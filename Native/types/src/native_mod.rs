@@ -8,6 +8,22 @@ pub enum ModD3DState {
     Partial(ModD3DData),
     Loaded(ModD3DData)
 }
+
+impl ModD3DState {
+    /// Change the state from partial to loaded.  If the current state is not partial, this is a no-op.
+    pub fn set_loaded(&mut self) {
+        use crate::native_mod::ModD3DState::Unloaded;
+        use crate::native_mod::ModD3DState::Loaded;
+
+        if let ModD3DState::Partial(_d3d_data) = self {
+            let prev = std::mem::replace(self, Unloaded);
+            if let ModD3DState::Partial(d3d_data) = prev {
+                *self = Loaded(d3d_data);
+            }
+        }
+    }
+}
+
 pub struct NativeModData {
     pub midx: i32,
     pub mod_data: ModData,

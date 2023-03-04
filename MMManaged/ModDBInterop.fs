@@ -704,11 +704,51 @@ module ModDBInterop =
         (destDeclData:nativeptr<byte>) (destDeclSize:int)
         (destVbData:nativeptr<byte>) (destVbSize:int)
         (destIbData:nativeptr<byte>) (destIbSize:int) =
-            fillModDataInternalHelper
-                modIndex
-                (getBinaryWriter destDeclData destDeclSize) destDeclSize
-                (getBinaryWriter destVbData destVbSize) destVbSize
-                (getBinaryWriter destIbData destIbSize) destIbSize
+            match State.Context with
+            | "d3d9" ->
+                fillModDataInternalHelper
+                    modIndex
+                    (getBinaryWriter destDeclData destDeclSize) destDeclSize
+                    (getBinaryWriter destVbData destVbSize) destVbSize
+                    (getBinaryWriter destIbData destIbSize) destIbSize
+            | "d3d11" ->
+                // This is WIP
+
+                // SDX InputElement's marshalling code is internal to the that lib, so I'll just make a binary reader
+                // and do it myself
+                try
+                    // "use" the stream, but the docs say disposal isn't necessary (I guess it doesn't take ownership of the memory,
+                    // which makes sense since it has no idea how to free it)
+                    use stream = new UnmanagedMemoryStream(destDeclData, int64 destDeclSize, int64 destDeclSize, FileAccess.Read)
+                    use br = new BinaryReader(stream)
+
+                    let els = new ResizeArray<SharpDX.Direct3D11.InputElement>()
+
+                    while stream.Position < int64 destDeclSize do
+                        let semName = br.ReadUInt64()
+                        let semIndex = br.ReadUInt32()
+                        let format = br.ReadUInt32()
+                        let slot = br.ReadUInt32()
+                        let offset = br.ReadUInt32()
+                        let slotclass = br.ReadUInt32()
+                        let stepRate = br.ReadUInt32()
+
+                        let name = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(nativeint semName)
+                        let format = enum<SharpDX.DXGI.Format>(int format)
+                        let slotclass = enum<SharpDX.Direct3D11.InputClassification>(int slotclass)
+
+                        let sxel = new SharpDX.Direct3D11.InputElement(name, int semIndex, format, int offset, int slot, slotclass, int stepRate)
+                        log.Info "  VEl: %A %A %A %A" sxel.SemanticName sxel.SemanticIndex sxel.AlignedByteOffset sxel.Format
+                        els.Add(sxel)
+                    log.Info "Read %d vertex elements" els.Count
+                with
+                | e -> log.Error "Exception while filling data: %A" e
+
+                log.Error "Fill not implemented for dx11"
+                InteropTypes.GenericFailureCode
+            | _ ->
+                log.Error "Fill not implemented for context: %A" State.Context
+                InteropTypes.GenericFailureCode
 
     // For FSI testing...
     let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) =

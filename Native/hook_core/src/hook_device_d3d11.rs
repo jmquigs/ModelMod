@@ -26,7 +26,6 @@ use shared_dx::types_dx11::HookDirect3D11Device;
 use shared_dx::error::*;
 use device_state::dev_state;
 use global_state::new_fnv_map;
-use global_state::dx11rs::InputLayoutElem;
 use global_state::dx11rs::{VertexFormat};
 
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
@@ -336,38 +335,37 @@ pub fn get_format_size_bytes(format:&DXGI_FORMAT) -> Option<u32> {
     Some(size)
 }
 
-fn vertex_format_from_layout(layout: Vec<InputLayoutElem>) -> VertexFormat {
+fn vertex_format_from_layout(layout: Vec<D3D11_INPUT_ELEMENT_DESC>) -> VertexFormat {
     use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
     use winapi::um::d3d11::D3D11_INPUT_PER_VERTEX_DATA;
     // try to compute size, but if any offsets are D3D11_APPEND_ALIGNED_ELEMENT, give up
     // because I don't want to write the code to interpret that right now.
 
     // sort by offset, then size is highest offset + size of format for it
-    let mut layout = layout;
-    layout.sort_by_key( |el| el.offset);
     let size = {
+        let mut layout = layout.clone();
+        layout.sort_by_key( |el| el.AlignedByteOffset);
+
         let append_aligned_found =
-            layout.iter().find(|x| x.offset == D3D11_APPEND_ALIGNED_ELEMENT);
+            layout.iter().find(|x| x.AlignedByteOffset == D3D11_APPEND_ALIGNED_ELEMENT);
         if append_aligned_found.is_some() {
-            write_log_file(&format!("WARNING: vertex has dynamic size, not computed: {:?}",
-                layout));
+            write_log_file(&format!("WARNING: vertex has dynamic size, not computed"));
             0
         } else {
             let high_el = layout.iter().rev().find(|el|
-                el.format != DXGI_FORMAT_UNKNOWN && el.slot_class == D3D11_INPUT_PER_VERTEX_DATA);
+                el.Format != DXGI_FORMAT_UNKNOWN && el.InputSlotClass == D3D11_INPUT_PER_VERTEX_DATA);
             match high_el {
                 Some(el) => {
-                    let fmtsize = get_format_size_bytes(&el.format)
+                    let fmtsize = get_format_size_bytes(&el.Format)
                         .unwrap_or_else(|| {
-                            write_log_file(&format!("ERROR: no size for format: {:?}", el.format));
+                            write_log_file(&format!("ERROR: no size for format: {:?}", el.Format));
                             0
                         });
-                    el.offset + fmtsize
+                    el.AlignedByteOffset + fmtsize
                 },
                 None => {
                     write_log_file(
-                        &format!("ERROR: can't compute vertex size, no high offset found: {:?}",
-                        layout));
+                        &format!("ERROR: can't compute vertex size, no high offset found"));
                     0
                 }
             }
@@ -398,21 +396,14 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     // ignore layouts that don't have "POSITION" (i.e. only want vertex layout)
     let mut has_position = false;
 
-    let mut elements:Vec<InputLayoutElem> = Vec::new();
+    let mut elements:Vec<D3D11_INPUT_ELEMENT_DESC> = Vec::new();
     for i in 0..NumElements {
         let p = *pInputElementDescs.offset(i as isize);
         let name =  CStr::from_ptr(p.SemanticName).to_string_lossy().to_ascii_lowercase();
         if name.starts_with("position") { // hopefully these idents aren't localized?
             has_position = true;
         }
-        elements.push(InputLayoutElem {
-            name,
-            index: p.SemanticIndex,
-            format: p.Format,
-            offset: p.AlignedByteOffset,
-            slot: p.InputSlot,
-            slot_class: p.InputSlotClass
-        });
+        elements.push(p);
     }
 
     let res = (hook_device.real_create_input_layout)(

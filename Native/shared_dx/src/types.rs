@@ -69,7 +69,6 @@ impl DevicePointer {
         match self {
             DevicePointer::D3D9(d3d9) => *d3d9 as u64,
             DevicePointer::D3D11(d3d11) => *d3d11 as u64,
-            _ => 0,
         }
     }
 }
