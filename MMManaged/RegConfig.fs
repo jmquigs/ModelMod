@@ -1,4 +1,4 @@
-﻿// ModelMod: 3d data snapshotting & substitution program.
+// ModelMod: 3d data snapshotting & substitution program.
 // Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
@@ -329,8 +329,17 @@ module RegConfig =
         let conf = 
             // Search all profiles for a subkey that has the exe as its ExePath
             let targetProfile = findProfilePath exePath
-
-            let runConfig = 
+            let targetProfile =
+                // may need to handle windows "object directory" prefix
+                let funkyPrefix = @"\\?\"
+                match targetProfile with
+                | Some(p) -> targetProfile
+                | None when exePath.StartsWith(funkyPrefix) ->
+                    let ep = exePath.Replace(funkyPrefix, "")
+                    log.Warn "exePath contains %A prefix, trying without it: %A" funkyPrefix ep
+                    // try again without the windows \\? prefix
+                    findProfilePath ep
+                | None -> None
                 match targetProfile with
                 | None -> 
                     let pRoot = regLoc.Hive.Name @@ regLoc.ProfRoot
