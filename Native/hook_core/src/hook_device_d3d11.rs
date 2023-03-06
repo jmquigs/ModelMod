@@ -144,7 +144,12 @@ pub extern "system" fn D3D11CreateDeviceAndSwapChain(
             let create_fn:D3D11CreateDeviceAndSwapChainFN = std::mem::transmute(fptr);
             let res = create_fn(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
                 pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
-            // TODO: call init_d3d when that code is finished
+            if res == 0 && ppImmediateContext != null_mut() {
+                match init_d3d11( (*ppDevice), (*ppSwapChain), (*ppImmediateContext)) {
+                    Ok(_) => {},
+                    Err(e) => { write_log_file(&format!("Error, init_d3d11 failed: {:?}", e))}
+                }
+            }
             res
         }
         Err(x) => {

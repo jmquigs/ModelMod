@@ -382,8 +382,9 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {}",
-            mod_name, parent_mods, (*mdat).numbers.mod_type, prims, verts));
+        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {} (ref prims {}, ref verts {})",
+            mod_name, parent_mods, (*mdat).numbers.mod_type, prims, verts,
+            (*mdat).numbers.ref_prim_count, (*mdat).numbers.ref_vert_count));
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
             && mod_type != interop::ModType::GPUAdditive as i32

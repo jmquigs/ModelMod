@@ -295,6 +295,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                             nmod.d3d_data = ModD3DState::Partial(
                                 ModD3DData::D3D11(ModD3DData11::with_layout(il)));
                             write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                            //write_log_file(&format!("current in layout is: {}", il as u64));
                         }
                     }
                 }
@@ -307,6 +308,19 @@ pub unsafe extern "system" fn hook_draw_indexed(
     // do "per frame" operations this often since I don't have any idea of when the frame
     // ends in this API right now
     if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
+        // let vinfo = compute_prim_vert_count(IndexCount, &GLOBAL_STATE.dx11rs);
+        // write_log_file(&format!("  last vinfo: {:?}", vinfo));
+
+        // let cil = GLOBAL_STATE.dx11rs.current_input_layout as u64;
+        // GLOBAL_STATE.dx11rs.input_layouts_by_ptr.as_ref()
+        //     .and_then(|hm| {
+        //         hm.get(&cil)
+        //     })
+        //     .and_then(|vf| {
+        //         write_log_file(&format!("  last layout vertex: {}", vf));
+        //         Some(())
+        //     });
+
         draw_periodic();
     }
 
