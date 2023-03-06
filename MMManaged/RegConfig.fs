@@ -340,6 +340,7 @@ module RegConfig =
                     // try again without the windows \\? prefix
                     findProfilePath ep
                 | None -> None
+            let runConfig =
                 match targetProfile with
                 | None -> 
                     let pRoot = regLoc.Hive.Name @@ regLoc.ProfRoot
