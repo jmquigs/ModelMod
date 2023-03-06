@@ -11,7 +11,7 @@ pub struct VertexFormat {
 
 impl Display for VertexFormat {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "VertexFormat { layout: [")?;
+        write!(f, "VertexFormat {{ layout: [")?;
         for i in 0..self.layout.len() {
             let bytename = unsafe { CStr::from_ptr(self.layout[i].SemanticName) }.to_str();
 
@@ -20,7 +20,7 @@ impl Display for VertexFormat {
                 write!(f, ", ")?;
             }
         }
-        write!(f, "], size: {} }", self.size)
+        write!(f, "], size: {} }}", self.size)
     }
 }
 
