@@ -202,7 +202,7 @@ module ModDBInterop =
     /// Get the MeshRel mod at the specified index.
     let private getMeshRelationMod i =
         let moddb = State.Data.Moddb
-        let meshrel = List.nth (moddb.MeshRelations) i
+        let meshrel = List.item i (moddb.MeshRelations)
         let refm = meshrel.RefMesh
         let modm = meshrel.ModMesh
 
@@ -277,7 +277,7 @@ module ModDBInterop =
                     getMeshRelationMod n
                 | n when n >= moddb.MeshRelations.Length ->
                     let delIdx = (n - moddb.MeshRelations.Length)
-                    List.nth moddb.DeletionMods delIdx
+                    List.item delIdx moddb.DeletionMods 
                 | n -> failwithf "invalid mod index: %A" i
 
             //log.Info "Returning mod %A for index %A" ret i
@@ -495,7 +495,7 @@ module ModDBInterop =
                 then failwithf "unsupported mod type: %d" md.ModType
 
             // grab more stuff that we'll need
-            let meshrel = List.nth (moddb.MeshRelations) modIndex
+            let meshrel = List.item modIndex (moddb.MeshRelations) 
             let refm = meshrel.RefMesh
             let modm = meshrel.ModMesh
             let vertRels = meshrel.VertRelations

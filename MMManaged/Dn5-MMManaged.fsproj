@@ -1,11 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
     <OutputType>Library</OutputType>
     <AssemblyName>MMManaged</AssemblyName>
   </PropertyGroup>
-
   <ItemGroup>
     <Compile Include="Yaml.fs" />
     <Compile Include="Logging.fs" />
@@ -25,11 +24,9 @@
     <Compile Include="Snapshot.fs" />
     <Compile Include="Interop.fs" />
   </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
   </ItemGroup>
-
   <ItemGroup>
     <Reference Include="MonoGame.Framework">
       <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
@@ -44,5 +41,5 @@
       <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
     </Reference>
   </ItemGroup>
-
+  <Import Project="..\.paket\Paket.Restore.targets" />
 </Project>

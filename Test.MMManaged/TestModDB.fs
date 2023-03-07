@@ -34,7 +34,7 @@ let ``ModDB: load mod db``() =
 
     // check mod
     let () =
-        let mmod = List.nth mdb.Mods 0
+        let mmod = List.item 0 mdb.Mods
         let mref = List.head mdb.References
         let refMesh = mref.Mesh
 
@@ -54,7 +54,7 @@ let ``ModDB: load mod db``() =
 
     // check deletion mod
     let () =
-        let dmod = List.nth mdb.Mods 1
+        let dmod = List.item 1 mdb.Mods
         let delGeometry = [ { PrimCount = 100; VertCount = 200 }; { PrimCount = 150; VertCount = 300 }; ]
         let attributes = {
             DeletedGeometry = delGeometry
