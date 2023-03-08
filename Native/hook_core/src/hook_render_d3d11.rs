@@ -6,7 +6,9 @@ use shared_dx::types::{HookDeviceState, HookD3D11State, DevicePointer};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::write_log_file;
 use types::d3ddata::ModD3DData11;
-use types::native_mod::{ModD3DData, ModD3DState};
+use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
+use winapi::ctypes::c_void;
+use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN};
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::unknwnbase::IUnknown;
@@ -242,17 +244,9 @@ pub unsafe extern "system" fn hook_draw_indexed(
     };
     GLOBAL_STATE.in_dip = true;
 
-
-    (hook_context.real_draw_indexed)(
-        THIS,
-        IndexCount,
-        StartIndexLocation,
-        BaseVertexLocation,
-    );
-
     GLOBAL_STATE.metrics.dip_calls += 1;
 
-    match compute_prim_vert_count(IndexCount, &GLOBAL_STATE.dx11rs) {
+    let draw_input = match compute_prim_vert_count(IndexCount, &GLOBAL_STATE.dx11rs) {
         Some((prim_count,vert_count)) if vert_count > 2  => {
             // if primitive tracking is enabled, log just the primcount,vertcount if we were able
             // to compute it, otherwise log whatever we have
@@ -269,40 +263,55 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
             // if there is a matching mod, render it
             let mod_status = check_and_render_mod(prim_count, vert_count,
-                |_d3dd,nmod| {
-                    // this doesn't log ATM because there is no mod data loaded, but I can tell
-                    // that it's finding a mod because its logging about how it wants to
-                    // load deferred mods but can't due to missing device
-                    if GLOBAL_STATE.metrics.dip_calls % 1000 == 0 {
-                        write_log_file(&format!("want to render mod {}", nmod.name));
+                |d3dd,nmod| {
+                    let override_texture = null_mut();
+                    let override_stage = 0 as u32;
+                    if let ModD3DData::D3D11(d3d11d) = d3dd {
+                        render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, override_stage, (prim_count,vert_count))
+                    } else {
+                        false
                     }
-                    false
-                    // render_mod_d3d9(THIS, d3dd, nmod,
-                    //     override_texture, sel_stage,
-                    //     (primCount,NumVertices))
                 });
 
-            if let CheckRenderModResult::NotRenderedButLoadRequested(name) = mod_status {
-                let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
-                if let Some(nmod) = nmod {
-                    // need to store current layout in the d3d data
-                    if let ModD3DState::Unloaded =  nmod.d3d_data {
-                        let il = GLOBAL_STATE.dx11rs.current_input_layout;
-                        if !il.is_null() {
-                            // we're officially keeping an extra reference to the input layout now
-                            // so note that.
-                            (*il).AddRef();
-                            nmod.d3d_data = ModD3DState::Partial(
-                                ModD3DData::D3D11(ModD3DData11::with_layout(il)));
-                            write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
-                            //write_log_file(&format!("current in layout is: {}", il as u64));
+            use types::interop::ModType::GPUAdditive;
+            let draw_input = match mod_status {
+                CheckRenderModResult::NotRendered => true,
+                CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
+                CheckRenderModResult::Rendered(_) => false, // non-additive mod was rendered
+                CheckRenderModResult::NotRenderedButLoadRequested(name) => {
+                    // setup data to begin mod load
+                    let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
+                    if let Some(nmod) = nmod {
+                        // need to store current input layout in the d3d data
+                        if let ModD3DState::Unloaded =  nmod.d3d_data {
+                            let il = GLOBAL_STATE.dx11rs.current_input_layout;
+                            if !il.is_null() {
+                                // we're officially keeping an extra reference to the input layout now
+                                // so note that.
+                                (*il).AddRef();
+                                nmod.d3d_data = ModD3DState::Partial(
+                                    ModD3DData::D3D11(ModD3DData11::with_layout(il)));
+                                write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                                //write_log_file(&format!("current in layout is: {}", il as u64));
+                            }
                         }
                     }
-                }
-            }
+                    true
+                },
+            };
 
+            draw_input
         },
-        _ => {}
+        _ => true
+    };
+
+    if draw_input {
+        (hook_context.real_draw_indexed)(
+            THIS,
+            IndexCount,
+            StartIndexLocation,
+            BaseVertexLocation,
+        );
     }
 
     // do "per frame" operations this often since I don't have any idea of when the frame
@@ -347,65 +356,127 @@ fn draw_periodic() {
     frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
         write_log_file(&format!("init clr failed: {:?}", e)));
 
-    with_dev_ptr(|deviceptr| frame_load_mods(deviceptr));
+    with_dev_ptr(|deviceptr| {
+        frame_load_mods(deviceptr);
+    });
 }
 
+unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut HookDirect3D11Context,
+     d3dd:&ModD3DData11, _nmod:&NativeModData,
+    _override_texture: *mut c_void, _override_stage:u32,
+    _primVerts:(u32,u32)) -> bool {
+    if context.is_null() {
+        return false;
+    }
+
+    // save current device index buffer into local variables
+    let mut curr_ibuffer: *mut ID3D11Buffer = null_mut();
+    let mut curr_ibuffer_offset: UINT = 0;
+    let mut curr_ibuffer_format: DXGI_FORMAT = DXGI_FORMAT_UNKNOWN;
+    (*context).IAGetIndexBuffer(&mut curr_ibuffer, &
+        mut curr_ibuffer_format, &mut curr_ibuffer_offset);
+
+    // save current device vertex buffer into local variables
+    const MAX_VBUFFERS: usize = 16;
+    let mut curr_vbuffers: [*mut ID3D11Buffer; MAX_VBUFFERS] = [null_mut(); MAX_VBUFFERS];
+    let mut curr_vbuffer_strides: [UINT; MAX_VBUFFERS] = [0; MAX_VBUFFERS];
+    let mut curr_vbuffer_offsets: [UINT; MAX_VBUFFERS] = [0; MAX_VBUFFERS];
+    (*context).IAGetVertexBuffers(0, MAX_VBUFFERS as u32,
+        curr_vbuffers.as_mut_ptr(),
+        curr_vbuffer_strides.as_mut_ptr(),
+        curr_vbuffer_offsets.as_mut_ptr());
+
+    // set the mod vertex buffer
+    let vbuffer = d3dd.vb;
+    let vbuffer_stride = [d3dd.vert_size as UINT];
+    let vbuffer_offset = [0 as UINT];
+
+    // call direct to avoid entering our hook function
+    (hook_context.real_ia_set_vertex_buffers)(
+        context,
+        0,
+        1,
+        &vbuffer,
+        vbuffer_stride.as_ptr(),
+        vbuffer_offset.as_ptr());
+
+    // draw
+    (*context).Draw(d3dd.vert_count as UINT, 0);
+
+    // restore index buffer
+    (*context).IASetIndexBuffer(curr_ibuffer, curr_ibuffer_format, curr_ibuffer_offset);
+
+    // restore vertex buffer
+    // find first null vbuffer to get actual number of buffers to restore
+    let first_null = curr_vbuffers.iter()
+        .position(|&x| x.is_null()).unwrap_or(0);
+
+    (hook_context.real_ia_set_vertex_buffers)(
+        context,
+        0,
+        first_null as UINT,
+        curr_vbuffers.as_ptr(),
+        curr_vbuffer_strides.as_ptr(),
+        curr_vbuffer_offsets.as_ptr());
+
+    true
+}
 //==============================================================================
 // Unimplemented draw function hooks
 
-pub unsafe extern "system" fn hook_draw_instanced(
-    THIS: *mut ID3D11DeviceContext,
-    VertexCountPerInstance: UINT,
-    InstanceCount: UINT,
-    StartVertexLocation: UINT,
-    StartInstanceLocation: UINT,
-) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
+// pub unsafe extern "system" fn hook_draw_instanced(
+//     THIS: *mut ID3D11DeviceContext,
+//     VertexCountPerInstance: UINT,
+//     InstanceCount: UINT,
+//     StartVertexLocation: UINT,
+//     StartInstanceLocation: UINT,
+// ) -> () {
+//     let hook_context = match get_hook_context() {
+//         Ok(ctx) => ctx,
+//         Err(_) => return,
+//     };
 
-    // write_log_file("hook_draw_instanced called");
+//     // write_log_file("hook_draw_instanced called");
 
-    return (hook_context.real_draw_instanced)(
-        THIS,
-        VertexCountPerInstance,
-        InstanceCount,
-        StartVertexLocation,
-        StartInstanceLocation,
-    );
-}
+//     return (hook_context.real_draw_instanced)(
+//         THIS,
+//         VertexCountPerInstance,
+//         InstanceCount,
+//         StartVertexLocation,
+//         StartInstanceLocation,
+//     );
+// }
 
-pub unsafe extern "system" fn hook_draw(
-    THIS: *mut ID3D11DeviceContext,
-    VertexCount: UINT,
-    StartVertexLocation: UINT,
-) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
+// pub unsafe extern "system" fn hook_draw(
+//     THIS: *mut ID3D11DeviceContext,
+//     VertexCount: UINT,
+//     StartVertexLocation: UINT,
+// ) -> () {
+//     let hook_context = match get_hook_context() {
+//         Ok(ctx) => ctx,
+//         Err(_) => return,
+//     };
 
-    // write_log_file("hook_draw called");
+//     // write_log_file("hook_draw called");
 
-    return (hook_context.real_draw)(
-        THIS,
-        VertexCount,
-        StartVertexLocation,
-    );
-}
+//     return (hook_context.real_draw)(
+//         THIS,
+//         VertexCount,
+//         StartVertexLocation,
+//     );
+// }
 
-pub unsafe extern "system" fn hook_draw_auto (
-    THIS: *mut ID3D11DeviceContext,
-) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
+// pub unsafe extern "system" fn hook_draw_auto (
+//     THIS: *mut ID3D11DeviceContext,
+// ) -> () {
+//     let hook_context = match get_hook_context() {
+//         Ok(ctx) => ctx,
+//         Err(_) => return,
+//     };
 
-    // write_log_file("hook_draw_auto called");
+//     // write_log_file("hook_draw_auto called");
 
-    return (hook_context.real_draw_auto)(
-        THIS,
-    );
-}
+//     return (hook_context.real_draw_auto)(
+//         THIS,
+//     );
+// }

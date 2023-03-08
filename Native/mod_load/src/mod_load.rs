@@ -230,6 +230,8 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         return false;
     }
 
+    //write_log_file(&format!("loading mod data on device {:x}", device as u64));
+
     // extract the vertex layout pointer and d3d data to finish the load
     let (vlayout,d3d_data) =
         if let ModD3DState::Partial(native_mod::ModD3DData::D3D11(ref mut d3dd)) = nmd.d3d_data {
@@ -272,13 +274,21 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     let decl_data = layout_data.as_mut_ptr();
 
     // set vb size and create scratch buffer
-    let vert_size = vlayout.size as i32;
-    if vert_size == 0 {
+    let vert_size = vlayout.size;
+    if vert_size <= 0 {
         // gawd get this far and size is zero??
-        write_log_file(&format!("Error, vertex size is zero for mod {}", nmd.name));
+        write_log_file(&format!("Error, vertex size is invalid for mod {}: {}", nmd.name, vert_size));
         return false;
     }
-    let vb_size = (*mdat).numbers.prim_count * 3 * vert_size;
+    let vert_count = (*mdat).numbers.prim_count * 3;
+    let vert_count =
+        if vert_count <= 0 {
+            write_log_file(&format!("Error, vertex count is invalid for mod {}: {}", nmd.name, vert_count));
+            return false;
+        } else {
+            vert_count as u32
+        };
+    let vb_size = vert_count * vert_size;
     let mut vb_data = vec![0u8; vb_size as usize];
 
     // index buffers not currently supported
@@ -286,8 +296,11 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     let ib_data: *mut u8 = null_mut();
 
     // fill all data buckets with managed code.
+    // not sure why I used signed ints in this interface, but if you are creating a >2GB mod vertex buffer
+    // you've got bigger problems.
+    let i32_vb_size = vb_size as i32;
     let ret = (callbacks.FillModData)(
-        midx, decl_data as *mut u8, decl_size as i32, vb_data.as_mut_ptr() , vb_size, ib_data, ib_size,
+        midx, decl_data as *mut u8, decl_size as i32, vb_data.as_mut_ptr(), i32_vb_size, ib_data, ib_size,
     );
 
     if ret != 0 {
@@ -296,8 +309,6 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     }
 
     // create vb
-    let mut out_vb: *mut ID3D11Buffer = null_mut();
-    let out_vb: *mut *mut ID3D11Buffer = &mut out_vb;
     let mut vb_desc = D3D11_BUFFER_DESC {
         ByteWidth: vb_size as UINT,
         Usage: D3D11_USAGE_DEFAULT,
@@ -307,20 +318,43 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         StructureByteStride: 0,
     };
     let mut vb_init_data = D3D11_SUBRESOURCE_DATA {
-        pSysMem: vb_data.as_mut_ptr() as *const c_void,
+        pSysMem: vb_data.as_ptr() as *const c_void,
         SysMemPitch: 0,
         SysMemSlicePitch: 0,
     };
-    let hr = (*device).CreateBuffer(&mut vb_desc, &mut vb_init_data, out_vb);
+    let mut vertex_buffer = std::ptr::null_mut();
+    let hr = (*device).CreateBuffer(
+        &mut vb_desc, &mut vb_init_data, &mut vertex_buffer);
     if hr != 0 {
         write_log_file(&format!(
             "failed to create vertex buffer for mod {}: HR {:x}",
             nmd.name, hr
         ));
+
+        use winapi::shared::winerror::*;
+        if hr == DXGI_ERROR_DEVICE_REMOVED {
+            let dev_removed_reason = (*device).GetDeviceRemovedReason();
+            match dev_removed_reason {
+                DXGI_ERROR_DEVICE_HUNG => write_log_file(&format!("device hung")),
+                DXGI_ERROR_DEVICE_REMOVED => write_log_file(&format!("device removed")),
+                DXGI_ERROR_DEVICE_RESET => write_log_file(&format!("device reset")),
+                DXGI_ERROR_DRIVER_INTERNAL_ERROR => write_log_file(&format!("driver internal error")),
+                DXGI_ERROR_INVALID_CALL => write_log_file(&format!("invalid call")),
+                _ => write_log_file(&format!("unknown device removed reason")),
+            }
+        }
+        // check for E_OUTOFMEMORY
+        else if hr as i64 == 0x8007000e {
+            write_log_file(&format!("out of memory"));
+        }
+
         return false;
     }
 
-    d3d_data.vb = *out_vb;
+    d3d_data.vb = vertex_buffer;
+    d3d_data.vert_size = vert_size as u32;
+    d3d_data.vert_count = vert_count as u32;
+
     // TODO11
     //d3d_data.textures
 

@@ -43,6 +43,8 @@ pub struct ModD3DData11 {
     //pub ib: *mut ID3D11Buffer,
     pub vlayout: *mut ID3D11InputLayout,
     pub textures: [*mut ID3D11Texture2D; 4],
+    pub vert_size:u32,
+    pub vert_count:u32,
 }
 
 impl ModD3DData11 {
@@ -54,6 +56,8 @@ impl ModD3DData11 {
             //ib: null_mut(),
             vlayout: null_mut(),
             textures: [null_mut(); 4],
+            vert_size: 0,
+            vert_count: 0,
         }
     }
     /// Create a new ModD3DData11 with the given layout.  AddRef is not called on the layout.
@@ -65,6 +69,8 @@ impl ModD3DData11 {
             //ib: null_mut(),
             vlayout: layout,
             textures: [null_mut(); 4],
+            vert_size: 0,
+            vert_count: 0,
         }
     }
 
