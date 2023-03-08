@@ -1,6 +1,5 @@
 ﻿module TestModDBInterop
 
-open FsUnit
 open NUnit.Framework
 open System.IO
 open System.Reflection
@@ -9,7 +8,7 @@ open ModelMod
 open ModelMod.CoreTypes
 
 [<Test>]
-// I'm ambivalent about this test.  It would be better to rig up a native test framework and test it 
+// I'm ambivalent about this test.  It would be better to rig up a native test framework and test it
 // from there, to exercise all the interop/marshalling gunk on both sides.
 let ``ModDBInterop: module functions``() =
     RegConfig.initForTest()
@@ -22,21 +21,21 @@ let ``ModDBInterop: module functions``() =
     Assert.IsTrue (datapath <> null, "null data path")
     Assert.AreEqual (Path.GetFullPath(datapath), Path.GetFullPath(Util.TestDataDir), "incorrect data path")
 
-    let () = 
+    let () =
         let ret = ModDBInterop.loadFromDataPath()
         Assert.AreEqual (ret, 0, "load failure")
 
     let mcount = ModDBInterop.getModCount()
     Assert.AreEqual (mcount, 3 , "incorrect mod count")
 
-    [0..2] |> List.iter (fun modidx -> 
+    [0..2] |> List.iter (fun modidx ->
         let mmod = ModDBInterop.getModData(modidx)
         printfn "Mod %A: type %A, pc %A, vc %A" modidx mmod.ModType mmod.PrimCount mmod.VertCount
     )
 
-    let () = 
+    let () =
         let mmod = ModDBInterop.getModData(0) // monolith
-        
+
         Assert.AreEqual (mmod.ModType, (ModDBInterop.modTypeToInt GPUReplacement) , sprintf "incorrect mod type: %A" mmod)
         Assert.AreEqual (mmod.PrimType, 4 , sprintf "incorrect prim type: %A" mmod)
         Assert.AreEqual (mmod.PrimCount, 36 , sprintf "incorrect prim count: %A" mmod)
@@ -52,8 +51,8 @@ let ``ModDBInterop: module functions``() =
         Assert.AreEqual (mmod.Tex2Path, "" , sprintf "incorrect tex2 path: %A" mmod)
         Assert.AreEqual (mmod.Tex3Path, "" , sprintf "incorrect tex3 path: %A" mmod)
 
-    let checkDelMod index pCount vCount = 
-        let mmod = ModDBInterop.getModData(index) 
+    let checkDelMod index pCount vCount =
+        let mmod = ModDBInterop.getModData(index)
         Assert.AreEqual (mmod.ModType, (ModDBInterop.modTypeToInt Deletion) , sprintf "incorrect mod type: %A" mmod)
         Assert.AreEqual (mmod.PrimType, 4 , sprintf "incorrect prim type: %A" mmod)
         Assert.AreEqual (mmod.PrimCount, pCount, sprintf "incorrect prim count, want %A, got %A" pCount mmod.PrimCount)
@@ -74,7 +73,7 @@ let ``ModDBInterop: module functions``() =
     checkDelMod 2 150 300
 
     // out of range mod
-    let () = 
+    let () =
         let mmod = ModDBInterop.getModData(100)
         Assert.AreEqual (mmod, InteropTypes.EmptyModData , "expected empty mod")
 

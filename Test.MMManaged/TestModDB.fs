@@ -1,6 +1,5 @@
 ﻿module TestModDB
 
-open FsUnit
 open NUnit.Framework
 open System.IO
 open System.Reflection
@@ -11,9 +10,9 @@ open ModelMod.CoreTypes
 [<Test>]
 let ``ModDB: load mod db``() =
     let mpath = Path.Combine(Util.TestDataDir, "ModIndex.yaml")
-    let mdb = 
+    let mdb =
         ModDB.loadModDB
-            ({ 
+            ({
                 StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
@@ -70,6 +69,6 @@ let ``ModDB: load mod db``() =
 
     ()
 
-    
-    
+
+
 

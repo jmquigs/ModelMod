@@ -23,6 +23,12 @@ open Microsoft.Xna.Framework
 open CoreTypes
 open InteropTypes
 
+// Abbreviations to make the many match statements below slightly
+// less nutty.
+type MMET = VertexTypes.MMVertexElementType
+type SDXVT = SDXVertexDeclType
+type SDXF = SharpDX.DXGI.Format
+
 /// Utility module with various locking functions, used in asynchronous mod load.
 /// Originally based on code from Expert F#, with some additions.
 module private Locking =
@@ -66,6 +72,8 @@ module private Locking =
 
 /// Provides a ModDB interface to native code.
 module ModDBInterop =
+    open VertexTypes
+
     let private log = Logging.getLogger("ModDBInterop")
 
     /// Initializes the system with a specific modelmod dll path and executable module.  Reads the
@@ -211,7 +219,7 @@ module ModDBInterop =
             | None -> failwith "A vertex declaration must be set here, native code requires it."
             | Some (data,elements) -> elements,data.Length
 
-        let vertSize = MeshUtil.getVertSize declElements
+        let vertSize = MeshUtil.getVertSize declElements // TODO11 don't write this in dx11 unless we have it from a dx11 snap
 
         let modType = modTypeToInt modm.Type
 
@@ -277,7 +285,7 @@ module ModDBInterop =
                     getMeshRelationMod n
                 | n when n >= moddb.MeshRelations.Length ->
                     let delIdx = (n - moddb.MeshRelations.Length)
-                    List.item delIdx moddb.DeletionMods 
+                    List.item delIdx moddb.DeletionMods
                 | n -> failwithf "invalid mod index: %A" i
 
             //log.Info "Returning mod %A for index %A" ret i
@@ -325,30 +333,84 @@ module ModDBInterop =
             bw.Write(w)
 
     let writeF3Vector (v:Vector3) (bw:BinaryWriter) =
+        // TODO: why doesn't this respect State.Data.Conf.GameProfile.ReverseNormals? related to issue #10 ?
         bw.Write(v.X)
         bw.Write(v.Y)
         bw.Write(v.Z)
 
-    /// Helper functions for writing data.
-    module DataWriters = // TODO11 for anything that uses SDXVertexDeclType below
-        let private round (x:float32) = System.Math.Round (float x)
-
+    /// Contains helper functions for writing vertex data based on "raw binary" input - which are exact binary dumps of snapshot
+    /// data.  These are primarily used for debugging but there might be a few mods out there using them (in particular some early
+    /// mods might have just copied the binormals and tangents from the ref mesh, in which case they would have used this.
+    /// Vast majority of mods don't use this.
+    module RawBinaryWriters =
         /// Write a blend index extracted from raw binary data as a 4-byte array.
-        let rbBlendIndex (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            match el.Type with
-            | SDXVertexDeclType.Ubyte4 ->
-                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
+        let rbBlendIndex (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBI() =
+                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
                 let idx = br.ReadBytes(4)
                 bw.Write(idx)
-            | _ -> failwithf "Unsupported type for raw blend index: %A" el.Type
-        /// Write a blend weight extracted from raw binary data as a 4-byte array.
-        let rbBlendWeight (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+
             match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N ->
-                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Ubyte4 -> writeBI()
+                | _ -> failwithf "Unsupported type for raw blend index: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UInt -> writeBI()
+                | _ -> failwithf "Unsupported format for raw blend index: %A" el.Type
+
+        /// Write a blend weight extracted from raw binary data as a 4-byte array.
+        let rbBlendWeight (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBW() =
+                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
                 bw.Write(br.ReadBytes(4))
-            | _ -> failwithf "Unsupported type for raw blend weight: %A" el.Type
+            match el.Type with
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.UByte4N -> writeBW()
+                | _ -> failwithf "Unsupported type for raw blend weight: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeBW()
+                | _ -> failwithf "Unsupported format for raw blend weight: %A" el.Type
+
+        /// Write a normal extracted from raw binary data.
+        let rbNormal (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_unused: int) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeNormal() =
+                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                bw.Write(br.ReadBytes(4))
+            match el.Type with
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.Ubyte4 -> writeNormal()
+                | _ -> failwithf "Unsupported type for raw normal: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeNormal()
+                | _ -> failwithf "Unsupported format for raw normal: %A" el.Type
+
+        /// Write a binormal or tangent vector extracted from raw binary data.
+        let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_unused: int) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBT() =
+                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                bw.Write(br.ReadBytes(4))
+            match el.Type with
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.Ubyte4 -> writeBT()
+                | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeBT()
+                | _ -> failwithf "Unsupported format for raw binormal/tangent: %A" el.Type
+
+    /// Helper functions for writing data.
+    module DataWriters =
+        let private round (x:float32) = System.Math.Round (float x)
 
         /// Write a blend index from the specified mesh as a 4-byte array.
         let private writeMeshBI (mesh:Mesh) (idx:int) (bw:BinaryWriter) =
@@ -382,70 +444,104 @@ module ModDBInterop =
             bw.Write(wgt.W)
 
         /// Write a blend index from the mod mesh.
-        let modmBlendIndex (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+        let modmBlendIndex (_vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBI() = writeMeshBI modm modVertIndex bw
             match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.Ubyte4 -> writeMeshBI modm modVertIndex bw
-            | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.Ubyte4 -> writeBI()
+                | _ -> failwithf "Unsupported type for mod blend index: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeBI()
+                | _ -> failwithf "Unsupported format for mod blend index: %A" el.Type
 
         /// Write a blend index from the ref mesh.
-        let refmBlendIndex (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.Ubyte4 ->
+        let refmBlendIndex (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBI() =
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBI refm refVertIndex bw
-            | _ -> failwithf "Unsupported type for ref blend index: %A" el.Type
+            match el.Type with
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.Ubyte4 -> writeBI()
+                | _ -> failwithf "Unsupported type for ref blend index: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm
+                | SDXF.R8G8B8A8_UInt -> writeBI()
+                | _ -> failwithf "Unsupported format for ref blend index: %A" el.Type
 
         /// Write a blend weight from the mod mesh.
-        let modmBlendWeight (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+        let modmBlendWeight (vertRels:MeshRelation.VertRel[]) (modm:Mesh) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBW() = writeMeshBW modm modVertIndex bw
+            let writeBWF4() = writeMeshBWF4 modm modVertIndex bw
             match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N -> writeMeshBW modm modVertIndex bw
-            | SDXVertexDeclType.Float4 ->
-                writeMeshBWF4 modm modVertIndex bw
-            | _ -> failwithf "Unsupported type for mod blend weight: %A" el.Type
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.UByte4N -> writeBW()
+                | SDXVertexDeclType.Float4 -> writeBWF4()
+                | _ -> failwithf "Unsupported type for mod blend weight: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeBW()
+                | SDXF.R32G32B32A32_Float -> writeBWF4()
+                | _ -> failwithf "Unsupported format for mod blend weight: %A" el.Type
 
         /// Write a blend weight from the ref mesh.
-        let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N ->
+        let refmBlendWeight (vertRels:MeshRelation.VertRel[]) (refm:Mesh) (modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
+            let writeBW() =
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBW refm refVertIndex bw
-            | SDXVertexDeclType.Float4 ->
+            let writeBWF4() =
                 let refVertIndex = vertRels.[modVertIndex].RefPointIdx
                 writeMeshBWF4 refm refVertIndex bw
-            | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
-
+            match el.Type with
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.UByte4N -> writeBW()
+                | SDXVertexDeclType.Float4 -> writeBWF4()
+                | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> writeBW()
+                | SDXF.R32G32B32A32_Float -> writeBWF4()
+                | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
         /// Write a normal from the mod mesh.
-        let modmNormal (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+        let modmNormal (modm:Mesh) (modNrmIndex: int) (_modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
             match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N
-            | SDXVertexDeclType.Ubyte4 ->
-                // convert normal to 4 byte rep
-                let srcNrm = modm.Normals.[modNrmIndex]
-                write4ByteVector srcNrm bw
-            | SDXVertexDeclType.Float3 ->
-                let srcNrm = modm.Normals.[modNrmIndex]
-                writeF3Vector srcNrm bw
-            | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
-
-        /// Write a normal extracted from raw binary data.
-        let rbNormal (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.Ubyte4 ->
-                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
-                bw.Write(br.ReadBytes(4))
-            | _ -> failwithf "Unsupported type for raw normal: %A" el.Type
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.UByte4N
+                | SDXVertexDeclType.Ubyte4 ->
+                    // convert normal to 4 byte rep
+                    let srcNrm = modm.Normals.[modNrmIndex]
+                    write4ByteVector srcNrm bw
+                | SDXVertexDeclType.Float3 ->
+                    let srcNrm = modm.Normals.[modNrmIndex]
+                    writeF3Vector srcNrm bw
+                | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R32G32B32_Float ->
+                    let srcNrm = modm.Normals.[modNrmIndex]
+                    writeF3Vector srcNrm bw
+                | SDXF.R8G8B8A8_UNorm ->
+                    let srcNrm = modm.Normals.[modNrmIndex]
+                    write4ByteVector srcNrm bw
+                | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
 
         /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
-        let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
+        let modmBinormalTangent (modm:Mesh) (modNrmIndex: int) (_modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
             // This isn't the most accurate way to compute these, but its easier than the mathematically correct method, which
             // requires inspecting the triangle and uv coordinates.  Its probably worth implementing that at some point,
             // but this produces good enough results in most cases.
+            // Update: well actually this produces bad results as shader detail increases (see issue #10)
             // see: http://www.geeks3d.com/20130122/normal-mapping-without-precomputed-tangent-space-vectors/
             let srcNrm = modm.Normals.[modNrmIndex]
             let v1 = Vector3.Cross(srcNrm, Vector3(0.f, 0.f, 1.f))
@@ -453,29 +549,55 @@ module ModDBInterop =
             let t = if (v1.Length() > v2.Length()) then v1 else v2
             t.Normalize()
             let vec =
-                if (el.Usage = SDXVertexDeclUsage.Binormal) then
+                if (el.Semantic = MMVertexElemSemantic.Binormal) then
                     let b = Vector3.Cross(srcNrm,t)
                     b.Normalize()
                     b
                 else
                     t
             match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N
-            | SDXVertexDeclType.Ubyte4 ->
-                write4ByteVector vec bw
-            | SDXVertexDeclType.Float3 ->
-                writeF3Vector vec bw
-            | _ -> failwithf "Unsupported type for mod binormal/tangent: %A" el.Type
+            | MMET.DeclType(dt) ->
+                match dt with
+                | SDXVertexDeclType.Color
+                | SDXVertexDeclType.UByte4N
+                | SDXVertexDeclType.Ubyte4 -> write4ByteVector vec bw
+                | SDXVertexDeclType.Float3 -> writeF3Vector vec bw
+                | _ -> failwithf "Unsupported type for mod binormal/tangent: %A" el.Type
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R8G8B8A8_UNorm -> write4ByteVector vec bw
+                | SDXF.R32G32B32_Float -> writeF3Vector vec bw
+                | _ -> failwithf "Unsupported format for mod binormal/tangent: %A" el.Type
 
-        /// Write a binormal or tangent vector extracted from raw binary data.
-        let rbBinormalTangent (binDataLookup:ModDB.BinaryLookupHelper) (vertRels:MeshRelation.VertRel[]) (_: int) (modVertIndex: int) (el:SDXVertexElement) (bw:BinaryWriter) =
-            match el.Type with
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.Ubyte4 ->
-                let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Usage)
-                bw.Write(br.ReadBytes(4))
-            | _ -> failwithf "Unsupported type for raw binormal/tangent: %A" el.Type
+    /// Unmarshal a native array of d3d11 InputElements into an array of MMVertexElement
+    let d3d11LayoutToMMVert (br:BinaryReader) (maxSize:int64) =
+        // SDX InputElement's marshalling code is internal to the that lib, so I'll just make a binary reader
+        // and do it myself
+        let els = new ResizeArray<VertexTypes.MMVertexElement>()
+
+        while br.BaseStream.Position < int64 maxSize do
+            let semName = br.ReadUInt64()
+            let semIndex = br.ReadUInt32()
+            let format = br.ReadUInt32()
+            let slot = br.ReadUInt32()
+            let offset = br.ReadUInt32()
+            let slotclass = br.ReadUInt32()
+            let stepRate = br.ReadUInt32()
+
+            let name = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(nativeint semName)
+            let format = enum<SharpDX.DXGI.Format>(int format)
+            let slotclass = enum<SharpDX.Direct3D11.InputClassification>(int slotclass)
+            if slotclass = SharpDX.Direct3D11.InputClassification.PerVertexData then
+                let sxel = new SharpDX.Direct3D11.InputElement(name, int semIndex, format, int offset, int slot, slotclass, int stepRate)
+                log.Info "  VEl: %A %A %A %A" sxel.SemanticName sxel.SemanticIndex sxel.AlignedByteOffset sxel.Format
+                let mmel = VertexTypes.layoutElToMMEl sxel name
+                els.Add(mmel)
+        log.Info "Read %d vertex elements" els.Count
+        els.ToArray()
+
+    type VertexDecl =
+        WriteD3D9Decl of (BinaryWriter * int)
+        | ReadD3D11Layout of (MMVertexElement [])
 
     /// Fill the render buffers associated with the specified mod.
     // Note: there is a lot of symmetry between this and the snapshot module (essentially they are the same
@@ -483,7 +605,7 @@ module ModDBInterop =
     // unifying them in some way.
     let private fillModDataInternalHelper
         (modIndex:int)
-        (destDeclBw:BinaryWriter) (destDeclSize:int)
+        (destDeclBx:VertexDecl)
         (destVbBw:BinaryWriter) (destVbSize:int)
         (destIbBw:BinaryWriter) (destIbSize:int) =
         try
@@ -495,23 +617,26 @@ module ModDBInterop =
                 then failwithf "unsupported mod type: %d" md.ModType
 
             // grab more stuff that we'll need
-            let meshrel = List.item modIndex (moddb.MeshRelations) 
+            let meshrel = List.item modIndex (moddb.MeshRelations)
             let refm = meshrel.RefMesh
             let modm = meshrel.ModMesh
             let vertRels = meshrel.VertRelations
 
-            // extract vertex declaration
-            let srcDeclData,declElements =
-                match meshrel.GetVertDeclaration() with
-                | None -> failwith "A vertex declaration must be set here, native code requires it."
-                | Some (data,elements) -> data,elements
+            let declElements =
+                match destDeclBx with
+                | WriteD3D9Decl (destDeclBw,destDeclSize) ->
+                    let srcDeclData,declElements =
+                        match meshrel.GetVertDeclaration() with
+                        | None -> failwith "A vertex declaration must be set here, native code requires it."
+                        | Some (data,elements) -> data,elements
+                    // copy declaration data to destination
+                    if (destDeclSize > 0) then
+                        if destDeclSize <> srcDeclData.Length then
+                            failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcDeclData.Length destDeclSize
 
-            // copy declaration data to destination
-            if (destDeclSize > 0) then
-                if destDeclSize <> srcDeclData.Length then
-                    failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcDeclData.Length destDeclSize
-
-                destDeclBw.Write(srcDeclData)
+                        destDeclBw.Write(srcDeclData)
+                    declElements |> List.map (VertexTypes.sdxDeclElementToMMDeclElement) |> Array.ofList
+                | ReadD3D11Layout elements -> elements
 
             // copy index data...someday
             if (destIbSize > 0) then
@@ -541,7 +666,7 @@ module ModDBInterop =
                 let bw = destVbBw
                 // sort vertex elements in offset order ascending, so that we don't have to reposition the memory stream
                 // as we go
-                let declElements = declElements |> List.sortBy (fun el -> el.Offset)
+                let declElements = declElements |> Array.sortBy (fun el -> el.Offset)
 
                 let srcPositions = modm.Positions
                 let srcTex = modm.UVs
@@ -597,8 +722,8 @@ module ModDBInterop =
                                 | None -> failwith "Binary vertex data is required to write blend index,blend weight"
                                 | Some bvd -> bvd
 
-                            let biw = DataWriters.rbBlendIndex binDataLookup vertRels modm
-                            let bww = DataWriters.rbBlendWeight binDataLookup vertRels modm
+                            let biw = RawBinaryWriters.rbBlendIndex binDataLookup vertRels
+                            let bww = RawBinaryWriters.rbBlendWeight binDataLookup vertRels
 
                             biw,bww
                         else
@@ -620,7 +745,7 @@ module ModDBInterop =
                             match refBinDataLookup with
                             | None -> failwith "Binary vertex data is required to write normal"
                             | Some bvd -> bvd
-                        let nrmw = DataWriters.rbNormal binDataLookup vertRels
+                        let nrmw = RawBinaryWriters.rbNormal binDataLookup vertRels
                         nrmw
 
                 let binormalTangentWriter =
@@ -631,66 +756,91 @@ module ModDBInterop =
                             match refBinDataLookup with
                             | None -> failwith "Binary vertex data is required to write binormal"
                             | Some bvd -> bvd
-                        DataWriters.rbBinormalTangent binDataLookup vertRels
+                        RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
                 // Write part of a vertex.  The input element controls which
                 // part is written.
-                let writeElement (v:PTNIndex) (el:SDXVertexElement) =
+                let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
                     let modVertIndex = v.Pos
                     let modNrmIndex = v.Nrm
 
-                    match el.Usage with
-                        | SDXVertexDeclUsage.Position ->
+                    match el.Semantic with
+                        | MMVertexElemSemantic.Position ->
                             match el.Type with
-                            | SDXVertexDeclType.Unused -> ()
-                            | SDXVertexDeclType.Float3 ->
+                            | MMET.Format(f) when f = SDXF.R32G32B32_Float ->
                                 let srcPos = srcPositions.[modVertIndex]
                                 bw.Write(srcPos.X)
                                 bw.Write(srcPos.Y)
                                 bw.Write(srcPos.Z)
+                            | MMET.DeclType(dt) when dt = SDXVT.Float3 ->
+                                let srcPos = srcPositions.[modVertIndex]
+                                bw.Write(srcPos.X)
+                                bw.Write(srcPos.Y)
+                                bw.Write(srcPos.Z)
+                            | MMET.DeclType(dt) when dt = SDXVT.Unused -> ()
                             | _ -> failwithf "Unsupported type for position: %A" el.Type
-                        | SDXVertexDeclUsage.TextureCoordinate ->
+                        | MMVertexElemSemantic.TextureCoordinate ->
                             match el.Type with
-                            | SDXVertexDeclType.Float2 ->
+                            | MMET.DeclType(dt) when dt = SDXVT.Float2 ->
                                 let srcTC = srcTex.[v.Tex]
                                 bw.Write(srcTC.X)
                                 bw.Write(srcTC.Y)
-                            | SDXVertexDeclType.HalfTwo ->
+                            | MMET.DeclType(dt) when dt = SDXVT.HalfTwo ->
                                 let srcTC = srcTex.[v.Tex]
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
                                 bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                            | MMET.Format(f) when f = SDXF.R32G32_Float ->
+                                let srcTC = srcTex.[v.Tex]
+                                bw.Write(srcTC.X)
+                                bw.Write(srcTC.Y)
                             | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
-                        | SDXVertexDeclUsage.Normal -> normalWriter modNrmIndex modVertIndex el bw
-                        | SDXVertexDeclUsage.Binormal
-                        | SDXVertexDeclUsage.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
-                        | SDXVertexDeclUsage.BlendIndices -> blendIndexWriter modVertIndex el bw
-                        | SDXVertexDeclUsage.BlendWeight -> blendWeightWriter modVertIndex el bw
-                        | SDXVertexDeclUsage.Color ->
+                        | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
+                        | MMVertexElemSemantic.Binormal
+                        | MMVertexElemSemantic.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
+                        | MMVertexElemSemantic.BlendIndices -> blendIndexWriter modVertIndex el bw
+                        | MMVertexElemSemantic.BlendWeight -> blendWeightWriter modVertIndex el bw
+                        | MMVertexElemSemantic.Color ->
                             // TODO: if/when snapshot & import/export write this out, will need to populate it here
                             match el.Type with
-                            | SDXVertexDeclType.Color ->
+                            | MMET.DeclType(dt) when dt = SDXVT.Color ->
                                 let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
                                 bw.Write(bytes);
-                            | SDXVertexDeclType.Float4 ->
+                            | MMET.DeclType(dt) when dt = SDXVT.Float4 ->
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                                bw.Write(1.f)
+                            | MMET.Format(f) when f = SDXF.R32G32B32A32_Float ->
                                 bw.Write(1.f)
                                 bw.Write(1.f)
                                 bw.Write(1.f)
                                 bw.Write(1.f)
                             | _ -> failwithf "Unsupported type for Color: %A" el.Type
-                        | _ -> failwithf "Unsupported usage: %A" el.Usage
+                        | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
                 // Write a full vertex to the buffer.
                 let writeVertex (v:PTNIndex) =
+                    let startPos = bw.BaseStream.Position
                     let writeToVert = writeElement v
-                    declElements |> List.iter writeToVert
+                    declElements |> Array.iter (fun el ->
+                        let currPos = bw.BaseStream.Position
+                        let currOffset = currPos - startPos
+                        let elOffset = int64 el.Offset
+                        if elOffset > currOffset then
+                            bw.BaseStream.Seek(elOffset - currOffset, SeekOrigin.Current) |> ignore
+                        writeToVert el
+                    )
                     if (bw.BaseStream.Position % (int64 md.VertSizeBytes) <> 0L) then
-                        failwith "Wrote an insufficient number of bytes for the vertex"
+                        let bytesWrote = bw.BaseStream.Position - startPos
+                        failwithf "Wrote an insufficient number of bytes for the vertex (wrote %A, want %A, possible offset/stride issue)" bytesWrote (md.VertSizeBytes)
 
                 // Write the three triangle verts to the buffer.
                 let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
 
                 // Write all the triangles to the buffer.
                 modm.Triangles |> Array.iter writeTriangle
+
+                log.Info "stream fill complete, curr position: %A" bw.BaseStream.Position
             0
         with
             | e ->
@@ -706,55 +856,38 @@ module ModDBInterop =
         (destIbData:nativeptr<byte>) (destIbSize:int) =
             match State.Context with
             | "d3d9" ->
+                let declArg = WriteD3D9Decl((getBinaryWriter destDeclData destDeclSize), destDeclSize)
                 fillModDataInternalHelper
                     modIndex
-                    (getBinaryWriter destDeclData destDeclSize) destDeclSize
+                    declArg
                     (getBinaryWriter destVbData destVbSize) destVbSize
                     (getBinaryWriter destIbData destIbSize) destIbSize
             | "d3d11" ->
-                // This is WIP
-
-                // SDX InputElement's marshalling code is internal to the that lib, so I'll just make a binary reader
-                // and do it myself
                 try
-                    // "use" the stream, but the docs say disposal isn't necessary (I guess it doesn't take ownership of the memory,
-                    // which makes sense since it has no idea how to free it)
+                    // create vertex element description from declData buffer
+                    // "use" the stream, but the docs say disposal isn't necessary
                     use stream = new UnmanagedMemoryStream(destDeclData, int64 destDeclSize, int64 destDeclSize, FileAccess.Read)
                     use br = new BinaryReader(stream)
-
-                    let els = new ResizeArray<SharpDX.Direct3D11.InputElement>()
-
-                    while stream.Position < int64 destDeclSize do
-                        let semName = br.ReadUInt64()
-                        let semIndex = br.ReadUInt32()
-                        let format = br.ReadUInt32()
-                        let slot = br.ReadUInt32()
-                        let offset = br.ReadUInt32()
-                        let slotclass = br.ReadUInt32()
-                        let stepRate = br.ReadUInt32()
-
-                        let name = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(nativeint semName)
-                        let format = enum<SharpDX.DXGI.Format>(int format)
-                        let slotclass = enum<SharpDX.Direct3D11.InputClassification>(int slotclass)
-
-                        let sxel = new SharpDX.Direct3D11.InputElement(name, int semIndex, format, int offset, int slot, slotclass, int stepRate)
-                        log.Info "  VEl: %A %A %A %A" sxel.SemanticName sxel.SemanticIndex sxel.AlignedByteOffset sxel.Format
-                        els.Add(sxel)
-                    log.Info "Read %d vertex elements" els.Count
+                    let elements = d3d11LayoutToMMVert br (int64 destDeclSize)
+                    let declArg = ReadD3D11Layout(elements)
+                    log.Info "filling d3d11 vertex buffer stream size: %A" destVbSize
+                    fillModDataInternalHelper modIndex declArg
+                        (getBinaryWriter destVbData destVbSize) destVbSize
+                        (getBinaryWriter destIbData destIbSize) destIbSize
                 with
-                | e -> log.Error "Exception while filling data: %A" e
-
-                log.Error "Fill not implemented for dx11"
-                InteropTypes.GenericFailureCode
+                | e ->
+                    log.Error "Exception while filling data: %A" e
+                    InteropTypes.GenericFailureCode
             | _ ->
                 log.Error "Fill not implemented for context: %A" State.Context
                 InteropTypes.GenericFailureCode
 
     // For FSI testing...
     let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) =
+        let declArg = WriteD3D9Decl((new BinaryWriter(new MemoryStream(destDecl))), destDecl.Length)
         fillModDataInternalHelper
             modIndex
-            (new BinaryWriter(new MemoryStream(destDecl))) destDecl.Length
+            declArg
             (new BinaryWriter(new MemoryStream(destVB))) destVB.Length
             (new BinaryWriter(new MemoryStream(destIB))) destIB.Length
 

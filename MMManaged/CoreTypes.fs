@@ -293,3 +293,83 @@ module CoreTypes =
         | MReference of DBReference
         | Mod of DBMod
 
+/// Contains an abstract vertex element type.  DX9 uses a vertex declaration, while DX11 uses a format.
+/// `MMVertexElement` is used to abstract that difference.  Note that the `MMVertexElementType` does
+/// not abstract the type, rather just passes it through.
+/// There are just too many and its not clear how d3d9 types
+/// map into d3d11 types if at all.
+module VertexTypes =
+    // Use a lazy here since this particular log is sometimes initialized before the
+    // native code and thus doesn't output to the native logger
+    let private log = lazy Logging.getLogger("VertexTypes")
+
+    /// The list of semantics modelmod cares about even a little (color not important).
+    type MMVertexElemSemantic =
+        | Position = 0
+        | Normal = 1
+        | TextureCoordinate = 2
+        | BlendWeight = 3
+        | BlendIndices = 4
+        | Binormal = 5
+        | Tangent = 6
+        | Color = 8
+        | Unknown = 9
+
+    type MMVertexElementType =
+        /// Decl types are used in DX9
+        DeclType of SDXVertexDeclType
+        /// Formats are used in DX11
+        | Format of SharpDX.DXGI.Format
+
+    /// Represents an vertex element converted from a d3d9 declaration or d3d11 input element/layout.
+    type MMVertexElement = {
+        Semantic: MMVertexElemSemantic
+        SemanticIndex: int
+        Type: MMVertexElementType
+        Offset: int
+    }
+    let elSemanticNameToDeclSemantic = Map.ofList [
+        "POSITION", MMVertexElemSemantic.Position
+        "BLENDWEIGHT", MMVertexElemSemantic.BlendWeight
+        "BLENDINDICES", MMVertexElemSemantic.BlendIndices
+        "NORMAL", MMVertexElemSemantic.Normal
+        "TEXCOORD", MMVertexElemSemantic.TextureCoordinate
+        "TANGENT", MMVertexElemSemantic.Tangent
+        "BITANGENT", MMVertexElemSemantic.Binormal
+        "BINORMAL", MMVertexElemSemantic.Binormal
+        "COLOR", MMVertexElemSemantic.Color
+    ]
+    let sdxDeclUsageToMMDeclUsage (usage:SDXVertexDeclUsage) =
+        match usage with
+        | SDXVertexDeclUsage.Position -> MMVertexElemSemantic.Position
+        | SDXVertexDeclUsage.Normal -> MMVertexElemSemantic.Normal
+        | SDXVertexDeclUsage.TextureCoordinate -> MMVertexElemSemantic.TextureCoordinate
+        | SDXVertexDeclUsage.BlendWeight -> MMVertexElemSemantic.BlendWeight
+        | SDXVertexDeclUsage.BlendIndices -> MMVertexElemSemantic.BlendIndices
+        | SDXVertexDeclUsage.Binormal -> MMVertexElemSemantic.Binormal
+        | SDXVertexDeclUsage.Tangent -> MMVertexElemSemantic.Tangent
+        | SDXVertexDeclUsage.Color -> MMVertexElemSemantic.Color
+        | _ ->
+            log.Value.Warn "unrecognized usage %A, using UNKNOWN" usage
+            MMVertexElemSemantic.Unknown
+
+    let layoutElToMMEl (el:SharpDX.Direct3D11.InputElement) (elName:string): MMVertexElement =
+        let declUsage =
+            match Map.tryFind elName elSemanticNameToDeclSemantic with
+            | None ->
+                log.Value.Warn "unrecognized semantic %A, using UNKNOWN" elName
+                MMVertexElemSemantic.Unknown
+            | Some(u) -> u
+
+        { MMVertexElement.Semantic = declUsage
+          SemanticIndex = el.SemanticIndex
+          Type = MMVertexElementType.Format(el.Format)
+          Offset = el.AlignedByteOffset
+        }
+
+    let sdxDeclElementToMMDeclElement (el:SDXVertexElement) =
+        { MMVertexElement.Semantic = sdxDeclUsageToMMDeclUsage el.Usage
+          SemanticIndex = int el.UsageIndex
+          Type = MMVertexElementType.DeclType el.Type
+          Offset = int el.Offset
+        }

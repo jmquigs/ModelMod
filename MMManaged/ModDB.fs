@@ -30,6 +30,7 @@ open MeshRelation
 open StartConf
 open CoreTypes
 open InteropTypes
+open VertexTypes
 
 /// Contains the "Mod Database"; functions for reading yaml, mmobj, and other files and storing them in memory.
 module ModDB =
@@ -584,27 +585,36 @@ module ModDB =
         new ModDB(refs,mods,meshRels)
 
     /// Create a map of the elements by usage so that we can quickly look up the offset of a given usage.
-    let createUsageOffsetLookupMap(elements:SDXVertexElement list) = // TODO11 but possibly unused
+    let createUsageOffsetLookupMap(elements:VertexTypes.MMVertexElement []) =
         // ...actually this is an array, because the usage values are really small, and using an array is a bit faster
         // that a mutable dictionary - roughly 33% as measured.  Its almost 10x faster than an immutable dictionary.
         let elements =
             elements
             // filter out unused elements and usageindexes > 0 (they are just repeats)
-            |> List.filter (fun el -> el.Type <> SDXVertexDeclType.Unused && el.UsageIndex = (byte 0))
-        let min = elements |> List.minBy (fun el -> el.Usage)
-        let max = elements |> List.maxBy (fun el -> el.Usage)
+            |> Array.filter (fun el ->
+                match el.Type with
+                | MMVertexElementType.DeclType(dt) ->
+                    dt <> SDXVertexDeclType.Unused && el.SemanticIndex = 0
+                | MMVertexElementType.Format(f) ->
+                    f <> SharpDX.DXGI.Format.Unknown && el.SemanticIndex = 0) // TODO11: no idea if this works
 
-        let minIdx = int min.Usage
-        let maxIdx = int max.Usage
+
+        let min = elements |> Array.minBy (fun el -> el.Semantic)
+        let max = elements |> Array.maxBy (fun el -> el.Semantic)
+
+        let minIdx = int min.Semantic
+        let maxIdx = int max.Semantic
 
         do if (minIdx < 0) then failwith "Invalid minimum index"
 
         let lookupArray:int[] = Array.zeroCreate (maxIdx + 1)
-        let offsetLookup = elements |> List.fold (fun (arr:int[]) el -> arr.[int el.Usage] <- int el.Offset; arr ) lookupArray
+        let offsetLookup =
+            elements |>
+            Array.fold (fun (arr:int[]) el -> arr.[int el.Semantic] <- int el.Offset; arr ) lookupArray
         offsetLookup
 
     /// Faciliates looking up particular types of binary vertex data.
-    type BinaryLookupHelper(bvd:BinaryVertexData,elements:SDXVertexElement list) =
+    type BinaryLookupHelper(bvd:BinaryVertexData,elements:VertexTypes.MMVertexElement []) =
         let ms = new MemoryStream(bvd.Data)
         let br = new BinaryReader(ms)
 
@@ -615,7 +625,7 @@ module ModDB =
         /// Return a reader into the binary data for the given vertex index and usage.
         /// Caller should use the element type to determine how much data to read in what format.
         /// Caller must not dispose or close the reader.
-        member x.BinaryReader(vertIdx:int,usage:SDXVertexDeclUsage) =
+        member x.BinaryReader(vertIdx:int,usage:MMVertexElemSemantic) =
             let offset = (vertIdx * stride) + offsetLookup.[int usage]
             ms.Seek(int64 offset, SeekOrigin.Begin) |> ignore
             br

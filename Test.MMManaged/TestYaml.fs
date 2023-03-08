@@ -1,6 +1,5 @@
 ﻿module TestYaml
 
-open FsUnit
 open NUnit.Framework
 open System.IO
 open System.Reflection
@@ -16,7 +15,7 @@ let loadTestDoc() =
 
 [<Test>]
 let ``Yaml: module functions``() =
-    let checkFails (x:System.Lazy<'a>) (msg:string) = 
+    let checkFails (x:System.Lazy<'a>) (msg:string) =
         try
             x.Value |> ignore
             failwith msg
@@ -55,7 +54,7 @@ let ``Yaml: module functions``() =
     // mapping
     let _ =
         let mapNode = mapNode |> Yaml.getValue "Mapping" |> Yaml.toMapping "a mapping is required"
-        
+
         let s = mapNode |> Yaml.toMapping  "Mapping"
         let aval = s |> Yaml.getValue "a" |> Yaml.toInt
         Assert.AreEqual (aval, 1, sprintf "incorrect value for a: %A" aval)
@@ -64,8 +63,8 @@ let ``Yaml: module functions``() =
 
         checkFails (lazy (mapNode |> Yaml.getValue "Something" |> Yaml.toMapping "a mapping is required")) "should have thrown on Something field"
     ()
-        
-        
 
-    
+
+
+
 

@@ -1,13 +1,12 @@
 ﻿module TestMesh
 
-open FsUnit
 open NUnit.Framework
 open System.IO
 
 open ModelMod
 open ModelMod.CoreTypes
 
-let monolith = 
+let monolith =
     let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
     MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
@@ -48,7 +47,7 @@ let ``Mesh: write``() =
     Assert.AreEqual (monolith.Tex0Path, "", sprintf "incorrect tex0 path: %A" monolith)
 
     // check some stuff textually
-    let checkHasLine (text:string[]) (x:string) = 
+    let checkHasLine (text:string[]) (x:string) =
         let found = text |> Array.tryFind (fun s -> s.Trim() = x.Trim() )
         match found with
         | None -> failwithf "line '%A' not found in text" x

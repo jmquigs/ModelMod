@@ -24,8 +24,8 @@ open CoreTypes
 /// This is stored here so that we don't have to pass it all over the interop barrier, which
 /// would be totally nasty (and is also largely irrelevant to code on that side).
 module State =
-    // log is a function here because otherwise it gets initialized too early and the 
-    // log messages get lost.  Making it lazy is not sufficient.  
+    // log is a function here because otherwise it gets initialized too early and the
+    // log messages get lost.  Making it lazy is not sufficient.
     // TODO: Might need to do this with other modules...
     let private log() = Logging.getLogger("State")
 
@@ -37,7 +37,7 @@ module State =
 
     /// Helper type for finding various directories
     type DirLocator(rootDir:string, conf:RunConfig) =
-        override x.ToString() = 
+        override x.ToString() =
             sprintf "<DirLocator: root %A, conf %A>" rootDir conf
 
         member x.QueryBaseDataDir() =
@@ -61,31 +61,31 @@ module State =
         member x.ExeBaseName
             with get() = Path.GetFileNameWithoutExtension(conf.ExePath.ToLowerInvariant())
         member x.ExeDataDir
-            with get() = 
+            with get() =
                 let dd = Path.Combine(x.BaseDataDir,x.ExeBaseName)
                 let gameProfDP = conf.GameProfile.DataPathName
 
                 let dirChecks = [
                     fun () -> if Directory.Exists(dd) then Some(dd) else None
                     fun () -> if gameProfDP <> "" && Path.IsPathRooted(gameProfDP) && Directory.Exists(gameProfDP) then Some(gameProfDP) else None
-                    fun () -> 
-                        if gameProfDP <> "" then 
+                    fun () ->
+                        if gameProfDP <> "" then
                             let bdSub = Path.Combine(x.BaseDataDir, gameProfDP)
                             if Directory.Exists(bdSub) then Some(bdSub) else None
-                        else 
+                        else
                             None
                 ]
 
                 let dir = dirChecks |> List.tryPick (fun check -> check())
-                match dir with 
-                | None -> 
-                    if gameProfDP <> "" then 
-                        log().Warn 
-                            "Found data path %A in profile, but it is not extant absolute path or a subdirectory of %A" 
+                match dir with
+                | None ->
+                    if gameProfDP <> "" then
+                        log().Warn
+                            "Found data path %A in profile, but it is not extant absolute path or a subdirectory of %A"
                                 conf.GameProfile.DataPathName x.BaseDataDir
-                    dd 
+                    dd
                 | Some(path) -> path
-                
+
         member x.ExeSnapshotDir
             with get() = Path.Combine(x.ExeDataDir,"snapshots")
         member x.RootDir = rootDir
@@ -147,6 +147,11 @@ module State =
         _conf <- conf
         _locator <- DirLocator(_rootDir,_conf)
         conf
+
+    /// For use by tets
+    let testSetConf(c:CoreTypes.RunConfig) =
+        _conf <- c
+        _locator <- DirLocator(_rootDir,_conf)
 
     /// Returns the base directory for document storage (often <MyDocuments>\ModelMod, but controlled from registry)
     let getBaseDataDir() = _locator.BaseDataDir

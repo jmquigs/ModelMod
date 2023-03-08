@@ -493,11 +493,11 @@ map_Kd $$filename
 
     /// Returns true if the declaration list contains blend data, false otherwise.
     /// Note, both indices and weights must be present for this to return true.
-    let hasBlendElements (elements:SDXVertexElement list) =
-        let found = elements |> List.tryFind (fun el ->
-            match el.Usage with
-            | SDXVertexDeclUsage.BlendIndices
-            | SDXVertexDeclUsage.BlendWeight -> true
+    let hasBlendElements (elements:VertexTypes.MMVertexElement []) =
+        let found = elements |> Array.tryFind (fun el ->
+            match el.Semantic with
+            | VertexTypes.MMVertexElemSemantic.BlendIndices
+            | VertexTypes.MMVertexElemSemantic.BlendWeight -> true
             | _ -> false
         )
         found <> None
