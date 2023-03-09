@@ -13,3 +13,4 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 
 [dependencies]
 lazy_static = "*"
+fnv = "1.0.6"

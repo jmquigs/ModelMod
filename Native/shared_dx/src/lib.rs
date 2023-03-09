@@ -19,3 +19,6 @@ pub mod error;
 pub mod state;
 pub mod util;
 pub mod types;
+
+/// Contains DX11 render state
+pub mod dx11rs;

@@ -1,8 +1,8 @@
 use std::ptr::null_mut;
 
-use global_state::GLOBAL_STATE;
-use global_state::dx11rs::DX11RenderState;
-use shared_dx::types::{HookDeviceState, HookD3D11State, DevicePointer};
+use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS};
+use shared_dx::dx11rs::DX11RenderState;
+use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::write_log_file;
 use types::d3ddata::ModD3DData11;
@@ -14,7 +14,7 @@ use winapi::shared::ntdef::ULONG;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
-use device_state::dev_state;
+use device_state::{dev_state, dev_state_d3d11_nolock};
 use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
@@ -24,7 +24,7 @@ use winapi::um::d3d11::D3D11_BUFFER_DESC;
 /// Return the d3d11 context hooks.
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
     let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(HookD3D11State { devptr: _p, hooks: ref mut h })) => h,
+        Some(HookDeviceState::D3D11(ref mut rs)) => &mut rs.hooks,
         _ => {
             write_log_file(&format!("draw: No d3d11 context found"));
             return Err(shared_dx::error::HookError::D3D11NoContext);
@@ -76,20 +76,26 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
     // TODO11: probably need to get more zealous about locking around this as DX11 and later
     // games are more likely to use multihreaded rendering, though hopefully i'll just never use
     // MM with one of those :|
-
-    GLOBAL_STATE.metrics.dx11.vs_set_const_buffers_calls += 1;
+    // But these metrics should just be thread local
 
     let func_hooked = apply_context_hooks(THIS);
-    match func_hooked {
-        Ok(n) => {
-            if n > 0 {
-                GLOBAL_STATE.metrics.dx11.vs_set_const_buffers_hooks += 1;
-            }
-            //write_log_file(&format!("hook_VSSetConstantBuffers: {} funcs rehooked; call count: {}", n, GLOBAL_STATE.curr_texture_index));
-        },
+    let was_hooked = match func_hooked {
+        Ok(n) if n > 0 => true,
+        Ok(_) => false,
         _ => {
             write_log_file("error late hooking");
+            false
         }
+    };
+
+    match dev_state_d3d11_nolock() {
+        Some(state) => {
+            state.metrics.vs_set_const_buffers_calls += 1;
+            if was_hooked {
+                state.metrics.vs_set_const_buffers_hooks += 1;
+            }
+        },
+        None => {}
     };
 
     (hook_context.real_vs_setconstantbuffers)(
@@ -116,31 +122,38 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     // rehook to reduce flickering
     let _func_hooked = apply_context_hooks(THIS);
 
-    if NumBuffers > 0 && ppVertexBuffers != null_mut() {
-        for idx in 0..NumBuffers {
-            let pbuf = (*ppVertexBuffers).offset(idx as isize);
+    // TODO11 use the lock function here or switch to thread local for RS
+    let state = dev_state_d3d11_nolock();
+    match state {
+        Some(state) => {
+            if NumBuffers > 0 && ppVertexBuffers != null_mut() {
+                for idx in 0..NumBuffers {
+                    let pbuf = (*ppVertexBuffers).offset(idx as isize);
 
-            if pbuf != null_mut() {
-                // clear on first add of a valid buffer, the game appears to be calling this
-                // with 1 null buffer sometimes (and then calling draw) and I don't know why its
-                // doing that.
-                if idx == 0 {
-                    GLOBAL_STATE.dx11rs.vb_state.clear();
+                    if pbuf != null_mut() {
+                        // clear on first add of a valid buffer, the game appears to be calling this
+                        // with 1 null buffer sometimes (and then calling draw) and I don't know why its
+                        // doing that.
+                        if idx == 0 {
+                            state.rs.vb_state.clear();
+                        }
+                        let mut desc:D3D11_BUFFER_DESC = std::mem::zeroed();
+                        (*pbuf).GetDesc(&mut desc);
+                        let bw = desc.ByteWidth;
+                        let stride = desc.StructureByteStride;
+                        let vbinfo = (idx,bw,stride);
+                        state.rs.vb_state.push(vbinfo);
+                    }
                 }
-                let mut desc:D3D11_BUFFER_DESC = std::mem::zeroed();
-                (*pbuf).GetDesc(&mut desc);
-                let bw = desc.ByteWidth;
-                let stride = desc.StructureByteStride;
-                let vbinfo = (idx,bw,stride);
-                GLOBAL_STATE.dx11rs.vb_state.push(vbinfo);
+                // if GLOBAL_STATE.metrics.dip_calls % 10000 == 0 {
+                //     write_log_file(&format!("hook_IASetVertexBuffers: {}, added {}", NumBuffers, GLOBAL_STATE.dx11rs.vb_state.len()));
+                // }
+            } else if NumBuffers == 0 {
+                state.rs.vb_state.clear();
             }
-        }
-        // if GLOBAL_STATE.metrics.dip_calls % 10000 == 0 {
-        //     write_log_file(&format!("hook_IASetVertexBuffers: {}, added {}", NumBuffers, GLOBAL_STATE.dx11rs.vb_state.len()));
-        // }
-    } else if NumBuffers == 0 {
-        GLOBAL_STATE.dx11rs.vb_state.clear();
-    }
+        },
+        None => {}
+    };
 
     (hook_context.real_ia_set_vertex_buffers)(
         THIS,
@@ -164,11 +177,14 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     // rehook to reduce flickering
     let _func_hooked = apply_context_hooks(THIS);
 
-    if pInputLayout != null_mut() {
-        GLOBAL_STATE.dx11rs.current_input_layout = pInputLayout;
-    } else {
-        GLOBAL_STATE.dx11rs.current_input_layout = null_mut();
-    }
+    // TODO11 use the lock function here or switch to thread local for RS
+    dev_state_d3d11_nolock().map(|state| {
+        if pInputLayout != null_mut() {
+            state.rs.current_input_layout = pInputLayout;
+        } else {
+            state.rs.current_input_layout = null_mut();
+        }
+    });
 
     (hook_context.real_ia_set_input_layout)(
         THIS,
@@ -211,11 +227,9 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
     let vert_size = {
         let curr_input_layout = *curr_input_layout as u64;
         if curr_input_layout > 0 {
-            curr_layouts.as_ref().and_then(|hm| {
-                hm.get(&curr_input_layout)
-            }).and_then(|vf|
-                Some(vf.size)
-            ).unwrap_or(0)
+            curr_layouts.get(&curr_input_layout)
+            .and_then(|vf| Some(vf.size))
+            .unwrap_or(0)
         } else {
             0
         }
@@ -231,6 +245,34 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
     };
 
     Some((prim_count,vert_count))
+}
+
+fn update_drawn_recently(metrics:&mut DX11Metrics, prim_count:u32, vert_count: u32, checkres:&CheckRenderModResult) {
+    if METRICS_TRACK_MOD_PRIMS {
+        use shared_dx::types::MetricsDrawStatus::*;
+        match checkres {
+            CheckRenderModResult::NotRendered => {},
+            CheckRenderModResult::Rendered(mtype) => {
+                metrics.drawn_recently
+                .entry((prim_count,vert_count))
+                .and_modify(|ds| ds.incr_count())
+                .or_insert(Referenced(*mtype,1));
+            }
+            ,
+            CheckRenderModResult::Deleted => {
+                metrics.drawn_recently
+                .entry((prim_count,vert_count))
+                .and_modify(|ds| ds.incr_count())
+                .or_insert(Referenced(types::interop::ModType::Deletion as i32,1));
+            },
+            CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
+                metrics.drawn_recently
+                .entry((prim_count,vert_count))
+                .and_modify(|ds| ds.incr_count())
+                .or_insert(LoadReq(name.clone(),1));
+            },
+        }
+    }
 }
 
 pub unsafe extern "system" fn hook_draw_indexed(
@@ -252,64 +294,77 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     GLOBAL_STATE.metrics.dip_calls += 1;
 
-    let draw_input = match compute_prim_vert_count(IndexCount, &GLOBAL_STATE.dx11rs) {
-        Some((prim_count,vert_count)) if vert_count > 2  => {
-            // if primitive tracking is enabled, log just the primcount,vertcount if we were able
-            // to compute it, otherwise log whatever we have
-            if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
-                if vert_count > 0 {
-                    use global_state::RenderedPrimType::PrimVertCount;
-                    GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
-                } else {
-                    use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
-                    GLOBAL_STATE.metrics.rendered_prims.push(
-                    PrimCountVertSizeAndVBs(prim_count, vert_count, GLOBAL_STATE.dx11rs.vb_state.clone()));
-                }
-            }
-
-            // if there is a matching mod, render it
-            let mod_status = check_and_render_mod(prim_count, vert_count,
-                |d3dd,nmod| {
-                    let override_texture = null_mut();
-                    let override_stage = 0 as u32;
-                    if let ModD3DData::D3D11(d3d11d) = d3dd {
-                        render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, override_stage, (prim_count,vert_count))
-                    } else {
-                        false
-                    }
-                });
-
-            use types::interop::ModType::GPUAdditive;
-            let draw_input = match mod_status {
-                CheckRenderModResult::NotRendered => true,
-                CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
-                CheckRenderModResult::Rendered(_) => false, // non-additive mod was rendered
-                CheckRenderModResult::NotRenderedButLoadRequested(name) => {
-                    // setup data to begin mod load
-                    let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
-                    if let Some(nmod) = nmod {
-                        // need to store current input layout in the d3d data
-                        if let ModD3DState::Unloaded =  nmod.d3d_data {
-                            let il = GLOBAL_STATE.dx11rs.current_input_layout;
-                            if !il.is_null() {
-                                // we're officially keeping an extra reference to the input layout now
-                                // so note that.
-                                (*il).AddRef();
-                                nmod.d3d_data = ModD3DState::Partial(
-                                    ModD3DData::D3D11(ModD3DData11::with_layout(il)));
-                                write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
-                                //write_log_file(&format!("current in layout is: {}", il as u64));
-                            }
+    // TODO11 use the lock function here or switch to thread local for RS
+    let state = dev_state_d3d11_nolock();
+    let draw_input =
+        state.map(|state| {
+            match compute_prim_vert_count(IndexCount, &state.rs) {
+                Some((prim_count,vert_count)) if vert_count > 2  => {
+                    // if primitive tracking is enabled, log just the primcount,vertcount if we were able
+                    // to compute it, otherwise log whatever we have
+                    if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
+                        if vert_count > 0 {
+                            use global_state::RenderedPrimType::PrimVertCount;
+                            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
+                        } else {
+                            use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
+                            GLOBAL_STATE.metrics.rendered_prims.push(
+                            PrimCountVertSizeAndVBs(prim_count, vert_count, state.rs.vb_state.clone()));
                         }
                     }
-                    true
-                },
-            };
 
-            draw_input
-        },
-        _ => true
-    };
+                    // if there is a matching mod, render it
+                    let mod_status = check_and_render_mod(prim_count, vert_count,
+                        |d3dd,nmod| {
+                            let override_texture = null_mut();
+                            let override_stage = 0 as u32;
+                            if let ModD3DData::D3D11(d3d11d) = d3dd {
+                                render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, override_stage, (prim_count,vert_count))
+                            } else {
+                                false
+                            }
+                        });
+
+                    use types::interop::ModType::GPUAdditive;
+                    let draw_input = match mod_status {
+                        CheckRenderModResult::NotRendered => true,
+                        CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
+                        CheckRenderModResult::Rendered(_) => false, // non-additive mod was rendered
+                        CheckRenderModResult::Deleted => false,
+                        CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
+                            // setup data to begin mod load
+                            let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
+                            if let Some(nmod) = nmod {
+                                // need to store current input layout in the d3d data
+                                if let ModD3DState::Unloaded =  nmod.d3d_data {
+                                    let il = state.rs.current_input_layout;
+                                    if !il.is_null() {
+                                        // we're officially keeping an extra reference to the input layout now
+                                        // so note that.
+                                        (*il).AddRef();
+                                        nmod.d3d_data = ModD3DState::Partial(
+                                            ModD3DData::D3D11(ModD3DData11::with_layout(il)));
+                                        write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                                        //write_log_file(&format!("current in layout is: {}", il as u64));
+                                    }
+                                }
+                            }
+                            true
+                        },
+                    };
+
+                    //  update metrics
+                    if METRICS_TRACK_MOD_PRIMS {
+                        update_drawn_recently(&mut state.metrics, prim_count, vert_count, &mod_status);
+                    }
+
+                    draw_input
+                },
+                _ => true
+            }
+        })
+        .unwrap_or(true);
+
 
     if draw_input {
         (hook_context.real_draw_indexed)(

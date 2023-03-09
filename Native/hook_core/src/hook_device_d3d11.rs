@@ -1,6 +1,10 @@
 use std::ffi::CStr;
 use std::ptr::null_mut;
 
+use device_state::dev_state_d3d11_nolock;
+use shared_dx::dx11rs::DX11RenderState;
+use shared_dx::dx11rs::VertexFormat;
+use shared_dx::types::DX11Metrics;
 use shared_dx::types::DevicePointer;
 use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
@@ -25,8 +29,6 @@ use shared_dx::types_dx11::HookDirect3D11Context;
 use shared_dx::types_dx11::HookDirect3D11Device;
 use shared_dx::error::*;
 use device_state::dev_state;
-use global_state::new_fnv_map;
-use global_state::dx11rs::{VertexFormat};
 
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
 use shared_dx::util::write_log_file;
@@ -288,6 +290,8 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
         (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
             hooks,
             devptr: DevicePointer::D3D11(device),
+            metrics: DX11Metrics::new(),
+            rs: DX11RenderState::new(),
         }));
 
         //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11
@@ -309,7 +313,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 /// since it is assumed the caller already has that.
 fn get_hook_device<'a>() -> Result<&'a mut HookDirect3D11Device> {
     let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(HookD3D11State { devptr: _p, hooks: ref mut h })) => h,
+        Some(HookDeviceState::D3D11(ref mut ds)) => &mut ds.hooks,
         _ => {
             write_log_file(&format!("draw: No d3d11 context found"));
             return Err(shared_dx::error::HookError::D3D11NoContext);
@@ -422,21 +426,21 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     if res == 0 && has_position && ppInputLayout != null_mut() && (*ppInputLayout) != null_mut() {
         let vf = vertex_format_from_layout(elements);
 
-        if GLOBAL_STATE.dx11rs.input_layouts_by_ptr.is_none() {
-            GLOBAL_STATE.dx11rs.input_layouts_by_ptr = Some(new_fnv_map(1024));
-        }
-        // TODO11: when is this cleared?  what happens if it gets big?
-        // (maybe game recreates layouts on device reset?)
-        // could hook Release on the layout to remove them, ugh.
-        GLOBAL_STATE.dx11rs.input_layouts_by_ptr
-            .as_mut().map(|hm| {
-                hm.insert(*ppInputLayout as u64, vf);
+        dev_state_d3d11_nolock()
+        .map(|ds| {
+            // TODO11: when is this cleared?  what happens if it gets big?
+            // (maybe game recreates layouts on device reset?)
+            // could hook Release on the layout to remove them, ugh.
+            // this does appear to accumulate at a rate of a few hundred every few secs.
+            // an alt strategy would be to just parse the layout now and store the
+            // results of that, instead of every possible layout pointer.
+            ds.rs.input_layouts_by_ptr.insert(*ppInputLayout as u64, vf);
 
-                if hm.len() % 20 == 0 {
-                    write_log_file(&format!("vertex layout table now has {} elements",
-                    hm.len()));
-                }
-            });
+            if ds.rs.input_layouts_by_ptr.len() % 20 == 0 {
+                write_log_file(&format!("vertex layout table now has {} elements",
+                ds.rs.input_layouts_by_ptr.len()));
+            }
+        });
     }
 
     res

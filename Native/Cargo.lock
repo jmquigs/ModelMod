@@ -321,6 +321,7 @@ dependencies = [
 name = "shared_dx"
 version = "0.1.0"
 dependencies = [
+ "fnv",
  "lazy_static",
  "winapi",
 ]

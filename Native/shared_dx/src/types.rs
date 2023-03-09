@@ -3,16 +3,58 @@ Contains combinations of types from both DX9 and 11, most notably `HookDeviceSta
 carries the device specific state for one or the other (but not both) at runtime.
  */
 use std::ptr::null_mut;
- use winapi::shared::windef::HWND;
+use fnv::FnvHashMap;
+use winapi::shared::windef::HWND;
 use winapi::shared::d3d9::IDirect3DDevice9;
 use winapi::um::d3d11::ID3D11Device;
 use crate::types_dx9::HookDirect3D9Device;
 use crate::types_dx9::HookDirect3D9;
 use crate::types_dx11::HookDirect3D11;
+use crate::dx11rs::DX11RenderState;
 
 pub struct HookD3D9State {
     pub d3d9: Option<HookDirect3D9>,
     pub device: Option<HookDirect3D9Device>,
+}
+
+#[derive(Debug)]
+pub enum MetricsDrawStatus {
+    /// Pair of (mod type, count of times referenced)
+    Referenced(i32,u32),
+    /// Pair of (name of mod, count of times referenced)
+    LoadReq(String,u32)
+}
+
+impl MetricsDrawStatus {
+    pub fn incr_count(&mut self) {
+        match self {
+            MetricsDrawStatus::Referenced(_,c) => *c += 1,
+            MetricsDrawStatus::LoadReq(_,c) => *c += 1,
+        }
+    }
+}
+pub struct DX11Metrics {
+    /// Number of times `hook_VSSetConstantBuffers` was called
+    pub vs_set_const_buffers_calls: u32,
+    /// Number of times `hook_VSSetConstantBuffers` rehooked at least one function
+    pub vs_set_const_buffers_hooks: u32,
+    /// List of prim,vert combos that triggered a mod action from a recent draw call.
+    pub drawn_recently: FnvHashMap<(u32,u32),MetricsDrawStatus>, // (prim,vert) => (mtype,count)
+}
+
+impl DX11Metrics {
+    pub fn new() -> Self {
+        DX11Metrics {
+            vs_set_const_buffers_calls: 0,
+            vs_set_const_buffers_hooks: 0,
+            drawn_recently: FnvHashMap::default(),
+        }
+    }
+    pub fn reset(&mut self) {
+        self.vs_set_const_buffers_calls = 0;
+        self.vs_set_const_buffers_hooks = 0;
+        self.drawn_recently.clear();
+    }
 }
 
 pub struct HookD3D11State {
@@ -20,6 +62,9 @@ pub struct HookD3D11State {
     /// In DX11 the device pointer is stored as part of this state because we generally
     /// do most of the work in device context functions, which don't get the device pointer.
     pub devptr: DevicePointer,
+    pub metrics: DX11Metrics,
+    /// Contains current render state for the device
+    pub rs: DX11RenderState,
 }
 
 pub enum HookDeviceState {

@@ -17,8 +17,6 @@ use types::d3dx;
 
 use snaplib::anim_snap_state::AnimSnapState;
 
-use crate::dx11rs::DX11RenderState;
-
 pub (crate) const MAX_STAGE: usize = 16;
 
 /// Enable this to dump out a file containing metrics for primitives every
@@ -29,26 +27,10 @@ pub (crate) const MAX_STAGE: usize = 16;
 /// of primitives in a given frame.  Since it costs a bit of performance and
 /// I don't normally use it, it is off by default.
 pub const METRICS_TRACK_PRIMS: bool = false;
-/// Tracks rendered primitives like `METRICS_TRACK_PRIMS`, but only tracks primitives that
-/// has an active current mod, anything not modded is ignored.  `METRICS_TRACK_PRIMS`
-/// should be `FALSE` if you enable this, otherwise you get all prims.
+/// Similar to METRICS_TRACK_PRIMS, but instead this dumps out a list of the recently
+/// rendered mods and their types during the periodic logging dump (every few seconds).
 pub const METRICS_TRACK_MOD_PRIMS: bool = false;
 
-/// Probably should move this to d3d11 device
-pub struct DX11Metrics {
-    /// Number of times `hook_VSSetConstantBuffers` was called
-    pub vs_set_const_buffers_calls: u32,
-    /// Number of times `hook_VSSetConstantBuffers` rehooked at least one function
-    pub vs_set_const_buffers_hooks: u32,
-}
-
-impl DX11Metrics {
-    pub fn new() -> Self {
-        DX11Metrics {
-            vs_set_const_buffers_calls: 0,
-            vs_set_const_buffers_hooks: 0 }
-    }
-}
 
 #[derive(Debug)]
 pub enum RenderedPrimType {
@@ -66,7 +48,6 @@ pub struct FrameMetrics {
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
     pub rendered_prims: Vec<RenderedPrimType>,
-    pub dx11: DX11Metrics,
 }
 
 pub type LoadedModsMap = FnvHashMap<u32, Vec<native_mod::NativeModData>>;
@@ -117,8 +98,6 @@ pub struct HookState {
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
     pub anim_snap_state: Option<AnimSnapState>,
-    /// DX11 render state (TODO11: move to device state)
-    pub dx11rs: DX11RenderState,
 }
 
 impl HookState {
@@ -182,12 +161,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps: 120.0,
         low_framerate: false,
         rendered_prims: vec![],
-        dx11: DX11Metrics { vs_set_const_buffers_calls: 0, vs_set_const_buffers_hooks: 0 },
-    },
-    dx11rs: DX11RenderState {
-        vb_state: vec![],
-        input_layouts_by_ptr: None,
-        current_input_layout: null_mut(),
     }
 };
 

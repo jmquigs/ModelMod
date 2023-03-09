@@ -14,7 +14,6 @@ use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
 use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
-use winapi::um::d3d11::ID3D11Buffer;
 use winapi::um::d3d11::ID3D11Device;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
@@ -249,18 +248,29 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         };
     // lookup actual layout data in render state using the pointer
     let vlayout = {
-        let layout_u64 = vlayout as u64;
-        let res = GLOBAL_STATE.dx11rs.input_layouts_by_ptr
-            .as_ref().map(|hm| hm.get(&layout_u64)).flatten();
-        match res {
-            None => {
+        match dev_state_d3d11_nolock() {
+            Some(state) => {
+                let layout_u64 = vlayout as u64;
+                let res = state.rs.input_layouts_by_ptr
+                    .get(&layout_u64);
+                match res {
+                    None => {
+                        write_log_file(&format!(
+                            "Error, d3d11 data for mod {} has vertex layout but it is not in the render state",
+                            nmd.name
+                        ));
+                        return false;
+                    },
+                    Some(vf) => vf,
+                }
+            },
+            _ => {
                 write_log_file(&format!(
-                    "Error, d3d11 data for mod {} has vertex layout but it is not in the render state",
+                    "Error, no d3d11 hook state while loading mod {}",
                     nmd.name
                 ));
                 return false;
-            },
-            Some(vf) => vf,
+            }
         }
     };
 
@@ -398,6 +408,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     // temporary list of all mods that have been referenced as a parent by something
     use std::collections::HashSet;
     let mut all_parent_mods:HashSet<String> = HashSet::new();
+    write_log_file(&format!("setting up {} mods", mod_count));
     for midx in 0..mod_count {
         let mdat: *mut interop::ModData = (callbacks.GetModData)(midx);
 
@@ -416,8 +427,9 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        write_log_file(&format!("==> Initializing mod: name '{}', parents '{:?}', type {}, prims {}, verts {} (ref prims {}, ref verts {})",
-            mod_name, parent_mods, (*mdat).numbers.mod_type, prims, verts,
+        write_log_file(&format!("==> Initializing mod: name '{}', idx: {}, parents '{:?}', type {}, prims {}, verts {} (ref prims {}, ref verts {})",
+            mod_name, midx,
+            parent_mods, (*mdat).numbers.mod_type, prims, verts,
             (*mdat).numbers.ref_prim_count, (*mdat).numbers.ref_vert_count));
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32

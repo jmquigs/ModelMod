@@ -1,3 +1,4 @@
+use device_state::dev_state_d3d11_nolock;
 use types::d3ddata::ModD3DData9;
 use types::native_mod::ModD3DData;
 use types::native_mod::NativeModData;
@@ -20,8 +21,6 @@ use crate::input_commands;
 use crate::mod_render;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use global_state::FrameMetrics;
-use global_state::METRICS_TRACK_MOD_PRIMS;
-use global_state::DX11Metrics;
 use device_state::dev_state;
 use hook_snapshot;
 use types::native_mod;
@@ -71,8 +70,8 @@ fn get_selected_texture_stage() -> Option<DWORD> {
 /// is no update it will be cleared too, unless the caller passes true for `preserve_prims`.
 /// This allows `process_metrics` to be called from high frequency functions such as
 /// d3d11 draw_indexed, and avoids clearing the list too soon in that case.
-/// If both global_state::METRICS_TRACK_PRIMS and global_state::METRICS_TRACK_MOD_PRIMS
-/// are false there shouldn't be any primitives in the list anyway.
+/// If global_state::METRICS_TRACK_PRIMS
+/// is false there shouldn't be any primitives in the list anyway.
 pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:u32) {
     if metrics.dip_calls > interval {
         let now = SystemTime::now();
@@ -112,7 +111,7 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         // note this only dumps out the primitives for the most recent frame.
         // also only write these out when we also just wrote a dip summary line
         // above.
-        if global_state::METRICS_TRACK_PRIMS || global_state::METRICS_TRACK_MOD_PRIMS && wrote_dip_stats {
+        if global_state::METRICS_TRACK_PRIMS && wrote_dip_stats {
             use global_state::RenderedPrimType::{PrimVertCount, PrimCountVertSizeAndVBs};
             let logname = shared_dx::util::get_log_file_path();
             if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
@@ -133,7 +132,7 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
                                         res_combined.push_str(&format!("{},{}\r", prim, vert));
                                     },
                                     &PrimCountVertSizeAndVBs(prim, vsize, vbvec) => {
-                                        res_combined.push_str(&format!("{},{},{:?}\r", prim, vsize, vbvec));
+                                        res_combined.push_str(&format!("{},{},{:?}\r\n", prim, vsize, vbvec));
                                     }
                                 }
                             }
@@ -156,15 +155,26 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         // from accumulating)
         unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
 
-        if metrics.dx11.vs_set_const_buffers_hooks > 0 {
-            write_log_file("dx11 metrics:");
-            write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
-                metrics.dx11.vs_set_const_buffers_calls,
-                metrics.dx11.vs_set_const_buffers_hooks
-            ));
+        // process dx11 metrics (if any)
+        unsafe {dev_state_d3d11_nolock()}.map(|state| {
+            let metrics = &state.metrics;
+            if metrics.vs_set_const_buffers_hooks > 0 {
+                write_log_file("dx11 metrics:");
+                write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
+                    metrics.vs_set_const_buffers_calls,
+                    metrics.vs_set_const_buffers_hooks
+                ));
+            }
+            if metrics.drawn_recently.len() > 0 {
+                write_log_file("  drawn recently:");
+                for (pv, ds) in &metrics.drawn_recently {
+                    write_log_file(&format!("    {:?}: {:?}", pv, ds));
+                }
+            }
+            state.metrics.reset();
+        });
 
-            metrics.dx11 = DX11Metrics::new();
-        }
+
     } else {
         // not time for update, but clear the prim list unless caller said not to
         if !preserve_prims {
@@ -648,6 +658,8 @@ pub enum CheckRenderModResult {
     Rendered(i32),
     /// No mod was found to render.
     NotRendered,
+    /// A deletion mod was found.
+    Deleted,
     /// A mod was found but data is not loaded for it, data load is now queued.
     /// The mod name is returned in case the caller needs to append any data
     /// to the native mod structure that is required to complete the load.
@@ -658,7 +670,6 @@ pub enum CheckRenderModResult {
 pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, rfunc:F) -> CheckRenderModResult
 where
     F: FnOnce(&ModD3DData,&NativeModData) -> bool {
-    use global_state::RenderedPrimType::PrimVertCount;
 
     let mut loading_mod_name = None;
     let res = GLOBAL_STATE.loaded_mods.as_mut()
@@ -672,15 +683,9 @@ where
             r
         })
         .and_then(|nmod| {
+            // early out if mod is a deletion mod
             if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
                 return Some(nmod.mod_data.numbers.mod_type);
-            }
-            if METRICS_TRACK_MOD_PRIMS && !global_state::METRICS_TRACK_PRIMS {
-                // Note that this logs what the game _wants_ to render which corresponds to MM
-                // ref values, not whatever it is in the mod.  To determine the associated mod,
-                // look for "allocated vb/decl" whose ref_prim_count and ref_vert_count fields
-                // match these.
-                GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
             }
             // if the mod d3d data isn't loaded, can't render
             let d3dd = match nmod.d3d_data {
@@ -710,9 +715,10 @@ where
         });
 
     match (res,loading_mod_name) {
+        (None,None) => CheckRenderModResult::NotRendered,
+        (Some(mod_type),_) if mod_type == types::interop::ModType::Deletion as i32 => CheckRenderModResult::Deleted,
         (Some(mod_type),_) => CheckRenderModResult::Rendered(mod_type),
         (None,Some(name)) => CheckRenderModResult::NotRenderedButLoadRequested(name),
-        (None,None) => CheckRenderModResult::NotRendered,
     }
 }
 
@@ -800,7 +806,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     GLOBAL_STATE.in_dip = true;
 
     use global_state::RenderedPrimType::PrimVertCount;
-    if global_state::METRICS_TRACK_PRIMS && !METRICS_TRACK_MOD_PRIMS {
+    if global_state::METRICS_TRACK_PRIMS {
         metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
     }
 
@@ -825,7 +831,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         CheckRenderModResult::NotRendered => true,
         CheckRenderModResult::NotRenderedButLoadRequested(_) => true,
         CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
-        CheckRenderModResult::Rendered(_) => false, // not additive mod was rendered
+        CheckRenderModResult::Rendered(_) => false, // none-additive mod was rendered
+        CheckRenderModResult::Deleted => false,
     };
     profile_end!(hdip, draw_input_check);
 
