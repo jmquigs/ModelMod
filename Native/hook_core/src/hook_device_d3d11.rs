@@ -161,13 +161,12 @@ pub extern "system" fn D3D11CreateDeviceAndSwapChain(
 
 pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i32> {
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
-    let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
+    let _vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
-    // TODO11: should only call this if I actually need to rehook
-    // since it probably isn't cheap
-    // actually I think technically I may not need to do this as the vtable is part of the
-    // object and therefore unprotected memory (its not in the code segment).
-    let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+    // unprotect doesn't seem necessary (I'm overwriting my own memory, not the code segment).
+    // PERF: benchmark this to see how much time is spent in here, since I call it all the time
+    // now due to the mysterious draw-function unhooker.
+    //let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
     let device_child = &mut (*vtbl).parent;
     let iunknown = &mut (*device_child).parent;
 
@@ -195,7 +194,7 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
     }
     // TODO11: hook remaining draw functions (if needed)
 
-    util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+    //util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     Ok(func_hooked)
 }
 

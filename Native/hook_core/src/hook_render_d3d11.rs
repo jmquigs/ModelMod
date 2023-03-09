@@ -113,6 +113,9 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
         Err(_) => return,
     };
 
+    // rehook to reduce flickering
+    let _func_hooked = apply_context_hooks(THIS);
+
     if NumBuffers > 0 && ppVertexBuffers != null_mut() {
         for idx in 0..NumBuffers {
             let pbuf = (*ppVertexBuffers).offset(idx as isize);
@@ -157,6 +160,9 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+
+    // rehook to reduce flickering
+    let _func_hooked = apply_context_hooks(THIS);
 
     if pInputLayout != null_mut() {
         GLOBAL_STATE.dx11rs.current_input_layout = pInputLayout;
