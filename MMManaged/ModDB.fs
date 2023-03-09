@@ -34,7 +34,7 @@ open VertexTypes
 
 /// Contains the "Mod Database"; functions for reading yaml, mmobj, and other files and storing them in memory.
 module ModDB =
-    let private log = Logging.getLogger("ModDB")
+    let private log() = Logging.getLogger("ModDB")
 
     let private strToLower (s:string option) =
         match s with
@@ -46,13 +46,20 @@ module ModDB =
     /// Root type for the Mod Database; everything is stored in here.
     type ModDB(refObjects,modObjects,meshRels) =
         // explode deletion mods into interop representation now.
+        // one new deletion mod is created for each individual piece of deleted geometry,
+        // so this usually creates more mods than actually present in the data.
+        // the first deletion geom gets the mod name, the second have _n suffixes
+        // appended.  This scheme is used so that a deletion mod can be specified as a
+        // parent without the child knowing how many pieces are deleted (the child can
+        // just specify the base name)
+
         // this is a little weird because it makes moddb use interop types, but it
         // is more convenient to do this here than in ModDBInterop.
         let deletionMods =
             modObjects
             |> List.filter (fun m -> not (List.isEmpty m.Attributes.DeletedGeometry))
             |> List.map (fun imod ->
-                imod.Attributes.DeletedGeometry |> List.map (fun delPair ->
+                imod.Attributes.DeletedGeometry |> List.mapi (fun i delPair ->
                     let parentMod =
                         match imod.ParentModName with
                         | Some(par) -> par
@@ -65,7 +72,7 @@ module ModDB =
                         PrimCount = delPair.PrimCount
                         RefVertCount = delPair.VertCount
                         RefPrimCount = delPair.PrimCount
-                        ModName = imod.Name
+                        ModName = if i = 0 then imod.Name else sprintf "%s_%d" imod.Name i
                         ParentModName = parentMod
                     }
                 )
@@ -236,7 +243,7 @@ module ModDB =
                 let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
                 oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path
 
-        log.Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
+        log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
         Mod(md)
 
     /// Read an SDX vertex element from the specified stream.
@@ -307,7 +314,7 @@ module ModDB =
     /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Reference.
     let buildReference (node:YamlMappingNode) (filename:string) =
-        //log.Info "Building reference from %A" node
+        //log().Info "Building reference from %A" node
 
         let basePath = Path.GetDirectoryName filename
         let refName = Path.GetFileNameWithoutExtension filename
@@ -328,7 +335,7 @@ module ModDB =
             | None -> None
             | Some path ->
                 let bytes,elements = loadBinVertDeclData (Path.Combine(basePath, path))
-                log.Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
+                log().Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
                 Some (bytes,elements)
 
         // load vertex data (binary)
@@ -338,7 +345,7 @@ module ModDB =
             | None -> None
             | Some path ->
                 let vdata = loadBinVertData (Path.Combine(basePath, path))
-                log.Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length
+                log().Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length
                 Some vdata
 
         // look for expected prim/vert counts.  if set, these take priority over the actual mmobj geometry
@@ -352,7 +359,7 @@ module ModDB =
 
         let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
 
-        log.Info "Ref: %s: binary vertex data: %A" refName binVertData.IsSome
+        log().Info "Ref: %s: binary vertex data: %A" refName binVertData.IsSome
 
         MReference(
             { DBReference.Name = refName
@@ -458,7 +465,7 @@ module ModDB =
                 let foundFile = allFiles |> Array.tryFind (fun diskFile -> nameMatches diskFile modName)
                 match foundFile with
                 | None ->
-                    log.Warn "No mod file found for mod named '%s'" modName
+                    log().Warn "No mod file found for mod named '%s'" modName
                     acc
                 | Some file ->
                     file::acc
@@ -574,12 +581,12 @@ module ModDB =
                         match oldMeshRel with
                         | Some(meshRel) ->
                             nCached <- nCached + 1
-                            //log.Info "Using cached mesh rel for mod %A, ref %A" meshRel.DBMod.Name meshRel.DBRef.Name
+                            //log().Info "Using cached mesh rel for mod %A, ref %A" meshRel.DBMod.Name meshRel.DBRef.Name
                             meshRel
                         | None -> newMeshRel()
                     | _ -> newMeshRel()
                 )
-            log.Info "MeshRelations: %d cached, %d built" nCached nBuilt
+            log().Info "MeshRelations: %d cached, %d built" nCached nBuilt
             meshRels
 
         new ModDB(refs,mods,meshRels)

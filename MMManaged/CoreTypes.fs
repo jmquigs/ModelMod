@@ -299,9 +299,7 @@ module CoreTypes =
 /// There are just too many and its not clear how d3d9 types
 /// map into d3d11 types if at all.
 module VertexTypes =
-    // Use a lazy here since this particular log is sometimes initialized before the
-    // native code and thus doesn't output to the native logger
-    let private log = lazy Logging.getLogger("VertexTypes")
+    let private log() = Logging.getLogger("VertexTypes")
 
     /// The list of semantics modelmod cares about even a little (color not important).
     type MMVertexElemSemantic =
@@ -350,14 +348,14 @@ module VertexTypes =
         | SDXVertexDeclUsage.Tangent -> MMVertexElemSemantic.Tangent
         | SDXVertexDeclUsage.Color -> MMVertexElemSemantic.Color
         | _ ->
-            log.Value.Warn "unrecognized usage %A, using UNKNOWN" usage
+            log().Warn "unrecognized usage %A, using UNKNOWN" usage
             MMVertexElemSemantic.Unknown
 
     let layoutElToMMEl (el:SharpDX.Direct3D11.InputElement) (elName:string): MMVertexElement =
         let declUsage =
             match Map.tryFind elName elSemanticNameToDeclSemantic with
             | None ->
-                log.Value.Warn "unrecognized semantic %A, using UNKNOWN" elName
+                log().Warn "unrecognized semantic %A, using UNKNOWN" elName
                 MMVertexElemSemantic.Unknown
             | Some(u) -> u
 
