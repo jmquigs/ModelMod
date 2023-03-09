@@ -219,7 +219,8 @@ module ModDBInterop =
             | None -> failwith "A vertex declaration must be set here, native code requires it."
             | Some (data,elements) -> elements,data.Length
 
-        let vertSize = MeshUtil.getVertSize declElements // TODO11 don't write this in dx11 unless we have it from a dx11 snap
+        // This is used by DX9, but DX11 computes its own vert size based on the current layout.
+        let vertSize = MeshUtil.getVertSizeFromDecl declElements
 
         let modType = modTypeToInt modm.Type
 
@@ -605,7 +606,7 @@ module ModDBInterop =
     // unifying them in some way.
     let private fillModDataInternalHelper
         (modIndex:int)
-        (destDeclBx:VertexDecl)
+        (destDeclBx:VertexDecl) (vertSize:int option)
         (destVbBw:BinaryWriter) (destVbSize:int)
         (destIbBw:BinaryWriter) (destIbSize:int) =
         try
@@ -638,6 +639,19 @@ module ModDBInterop =
                     declElements |> List.map (VertexTypes.sdxDeclElementToMMDeclElement) |> Array.ofList
                 | ReadD3D11Layout elements -> elements
 
+            // in DX9 we use the vertex size from the mod, because we also create the declaration.
+            // in DX11 we use the vertex size computed from the elements which are currently being
+            // used to render.  TBH I'm not sure the DX9
+            // approach is right, because, the declaration needs to match the shader, and we
+            // don't control that.  So in the general case we can't just use whatever
+            // decl we want, though it will accidentally work a lot.  For instance the
+            // declaration/shaders used to render could change
+            // based on detail level.  That definitely happens in DX11.
+            let vertSizeBytes =
+                match vertSize with
+                | None -> md.VertSizeBytes
+                | Some(size) -> size
+
             // copy index data...someday
             if (destIbSize > 0) then
                 failwith "Filling index data is not yet supported"
@@ -659,7 +673,7 @@ module ModDBInterop =
                 // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
                 let computeBinormalTangent = true
 
-                let srcVbSize = md.PrimCount * 3 * md.VertSizeBytes
+                let srcVbSize = md.PrimCount * 3 * vertSizeBytes
                 if (destVbSize <> srcVbSize) then
                     failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcVbSize destVbSize
 
@@ -823,6 +837,8 @@ module ModDBInterop =
                     let startPos = bw.BaseStream.Position
                     let writeToVert = writeElement v
                     declElements |> Array.iter (fun el ->
+                        // may need to seek to skip unused space in the vert.  only need to seek
+                        // ahead because we sorted the elements by offset ascending above.
                         let currPos = bw.BaseStream.Position
                         let currOffset = currPos - startPos
                         let elOffset = int64 el.Offset
@@ -830,9 +846,9 @@ module ModDBInterop =
                             bw.BaseStream.Seek(elOffset - currOffset, SeekOrigin.Current) |> ignore
                         writeToVert el
                     )
-                    if (bw.BaseStream.Position % (int64 md.VertSizeBytes) <> 0L) then
+                    if (bw.BaseStream.Position % (int64 vertSizeBytes) <> 0L) then
                         let bytesWrote = bw.BaseStream.Position - startPos
-                        failwithf "Wrote an insufficient number of bytes for the vertex (wrote %A, want %A, possible offset/stride issue)" bytesWrote (md.VertSizeBytes)
+                        failwithf "Wrote an insufficient number of bytes for the vertex (wrote %A, want %A, possible offset/stride/vertsize issue)" bytesWrote vertSizeBytes
 
                 // Write the three triangle verts to the buffer.
                 let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
@@ -857,9 +873,10 @@ module ModDBInterop =
             match State.Context with
             | "d3d9" ->
                 let declArg = WriteD3D9Decl((getBinaryWriter destDeclData destDeclSize), destDeclSize)
+                let vertSize = None // detect from mod
                 fillModDataInternalHelper
                     modIndex
-                    declArg
+                    declArg vertSize
                     (getBinaryWriter destVbData destVbSize) destVbSize
                     (getBinaryWriter destIbData destIbSize) destIbSize
             | "d3d11" ->
@@ -870,8 +887,9 @@ module ModDBInterop =
                     use br = new BinaryReader(stream)
                     let elements = d3d11LayoutToMMVert br (int64 destDeclSize)
                     let declArg = ReadD3D11Layout(elements)
-                    log.Info "filling d3d11 vertex buffer stream size: %A" destVbSize
-                    fillModDataInternalHelper modIndex declArg
+                    let vertSize = MeshUtil.getVertSizeFromEls elements
+                    log.Info "filling d3d11 vertex buffer stream size: %A; vert size: %A" destVbSize vertSize
+                    fillModDataInternalHelper modIndex declArg (Some(vertSize))
                         (getBinaryWriter destVbData destVbSize) destVbSize
                         (getBinaryWriter destIbData destIbSize) destIbSize
                 with
@@ -885,9 +903,10 @@ module ModDBInterop =
     // For FSI testing...
     let testFill (modIndex:int,destDecl:byte[],destVB:byte[],destIB:byte[]) =
         let declArg = WriteD3D9Decl((new BinaryWriter(new MemoryStream(destDecl))), destDecl.Length)
+        let vertSize = None // detect from mod
         fillModDataInternalHelper
             modIndex
-            declArg
+            declArg vertSize
             (new BinaryWriter(new MemoryStream(destVB))) destVB.Length
             (new BinaryWriter(new MemoryStream(destIB))) destIB.Length
 

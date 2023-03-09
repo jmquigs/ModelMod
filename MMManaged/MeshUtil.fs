@@ -470,25 +470,45 @@ map_Kd $$filename
         let center = Vector3.Multiply(Vector3.Add(lowerL,upperR), 0.5f)
         lowerL,upperR,center
 
+    let getSizeFromDeclType (dtype:SDXVertexDeclType) =
+        match dtype with
+        | SDXDT.Float1 -> 4
+        | SDXDT.Float2 -> 8
+        | SDXDT.Float3 -> 12
+        | SDXDT.Float4 -> 16
+        | SDXDT.Short4 -> 8
+        | SDXDT.Short2 -> 4
+        | SDXDT.UByte4N -> 4
+        | SDXDT.Ubyte4 -> 4
+        | SDXDT.Color -> 4
+        | SDXDT.HalfTwo -> 4
+        | _ -> failwithf "Some lazy person didn't fill in the size of type %A" dtype
+
     /// Returns the total vertex size (in bytes), using the specified declaration
     /// list.
-    let getVertSize (elements:SDXVertexElement list) = // TODO11: needs port
+    let getVertSizeFromDecl (elements:SDXVertexElement list) =
         // find the element with the highest offset
         let hElement = elements |> List.maxBy (fun el -> el.Offset)
         // figure out how big its field is
+        let sizeBytes = getSizeFromDeclType hElement.Type
+
+        int hElement.Offset + sizeBytes
+
+    let getVertSizeFromEls(elements:VertexTypes.MMVertexElement []) =
+        let hElement =
+            elements |> Array.maxBy (fun el -> el.Offset)
         let sizeBytes =
             match hElement.Type with
-            | SDXDT.Float1 -> 4
-            | SDXDT.Float2 -> 8
-            | SDXDT.Float3 -> 12
-            | SDXDT.Float4 -> 16
-            | SDXDT.Short4 -> 8
-            | SDXDT.Short2 -> 4
-            | SDXDT.UByte4N -> 4
-            | SDXDT.Ubyte4 -> 4
-            | SDXDT.Color -> 4
-            | SDXDT.HalfTwo -> 4
-            | _ -> failwithf "Some lazy person didn't fill in the size of type %A" hElement.Type
+            | VertexTypes.MMVertexElementType.DeclType(dt) -> getSizeFromDeclType dt
+            | VertexTypes.MMVertexElementType.Format(f) ->
+                match f with
+                | SharpDX.DXGI.Format.R32_Float -> 4
+                | SharpDX.DXGI.Format.R32G32_Float -> 8
+                | SharpDX.DXGI.Format.R32G32B32_Float -> 12
+                | SharpDX.DXGI.Format.R32G32B32A32_Float -> 16
+                | SharpDX.DXGI.Format.R16G16_Float -> 4
+                | SharpDX.DXGI.Format.R16G16B16A16_Float -> 8
+                | _ -> failwithf "Some lazy person didn't fill in the size of type %A" f
         int hElement.Offset + sizeBytes
 
     /// Returns true if the declaration list contains blend data, false otherwise.
