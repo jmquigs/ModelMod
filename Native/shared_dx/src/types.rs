@@ -3,6 +3,7 @@ Contains combinations of types from both DX9 and 11, most notably `HookDeviceSta
 carries the device specific state for one or the other (but not both) at runtime.
  */
 use std::ptr::null_mut;
+use std::time::SystemTime;
 use fnv::FnvHashMap;
 use winapi::shared::windef::HWND;
 use winapi::shared::d3d9::IDirect3DDevice9;
@@ -34,26 +35,49 @@ impl MetricsDrawStatus {
     }
 }
 pub struct DX11Metrics {
+    pub last_reset: SystemTime,
     /// Number of times `hook_VSSetConstantBuffers` was called
     pub vs_set_const_buffers_calls: u32,
     /// Number of times `hook_VSSetConstantBuffers` rehooked at least one function
     pub vs_set_const_buffers_hooks: u32,
     /// List of prim,vert combos that triggered a mod action from a recent draw call.
     pub drawn_recently: FnvHashMap<(u32,u32),MetricsDrawStatus>, // (prim,vert) => (mtype,count)
+    pub rehook_time_nanos: u64,
+    pub rehook_calls: u32,
 }
 
 impl DX11Metrics {
     pub fn new() -> Self {
         DX11Metrics {
+            last_reset: SystemTime::now(),
             vs_set_const_buffers_calls: 0,
             vs_set_const_buffers_hooks: 0,
             drawn_recently: FnvHashMap::default(),
+            rehook_time_nanos: 0,
+            rehook_calls: 0,
         }
     }
     pub fn reset(&mut self) {
+        self.last_reset = SystemTime::now();
         self.vs_set_const_buffers_calls = 0;
         self.vs_set_const_buffers_hooks = 0;
         self.drawn_recently.clear();
+        self.rehook_time_nanos = 0;
+        self.rehook_calls = 0;
+    }
+    /// Return number of milisecs since last reset
+    pub fn ms_since_reset(&self) -> u64 {
+        let now = SystemTime::now();
+        match now.duration_since(self.last_reset) {
+            Ok(d) => {
+                let secs = d.as_secs();
+                let milisecs = d.subsec_millis();
+                return secs * 1000 + milisecs as u64;
+            },
+            _ => {
+                return 0
+            }
+        }
     }
 }
 

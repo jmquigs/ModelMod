@@ -159,11 +159,15 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         unsafe {dev_state_d3d11_nolock()}.map(|state| {
             let metrics = &state.metrics;
             if metrics.vs_set_const_buffers_hooks > 0 {
-                write_log_file("dx11 metrics:");
+                write_log_file(&format!("dx11 metrics: {}ms since last reset", metrics.ms_since_reset()));
                 write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
                     metrics.vs_set_const_buffers_calls,
                     metrics.vs_set_const_buffers_hooks
                 ));
+            }
+            if metrics.rehook_calls > 0 {
+                let rehook_ms = metrics.rehook_time_nanos / 1000 / 1000;
+                write_log_file(&format!("  rehook calls: {}, total ms: {}", metrics.rehook_calls, rehook_ms));
             }
             if metrics.drawn_recently.len() > 0 {
                 write_log_file("  drawn recently:");

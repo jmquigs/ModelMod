@@ -1,5 +1,6 @@
 use std::ffi::CStr;
 use std::ptr::null_mut;
+use std::time::SystemTime;
 
 use device_state::dev_state_d3d11_nolock;
 use shared_dx::dx11rs::DX11RenderState;
@@ -161,9 +162,19 @@ pub extern "system" fn D3D11CreateDeviceAndSwapChain(
     }
 }
 
+const TRACK_REHOOK_TIME:bool = false;
+
+//#[inline(always)]
 pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i32> {
+    let rehook_start =
+        if TRACK_REHOOK_TIME {
+            Some(SystemTime::now())
+        } else {
+            None
+        };
+
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
-    let _vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
+    //let _vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     // unprotect doesn't seem necessary (I'm overwriting my own memory, not the code segment).
     // PERF: benchmark this to see how much time is spent in here, since I call it all the time
@@ -194,7 +205,24 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
         (*vtbl).IASetInputLayout = hook_IASetInputLayout;
         func_hooked += 1;
     }
+    if (*vtbl).IASetPrimitiveTopology as u64 != hook_IASetPrimitiveTopology as u64 {
+        (*vtbl).IASetPrimitiveTopology = hook_IASetPrimitiveTopology;
+        func_hooked += 1;
+    }
     // TODO11: hook remaining draw functions (if needed)
+
+    if TRACK_REHOOK_TIME {
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(
+            rehook_start.unwrap_or(SystemTime::UNIX_EPOCH));
+        let _ = elapsed.map(|dur| {
+            let nanos = dur.subsec_nanos() as u64 + dur.as_secs() * 1_000_000_000;
+            dev_state_d3d11_nolock().map(|state| {
+                state.metrics.rehook_time_nanos += nanos;
+                state.metrics.rehook_calls += 1;
+            })
+        });
+    }
 
     //util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     Ok(func_hooked)
@@ -240,6 +268,8 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_draw_instanced_indirect = (*vtbl).DrawInstancedIndirect;
     let real_ia_set_vertex_buffers = (*vtbl).IASetVertexBuffers;
     let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
+    let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
+
     // check for already hook devices (useful in late-hook case)
     if real_release as u64 == hook_release as u64 {
         write_log_file(&format!("error: device already appears to be hooked, skipping"));
@@ -264,6 +294,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_draw_indexed_instanced_indirect,
         real_ia_set_vertex_buffers,
         real_ia_set_input_layout,
+        real_ia_set_primitive_topology,
     };
 
     Ok(HookDirect3D11 { device: hook_device, context: hook_context })

@@ -15,6 +15,7 @@ pub struct HookDirect3D11Context {
     pub real_draw_indexed_instanced_indirect: DrawIndexedInstancedIndirectFn,
     pub real_ia_set_vertex_buffers: IASetVertexBuffersFn,
     pub real_ia_set_input_layout: IASetInputLayoutFn,
+    pub real_ia_set_primitive_topology: IASetPrimitiveTopologyFn,
 }
 pub struct HookDirect3D11 { // TODO11: need ref_count field? d3d9 has one
     pub device: HookDirect3D11Device,

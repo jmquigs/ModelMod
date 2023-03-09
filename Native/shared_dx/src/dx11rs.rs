@@ -1,7 +1,7 @@
 use std::{fmt::{Display, Formatter, Error}, ffi::CStr};
 
 use fnv::FnvHashMap;
-use winapi::um::d3d11::{ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC};
+use winapi::um::{d3d11::{ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, D3D11_PRIMITIVE_TOPOLOGY}, d3dcommon::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED};
 
 
 pub struct VertexFormat {
@@ -29,6 +29,7 @@ pub struct DX11RenderState {
     pub vb_state: Vec<(u32,u32,u32)>,
     pub input_layouts_by_ptr: FnvHashMap<u64, VertexFormat>,
     pub current_input_layout: *mut ID3D11InputLayout,
+    pub prim_topology: D3D11_PRIMITIVE_TOPOLOGY,
 }
 
 impl DX11RenderState {
@@ -37,6 +38,7 @@ impl DX11RenderState {
             vb_state: Vec::new(),
             input_layouts_by_ptr: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
             current_input_layout: std::ptr::null_mut(),
+            prim_topology: D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
         }
     }
 }

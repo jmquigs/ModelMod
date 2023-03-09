@@ -9,8 +9,9 @@ use types::d3ddata::ModD3DData11;
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN};
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY};
 use winapi::shared::ntdef::ULONG;
+use winapi::um::d3dcommon::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
@@ -106,6 +107,27 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
     )
 }
 
+pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
+    THIS: *mut ID3D11DeviceContext,
+    Topology: D3D11_PRIMITIVE_TOPOLOGY,
+) -> () {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    // rehook to reduce flickering
+    let _func_hooked = apply_context_hooks(THIS);
+
+    match dev_state_d3d11_nolock() {
+        Some(state) => {
+            state.rs.prim_topology = Topology;
+        },
+        None => {}
+    };
+
+    (hook_context.real_ia_set_primitive_topology)(THIS, Topology);
+}
 pub unsafe extern "system" fn hook_IASetVertexBuffers(
     THIS: *mut ID3D11DeviceContext,
     StartSlot: UINT,
@@ -197,13 +219,12 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
         // don't bother
         return None;
     }
-    // TODO11 assumes triangle list, should get this from primitive topology
+    // assumes triangle list, actual topology is in render state but we shouldn't even be in
+    // here if its not triangle list.
     let prim_count = index_count / 3;
 
     // vert count has to be computed from the current vertex buffer
     // stream and the current input layout (vertex size)
-    let curr_input_layout = &rs.current_input_layout;
-    let curr_layouts = &rs.input_layouts_by_ptr;
     let vb_state = &rs.vb_state;
     let vb_size = match vb_state.len() {
         1 => {
@@ -224,6 +245,8 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
             return None;
         }
     };
+    let curr_input_layout = &rs.current_input_layout;
+    let curr_layouts = &rs.input_layouts_by_ptr;
     let vert_size = {
         let curr_input_layout = *curr_input_layout as u64;
         if curr_input_layout > 0 {
@@ -298,6 +321,11 @@ pub unsafe extern "system" fn hook_draw_indexed(
     let state = dev_state_d3d11_nolock();
     let draw_input =
         state.map(|state| {
+            // this is the only prim type I support but don't log if it is something else since
+            // it would be spammy (maybe log if trying to take a snapshot)
+            if state.rs.prim_topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST {
+                return true;
+            }
             match compute_prim_vert_count(IndexCount, &state.rs) {
                 Some((prim_count,vert_count)) if vert_count > 2  => {
                     // if primitive tracking is enabled, log just the primcount,vertcount if we were able
@@ -394,7 +422,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         draw_periodic();
     }
 
-    process_metrics(&mut GLOBAL_STATE.metrics, true, 50000);
+    process_metrics(&mut GLOBAL_STATE.metrics, true, 250000);
 
     GLOBAL_STATE.in_dip = false;
 }

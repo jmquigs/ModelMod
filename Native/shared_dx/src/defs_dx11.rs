@@ -2,7 +2,7 @@ use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
 
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
@@ -36,6 +36,10 @@ pub type VSSetConstantBuffersFn = unsafe extern "system" fn (
 pub type IASetInputLayoutFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
     pInputLayout: *mut ID3D11InputLayout,
+) -> ();
+pub type IASetPrimitiveTopologyFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    Topology: D3D11_PRIMITIVE_TOPOLOGY,
 ) -> ();
 pub type DrawIndexedFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
