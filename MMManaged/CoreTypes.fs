@@ -326,17 +326,18 @@ module VertexTypes =
         Type: MMVertexElementType
         Offset: int
     }
-    let elSemanticNameToDeclSemantic = Map.ofList [
-        "POSITION", MMVertexElemSemantic.Position
-        "BLENDWEIGHT", MMVertexElemSemantic.BlendWeight
-        "BLENDINDICES", MMVertexElemSemantic.BlendIndices
-        "NORMAL", MMVertexElemSemantic.Normal
-        "TEXCOORD", MMVertexElemSemantic.TextureCoordinate
-        "TANGENT", MMVertexElemSemantic.Tangent
-        "BITANGENT", MMVertexElemSemantic.Binormal
-        "BINORMAL", MMVertexElemSemantic.Binormal
-        "COLOR", MMVertexElemSemantic.Color
-    ]
+    let elSemanticNameToDeclSemantic =
+        Map.ofList [
+            "POSITION", MMVertexElemSemantic.Position
+            "BLENDWEIGHT", MMVertexElemSemantic.BlendWeight
+            "BLENDINDICES", MMVertexElemSemantic.BlendIndices
+            "NORMAL", MMVertexElemSemantic.Normal
+            "TEXCOORD", MMVertexElemSemantic.TextureCoordinate
+            "TANGENT", MMVertexElemSemantic.Tangent
+            "BITANGENT", MMVertexElemSemantic.Binormal
+            "BINORMAL", MMVertexElemSemantic.Binormal
+            "COLOR", MMVertexElemSemantic.Color
+        ]
     let sdxDeclUsageToMMDeclUsage (usage:SDXVertexDeclUsage) =
         match usage with
         | SDXVertexDeclUsage.Position -> MMVertexElemSemantic.Position

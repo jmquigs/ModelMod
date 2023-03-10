@@ -1,46 +1,20 @@
-set -e
+# this used to be entirely in bash but I ported it to Fake since this didn't work on
+# appveyor.  But then appveyor has cargo issues (it can't reliably update its index due to
+# some SSL issue).  But I still kept the new Fake implementation
 
-CLEANARG=$1
+# search upwards in the directory tree for the build.fsx file
+DIR="./"
+for i in {1..4}; do
+    if [ -f "$DIR/build.fsx" ]; then
+        break
+    fi
+    DIR="$DIR/.."
+done
 
-TC_X64=stable-x86_64-pc-windows-msvc
-TC_X32=stable-i686-pc-windows-msvc
-
-ACTIVE_TC=$(rustup show active-toolchain | awk '{print $1}')
-
-if [ ! -d "../Release" ]; then
-    echo "../Release not found, are you running this script from the 'Native' directory?"
+if [ ! -f "$DIR/build.fsx" ]; then
+    echo "Can't find build.fsx"
     exit 1
 fi
 
-function copy_to_dest {
-    local dest=$1
-    if [ ! -d ../Release/$dest ]; then
-    mkdir ../Release/$dest
-    fi
-    if [ -f ../Release/$dest/d3d9.dll ]; then
-        rm -fv ../Release/$dest/d3d9.dll
-    fi
-    cp -a target/release/hook_core.dll ../Release/$dest/d3d9.dll
-}
+(cd $DIR && TARGET=BuildNativeOnly fsi build.fsx)
 
-rustup default $TC_X64
-if [ "$CLEANARG" != "noclean" ]; then
-    cargo clean
-fi
-cargo build --release
-copy_to_dest modelmod_64
-
-rustup default $TC_X32
-if [ "$CLEANARG" != "noclean" ]; then
-    cargo clean
-fi
-
-cargo build --release
-copy_to_dest modelmod_32
-
-rustup default $ACTIVE_TC
-if [ "$CLEANARG" != "noclean" ]; then
-    cargo clean
-fi
-
-echo "=== Toolchain reset to $TC_X64"
