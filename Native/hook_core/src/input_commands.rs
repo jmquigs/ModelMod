@@ -32,10 +32,11 @@ use hook_snapshot::SNAP_CONFIG;
 use snaplib::snap_config::SnapConfig;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use shared_dx::types::DevicePointer::{D3D9, D3D11};
 
 use shared_dx::error::Result;
 
-pub fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
+pub fn init_selection_mode(device: DevicePointer) -> Result<()> {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     hookstate.making_selection = true;
     hookstate.active_texture_list = Some(Vec::with_capacity(5000));
@@ -46,15 +47,22 @@ pub fn init_selection_mode(device: *mut IDirect3DDevice9) -> Result<()> {
 
     unsafe {
         // hot-patch the snapshot hook functions
-        let vtbl: *mut IDirect3DDevice9Vtbl = std::mem::transmute((*device).lpVtbl);
-        let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
+        match device {
+            D3D9(device) => {
+                let vtbl: *mut IDirect3DDevice9Vtbl = std::mem::transmute((*device).lpVtbl);
+                let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
-        let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
+                let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
-        // TODO: should hook SetStreamSource so that we can tell what streams are in use
-        (*vtbl).SetTexture = hook_set_texture;
+                // TODO: should hook SetStreamSource so that we can tell what streams are in use
+                (*vtbl).SetTexture = hook_set_texture;
 
-        protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+                protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+            },
+            D3D11(_device) => {
+                write_log_file("don't know how to init selection mode in d3d11 yet")
+            }
+        }
     }
     Ok(())
 }
@@ -127,7 +135,7 @@ pub fn init_snapshot_mode() {
     }
 }
 
-pub fn cmd_select_next_texture(device: *mut IDirect3DDevice9) {
+pub fn cmd_select_next_texture(device: DevicePointer) {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     if !hookstate.making_selection {
         init_selection_mode(device)
@@ -149,7 +157,7 @@ pub fn cmd_select_next_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = 0;
     }
 }
-pub fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
+pub fn cmd_select_prev_texture(device: DevicePointer) {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     if !hookstate.making_selection {
         init_selection_mode(device)
@@ -171,7 +179,7 @@ pub fn cmd_select_prev_texture(device: *mut IDirect3DDevice9) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-fn cmd_clear_texture_lists(_device: *mut IDirect3DDevice9) {
+fn cmd_clear_texture_lists(_device: DevicePointer) {
     tryload_snap_config().map_err(|e| {
         write_log_file(&format!("failed to load snap config: {:?}", e))
     }).unwrap_or_default();
@@ -229,7 +237,7 @@ pub fn is_loading_mods() -> bool {
     loading
 }
 
-pub fn cmd_clear_mods(device: *mut IDirect3DDevice9) {
+pub fn cmd_clear_mods(device: DevicePointer) {
     if is_loading_mods() {
         write_log_file("cannot reload now; mods are loading");
         return;
@@ -241,12 +249,12 @@ pub fn cmd_clear_mods(device: *mut IDirect3DDevice9) {
         is.done_loading_mods = true;
 
         unsafe {
-            mod_load::clear_loaded_mods(DevicePointer::D3D9(device));
+            mod_load::clear_loaded_mods(device);
         }
     });
 }
 
-fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
+fn cmd_reload_mods(device: DevicePointer) {
     if is_loading_mods() {
         write_log_file("cannot reload now; mods are loading");
         return;
@@ -262,12 +270,12 @@ fn cmd_reload_mods(device: *mut IDirect3DDevice9) {
     });
 }
 
-fn cmd_reload_managed_dll(device: *mut IDirect3DDevice9) {
+fn cmd_reload_managed_dll(device: DevicePointer) {
     if is_loading_mods() {
         write_log_file("cannot reload now; mods are loading");
         return;
     }
-    unsafe { mod_load::clear_loaded_mods(DevicePointer::D3D9(device)) };
+    unsafe { mod_load::clear_loaded_mods(device) };
     // TODO: should check for active snapshotting and anything else that might be using the managed
     // code
     let hookstate = unsafe { &mut GLOBAL_STATE };
@@ -332,7 +340,7 @@ fn select_next_variant() {
     });
 }
 
-fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
+fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
 
@@ -362,7 +370,7 @@ fn setup_fkey_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     //inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 }
 
-fn setup_punct_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
+fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
     write_log_file("using punct key input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     inp.add_press_fn(input::DIK_BACKSLASH, Box::new(move || cmd_reload_mods(device)));
@@ -385,7 +393,7 @@ fn setup_punct_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) {
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
 
-pub fn setup_input(device: *mut IDirect3DDevice9, inp: &mut input::Input) -> Result<()> {
+pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> {
     use std::ffi::CStr;
 
     // if we fail to set it up repeatedly, don't spam log forever

@@ -323,6 +323,9 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             devptr: DevicePointer::D3D11(device),
             metrics: DX11Metrics::new(),
             rs: DX11RenderState::new(),
+            app_hwnds: Vec::new(),
+            last_timebased_update: SystemTime::now(),
+            app_foreground: false,
         }));
 
         //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11

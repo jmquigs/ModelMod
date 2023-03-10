@@ -429,7 +429,7 @@ pub unsafe extern "system" fn hook_present(
     if util::appwnd_is_foreground(dev_state().d3d_window) {
         GLOBAL_STATE.input.as_mut().map(|inp| {
             if inp.get_press_fn_count() == 0 {
-                input_commands::setup_input(THIS, inp)
+                input_commands::setup_input(DevicePointer::D3D9(THIS), inp)
                     .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
             }
             inp.process()

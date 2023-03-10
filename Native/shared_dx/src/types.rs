@@ -89,6 +89,9 @@ pub struct HookD3D11State {
     pub metrics: DX11Metrics,
     /// Contains current render state for the device
     pub rs: DX11RenderState,
+    pub app_hwnds: Vec<HWND>,
+    pub last_timebased_update: SystemTime,
+    pub app_foreground: bool,
 }
 
 pub enum HookDeviceState {
@@ -103,7 +106,6 @@ pub struct DeviceState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-
 /// A copyable enum which stores a device pointer.  Used to pass through this pointer
 /// to functions that don't need to know what the type is.  A function that actually needs
 /// to do work with the pointer will need to match on the type implement code to handle each
