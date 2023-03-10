@@ -56,17 +56,35 @@ let ``ModDBInterop: test fillModData``() =
     // gaps in their data (seen in low detail settings for example)
     ()
 
+// Several of the mod writters cram floating point values in 0..1 range into bytes, 
+// for these an epsilon test must be done to see if difference is within 
+// "acceptable" range - this is mostly a factor for old dx9 games which were just 
+// trying to cram as much as possible into their tiny verts
+type ExResult = 
+| ByteExact of byte[]
+| ByteClose of byte[] 
+
 [<Test>]
 let ``ModDBInterop: DataWriters functions``() =
-    let testWithWriteFn (targEl:MMVertexElement) desttypes exRead fn =
+    let testWithWriteFn (targEl:MMVertexElement) desttypes (exRead:ExResult list) fn =
         desttypes |> List.iter (fun dtype ->
             let targEl = { targEl with Type = dtype  }
             exRead |> List.iteri (fun modVertIndex expected ->
                 let (bw: BinaryWriter),outBytes = newOut 256
                 fn modVertIndex targEl bw
                 bw.Flush()
-                let take = expected |> Array.length
-                Assert.AreEqual (expected, outBytes |> Array.take take, sprintf "modVertIndex %d, dtype %A" modVertIndex dtype)
+                match expected with 
+                | ByteExact(expected) ->
+                    let take = expected |> Array.length
+                    Assert.AreEqual (expected, outBytes |> Array.take take, sprintf "modVertIndex %d, dtype %A" modVertIndex dtype)
+                | ByteClose(expected) -> 
+                    let take = expected |> Array.length
+                    let outBytes = outBytes |> Array.take take
+                    for i in [0..take-1] do 
+                        let diff = int expected.[i] - int outBytes.[i]
+                        if diff < -1 || diff > 1 then 
+                            failwithf "diff too large at byte %i: %A.  context: modVertIndex %d, dtype %A" i diff modVertIndex dtype
+                        
             )
         )
 
@@ -88,8 +106,8 @@ let ``ModDBInterop: DataWriters functions``() =
         Format(SDXF.R8G8B8A8_UNorm)
     ]
     let exRead = [ // expected result from each vert write
-        [|1uy; 2uy; 3uy; 4uy|]
-        [|5uy; 6uy; 7uy; 8uy|]
+        ByteExact([|1uy; 2uy; 3uy; 4uy|])
+        ByteExact([|5uy; 6uy; 7uy; 8uy|])
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.modmBlendIndex vertrels mesh modVertIndex targEl bw
@@ -104,8 +122,8 @@ let ``ModDBInterop: DataWriters functions``() =
     let targEl = { targEl with Semantic = MMVertexElemSemantic.BlendWeight}
     let mesh = { emptyMesh with BlendWeights = [| Vec4F(0.25f,0.5f,0.75f,1.0f); Vec4F(0.1f,0.2f,0.3f,0.4f); |] }
     let exRead = [ // expected result from each vert write
-        [|64uy; 128uy; 191uy; 255uy|] // conversion is rounded/lossy
-        [|26uy; 51uy; 77uy; 102uy|]
+        ByteClose([|64uy; 128uy; 191uy; 255uy|]) // conversion is rounded/lossy
+        ByteClose([|26uy; 51uy; 77uy; 102uy|])
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.modmBlendWeight vertrels mesh modVertIndex targEl bw
@@ -123,8 +141,8 @@ let ``ModDBInterop: DataWriters functions``() =
         ms.ToArray()
 
     let exRead = [ // expected result from each vert write
-        [|0.25f; 0.5f; 0.75f; 1.0f|] |> floatsToByteArray
-        [|0.1f; 0.2f; 0.3f; 0.4f|] |> floatsToByteArray
+        ByteExact([|0.25f; 0.5f; 0.75f; 1.0f|] |> floatsToByteArray)
+        ByteExact([|0.1f; 0.2f; 0.3f; 0.4f|] |> floatsToByteArray)
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.modmBlendWeight vertrels mesh modVertIndex targEl bw
@@ -141,14 +159,14 @@ let ``ModDBInterop: DataWriters functions``() =
 
     let fToUint f = f * 128.f + 127.f |> uint8 // what write4ByteVector does
     let exRes1 = [
-        [| 0.25f;0.5f;0.75f; |] |> Array.map fToUint
-        [| 0.1f;0.2f;0.3f; |] |> Array.map fToUint
+        ([| 0.25f;0.5f;0.75f; |] |> Array.map fToUint)
+        ([| 0.1f;0.2f;0.3f; |] |> Array.map fToUint)
     ]
     // write4ByteVector also looks at ReverseNormals so need to test that on/off
     // reversing normals leaves w at end so effectively just x and z are swapped
     let conf = {State.Data.Conf with GameProfile = {State.Data.Conf.GameProfile with ReverseNormals = true}}
     State.testSetConf conf
-    let exRead = exRes1 |> List.map (fun a -> [| a.[2]; a.[1]; a.[0]; 0uy |])
+    let exRead = exRes1 |> List.map (fun a -> ByteClose([| a.[2]; a.[1]; a.[0]; 0uy |]))
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.modmNormal mesh modVertIndex 0 targEl bw
     )
@@ -157,7 +175,7 @@ let ``ModDBInterop: DataWriters functions``() =
         [| 0.25f;0.5f;0.75f; |] |> Array.map fToUint
         [| 0.1f;0.2f;0.3f; |] |> Array.map fToUint
     ]
-    let exRead = exRes1 |> List.map (fun a -> [| a.[0]; a.[1]; a.[2]; 0uy |] )
+    let exRead = exRes1 |> List.map (fun a -> ByteClose([| a.[0]; a.[1]; a.[2]; 0uy |]) )
     let conf = {State.Data.Conf with GameProfile = {State.Data.Conf.GameProfile with ReverseNormals = false}}
     State.testSetConf conf
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
@@ -170,8 +188,8 @@ let ``ModDBInterop: DataWriters functions``() =
         Format(SDXF.R32G32B32_Float)
     ]
     let exRead = [
-        [| 0.25f;0.5f;0.75f; |] |> floatsToByteArray
-        [| 0.1f;0.2f;0.3f; |] |> floatsToByteArray
+        ByteExact([| 0.25f;0.5f;0.75f; |] |> floatsToByteArray)
+        ByteExact([| 0.1f;0.2f;0.3f; |] |> floatsToByteArray)
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.modmNormal mesh modVertIndex 0 targEl bw
@@ -200,8 +218,8 @@ let ``ModDBInterop: DataWriters functions``() =
         Format(SDXF.R8G8B8A8_UInt)
     ]
     let exRead = [ // expected result from each vert write
-        [|1uy; 2uy; 3uy; 4uy|]
-        [|5uy; 6uy; 7uy; 8uy|]
+        ByteClose([|1uy; 2uy; 3uy; 4uy|])
+        ByteClose([|5uy; 6uy; 7uy; 8uy|])
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.refmBlendIndex vertrels mesh modVertIndex targEl bw
@@ -219,8 +237,8 @@ let ``ModDBInterop: DataWriters functions``() =
             Type = ModType.Reference
             BlendWeights = [| Vec4F(0.25f,0.5f,0.75f,1.0f); Vec4F(0.1f,0.2f,0.3f,0.4f); |] }
     let exRead = [ // expected result from each vert write
-        [|64uy; 128uy; 191uy; 255uy|] // conversion is rounded/lossy
-        [|26uy; 51uy; 77uy; 102uy|]
+        ByteClose([|64uy; 128uy; 191uy; 255uy|]) // conversion is rounded/lossy
+        ByteClose([|26uy; 51uy; 77uy; 102uy|])
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.refmBlendWeight vertrels mesh modVertIndex targEl bw
@@ -231,8 +249,8 @@ let ``ModDBInterop: DataWriters functions``() =
         Format(SDXF.R32G32B32A32_Float)
     ]
     let exRead = [ // expected result from each vert write
-        [|0.25f; 0.5f; 0.75f; 1.0f|] |> floatsToByteArray
-        [|0.1f; 0.2f; 0.3f; 0.4f|] |> floatsToByteArray
+        ByteExact([|0.25f; 0.5f; 0.75f; 1.0f|] |> floatsToByteArray)
+        ByteExact([|0.1f; 0.2f; 0.3f; 0.4f|] |> floatsToByteArray)
     ]
     testWithWriteFn targEl desttypes exRead (fun modVertIndex targEl bw ->
         DataWriters.refmBlendWeight vertrels mesh modVertIndex targEl bw
