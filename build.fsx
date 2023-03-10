@@ -40,14 +40,85 @@ Target "Default" (fun _ ->
     trace "Build Complete"
 )
 
-Target "BuildNative" (fun _ ->
+// Utility to run a proc with captured stdout.  10 second time limit.
+// stderr not captured.
+// Thought fake could do this, but maybe not?
+let runCaptured cmd arg =
+    let outLines = new ResizeArray<string>()
+    let info = new System.Diagnostics.ProcessStartInfo()
+    info.FileName <- cmd
+    info.Arguments <- arg
+    info.UseShellExecute <- false
+    info.RedirectStandardOutput <- true
+    let proc = System.Diagnostics.Process.Start(info)
+    let reader() =
+        while not proc.StandardOutput.EndOfStream do
+                let line = proc.StandardOutput.ReadLine()
+                outLines.Add(line)
+    let t = new System.Threading.Thread(reader)
+    t.Start()
+    proc.WaitForExit(10000) |> ignore
+    if not proc.HasExited then failwithf "%A: waited too long for proc to exit" (cmd,arg)
+    if proc.ExitCode <> 0 then failwithf "%A: non zero exit code: %A" (cmd,arg) proc.ExitCode
+    outLines.ToArray()
+
+let runUncaptured cmd arg wd timeOut =
+    let result =
+        ExecProcess (fun info ->
+            info.FileName <- cmd
+            info.Arguments <- arg
+            info.WorkingDirectory <- wd
+        ) timeOut
+    if result <> 0 then failwithf "proc %Areturned with a non-zero exit code: %A" (cmd,arg) result
+
+let runBuildNative() =
     let wd = System.Environment.CurrentDirectory
-    let result = ExecProcess(fun info ->
-        // obviously this won't work on CI
-        info.FileName <- @"C:\Program Files\Git\git-bash.exe"
-        info.Arguments <- "./hook_core/buildrel.sh"
-        info.WorkingDirectory <- sprintf @"%s\Native" wd) (System.TimeSpan.FromMinutes 3.0)
-    if result <> 0 then failwithf "MyProc.exe returned with a non-zero exit code"
+
+    if not (Directory.Exists("Release")) then Directory.CreateDirectory("Release") |> ignore
+
+    // note current cargo toolchain
+    let result = runCaptured "rustup" "show"
+    let result = result |> Array.filter (fun l -> l.Contains("default")) |> Array.head
+    let defToolchain = result.Split([|" "|], System.StringSplitOptions.RemoveEmptyEntries).[0]
+
+    let dobuild bits =
+        let tc =
+            match bits with
+            | 32 -> "stable-i686-pc-windows-msvc"
+            | 64 -> "stable-x86_64-pc-windows-msvc"
+            | _ -> failwithf "invalid bits: %d" bits
+
+        if defToolchain <> tc then
+            printfn "============== Warning! Switching to rust toolchain: %s; your prior toolchain will be restored on exit, but not if you Ctrl-C" tc
+
+        if Directory.Exists(@"Native\target\release") then Directory.Delete(@"Native\target\release", true)
+        if Directory.Exists(@"Native\target\debug") then Directory.Delete(@"Native\target\debug", true)
+
+        let wd = (sprintf @"%s\Native" wd)
+        runUncaptured "rustup" (sprintf "default %s" tc) wd (System.TimeSpan.FromSeconds(8.88))
+        runUncaptured "cargo" "build --release" wd (System.TimeSpan.FromMinutes 10.00)
+
+        let destDir = sprintf "Release\\modelmod_%d" bits
+        if not (Directory.Exists(destDir)) then Directory.CreateDirectory(destDir) |> ignore
+        File.Copy(@"Native\target\release\hook_core.dll", sprintf @"%s\d3d9.dll" destDir, true)
+        File.Copy(@"Native\target\release\hook_core.dll", sprintf @"%s\d3d11.dll" destDir, true)
+
+    try
+        dobuild 64
+        dobuild 32
+    finally
+        if defToolchain.Trim() <> "" then
+            runCaptured "rustup" (sprintf "default %s" defToolchain) |> ignore
+            printfn "==> restored prior toolchain: %A" defToolchain
+
+
+// This target has no deps so that it can be run independently
+Target "BuildNativeOnly" (fun _ ->
+    runBuildNative()
+)
+
+Target "BuildNative" (fun _ ->
+    runBuildNative()
 )
 
 Target "MakeAssInfo" (fun _ ->

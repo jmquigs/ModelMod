@@ -1,29 +1,27 @@
-# http://www.appveyor.com/docs/appveyor-yml
-# testo
-# environment:
-#   matrix:
-#   - TARGET: x86_64-pc-windows-msvc
-#     BITS: 64
-#     MSYS2: 1
-#   - TARGET: i686-pc-windows-msvc
-#     BITS: 32
-#     MSYS2: 1
-
-# build: off
+# as of 3/10/2023 appveyor doesn't work well with cargo, cargo is unable to reliably update
+# its index due to a SSL connect issue.  therefore I am not using appveyor at this time.
+# note: if appyveyor appears to be ignoring this file (and only using UI settings to build)
+# verify that it is still authorized to access the github repo (in its UI)
+environment:
+  buildenv: appveyor
+  # unsuccessful attempt to try to fix the cargo issue:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 install:
-#  - curl -sSf -o rustup-init.exe https://win.rustup.rs/
-#  - rustup-init.exe -y --default-host %TARGET%
-#  - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
+  - curl -sSf -o rustup-init.exe https://win.rustup.rs/
+  - rustup-init.exe -y --default-host x86_64-pc-windows-msvc
+  - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
 #  - if defined MSYS2 set PATH=C:\msys64\mingw%BITS%\bin;%PATH%
   - set PATH=C:\msys64\mingw64\bin;%PATH%
-  - bash -version
 #  - rustc -V
 #  - cargo -V
 
 before_build:
 - del "MMManaged\\Dn5-MMManaged.fsproj" # this confuses paket restore, so remove it
 - installdeps.bat nopause
+# for testing native builds before building all the managed crap
+# needs to be done after deps installed though because that is what gets us fake/paket
+- build.bat BuildNativeTest nopause
 #- dir packages
 
 build_script: build.bat AppveyorBuild nopause
