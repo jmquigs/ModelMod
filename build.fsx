@@ -41,11 +41,12 @@ Target "Default" (fun _ ->
 )
 
 Target "BuildNative" (fun _ ->
+    let wd = System.Environment.CurrentDirectory
     let result = ExecProcess(fun info ->
         // obviously this won't work on CI
         info.FileName <- @"C:\Program Files\Git\git-bash.exe"
         info.Arguments <- "./hook_core/buildrel.sh"
-        info.WorkingDirectory <- @"M:\ModelMod\Native") (System.TimeSpan.FromMinutes 3.0)
+        info.WorkingDirectory <- sprintf @"%s\Native" wd) (System.TimeSpan.FromMinutes 3.0)
     if result <> 0 then failwithf "MyProc.exe returned with a non-zero exit code"
 )
 
@@ -287,5 +288,9 @@ Target "AppveyorPackage" ignore
 "Package"
     ==> "AppveyorPackage"
 
-// start build
-RunTargetOrDefault "UpdateVersions"
+let targ = System.Environment.GetEnvironmentVariable("TARGET")
+if targ <> null
+then RunTargetOrDefault targ
+else
+    // start build
+    RunTargetOrDefault "UpdateVersions"
