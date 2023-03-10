@@ -39,10 +39,10 @@ chrono = "*"
 
 [package.metadata.winres]
 ProductName= "ModelMod"
-FileDescription="D3D9 wrapper for ModelMod"
+FileDescription="D3D11/9 wrapper for ModelMod"
 OriginalFilename = "hook_core.dll"
-LegalCopyright = "Copyright © 2021"
-ProductVersion = "1.1.0.4"
+LegalCopyright = "Copyright © 2023"
+ProductVersion = "1.2.0.0"
 
 [features]
 default = []
