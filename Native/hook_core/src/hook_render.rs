@@ -65,6 +65,9 @@ fn get_selected_texture_stage() -> Option<DWORD> {
     }
 }
 
+/// Controls how often `process_metrics` reports stats (regardless of how frequently it is called)
+const METRICS_MIN_INTERVAL_SECS:f64 = 10.0;
+
 /// Perform a metrics update if the number of dip calls exceeds `interval`.  If
 /// an update is performed, the tracked primitive list will also be cleared.  If there
 /// is no update it will be cleared too, unless the caller passes true for `preserve_prims`.
@@ -74,26 +77,62 @@ fn get_selected_texture_stage() -> Option<DWORD> {
 /// is false there shouldn't be any primitives in the list anyway.
 pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:u32) {
     if metrics.dip_calls > interval {
+        let mut report_dips_fps = true;
+
         let now = SystemTime::now();
         let elapsed = now.duration_since(metrics.last_call_log);
-        let mut wrote_dip_stats = false;
+        let mut dip_stats_updated = false;
         match elapsed {
             Ok(d) => {
                 let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-                if secs >= 3.0 {
+                if secs >= METRICS_MIN_INTERVAL_SECS {
+                    // process dx11 metrics (if any).  do this first because if we are using dx11 we
+                    // want to note that since we might not log some stuff below (which is less useful
+                    // in dx11)
+                    unsafe {dev_state_d3d11_nolock()}.map(|state| {
+                        // don't log these in dx11 because dips fps is not set and dips not usually useful
+                        report_dips_fps = false;
+                        let metrics = &state.metrics;
+                        let ms_since_reset = metrics.ms_since_reset();
+                        if metrics.vs_set_const_buffers_hooks > 0 && ms_since_reset > 0 {
+                            let vshookrate = if metrics.vs_set_const_buffers_calls > 0 {
+                                metrics.vs_set_const_buffers_hooks as f64 / metrics.vs_set_const_buffers_calls as f64
+                            } else {
+                                0.0
+                            };
+                            // also compute hooks per 100 ms
+                            let vshookrate_per_sec = metrics.vs_set_const_buffers_hooks as f64 / ms_since_reset as f64 * 100.0;
+
+
+                            write_log_file(&format!("dx11 metrics: {}ms; vsscb hooks: {:.2}%, {}={:.2}/100ms",
+                                ms_since_reset, vshookrate * 100.0, metrics.vs_set_const_buffers_hooks, vshookrate_per_sec));
+                            // write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
+                            //     metrics.vs_set_const_buffers_calls,
+                            //     metrics.vs_set_const_buffers_hooks
+                            // ));
+                        }
+                        if metrics.rehook_calls > 0 {
+                            let rehook_ms = metrics.rehook_time_nanos / 1000 / 1000;
+                            write_log_file(&format!("  rehook calls: {}, total ms: {}", metrics.rehook_calls, rehook_ms));
+                        }
+                        if metrics.drawn_recently.len() > 0 {
+                            write_log_file("  drawn recently:");
+                            for (pv, ds) in &metrics.drawn_recently {
+                                write_log_file(&format!("    {:?}: {:?}", pv, ds));
+                            }
+                        }
+                        state.metrics.reset();
+                    });
+
                     let dipsec = metrics.dip_calls as f64 / secs;
 
-                    let epocht = now
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or(std::time::Duration::from_secs(1))
-                        .as_secs()
-                        * 1000;
-
-                    wrote_dip_stats = true;
-                    write_log_file(&format!(
-                        "{:?}: {} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
-                        epocht, metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
-                    ));
+                    dip_stats_updated = true;
+                    if report_dips_fps {
+                        write_log_file(&format!(
+                            "{} dip calls in {:.*} secs ({:.*} dips/sec (fps: {:.*}))",
+                            metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
+                        ));
+                    }
                     unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
                         write_log_file(&format!(
                             "active texture set contains: {} textures",
@@ -101,17 +140,17 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
                         ))
                     });
                     metrics.last_call_log = now;
+                    metrics.dip_calls = 0;
                 }
             }
             Err(e) => write_log_file(&format!("Error getting elapsed duration: {:?}", e)),
         }
-        metrics.dip_calls = 0;
 
         // dump out the prim list every so often if we are tracking that.
         // note this only dumps out the primitives for the most recent frame.
         // also only write these out when we also just wrote a dip summary line
         // above.
-        if global_state::METRICS_TRACK_PRIMS && wrote_dip_stats {
+        if global_state::METRICS_TRACK_PRIMS && dip_stats_updated {
             use global_state::RenderedPrimType::{PrimVertCount, PrimCountVertSizeAndVBs};
             let logname = shared_dx::util::get_log_file_path();
             if !logname.is_empty() && metrics.rendered_prims.len() > 0 {
@@ -154,29 +193,6 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         // always clear prims after an update, whether we wrote them or not (prevents them
         // from accumulating)
         unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
-
-        // process dx11 metrics (if any)
-        unsafe {dev_state_d3d11_nolock()}.map(|state| {
-            let metrics = &state.metrics;
-            if metrics.vs_set_const_buffers_hooks > 0 {
-                write_log_file(&format!("dx11 metrics: {}ms since last reset", metrics.ms_since_reset()));
-                write_log_file(&format!("  VSSetConstantBuffers calls: {}, hooks: {}",
-                    metrics.vs_set_const_buffers_calls,
-                    metrics.vs_set_const_buffers_hooks
-                ));
-            }
-            if metrics.rehook_calls > 0 {
-                let rehook_ms = metrics.rehook_time_nanos / 1000 / 1000;
-                write_log_file(&format!("  rehook calls: {}, total ms: {}", metrics.rehook_calls, rehook_ms));
-            }
-            if metrics.drawn_recently.len() > 0 {
-                write_log_file("  drawn recently:");
-                for (pv, ds) in &metrics.drawn_recently {
-                    write_log_file(&format!("    {:?}: {:?}", pv, ds));
-                }
-            }
-            state.metrics.reset();
-        });
 
 
     } else {

@@ -462,15 +462,20 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
 
         dev_state_d3d11_nolock()
         .map(|ds| {
-            // TODO11: when is this cleared?  what happens if it gets big?
+            // add layout to hash
+            // TODO11: when to clear this?  what happens if it gets big?
             // (maybe game recreates layouts on device reset?)
             // could hook Release on the layout to remove them, ugh.
-            // this does appear to accumulate at a rate of a few hundred every few secs.
+            // this does appear to accumulate at a rate of a few hundred every few secs,
+            // when game is loading assets anyway.
             // an alt strategy would be to just parse the layout now and store the
             // results of that, instead of every possible layout pointer.
+            // anyway these are pointers (8 bytes) so not a huge amount of space, but hashing
+            // could get slow if table gets too big and a lot of stuff is hashing to same
+            // values.
             ds.rs.input_layouts_by_ptr.insert(*ppInputLayout as u64, vf);
 
-            if ds.rs.input_layouts_by_ptr.len() % 20 == 0 {
+            if ds.rs.input_layouts_by_ptr.len() % 500 == 0 {
                 write_log_file(&format!("vertex layout table now has {} elements",
                 ds.rs.input_layouts_by_ptr.len()));
             }
