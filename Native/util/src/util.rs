@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     pub fn test_get_managed_dll_path() {
-        if let Err(e) = get_managed_dll_path("C:\\Dev\\modelmod.new") {
+        if let Err(e) = get_managed_dll_path("M:\\modelmod") {
             // TODO unhardcode
             assert!(false, "file should exist: {:?}", e)
         }

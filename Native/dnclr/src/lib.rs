@@ -4,4 +4,4 @@
 extern crate winapi;
 
 mod dnclr;
-pub use dnclr::*;
+pub use crate::dnclr::*;

@@ -5,4 +5,4 @@ extern crate types;
 extern crate fnv;
 
 mod global_state;
-pub use global_state::*;
+pub use crate::global_state::*;

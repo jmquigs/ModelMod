@@ -8,4 +8,4 @@ extern crate util;
 extern crate profiler;
 
 mod input;
-pub use input::*;
+pub use crate::input::*;

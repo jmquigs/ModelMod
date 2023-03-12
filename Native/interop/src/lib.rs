@@ -3,4 +3,4 @@
 extern crate lazy_static;
 
 mod interop;
-pub use interop::*;
+pub use crate::interop::*;
