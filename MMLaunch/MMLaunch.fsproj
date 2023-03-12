@@ -65,6 +65,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="ViewModelUtil.fs" />
+    <Compile Include="KnownGames.fs" />
     <Compile Include="ProcessUtil.fs" />
     <Compile Include="ModUtil.fs" />
     <Compile Include="BlenderUtil.fs" />

@@ -94,8 +94,10 @@ module LocStrings =
         let ExeFilesFilter = "Executable files (*.exe)"
         let StartCopy =
             Formatters.StringAnyRetString(
-                "This version of ModelMod does not automatically start the game." +
-                "\nYou must copy d3d9.dll or d3d11.dll into the game's executable directory, and then start the game manually." +
+                "This version of ModelMod does not know how to start this game.  " +
+                "Therefore ModelMod probably doesn't work with it.\n\nIf you want to try manually, " +
+                "first figure out whether the game is 32 or 64 bit and whether it uses d3d9 or 11." +
+                "\nThen you copy d3d9.dll or d3d11.dll into the game's executable directory, and then start the game manually." +
                 "\nThe destination may be the game's directory or a subdirectory (like 'bin64')." +
                 "\nIf the game is 32 bit, copy %s\modelmod_32\d3d9.dll. (or d3d11.dll)" +
                 "\nIf the game is 64 bit, copy %s\modelmod_64\d3d9.dll. (or d3d11.dll)" +
@@ -764,15 +766,35 @@ type MainViewModel() as self =
             ))
 
     member x.StartInSnapshotMode =
-        // currently we just tell the user what they need to do,
-        // and we don't start anything.
-        let promptCopy mainWin selectedProfile =
-            let binPath = Path.Combine(ProcessUtil.getMMRoot(), "Bin")
-            let msg = sprintf LocStrings.Misc.StartCopy binPath binPath
-            let view,vm = MainViewUtil.makeConfirmDialog mainWin
-            vm.CheckBoxText <- ""
-            vm.Text <- msg
-            view.Root.ShowDialog() |> ignore
+        /// If we can automatically copy in our d3d files and start the exe, do that.
+        /// Otherwise display the user prompt telling them how lame we are
+        /// (they need to do it manually)
+        let promptCopy mainWin (selectedProfile:ProfileModel) =.
+            let res = ProcessUtil.preStartCopy (selectedProfile.ExePath)
+            match res with
+            | Ok(ProcessUtil.PreStartCopyResult.Copied) ->
+                match ProcessUtil.launch (selectedProfile.ExePath) with
+                | Ok(proc) -> ()
+                | Err(e) ->
+                    let msg = "Start failed: " + e.Message
+                    let view,vm = MainViewUtil.makeConfirmDialog mainWin
+                    vm.CheckBoxText <- ""
+                    vm.Text <- msg
+                    view.Root.ShowDialog() |> ignore
+            | Ok(ProcessUtil.PreStartCopyResult.UnknownExe) ->
+                // don't know how to handle this so tell user about i
+                let binPath = Path.Combine(ProcessUtil.getMMRoot(), "Bin")
+                let msg = sprintf LocStrings.Misc.StartCopy binPath binPath
+                let view,vm = MainViewUtil.makeConfirmDialog mainWin
+                vm.CheckBoxText <- ""
+                vm.Text <- msg
+                view.Root.ShowDialog() |> ignore
+            | Err(e) ->
+                let msg = "Start failed: " + e.Message
+                let view,vm = MainViewUtil.makeConfirmDialog mainWin
+                vm.CheckBoxText <- ""
+                vm.Text <- msg
+                view.Root.ShowDialog() |> ignore
 
         // old function to start the MMLoader, which isn't used anymore.
         let startMMLoader (x:MainViewModel) (selectedProfile:ProfileModel) =

@@ -59,7 +59,8 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     }
     GLOBAL_STATE.in_hook_release = true;
     let rc = (hook_context.real_release)(THIS);
-    if rc < 100 {
+    // if >= 1 then this spams when Discord is running, wonder what its doing
+    if rc < 1 {
         write_log_file(&format!("hook release: rc now {}", rc));
     }
     GLOBAL_STATE.in_hook_release = false;
