@@ -343,12 +343,12 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
 }
 
 // TODO: hook this up to device release at the proper time
-unsafe fn purge_device_resources(device: *mut IDirect3DDevice9) {
-    if device == null_mut() {
+unsafe fn purge_device_resources(device: DevicePointer) {
+    if device.is_null() {
         write_log_file("WARNING: ignoring insane attempt to purge devices on a null device");
         return;
     }
-    mod_load::clear_loaded_mods(DevicePointer::D3D9(device));
+    mod_load::clear_loaded_mods(device);
     if GLOBAL_STATE.selection_texture != null_mut() {
         (*GLOBAL_STATE.selection_texture).Release();
         GLOBAL_STATE.selection_texture = null_mut();
@@ -520,7 +520,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                     it is being destroyed: purging resources",
                     THIS as u64, dev_state().d3d_resource_count
                 ));
-                purge_device_resources(THIS as *mut IDirect3DDevice9);
+                purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
                 // Note, hookdevice.ref_count is wrong now since we bypassed
                 // this function during unload (no re-entrancy).  however the count on the
                 // device should be 1 if I did the math right, anyway the release below
