@@ -590,10 +590,11 @@ module ModDBInterop =
             let slotclass = enum<SharpDX.Direct3D11.InputClassification>(int slotclass)
             if slotclass = SharpDX.Direct3D11.InputClassification.PerVertexData then
                 let sxel = new SharpDX.Direct3D11.InputElement(name, int semIndex, format, int offset, int slot, slotclass, int stepRate)
-                log.Info "  VEl: %A %A %A %A" sxel.SemanticName sxel.SemanticIndex sxel.AlignedByteOffset sxel.Format
                 let mmel = VertexTypes.layoutElToMMEl sxel name
                 els.Add(mmel)
-        log.Info "Read %d vertex elements" els.Count
+            else 
+                log.Warn "  Unrecognized slot class in vert: class %A, semantic %A" slotclass name
+        
         els.ToArray()
 
     type VertexDecl =
@@ -856,13 +857,24 @@ module ModDBInterop =
                 // Write all the triangles to the buffer.
                 modm.Triangles |> Array.iter writeTriangle
 
-                log.Info "stream fill complete, curr position: %A" bw.BaseStream.Position
+                if int64 destVbSize <> bw.BaseStream.Position then 
+                    // uh oh
+                    log.Warn "vb fill did not produce the expected number of bytes (want %A, got %A)" destVbSize bw.BaseStream.Position
             0
         with
             | e ->
                 log.Error "%s" e.Message
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
+    
+    let observedVertTypes = new System.Collections.Generic.HashSet<string>()
+
+    let vertElsToString(elements:MMVertexElement[]) = 
+        use sw = new StringWriter()
+        for sxel in elements do 
+            sw.WriteLine(sprintf "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type)
+        sw.Flush()
+        sw.ToString()
 
     /// Fill the render buffers associated with the specified mod.
     let fillModData
@@ -886,9 +898,16 @@ module ModDBInterop =
                     use stream = new UnmanagedMemoryStream(destDeclData, int64 destDeclSize, int64 destDeclSize, FileAccess.Read)
                     use br = new BinaryReader(stream)
                     let elements = d3d11LayoutToMMVert br (int64 destDeclSize)
+                    // log the vert details if we haven't seen it before
+                    let elStr = vertElsToString(elements)
+                    if not (observedVertTypes.Contains(elStr)) then 
+                        log.Info "Vert type %A contains %d elements" (elStr.GetHashCode()) elements.Length
+                        for sxel in elements do 
+                            log.Info "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type
+                        observedVertTypes.Add(elStr) |> ignore
                     let declArg = ReadD3D11Layout(elements)
                     let vertSize = MeshUtil.getVertSizeFromEls elements
-                    log.Info "filling d3d11 vertex buffer stream size: %A; vert size: %A" destVbSize vertSize
+                    log.Info "filling d3d11 vertex buffer stream size: %A; vert size: %A, vert type id: %A" destVbSize vertSize (elStr.GetHashCode())
                     fillModDataInternalHelper modIndex declArg (Some(vertSize))
                         (getBinaryWriter destVbData destVbSize) destVbSize
                         (getBinaryWriter destIbData destIbSize) destIbSize
