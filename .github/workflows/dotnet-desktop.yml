@@ -9,9 +9,9 @@ name: .NET Core Desktop
 
 on:
   push:
-    branches: [ "action-test" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ ]
+    branches: [ "master" ]
 
 jobs:
 
@@ -87,8 +87,12 @@ jobs:
         name: ModelModArchive
         path: deploy/*.zip
 
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: deploy/*.zip
+    # disabling this for now since I always prefer to download the archive and smoke test it myself
+    # before making a release, and I don't want to run the a rebuild (which would generate new artifacts) as part of 
+    # release tag.
+    
+    #- name: Release
+    #  uses: softprops/action-gh-release@v1
+    #  if: startsWith(github.ref, 'refs/tags/')
+    #  with:
+    #    files: deploy/*.zip
