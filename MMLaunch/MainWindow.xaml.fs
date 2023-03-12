@@ -769,7 +769,7 @@ type MainViewModel() as self =
         /// If we can automatically copy in our d3d files and start the exe, do that.
         /// Otherwise display the user prompt telling them how lame we are
         /// (they need to do it manually)
-        let promptCopy mainWin (selectedProfile:ProfileModel) =.
+        let promptCopy mainWin (selectedProfile:ProfileModel) =
             let res = ProcessUtil.preStartCopy (selectedProfile.ExePath)
             match res with
             | Ok(ProcessUtil.PreStartCopyResult.Copied) ->
