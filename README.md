@@ -1,3 +1,5 @@
+![example workflow](https://github.com/jmquigs/ModelMod/actions/workflows/dotnet-desktop.yml/badge.svg)
+
 # Intro
 
 ModelMod is a system for modifying art in games.
