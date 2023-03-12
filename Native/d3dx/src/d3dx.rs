@@ -162,26 +162,6 @@ pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexP
         },
         _ => Err(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned())),
     }
-
-    // match d3dx_fn {
-    //     D3DXFn::DX9(d3dx_fn) => {
-    //         let device_ptr = GLOBAL_STATE
-    //         .device
-    //         .as_ref()
-    //         .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
-
-    //         let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
-    //         let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
-    //         let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(*device_ptr, path, ptext);
-    //         if hr != 0 {
-    //             return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
-    //         }
-
-    //         Ok(TexPtr::D3D9(tex))
-    //     },
-    //     _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
-    // }
-
 }
 
 pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
