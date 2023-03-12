@@ -20,7 +20,6 @@ use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11ShaderResourceView;
 use winapi::um::d3d11::ID3D11Texture2D;
 use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
-use winapi::um::wingdi::DeviceCapabilitiesA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
 
