@@ -1,3 +1,4 @@
+use shared_dx::types::DevicePointer;
 use winapi::shared::d3d9::*;
 use winapi::shared::d3d9types::*;
 use winapi::shared::minwindef::{DWORD, UINT, BOOL};
@@ -181,7 +182,8 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
         gs.device = Some(device);
 
         if gs.d3dx_fn.is_none() {
-            gs.d3dx_fn = d3dx::load_lib(&gs.mm_root)
+            let dp = DevicePointer::D3D9(device);
+            gs.d3dx_fn = d3dx::load_lib(&gs.mm_root, &dp)
                 .map_err(|e| {
                     write_log_file(&format!(
                         "failed to load d3dx: texture snapping not available: {:?}",

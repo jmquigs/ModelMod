@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 shared_dx = { path = "../shared_dx" }
 global_state = { path = "../global_state" }
-
+types = { path = "../types" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",

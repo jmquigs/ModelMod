@@ -12,9 +12,15 @@ pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::D3D11_SHADER_RESOURCE_VIEW_DESC;
 use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
+use winapi::um::d3d11::D3D11_TEXTURE2D_DESC;
 use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
 use winapi::um::d3d11::ID3D11Device;
+use winapi::um::d3d11::ID3D11ShaderResourceView;
+use winapi::um::d3d11::ID3D11Texture2D;
+use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
+use winapi::um::wingdi::DeviceCapabilitiesA;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
 
@@ -80,6 +86,33 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     }
 
     write_log_file(&format!("unloaded {} mods", cnt));
+}
+
+unsafe fn load_tex(dp:DevicePointer, texpath:&[u16]) -> Option<d3dx::TexPtr> {
+    let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
+        write_log_file(&format!("failed to load texture: {:?}", e));
+        "".to_owned()
+    });
+    let tex = tex.trim();
+
+    if !tex.is_empty() {
+        match d3dx::load_texture(dp, texpath.as_ptr()) {
+            Ok(tp)  if !tp.is_null() => {
+                write_log_file(&format!("loaded texture: {}", tex));
+                Some(tp)
+            },
+            Ok(_) => {
+                write_log_file(&format!("failed to load texture: {}", tex));
+                None
+            },
+            Err(e) => {
+                write_log_file(&format!("failed to load texture: {}: {:?}", tex, e));
+                None
+            }
+        }
+    } else {
+        None
+    }
 }
 
 /// Create D3D resources for a mod using the data loaded by managed code. This usually consists of a
@@ -182,26 +215,21 @@ pub unsafe fn load_d3d_data9(device: *mut IDirect3DDevice9, callbacks: interop::
     }
     d3dd.decl = out_decl;
 
-    let load_tex = |texpath:&[u16]| {
-        let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
-            write_log_file(&format!("failed to load texture: {:?}", e));
-            "".to_owned()
-        });
-        let tex = tex.trim();
-
-        let mut outtex = null_mut();
-        if !tex.is_empty() {
-            outtex = d3dx::load_texture(texpath.as_ptr()).map_err(|e| {
-                write_log_file(&format!("failed to load texture: {:?}", e));
-            }).unwrap_or(null_mut());
-            write_log_file(&format!("Loaded tex: {:?} {:x}", tex, outtex as u64));
+    let dp = DevicePointer::D3D9(device);
+    let load_tex_d3d9 = |texpath:&[u16]| {
+        match load_tex(dp, texpath) {
+            Some(d3dx::TexPtr::D3D9(lp)) => lp,
+            Some(d3dx::TexPtr::D3D11(_)) => {
+                write_log_file("ERROR: loaded d3d11 tex WTF");
+                null_mut()
+            },
+            None => null_mut()
         }
-        outtex
     };
-    d3dd.textures[0] = load_tex(&(*mdat).texPath0);
-    d3dd.textures[1] = load_tex(&(*mdat).texPath1);
-    d3dd.textures[2] = load_tex(&(*mdat).texPath2);
-    d3dd.textures[3] = load_tex(&(*mdat).texPath3);
+    d3dd.textures[0] = load_tex_d3d9(&(*mdat).texPath0);
+    d3dd.textures[1] = load_tex_d3d9(&(*mdat).texPath1);
+    d3dd.textures[2] = load_tex_d3d9(&(*mdat).texPath2);
+    d3dd.textures[3] = load_tex_d3d9(&(*mdat).texPath3);
 
     write_log_file(&format!(
         "allocated vb/decl for mod {}, idx {}: {:?}", nmd.name,
@@ -365,8 +393,49 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     d3d_data.vert_size = vert_size as u32;
     d3d_data.vert_count = vert_count as u32;
 
-    // TODO11
-    //d3d_data.textures
+    // load textures, if any
+    let dp = DevicePointer::D3D11(device);
+    d3d_data.has_textures = false;
+    let mut load_tex_d3d11 = |texpath:&[u16], idx:usize| {
+        let res = match load_tex(dp, texpath) {
+            Some(d3dx::TexPtr::D3D11(lp)) => lp,
+            Some(d3dx::TexPtr::D3D9(_)) => {
+                write_log_file("ERROR: loaded d3d9 tex WTF");
+                null_mut()
+            },
+            None => null_mut()
+        };
+
+        if !res.is_null() {
+            // d3d11 makes us work harder to use the texture
+            let p_tex = res as *mut ID3D11Texture2D;
+            d3d_data.textures[idx] = p_tex;
+
+            let mut desc:D3D11_TEXTURE2D_DESC = unsafe { std::mem::zeroed() };
+            (*p_tex).GetDesc(&mut desc);
+
+            let mut sv_desc:D3D11_SHADER_RESOURCE_VIEW_DESC = unsafe { std::mem::zeroed() };
+            sv_desc.Format = desc.Format;
+            sv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+            sv_desc.u.Texture2D_mut().MipLevels = desc.MipLevels;
+            sv_desc.u.Texture2D_mut().MostDetailedMip = 0;
+            let mut p_srview: *mut ID3D11ShaderResourceView = null_mut();
+            let pp_srview = &mut p_srview as *mut *mut ID3D11ShaderResourceView;
+
+            let hr = (*device).CreateShaderResourceView(res, &sv_desc, pp_srview);
+            if hr == 0 {
+                d3d_data.srvs[idx] = p_srview;
+                // since there is at least one valid texture, set the flag in the data
+                d3d_data.has_textures = true;
+            } else {
+                write_log_file(&format!("failed to create shader resource view for mod {}, tex {}: HR {:x}", nmd.name, idx, hr));
+            }
+        }
+    };
+    load_tex_d3d11(&(*mdat).texPath0, 0);
+    load_tex_d3d11(&(*mdat).texPath1, 1);
+    load_tex_d3d11(&(*mdat).texPath2, 2);
+    load_tex_d3d11(&(*mdat).texPath3, 3);
 
     write_log_file(&format!(
         "allocated vb for mod {}, idx {}: {:?}", nmd.name,
@@ -599,21 +668,25 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
             return;
         }
 
-        // TODO11: dx11 has its own version of this, so port it
-        if let DevicePointer::D3D9(dev) = device {
-            // need d3dx for textures
-            GLOBAL_STATE.device = Some(dev);
-            if GLOBAL_STATE.d3dx_fn.is_none() {
-                GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root)
-                    .map_err(|e| {
-                        write_log_file(&format!(
-                            "failed to load d3dx: texture snapping not available: {:?}",
-                            e
-                        ));
+        // ensure d3dx is loaded in case we need to load mod textures
+        match device {
+            DevicePointer::D3D9(dev) => {
+                GLOBAL_STATE.device = Some(dev); // TODO: this gross even for d3d9, really
+                // should just pass the device in from whomever is calling it (who should have
+                // the current device pointer)
+            },
+            DevicePointer::D3D11(_dev) => {}, // skip
+        }
+        if GLOBAL_STATE.d3dx_fn.is_none() {
+            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root, &device)
+                .map_err(|e| {
+                    write_log_file(&format!(
+                    "failed to load d3dx: texture loading and snapping not available: {:?}",
                         e
-                    })
-                    .ok();
-            }
+                    ));
+                    e
+                })
+                .ok();
         }
 
         let to_load = match GLOBAL_STATE.load_on_next_frame {

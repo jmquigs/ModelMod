@@ -6,6 +6,7 @@ use shared_dx::util::ReleaseOnDrop;
 
 use shared_dx::defs_dx9::*;
 use std::ptr::null_mut;
+use types::d3dx::*;
 
 //enum ShaderType { Vertex, Pixel }
 
@@ -58,17 +59,25 @@ macro_rules! impl_save_shader {
                 .as_ref()
                 .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
 
-            let mut buf: *mut ID3DXBuffer = null_mut();
-            let out_ptr = out_ptr as *const DWORD;
-            check_hr( (d3dx_fn.D3DXDisassembleShader)(out_ptr, FALSE, null_mut(), &mut buf), "disassemble")?;
-            let _rod = ReleaseOnDrop::new(buf);
-            let bptr = (*buf).GetBufferPointer() as *mut u8;
-            let bsize = ((*buf).GetBufferSize() - 1) as usize; // last byte is null/garbage, whatev
-            let wslice = std::slice::from_raw_parts(bptr, bsize);
-            let fout = snap_dir.to_owned()  + "/" + snap_prefix + suffix + ".asm";
-            let mut file = std::fs::File::create(&fout)?;
-            file.write_all(wslice)?;
-            util::write_log_file(&format!("wrote shader disassembly to {}", fout));
+            match d3dx_fn {
+                D3DXFn::DX9(d3dx_fn) => {
+                    let mut buf: *mut ID3DXBuffer = null_mut();
+                    let out_ptr = out_ptr as *const DWORD;
+                    check_hr( (d3dx_fn.D3DXDisassembleShader)(out_ptr, FALSE, null_mut(), &mut buf), "disassemble")?;
+                    let _rod = ReleaseOnDrop::new(buf);
+                    let bptr = (*buf).GetBufferPointer() as *mut u8;
+                    let bsize = ((*buf).GetBufferSize() - 1) as usize; // last byte is null/garbage, whatev
+                    let wslice = std::slice::from_raw_parts(bptr, bsize);
+                    let fout = snap_dir.to_owned()  + "/" + snap_prefix + suffix + ".asm";
+                    let mut file = std::fs::File::create(&fout)?;
+                    file.write_all(wslice)?;
+                    util::write_log_file(&format!("wrote shader disassembly to {}", fout));
+                },
+                _ => {
+                    util::write_log_file(&format!("Warning: this d3dx cannot disassemble shaders"));
+                },
+            }
+
 
             Ok(true)
         }

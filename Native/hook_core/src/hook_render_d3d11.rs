@@ -10,9 +10,9 @@ use types::d3ddata::ModD3DData11;
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN};
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC};
 use winapi::shared::ntdef::ULONG;
-use winapi::um::d3dcommon::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use winapi::um::d3dcommon::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D};
 use winapi::um::processthreadsapi::GetCurrentProcessId;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, GetParent, GetDesktopWindow, GetForegroundWindow};
@@ -599,8 +599,48 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
         vbuffer_stride.as_ptr(),
         vbuffer_offset.as_ptr());
 
+    // if the mod has textures, need to set the pixel shader resources for them
+    let mut orig_srvs: [*mut ID3D11ShaderResourceView; 16] = [null_mut(); 16];
+    // keep this outside of if block so it doesn't get dropped while the context (maybe)
+    // still has a reference to it
+    let mut mod_srvs;
+    if d3dd.has_textures {
+        // save the current shader resources
+        (*context).PSGetShaderResources(0, 16, orig_srvs.as_mut_ptr());
+
+        // clone the resource list, then replace any texture srvs sequentially with the mod textures
+        mod_srvs = orig_srvs.clone();
+
+        let mut next_mod_tex_idx = 0;
+        for srv in mod_srvs.iter_mut() {
+            if next_mod_tex_idx >= d3dd.srvs.len() {
+                break;
+            }
+            if !srv.is_null() {
+                let mut desc: D3D11_SHADER_RESOURCE_VIEW_DESC = std::mem::zeroed();
+                (**srv).GetDesc(&mut desc);
+                if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
+                    // don't slam it unless we have a value, but increment the index anyway
+                    // (in case we only have overrides on later slot(s))
+                    if !d3dd.srvs[next_mod_tex_idx].is_null() {
+                        *srv = d3dd.srvs[next_mod_tex_idx];
+                    }
+                    next_mod_tex_idx += 1;
+                }
+            }
+        }
+
+        // set the modded srvs
+        (*context).PSSetShaderResources(0, 16, mod_srvs.as_ptr());
+    }
+
     // draw
     (*context).Draw(d3dd.vert_count as UINT, 0);
+
+    // restore srvs
+    if d3dd.has_textures {
+        (*context).PSSetShaderResources(0, 16, orig_srvs.as_ptr());
+    }
 
     // restore index buffer
     (*context).IASetIndexBuffer(curr_ibuffer, curr_ibuffer_format, curr_ibuffer_offset);

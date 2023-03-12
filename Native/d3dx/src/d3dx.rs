@@ -1,14 +1,15 @@
 use shared_dx::error::*;
 use shared_dx::defs_dx9::*;
+use shared_dx::types::DevicePointer;
 use util;
 use global_state::{ GLOBAL_STATE };
+use winapi::um::d3d11::ID3D11Resource;
 use std::ptr::null_mut;
 use shared_dx::util::ReleaseOnDrop;
 
 use types::d3dx::*;
 
-pub fn load_lib(mm_root: &Option<String>) -> Result<D3DXFn> {
-    // TODO: decide on where to load these from.
+pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DXFn> {
     let mm_root = mm_root.as_ref().ok_or(HookError::LoadLibFailed(
         "No MMRoot, can't load D3DX".to_owned(),
     ))?;
@@ -16,51 +17,171 @@ pub fn load_lib(mm_root: &Option<String>) -> Result<D3DXFn> {
     path.push_str("\\");
     path.push_str("TPLib");
     path.push_str("\\");
-    if cfg!(target_pointer_width = "64") {
-        path.push_str("D3DX9_43_x86_64.dll");
-    } else {
-        path.push_str("D3DX9_43_x86.dll");
-    }
 
-    let handle = util::load_lib(&path)?;
+    match device {
+        DevicePointer::D3D9(_device) => {
+            if cfg!(target_pointer_width = "64") {
+                path.push_str("D3DX9_43_x86_64.dll");
+            } else {
+                path.push_str("D3DX9_43_x86.dll");
+            }
 
-    unsafe {
-        Ok(D3DXFn {
-            D3DXSaveTextureToFileW: std::mem::transmute(util::get_proc_address(
-                handle,
-                "D3DXSaveTextureToFileW",
-            )?),
-            D3DXCreateTextureFromFileW: std::mem::transmute(util::get_proc_address(
-                handle,
-                "D3DXCreateTextureFromFileW",
-            )?),
-            D3DXDisassembleShader: std::mem::transmute(util::get_proc_address(
-                handle,
-                "D3DXDisassembleShader",
-            )?),
-        })
+            let handle = util::load_lib(&path)?;
+
+            unsafe {
+                Ok(D3DXFn::DX9(D3DX9Fn {
+                    D3DXSaveTextureToFileW: std::mem::transmute(util::get_proc_address(
+                        handle,
+                        "D3DXSaveTextureToFileW",
+                    )?),
+                    D3DXCreateTextureFromFileW: std::mem::transmute(util::get_proc_address(
+                        handle,
+                        "D3DXCreateTextureFromFileW",
+                    )?),
+                    D3DXDisassembleShader: std::mem::transmute(util::get_proc_address(
+                        handle,
+                        "D3DXDisassembleShader",
+                    )?),
+                }))
+            }
+        },
+        DevicePointer::D3D11(_device) => {
+            let base_names = vec!["d3dx11_43.dll", "d3dx11_42.dll"];
+            // just try loading it first from the system
+            let mut handle = base_names.iter().find_map(|base_name| {
+                match util::load_lib(&base_name) {
+                    Ok(handle) => Some(handle),
+                    Err(_) => None,
+                }
+            });
+            let mut searched:Vec<String> = vec![];
+            if handle.is_none() {
+                // not found so look into tplib dir, try looking for arch specific folder
+                // or file with an _arch suffix in tplib
+                let arch = if cfg!(target_pointer_width = "64") {
+                    "x86_64"
+                } else {
+                    "x86"
+                };
+
+                let path = path.clone();
+                handle = base_names.iter().find_map(|base_name| {
+                    let mut path = path.clone();
+                    path.push_str(arch);
+                    path.push_str("\\");
+                    path.push_str(base_name);
+                    searched.push(path.clone());
+                    match util::load_lib(&path) {
+                        Ok(handle) => Some(handle),
+                        Err(_) => None,
+                    }
+                });
+
+                // not found in folders so try again appending the arch to base name
+                if handle.is_none(){
+                    let path = path.clone();
+                    handle = base_names.iter().find_map(|base_name| {
+                        let mut path = path.clone();
+                        let base_name = base_name.replace(".dll", &format!("_{}.dll", arch));
+                        path.push_str(&base_name);
+                        searched.push(path.clone());
+                        match util::load_lib(&path) {
+                            Ok(handle) => Some(handle),
+                            Err(_) => None,
+                        }
+                    });
+                }
+            }
+
+            match handle {
+                None => return Err(HookError::LoadLibFailed(format!("D3DX11 not found in system or {:?}", searched))),
+                Some(handle) => {
+                    unsafe {
+                        Ok(D3DXFn::DX11(D3DX11Fn {
+                            D3DX11SaveTextureToFileW: std::mem::transmute(util::get_proc_address(
+                                handle,
+                                "D3DX11SaveTextureToFileW",
+                            )?),
+                            D3DX11CreateTextureFromFileW: std::mem::transmute(util::get_proc_address(
+                                handle,
+                                "D3DX11CreateTextureFromFileW",
+                            )?),
+                            // D3DX11DisassembleShader: std::mem::transmute(util::get_proc_address(
+                            //     handle,
+                            //     "D3DX11DisassembleShader",
+                            // )?),
+                        }))
+                    }
+                }
+            }
+        },
     }
 }
 
-pub unsafe fn load_texture(path:*const u16) -> Result<LPDIRECT3DTEXTURE9> {
+// I'm not sure why the generic return type of T doesn't work for load_texture, so do this
+pub enum TexPtr {
+    D3D9(LPDIRECT3DTEXTURE9),
+    D3D11(*mut ID3D11Resource),
+}
+
+impl TexPtr {
+    pub fn is_null(&self) -> bool {
+        match self {
+            TexPtr::D3D9(tex) => tex.is_null(),
+            TexPtr::D3D11(tex) => tex.is_null(),
+        }
+    }
+}
+
+pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexPtr> {
     let d3dx_fn = GLOBAL_STATE
         .d3dx_fn
         .as_ref()
         .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
 
-    let device_ptr = GLOBAL_STATE
-        .device
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+    match (device,d3dx_fn) {
+        (DevicePointer::D3D9(device), D3DXFn::DX9(d3dx_fn)) => {
+            let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
+            let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
+            let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(device, path, ptext);
+            if hr != 0 {
+                return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
+            }
 
-    let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
-    let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
-    let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(*device_ptr, path, ptext);
-    if hr != 0 {
-        return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
+            Ok(TexPtr::D3D9(tex))
+        },
+        (DevicePointer::D3D11(device), D3DXFn::DX11(d3dx_fn)) => {
+            let mut tex: *mut ID3D11Resource = null_mut();
+            let ptext: *mut *mut ID3D11Resource = &mut tex;
+            let hr = (d3dx_fn.D3DX11CreateTextureFromFileW)(device, path, null_mut(), null_mut(), ptext, null_mut());
+            if hr != 0 {
+                return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
+            }
+
+            Ok(TexPtr::D3D11(tex))
+        },
+        _ => Err(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned())),
     }
 
-    Ok(tex)
+    // match d3dx_fn {
+    //     D3DXFn::DX9(d3dx_fn) => {
+    //         let device_ptr = GLOBAL_STATE
+    //         .device
+    //         .as_ref()
+    //         .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+
+    //         let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
+    //         let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
+    //         let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(*device_ptr, path, ptext);
+    //         if hr != 0 {
+    //             return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
+    //         }
+
+    //         Ok(TexPtr::D3D9(tex))
+    //     },
+    //     _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
+    // }
+
 }
 
 pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
@@ -93,13 +214,17 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
         )));
     }
 
-    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
-    if hr != 0 {
-        return Err(HookError::SnapshotFailed(format!(
-            "failed to save snapshot texture on stage {}: {:x}",
-            idx, hr
-        )));
+    match d3dx_fn {
+        D3DXFn::DX9(d3dx_fn) => {
+            let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
+            if hr != 0 {
+                return Err(HookError::SnapshotFailed(format!(
+                    "failed to save snapshot texture on stage {}: {:x}",
+                    idx, hr
+                )));
+            }
+            Ok(())
+        },
+        _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
     }
-
-    Ok(())
 }

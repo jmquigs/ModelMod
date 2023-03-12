@@ -314,6 +314,7 @@ version = "0.1.0"
 dependencies = [
  "global_state",
  "shared_dx",
+ "types",
  "winapi",
 ]
 

@@ -1,6 +1,6 @@
 
 use winapi::shared::d3d9::*;
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, ID3D11Texture2D, ID3D11Resource};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, ID3D11Texture2D, ID3D11Resource, ID3D11ShaderResourceView};
 
 pub struct ModD3DData9 {
     pub vb: *mut IDirect3DVertexBuffer9,
@@ -40,9 +40,10 @@ impl ModD3DData9 {
 
 pub struct ModD3DData11 {
     pub vb: *mut ID3D11Buffer,
-    //pub ib: *mut ID3D11Buffer,
     pub vlayout: *mut ID3D11InputLayout,
     pub textures: [*mut ID3D11Texture2D; 4],
+    pub has_textures: bool,
+    pub srvs: [*mut ID3D11ShaderResourceView; 4],
     pub vert_size:u32,
     pub vert_count:u32,
 }
@@ -53,9 +54,10 @@ impl ModD3DData11 {
 
         Self {
             vb: null_mut(),
-            //ib: null_mut(),
             vlayout: null_mut(),
             textures: [null_mut(); 4],
+            has_textures: false,
+            srvs: [null_mut(); 4],
             vert_size: 0,
             vert_count: 0,
         }
@@ -66,9 +68,10 @@ impl ModD3DData11 {
 
         Self {
             vb: null_mut(),
-            //ib: null_mut(),
             vlayout: layout,
             textures: [null_mut(); 4],
+            has_textures: false,
+            srvs: [null_mut(); 4],
             vert_size: 0,
             vert_count: 0,
         }
@@ -80,13 +83,16 @@ impl ModD3DData11 {
                 (*self.vb).Release();
                 self.vb = std::ptr::null_mut();
             }
-            //if !self.ib.is_null() {
-            //    (*self.ib).Release();
-            //    self.ib = std::ptr::null_mut();
-            //}
             if !self.vlayout.is_null() {
                 (*self.vlayout).Release();
                 self.vlayout = std::ptr::null_mut();
+            }
+            for srv in self.srvs.iter_mut() {
+                if !srv.is_null() {
+                    let bsrv = *srv as *mut ID3D11Resource;
+                    (*bsrv).Release();
+                    *srv = std::ptr::null_mut();
+                }
             }
             for tex in self.textures.iter_mut() {
                 if !tex.is_null() {
