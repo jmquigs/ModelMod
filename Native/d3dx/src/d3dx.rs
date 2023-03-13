@@ -1,7 +1,7 @@
 use shared_dx::error::*;
 use shared_dx::defs_dx9::*;
 use shared_dx::types::DevicePointer;
-use util;
+
 use global_state::{ GLOBAL_STATE };
 use winapi::um::d3d11::ID3D11Resource;
 use std::ptr::null_mut;
@@ -14,9 +14,9 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
         "No MMRoot, can't load D3DX".to_owned(),
     ))?;
     let mut path = mm_root.to_owned();
-    path.push_str("\\");
+    path.push('\\');
     path.push_str("TPLib");
-    path.push_str("\\");
+    path.push('\\');
 
     match device {
         DevicePointer::D3D9(_device) => {
@@ -49,7 +49,7 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
             let base_names = vec!["d3dx11_43.dll", "d3dx11_42.dll"];
             // just try loading it first from the system
             let mut handle = base_names.iter().find_map(|base_name| {
-                match util::load_lib(&base_name) {
+                match util::load_lib(base_name) {
                     Ok(handle) => Some(handle),
                     Err(_) => None,
                 }
@@ -68,7 +68,7 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
                 handle = base_names.iter().find_map(|base_name| {
                     let mut path = path.clone();
                     path.push_str(arch);
-                    path.push_str("\\");
+                    path.push('\\');
                     path.push_str(base_name);
                     searched.push(path.clone());
                     match util::load_lib(&path) {
@@ -79,7 +79,6 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
 
                 // not found in folders so try again appending the arch to base name
                 if handle.is_none(){
-                    let path = path.clone();
                     handle = base_names.iter().find_map(|base_name| {
                         let mut path = path.clone();
                         let base_name = base_name.replace(".dll", &format!("_{}.dll", arch));

@@ -9,7 +9,7 @@ use winapi::um::winnt::HRESULT;
 use winapi::um::winnt::{HANDLE, LPCSTR, LPCWSTR, LPWSTR};
 
 use std::ptr::null_mut;
-use util;
+
 use shared_dx::error::*;
 use shared_dx::util::*;
 use util::{get_proc_address, load_lib};
@@ -89,22 +89,22 @@ static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
 };
 
 /// Use when running outside of any known d3d renderer (i.e in tests).
-pub const RUN_CONTEXT_MMNATIVE:&'static str = "mm_native";
+pub const RUN_CONTEXT_MMNATIVE:&str = "mm_native";
 /// Use when running in a d3d9 renderer context.
-pub const RUN_CONTEXT_D3D9:&'static str = "d3d9";
+pub const RUN_CONTEXT_D3D9:&str = "d3d9";
 /// Use when running in a d3d11 renderer context.
-pub const RUN_CONTEXT_D3D11:&'static str = "d3d11";
+pub const RUN_CONTEXT_D3D11:&str = "d3d11";
 
 // Defaults in case context is not specified.  Note, d3d9 or 11 could be automatically detected,
 // based on the filename of the dll or which was initialized, but this is not currently
 // implemented.
 #[cfg(test)]
 pub fn get_run_context() -> &'static str {
-    return RUN_CONTEXT_MMNATIVE;
+    RUN_CONTEXT_MMNATIVE
 }
 #[cfg(not(test))]
 pub fn get_run_context() -> &'static str {
-    return RUN_CONTEXT_D3D9;
+    RUN_CONTEXT_D3D9
 }
 
 pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
@@ -281,7 +281,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
         if ret != 0 {
             let msg =
                 match ret {
-                    48 => format!("Error: Managed code version mismatch.  Ensure that the d3d9.dll loaded by the game is the latest version.  You may need to copy the new version in from your ModelMod directory.  Click 'Start' in the ModelMod Launcher for more details."),
+                    48 => "Error: Managed code version mismatch.  Ensure that the d3d9.dll loaded by the game is the latest version.  You may need to copy the new version in from your ModelMod directory.  Click 'Start' in the ModelMod Launcher for more details.".to_string(),
                     _ => format!("Error: Managed code failed to initialize; return code: {}", ret)
                 };
             return Err(HookError::CLRInitFailed(msg));
@@ -289,7 +289,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
     }
 
     // TODO: release things?
-    write_log_file(&format!("clr initialized"));
+    write_log_file("clr initialized");
 
     Ok(())
 }
