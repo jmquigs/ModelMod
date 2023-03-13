@@ -528,6 +528,13 @@ if checkEnv then
 else
     printfn "skipping env check"
 
+// check for TPLib directory
+if not (Directory.Exists("TPLib")) then
+    printfn "WARNING: TPLib was not found, built packages will not contain d3dx libs"
+else
+    let files = Directory.GetFiles("TPLib", "*")
+    printfn "TPLib found and contains %A files" files.Length
+
 // Start the run
 // from git bash, run this with something like:
 // TARGET=AppveyorBuild fsi build.fsx
