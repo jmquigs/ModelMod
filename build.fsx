@@ -112,7 +112,8 @@ let runBuildNative() =
         // switching the toolchain needs a long timeout, because if its not installed (like on CI)
         // it will be downloaded and setup which can take a while in that slow environment
         runUncaptured "rustup" (sprintf "default %s" tc) wd (System.TimeSpan.FromMinutes(5.00))
-        runUncaptured "cargo" "build --release" wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "cargo" "build --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "cargo" "test --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
 
         let destDir = sprintf "Release\\modelmod_%d" bits
         if not (Directory.Exists(destDir)) then Directory.CreateDirectory(destDir) |> ignore
@@ -527,6 +528,13 @@ if checkEnv then
     | x -> printfn "msbuild is set to %A" x
 else
     printfn "skipping env check"
+
+// check for TPLib directory
+if not (Directory.Exists("TPLib")) then
+    printfn "WARNING: TPLib was not found, built packages will not contain d3dx libs"
+else
+    let files = Directory.GetFiles("TPLib", "*")
+    printfn "TPLib found and contains %A files" files.Length
 
 // Start the run
 // from git bash, run this with something like:

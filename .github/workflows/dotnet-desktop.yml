@@ -9,7 +9,7 @@ name: ModelMod
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "ci-update" ]
   pull_request:
     branches: [ "master" ]
 
@@ -25,12 +25,25 @@ jobs:
       VsInstallRoot: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise
       VisualStudioVersion: 16.0
       MSBuild: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin
+      # this should speed up cargo eventually but the Rust version on this build image
+      # doesn't support it properly yet (and fails if specified)
+      #CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
     steps:
     - name: Checkout
       uses: actions/checkout@v3
       with:
         fetch-depth: 0
+
+    - name: Checkout TPLib
+      uses: actions/checkout@v3
+      with:
+        # this key will expire 3/13/2024 after which I can either create a new one for this repo
+        # (just needs read access) or disable this step entirely to build without the TPLib files.
+        # (I can then download the package and put them in the zip manually)
+        repository: jmquigs/ModelModTPLib
+        token: ${{ secrets.MMTPLIBCIKEY }}
+        path: TPLib
 
     - name: Set path (fsharp tools)
       run: echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -88,9 +101,9 @@ jobs:
         path: deploy/*.zip
 
     # disabling this for now since I always prefer to download the archive and smoke test it myself
-    # before making a release, and I don't want to run the a rebuild (which would generate new artifacts) as part of 
+    # before making a release, and I don't want to run the a rebuild (which would generate new artifacts) as part of
     # release tag.
-    
+
     #- name: Release
     #  uses: softprops/action-gh-release@v1
     #  if: startsWith(github.ref, 'refs/tags/')
