@@ -598,6 +598,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     }
     write_log_file(&format!("resolved {} of {} parent mods", resolved_parents, num_parents));
 
+    let mut printed_variant_lead = false;
     // verify that all multi-mod cases have parent mod names set.
     for nmodv in loaded_mods.values() {
         if nmodv.len() <= 1 {
@@ -608,9 +609,11 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         let mut parent_names: HashSet<String> = HashSet::new();
         for nmod in nmodv.iter() {
             if nmod.parent_mod_names.is_empty() {
-                write_log_file(&format!("Note: mod '{}' ({} prims,{} verts) has no parent \
-mod but it overlaps with another mod.  Use the variant key to select this.",
-                nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count));
+                //  replaced this with variant lead below
+
+//                 write_log_file(&format!("Note: mod '{}' ({} prims,{} verts) has no parent \
+// mod but it overlaps with another mod.  Use the variant next/prev keys to select it.",
+//                 nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count));
             } else {
                 nmod.parent_mod_names.iter().for_each(|parent_mod_name| {
                     parent_names.insert(parent_mod_name.to_string());
@@ -619,9 +622,18 @@ mod but it overlaps with another mod.  Use the variant key to select this.",
 
         }
         if nmodv.len() != parent_names.len() {
-            write_log_file("Variants found:");
+            if !printed_variant_lead {
+                printed_variant_lead = true;
+                write_log_file("Note: the following mods were found that overlap with the same ref, but have no parent set.");
+                write_log_file("these mods will be initialized as variants and available via the next/prev variant keybindings.");
+                write_log_file("if you did not mean for these to be variants, sent the parent field in the mod so that they are only");
+                write_log_file("rendered when that parent mod is rendered.");
+            }
+            let (ref_prims,ref_verts) =
+                (nmodv[0].mod_data.numbers.ref_prim_count, nmodv[0].mod_data.numbers.ref_vert_count);
+            write_log_file(&format!("Variants for ref geom ({} prims, {} verts):", ref_prims, ref_verts));
             for nmod in nmodv.iter() {
-                write_log_file(&format!("  mod: {}, prims: {}, verts: {}, parents: {:?}",
+                write_log_file(&format!("  mod: {}, geom ({} prims, {} verts), parents: {:?}",
                 nmod.name, nmod.mod_data.numbers.prim_count, nmod.mod_data.numbers.vert_count,
                 nmod.parent_mod_names));
             }
