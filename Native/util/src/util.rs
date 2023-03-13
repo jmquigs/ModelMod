@@ -1,5 +1,5 @@
-use std;
-use winapi;
+
+
 
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::windef::{HWND};
@@ -150,7 +150,7 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
             let mut out_buf: Vec<u16> = Vec::with_capacity(max_path as usize);
 
             // max path input is in bytes
-            max_path = max_path * 2;
+            max_path *= 2;
             let res = RegGetValueW(
                 HKEY_CURRENT_USER,
                 sk.as_ptr(),
@@ -182,7 +182,7 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
                 )));
             }
 
-            return Ok((true, Some(wpath)));
+            Ok((true, Some(wpath)))
         }
     }
 }
@@ -217,8 +217,7 @@ pub fn get_managed_dll_path(mm_root: &str) -> Result<String> {
                 .ok_or(HookError::UnableToLocatedManagedDLL(format!(
                     "could not convert located path to string: {:?}",
                     found
-                )))
-                .and_then(|spath| Ok(String::from(spath)))
+                ))).map(String::from)
         })
 }
 
@@ -227,8 +226,8 @@ pub fn from_wide_fixed(ws: &[u16]) -> Result<String> {
     use std::os::windows::prelude::*;
 
     let len = ws.len();
-    let s = unsafe { std::slice::from_raw_parts(ws.as_ptr(), len as usize) };
-    let s = OsString::from_wide(&s).into_string()?;
+    let s = unsafe { std::slice::from_raw_parts(ws.as_ptr(), len) };
+    let s = OsString::from_wide(s).into_string()?;
     Ok(s)
 }
 
@@ -287,7 +286,7 @@ pub fn get_module_name() -> Result<String> {
             )));
         } else {
             let s = std::slice::from_raw_parts(mpath.as_mut_ptr(), r as usize);
-            let s = OsString::from_wide(&s).into_string()?;
+            let s = OsString::from_wide(s).into_string()?;
             Ok(s)
         }
     }
@@ -325,10 +324,10 @@ mod tests {
         let res = get_mm_conf_info();
         match res {
             Err(e) => assert!(false, "conf test failed: {:?}", e),
-            Ok((ref active, ref _path)) if *active == false => {
+            Ok((ref active, ref _path)) if !(*active) => {
                 assert!(false, "mm should be active")
             }
-            Ok((ref active, ref path)) if *active == true && path.is_none() => {
+            Ok((ref active, ref path)) if *active && path.is_none() => {
                 assert!(false, "if active, path must be set")
             }
             Ok(_) => {}

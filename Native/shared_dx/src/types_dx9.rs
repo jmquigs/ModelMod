@@ -36,17 +36,17 @@ impl HookDirect3D9Device {
         real_set_pixel_sc_b: SetPixelShaderConstantBFn,
     ) -> HookDirect3D9Device {
         HookDirect3D9Device {
-            real_draw_indexed_primitive: real_draw_indexed_primitive,
+            real_draw_indexed_primitive,
             //real_begin_scene: real_begin_scene,
-            real_release: real_release,
-            real_present: real_present,
-            real_set_texture: real_set_texture,
-            real_set_vertex_sc_f: real_set_vertex_sc_f,
-            real_set_vertex_sc_i: real_set_vertex_sc_i,
-            real_set_vertex_sc_b: real_set_vertex_sc_b,
-            real_set_pixel_sc_f: real_set_pixel_sc_f,
-            real_set_pixel_sc_i: real_set_pixel_sc_i,
-            real_set_pixel_sc_b: real_set_pixel_sc_b,
+            real_release,
+            real_present,
+            real_set_texture,
+            real_set_vertex_sc_f,
+            real_set_vertex_sc_i,
+            real_set_vertex_sc_b,
+            real_set_pixel_sc_f,
+            real_set_pixel_sc_i,
+            real_set_pixel_sc_b,
 
             ref_count: 0,
         }

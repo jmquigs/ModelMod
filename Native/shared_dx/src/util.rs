@@ -39,7 +39,7 @@ pub fn get_log_file_path() -> String {
     }
 }
 
-pub fn write_log_file(msg: &str) -> () {
+pub fn write_log_file(msg: &str) {
     use std::env::temp_dir;
     use std::fs::OpenOptions;
     use std::io::Write;
@@ -80,7 +80,7 @@ pub fn write_log_file(msg: &str) -> () {
                             since_start.subsec_nanos() as u64 / 1_000_000;
                             in_ms as u32
                         },
-                        Err(_) => 0 as u32
+                        Err(_) => 0_u32
                     }
                 } else {
                     0
@@ -100,7 +100,7 @@ pub fn write_log_file(msg: &str) -> () {
 }
 
 pub trait ReleaseDrop {
-    fn OnDrop(&mut self) -> ();
+    fn OnDrop(&mut self);
 }
 
 pub struct ReleaseOnDrop<T: ReleaseDrop> {
@@ -112,7 +112,7 @@ where
     T: ReleaseDrop,
 {
     pub fn new(rd: T) -> Self {
-        ReleaseOnDrop { rd: rd }
+        ReleaseOnDrop { rd }
     }
 }
 
@@ -128,7 +128,7 @@ where
 #[macro_export]
 macro_rules! impl_release_drop {
     ($ptrtype:ident) => {
-        impl crate::util::ReleaseDrop for *mut $ptrtype {
+        impl $crate::util::ReleaseDrop for *mut $ptrtype {
             fn OnDrop(&mut self) -> () {
                 unsafe {
                     let ptr = *self;

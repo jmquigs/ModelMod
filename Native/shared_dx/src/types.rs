@@ -72,10 +72,10 @@ impl DX11Metrics {
             Ok(d) => {
                 let secs = d.as_secs();
                 let milisecs = d.subsec_millis();
-                return secs * 1000 + milisecs as u64;
+                secs * 1000 + milisecs as u64
             },
             _ => {
-                return 0
+                0
             }
         }
     }

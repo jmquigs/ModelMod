@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
+winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput"] }
 
