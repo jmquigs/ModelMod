@@ -318,6 +318,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "ci", ignore)]
     pub fn test_get_mm_conf_info() {
         // TODO: actually add the requisite values to the registry instead of
         // just assuming they are there.
@@ -335,6 +336,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "ci", ignore)]
     pub fn test_get_managed_dll_path() {
         if let Err(e) = get_managed_dll_path("M:\\modelmod") {
             // TODO unhardcode

@@ -112,7 +112,8 @@ let runBuildNative() =
         // switching the toolchain needs a long timeout, because if its not installed (like on CI)
         // it will be downloaded and setup which can take a while in that slow environment
         runUncaptured "rustup" (sprintf "default %s" tc) wd (System.TimeSpan.FromMinutes(5.00))
-        runUncaptured "cargo" "build --release" wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "cargo" "build --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "cargo" "test --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
 
         let destDir = sprintf "Release\\modelmod_%d" bits
         if not (Directory.Exists(destDir)) then Directory.CreateDirectory(destDir) |> ignore
