@@ -431,10 +431,15 @@ type MainViewModel() as self =
     member x.PeriodicUpdate() =
 
         // If the registry mmroot does not match the current load path, reset it.
-        let currentRoot = ProcessUtil.getMMRoot()
-        let regRoot = RegConfig.getMMRoot()
-        if currentRoot <> regRoot then
-            RegConfig.setMMRoot currentRoot |> ignore
+        // catch this exception since in will get thrown in the VS designer
+        // view for this form.
+        try
+            let currentRoot = ProcessUtil.getMMRoot()
+            let regRoot = RegConfig.getMMRoot()
+            if currentRoot <> regRoot then
+                RegConfig.setMMRoot currentRoot |> ignore
+        with
+            | e -> ()
 
         x.UpdateLoaderState <|
             match loaderState with
@@ -629,6 +634,7 @@ type MainViewModel() as self =
         x.RaisePropertyChanged("LoaderStateText")
         x.RaisePropertyChanged("LoaderIsStartable")
         x.RaisePropertyChanged("StartInSnapshotMode")
+        x.RaisePropertyChanged("StartInDebugMode")
         x.RaisePropertyChanged("LauncherProfileIcon")
         x.RaisePropertyChanged("ViewInjectionLog")
         x.RaisePropertyChanged("ViewModelModLog")
@@ -765,36 +771,83 @@ type MainViewModel() as self =
                 view.Root.ShowDialog() |> ignore
             ))
 
-    member x.StartInSnapshotMode =
-        /// If we can automatically copy in our d3d files and start the exe, do that.
-        /// Otherwise display the user prompt telling them how lame we are
-        /// (they need to do it manually)
-        let promptCopy mainWin (selectedProfile:ProfileModel) =
-            let res = ProcessUtil.preStartCopy (selectedProfile.ExePath)
-            match res with
-            | Ok(ProcessUtil.PreStartCopyResult.Copied) ->
-                match ProcessUtil.launch (selectedProfile.ExePath) with
-                | Ok(proc) -> ()
-                | Err(e) ->
-                    let msg = "Start failed: " + e.Message
-                    let view,vm = MainViewUtil.makeConfirmDialog mainWin
-                    vm.CheckBoxText <- ""
-                    vm.Text <- msg
-                    view.Root.ShowDialog() |> ignore
-            | Ok(ProcessUtil.PreStartCopyResult.UnknownExe) ->
-                // don't know how to handle this so tell user about i
-                let binPath = Path.Combine(ProcessUtil.getMMRoot(), "Bin")
-                let msg = sprintf LocStrings.Misc.StartCopy binPath binPath
-                let view,vm = MainViewUtil.makeConfirmDialog mainWin
-                vm.CheckBoxText <- ""
-                vm.Text <- msg
-                view.Root.ShowDialog() |> ignore
+    member private x.promptCopy(mainWin, debugMode, (selectedProfile:ProfileModel)) =
+        // if we are going to start in debug mode we'll need to create the init file
+        // so make a wall of text for it.
+        let debugText = """# DebugMode file created by MMLaunch on $DATE for $GAME
+
+# This file will be overwritten by MMLaunch whenever "Start(Debug)" is clicked.
+# It will be removed by MMLaunch whenever "Start" is clicked.
+# if you want to preserve this file make it read-only.
+
+# When this file exists, ModelMod will start in "DebugMode" which slows
+# its initialization and reports extra info in the log file,
+# to help catch errors.  Please include the log file in any bugs
+# you report, especially if it relates to a crash or hang.
+# The following settings are available and can be set to
+# zero or one.  When all these are
+# zero it is equivalent to running without DebugMode, but still runs
+# somewhat more slowly.  For bug reports please ensure you
+# have these all set to 1.
+
+# whether to protect memory using the win32 functions before hooking
+protect_mem=1
+
+# whether to defer function rehook assignments until later in execution
+defer_rehook=1
+
+# whether to defer hooking the draw function.  when this is 1 it also
+# delays initialization of managed code and mod loading since those
+# are triggered by the draw function.
+defer_draw_hook=1
+"""
+
+
+        let res = ProcessUtil.preStartCopy (selectedProfile.ExePath)
+        match res with
+        | Ok(ProcessUtil.PreStartCopyResult.Copied) ->
+            let root = ProcessUtil.getMMRoot()
+            let dmFile = Path.Combine(root, "DebugMode.txt")
+
+            try
+                let debugText = debugText.Replace(("$DATE":string), DateTime.Now.ToString()).Replace("$GAME", selectedProfile.ExePath)
+
+                if debugMode then
+                    File.WriteAllText(dmFile, debugText)
+                else
+                    if File.Exists(dmFile) then
+                        File.Delete(dmFile)
+            with
+            | e -> ()
+            match ProcessUtil.launch (selectedProfile.ExePath) with
+            | Ok(proc) -> ()
             | Err(e) ->
                 let msg = "Start failed: " + e.Message
                 let view,vm = MainViewUtil.makeConfirmDialog mainWin
                 vm.CheckBoxText <- ""
                 vm.Text <- msg
                 view.Root.ShowDialog() |> ignore
+        | Ok(ProcessUtil.PreStartCopyResult.UnknownExe) ->
+            // don't know how to handle this so tell user about i
+            let binPath = Path.Combine(ProcessUtil.getMMRoot(), "Bin")
+            let msg = sprintf LocStrings.Misc.StartCopy binPath binPath
+            let view,vm = MainViewUtil.makeConfirmDialog mainWin
+            vm.CheckBoxText <- ""
+            vm.Text <- msg
+            view.Root.ShowDialog() |> ignore
+        | Err(e) ->
+            let msg = "Start failed: " + e.Message
+            let view,vm = MainViewUtil.makeConfirmDialog mainWin
+            vm.CheckBoxText <- ""
+            vm.Text <- msg
+            view.Root.ShowDialog() |> ignore
+
+    member x.StartInSnapshotMode =
+        /// If we can automatically copy in our d3d files and start the exe, do that.
+        /// Otherwise display the user prompt telling them how lame we are
+        /// (they need to do it manually)
+        let promptCopy mainWin (selectedProfile:ProfileModel) =
+            x.promptCopy(mainWin, false, selectedProfile)
 
         // old function to start the MMLoader, which isn't used anymore.
         let startMMLoader (x:MainViewModel) (selectedProfile:ProfileModel) =
@@ -839,6 +892,11 @@ type MainViewModel() as self =
             //(fun action -> x.SelectedProfile |> Option.iter (startMMLoader x)))
             (fun mainWin -> x.SelectedProfile |> Option.iter (promptCopy (mainWin :?> Window))))
 
+    member x.StartInDebugMode =
+        new RelayCommand (
+            (fun canExecute -> x.ProfileAreaVisibility = Visibility.Visible && x.LoaderIsStartable),
+            //(fun action -> x.SelectedProfile |> Option.iter (startMMLoader x)))
+            (fun mainWin -> x.SelectedProfile |> Option.iter (fun prof -> x.promptCopy (mainWin :?> Window, true, prof) )))
 
     member x.ViewInjectionLog =
         new RelayCommand (

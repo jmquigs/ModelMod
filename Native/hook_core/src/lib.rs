@@ -29,6 +29,7 @@ extern crate types;
 #[macro_use]
 extern crate profiler;
 
+mod debugmode;
 mod hook_render;
 mod hook_render_d3d11;
 mod input_commands;

@@ -38,7 +38,10 @@ module ProcessUtil =
     let LoaderName = "MMLoader.exe"
 
     let getMMRoot() =
-        // MMRoot is not officially stored in the registry, so by convention its where one of the files below lives
+        // MMRoot by convention its where one of the files/directories below lives.
+        // This value is also stored in the registry (PeriodicUpdate puts it there)
+        // so that the native code can find this directory 
+        // and its associated files.
 
         let rootSearchPath = ["."; "..";
             // Make a dev tree path in case it isn't found in current directory.
@@ -58,7 +61,7 @@ module ProcessUtil =
                     if (Directory.Exists(filepath) || File.Exists(filepath)) then Some(filepath) else None)
             )
         match root with
-        | None -> failwith "Unable to find MM root"
+        | None -> failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
         | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
 
     /// Loader isn't used anymore so this is just a placeholder until I remove the related code.

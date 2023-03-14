@@ -5,7 +5,7 @@ use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
 use shared_dx::dx11rs::DX11RenderState;
 use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics};
 use shared_dx::types_dx11::{HookDirect3D11Context};
-use shared_dx::util::write_log_file;
+use shared_dx::util::{write_log_file};
 use types::d3ddata::ModD3DData11;
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
@@ -23,8 +23,9 @@ use shared_dx::error::Result;
 
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult};
-use crate::input_commands;
+use crate::{input_commands, debugmode};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
+use crate::debugmode::DebugModeCalledFns;
 
 /// Return the d3d11 context hooks.
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
@@ -39,6 +40,8 @@ fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextRelease);
+
     // see note in d3d9 hook_release as to why this is needed, but it "should never happen".
     let failret:ULONG = 0xFFFFFFFF;
     let oops_log_release_fail = || {
@@ -74,6 +77,8 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
     NumBuffers: UINT,
     ppConstantBuffers: *const *mut ID3D11Buffer,
 ) -> () {
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers);
+
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
         Err(_) => return,
@@ -84,14 +89,18 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
     // MM with one of those :|
     // But these metrics should just be thread local
 
-    let func_hooked = apply_context_hooks(THIS);
-    let was_hooked = match func_hooked {
-        Ok(n) if n > 0 => true,
-        Ok(_) => false,
-        _ => {
-            write_log_file("error late hooking");
-            false
+    let was_hooked = if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers) {
+        let func_hooked = apply_context_hooks(THIS);
+        match func_hooked {
+            Ok(n) if n > 0 => true,
+            Ok(_) => false,
+            _ => {
+                write_log_file("error late hooking");
+                false
+            }
         }
+    } else {
+        false
     };
 
     match dev_state_d3d11_nolock() {
@@ -116,13 +125,17 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
     THIS: *mut ID3D11DeviceContext,
     Topology: D3D11_PRIMITIVE_TOPOLOGY,
 ) -> () {
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology);
+
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
-    // rehook to reduce flickering
-    let _func_hooked = apply_context_hooks(THIS);
+    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology) {
+        // rehook to reduce flickering
+        let _func_hooked = apply_context_hooks(THIS);
+    }
 
     match dev_state_d3d11_nolock() {
         Some(state) => {
@@ -141,13 +154,17 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     pStrides: *const UINT,
     pOffsets: *const UINT,
 ) -> () {
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetVertexBuffers);
+
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
-    // rehook to reduce flickering
-    let _func_hooked = apply_context_hooks(THIS);
+    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetVertexBuffers) {
+        // rehook to reduce flickering
+        let _func_hooked = apply_context_hooks(THIS);
+    }
 
     // TODO11 use the lock function here or switch to thread local for RS
     let state = dev_state_d3d11_nolock();
@@ -196,13 +213,17 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     THIS: *mut ID3D11DeviceContext,
     pInputLayout: *mut ID3D11InputLayout,
 ) -> () {
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetInputLayout);
+
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
-    // rehook to reduce flickering
-    let _func_hooked = apply_context_hooks(THIS);
+    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetInputLayout) {
+        // rehook to reduce flickering
+        let _func_hooked = apply_context_hooks(THIS);
+    }
 
     // TODO11 use the lock function here or switch to thread local for RS
     dev_state_d3d11_nolock().map(|state| {
@@ -313,6 +334,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         write_log_file(&format!("ERROR: i'm in DIP already!"));
         return;
     }
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed);
 
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,

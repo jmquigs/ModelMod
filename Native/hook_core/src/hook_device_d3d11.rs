@@ -31,6 +31,7 @@ use shared_dx::types_dx11::HookDirect3D11Device;
 use shared_dx::error::*;
 use device_state::dev_state;
 
+use crate::debugmode;
 use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
 use shared_dx::util::write_log_file;
 use shared_dx::types_dx11::HookDirect3D11;
@@ -38,6 +39,7 @@ use shared_dx::types::HookDeviceState;
 use shared_dx::types::HookD3D11State;
 use device_state::DEVICE_STATE;
 use crate::hook_render_d3d11::*;
+use crate::debugmode::DebugModeCalledFns;
 
 //use shared_dx::util::{set_log_file_path};
 
@@ -174,12 +176,19 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
         };
 
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
-    //let _vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     // unprotect doesn't seem necessary (I'm overwriting my own memory, not the code segment).
     // PERF: benchmark this to see how much time is spent in here, since I call it all the time
     // now due to the mysterious draw-function unhooker.
-    //let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+    let protect = debugmode::protect_mem();
+    let (vsize,old_prot) = if protect {
+        let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
+        let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+        (vsize,old_prot)
+    } else {
+        (0,0)
+    };
+
     let device_child = &mut (*vtbl).parent;
     let iunknown = &mut (*device_child).parent;
 
@@ -193,9 +202,11 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
         (*vtbl).VSSetConstantBuffers = hook_VSSetConstantBuffers;
         func_hooked += 1;
     }
-    if (*vtbl).DrawIndexed as u64 != hook_draw_indexed as u64 {
-        (*vtbl).DrawIndexed = hook_draw_indexed;
-        func_hooked += 1;
+    if debugmode::draw_hook_enabled() {
+        if (*vtbl).DrawIndexed as u64 != hook_draw_indexed as u64 {
+            (*vtbl).DrawIndexed = hook_draw_indexed;
+            func_hooked += 1;
+        }
     }
     if (*vtbl).IASetVertexBuffers as u64 != hook_IASetVertexBuffers as u64 {
         (*vtbl).IASetVertexBuffers = hook_IASetVertexBuffers;
@@ -224,7 +235,10 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
         });
     }
 
-    //util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+    if protect {
+        util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+    }
+
     Ok(func_hooked)
 }
 
@@ -309,6 +323,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
         }
     };
     init_log(&mm_root);
+    debugmode::check_init(&mm_root);
     unsafe {
         GLOBAL_STATE.mm_root = Some(mm_root);
 
@@ -427,6 +442,7 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     BytecodeLength: SIZE_T,
     ppInputLayout: *mut *mut ID3D11InputLayout,
 ) -> HRESULT {
+    debugmode::note_called(DebugModeCalledFns::Hook_DeviceCreateInputLayoutFn);
     let hook_device = match get_hook_device() {
         Ok(dev) => dev,
         Err(_) => {

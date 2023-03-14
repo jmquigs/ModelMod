@@ -97,7 +97,10 @@
             <Button 
         		Command="{Binding ViewModelModLog}"
         		Content="View ModelMod Log" HorizontalAlignment="Left" Margin="287,43,0,0" VerticalAlignment="Top" Width="134" RenderTransformOrigin="1.246,-14.5"/>
-            <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="75" VerticalAlignment="Top" Width="737" Opacity="0.5"/>
+            <Button x:Name="button" Command="{Binding StartInDebugMode}" Content="Start(Debug)" Margin="626,9,9,54" RenderTransformOrigin="0.912,2.381"/>
+            <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="75" VerticalAlignment="Top" Width="737" Opacity="0.5">
+                
+            </Border>
         </Grid>
 
     </Grid>
