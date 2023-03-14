@@ -368,6 +368,10 @@ pub fn init_log(mm_root:&str) {
 /// version of reshade that supports addons as well as an addon specific
 /// to modelmod to load it (see ReshadeAddon in the root of this volume)
 pub fn late_hook_device(deviceptr: u64) -> i32 {
+    // Disabled because I saw it on a very sleepy profile and it
+    // shouldn't be called at all right now.
+    return 0;
+
     init_device_state_once();
     let mm_root = match mm_verify_load() {
         Some(dir) => dir,
