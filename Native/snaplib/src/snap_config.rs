@@ -104,7 +104,7 @@ impl SnapConfig {
 
         if !pb.is_file() {
             write_log_file(&format!("Snap confile does not exist: {:?}", pb));
-            write_log_file(&format!("Using defaults"));
+            write_log_file("Using defaults");
             return Ok(SnapConfig::new())
         }
 

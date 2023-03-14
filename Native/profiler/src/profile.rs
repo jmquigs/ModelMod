@@ -130,7 +130,7 @@ macro_rules! profile_summarize {
 
 #[cfg(test)]
 mod tests {
-    use std;
+    
 
     use shared_dx::util::*;
 

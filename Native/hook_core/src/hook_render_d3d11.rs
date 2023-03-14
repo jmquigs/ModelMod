@@ -32,7 +32,7 @@ fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
     let hooks = match dev_state().hook {
         Some(HookDeviceState::D3D11(ref mut rs)) => &mut rs.hooks,
         _ => {
-            write_log_file(&format!("draw: No d3d11 context found"));
+            write_log_file("draw: No d3d11 context found");
             return Err(shared_dx::error::HookError::D3D11NoContext);
         },
     };
@@ -76,7 +76,7 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
     StartSlot: UINT,
     NumBuffers: UINT,
     ppConstantBuffers: *const *mut ID3D11Buffer,
-) -> () {
+) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers);
 
     let hook_context = match get_hook_context() {
@@ -124,7 +124,7 @@ pub unsafe extern "system" fn hook_VSSetConstantBuffers(
 pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
     THIS: *mut ID3D11DeviceContext,
     Topology: D3D11_PRIMITIVE_TOPOLOGY,
-) -> () {
+) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology);
 
     let hook_context = match get_hook_context() {
@@ -153,7 +153,7 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     ppVertexBuffers: *const *mut ID3D11Buffer,
     pStrides: *const UINT,
     pOffsets: *const UINT,
-) -> () {
+) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetVertexBuffers);
 
     let hook_context = match get_hook_context() {
@@ -212,7 +212,7 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
 pub unsafe extern "system" fn hook_IASetInputLayout(
     THIS: *mut ID3D11DeviceContext,
     pInputLayout: *mut ID3D11InputLayout,
-) -> () {
+) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetInputLayout);
 
     let hook_context = match get_hook_context() {
@@ -276,8 +276,7 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
     let vert_size = {
         let curr_input_layout = *curr_input_layout as u64;
         if curr_input_layout > 0 {
-            curr_layouts.get(&curr_input_layout)
-            .and_then(|vf| Some(vf.size))
+            curr_layouts.get(&curr_input_layout).map(|vf| vf.size)
             .unwrap_or(0)
         } else {
             0
@@ -329,9 +328,9 @@ pub unsafe extern "system" fn hook_draw_indexed(
     IndexCount: UINT,
     StartIndexLocation: UINT,
     BaseVertexLocation: INT,
-) -> () {
+) {
     if GLOBAL_STATE.in_dip {
-        write_log_file(&format!("ERROR: i'm in DIP already!"));
+        write_log_file("ERROR: i'm in DIP already!");
         return;
     }
     debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed);
@@ -371,7 +370,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 let mod_status = check_and_render_mod(prim_count, vert_count,
                     |d3dd,nmod| {
                         let override_texture = null_mut();
-                        let override_stage = 0 as u32;
+                        let override_stage = 0_u32;
                         if let ModD3DData::D3D11(d3d11d) = d3dd {
                             render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, override_stage, (prim_count,vert_count))
                         } else {
@@ -387,7 +386,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     CheckRenderModResult::Deleted => false,
                     CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
                         // setup data to begin mod load
-                        let nmod = mod_load::get_mod_by_name(&name, &mut GLOBAL_STATE.loaded_mods);
+                        let nmod = mod_load::get_mod_by_name(name, &mut GLOBAL_STATE.loaded_mods);
                         if let Some(nmod) = nmod {
                             // need to store current input layout in the d3d data
                             if let ModD3DState::Unloaded =  nmod.d3d_data {
@@ -479,10 +478,8 @@ unsafe extern "system" fn enum_windows_proc(hwnd:HWND, lparam:isize) -> BOOL {
     TRUE
 }
 /// Enumerate application top level windows amd return their handles in a vector.
-unsafe fn find_app_windows() -> () {
-    dev_state_d3d11_nolock().map(|state| {
-        state.app_hwnds.clear();
-    });
+unsafe fn find_app_windows() {
+    if let Some(state) = dev_state_d3d11_nolock() { state.app_hwnds.clear(); }
 
     // get my process id
     let my_pid = GetCurrentProcessId();
@@ -491,9 +488,7 @@ unsafe fn find_app_windows() -> () {
 
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
     if mselapsed > 1000 {
-        dev_state_d3d11_nolock().map(|state| {
-            state.last_timebased_update = now;
-        });
+        if let Some(state) = dev_state_d3d11_nolock() { state.last_timebased_update = now; }
         let wnd_count = dev_state_d3d11_nolock().map(|state| {
             state.app_hwnds.len()
         }).unwrap_or(0);
@@ -504,7 +499,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
                 //let ocount = state.app_hwnds.len();
                 let wnds:Vec<HWND> = state.app_hwnds.iter().filter(|wnd| {
                     **wnd != dw && GetParent(**wnd).is_null()
-                }).map(|wnd| *wnd).collect();
+                }).copied().collect();
                 state.app_hwnds = wnds;
                 //write_log_file(&format!("found {} app windows, filtered to: {:?}", ocount, state.app_hwnds));
             });
@@ -526,20 +521,18 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
 
         // find the app main foreground window
         let fwnd = GetForegroundWindow();
-        let appfwnd = dev_state_d3d11_nolock().map(|state| {
+        let appfwnd = dev_state_d3d11_nolock().and_then(|state| {
             state.app_hwnds.iter().find(|wnd| {
                 **wnd == fwnd
-            }).map(|wnd| *wnd)
-        }).flatten();
+            }).copied()
+        });
 
         // store fore/back status in rs so that input processing doesn't have to do it
         let app_foreground = appfwnd.map(|hwnd| {
             util::appwnd_is_foreground(hwnd)
         }).unwrap_or(false);
 
-        dev_state_d3d11_nolock().map(|state| {
-            state.app_foreground = app_foreground;
-        });
+        if let Some(state) = dev_state_d3d11_nolock() { state.app_foreground = app_foreground; }
 
         // finish input setup if needed and app is foreground
         if app_foreground {
@@ -569,15 +562,15 @@ fn draw_periodic() {
         let (el_sec,el_ms) =
             dev_state_d3d11_nolock().map(|state| {
                 let elapsed = now.duration_since(state.last_timebased_update);
-                let res = match elapsed {
+
+                match elapsed {
                     Ok(elapsed) => {
                         (elapsed.as_secs(), elapsed.as_millis())
                     },
                     Err(_) => (0,0)
-                };
-                res
+                }
             }).unwrap_or((0,0));
-        let time = (el_sec * 1000) as u128 + el_ms as u128;
+        let time = (el_sec * 1000) as u128 + el_ms;
         time_based_update(time, now);
     }
 }

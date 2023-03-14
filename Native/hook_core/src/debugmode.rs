@@ -56,7 +56,7 @@ thread_local! {
 pub fn seconds_since_start(dm:&RefMut<DebugMode>) -> u64 {
     if let Some(start_time) = dm.start_time {
         let since_start = SystemTime::now().duration_since(start_time).unwrap_or_else(|_| std::time::Duration::from_millis(0));
-        since_start.as_secs() as u64
+        since_start.as_secs()
     } else {
         0
     }
@@ -79,7 +79,7 @@ pub fn check_init(mmroot:&str) {
             match std::fs::read_to_string(path) {
                 Ok(lines) => {
                     for line in lines.lines() {
-                        if line.trim().starts_with("#") {
+                        if line.trim().starts_with('#') {
                             continue;
                         }
                         let mut parts = line.split_terminator('=');
@@ -150,7 +150,7 @@ pub fn draw_hook_enabled() -> bool {
         let ok_to_hook = secs_since_start > 35;
         if ok_to_hook && !dm.draw_hooked {
             dm.draw_hooked = true;
-            write_log_file(&format!("DebugMode: draw hook enabled"));
+            write_log_file("DebugMode: draw hook enabled");
         }
         ok_to_hook
     })
@@ -185,7 +185,7 @@ pub fn rehook_enabled(fn_id: DebugModeCalledFns) -> bool {
             }
         }
 
-        return fn_enabled;
+        fn_enabled
     })
 }
 

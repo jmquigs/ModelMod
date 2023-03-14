@@ -103,11 +103,11 @@ pub fn take_snapshot(snap_dir:&str, snap_prefix:&str, vconst:Option<&ConstantGro
     if !is_enabled() {
         return;
     }
-    if snap_dir != "" && snap_prefix != "" {
+    if !snap_dir.is_empty() && !snap_prefix.is_empty() {
         vconst.map(|vconst| {
             let out = snap_dir.to_owned()  + "/" + snap_prefix + "_vconst.yaml";
             util::write_log_file(&format!("saving vertex constants to file: {}", out));
-            write_to_file(&out, &vconst)
+            write_to_file(&out, vconst)
                 .unwrap_or_else(|e| {
                     util::write_log_file(&format!("ERROR: failed to write vertex constants: {:?}", e));
                 });
@@ -115,12 +115,12 @@ pub fn take_snapshot(snap_dir:&str, snap_prefix:&str, vconst:Option<&ConstantGro
         pconst.map(|pconst| {
             let out = snap_dir.to_owned()  + "/" + snap_prefix + "_pconst.yaml";
             util::write_log_file(&format!("saving pixel constants to file: {}", out));
-            write_to_file(&out, &pconst)
+            write_to_file(&out, pconst)
                 .unwrap_or_else(|e| {
                     util::write_log_file(&format!("ERROR: failed to write pixel constants: {:?}", e));
                 });
         });
     } else {
-        util::write_log_file(&format!("ERROR: no directory set, can't save shader constants"));
+        util::write_log_file("ERROR: no directory set, can't save shader constants");
     }
 }

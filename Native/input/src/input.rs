@@ -19,11 +19,11 @@ use fnv::FnvHashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 //extern HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter);
-use util;
+
 use shared_dx::error::*;
 use shared_dx::util::write_log_file;
 
-use std;
+
 use std::ptr::null_mut;
 
 use profiler::*;
@@ -140,7 +140,7 @@ pub struct Input {
     last_keyboard_state: Vec<u8>,
     last_press_event: Vec<SystemTime>,
     last_update: SystemTime,
-    press_event_fns: FnvHashMap<u8, Box<dyn FnMut() -> ()>>,
+    press_event_fns: FnvHashMap<u8, Box<dyn FnMut()>>,
     repeat_delay: Vec<u16>,
     pub alt_pressed: bool,
     pub ctrl_pressed: bool,
@@ -161,7 +161,7 @@ impl Input {
             last_press_event: Vec::new(),
             last_update: SystemTime::now(),
             press_event_fns: FnvHashMap::with_capacity_and_hasher(
-                (1024) as usize,
+                1024_usize,
                 Default::default(),
             ),
             alt_pressed: false,
@@ -249,7 +249,7 @@ impl Input {
         self.press_event_fns.clear();
     }
 
-    pub fn add_press_fn(&mut self, key: u8, fun: Box<dyn FnMut() -> ()>) {
+    pub fn add_press_fn(&mut self, key: u8, fun: Box<dyn FnMut()>) {
         self.press_event_fns.insert(key, fun);
     }
     pub fn get_press_fn_count(&self) -> usize {
@@ -257,7 +257,7 @@ impl Input {
     }
 
     pub fn events(&self) -> &Vec<KeyEvent> {
-        return &self.events;
+        &self.events
     }
 
     pub fn process(&mut self) -> Result<()> {
@@ -358,9 +358,7 @@ impl Input {
         for evt in self.events.iter() {
             //write_log_file(&format!("event: {:x} pressed: {}", ke.key, ke.pressed));
             if evt.pressed && self.ctrl_pressed {
-                self.press_event_fns.get_mut(&evt.key).map(|fun| {
-                    fun();
-                });
+                if let Some(fun) = self.press_event_fns.get_mut(&evt.key) { fun(); }
             }
         }
         // if self.events.len() > 0 {

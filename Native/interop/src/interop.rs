@@ -1,9 +1,9 @@
 
 
 use std::os::raw::c_char;
-use std;
-use util;
-use d3dx;
+
+
+
 use shared_dx::util::write_log_file;
 use global_state::HookState;
 use types::interop::*;
@@ -12,7 +12,7 @@ lazy_static! {
     pub static ref LOG_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
 
-unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) -> () {
+unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) {
     use std::ffi::CStr;
 
     let _lock = LOG_MUTEX.lock();
@@ -33,7 +33,7 @@ unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) 
         &merr
     });
 
-    if prefix == "" {
+    if prefix.is_empty() {
         write_log_file(&format!("[{}]: {}", category, message));
     } else {
         write_log_file(&format!("[{}:{}]: {}", prefix, category, message));
@@ -42,19 +42,19 @@ unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) 
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogInfo(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogInfo(category: *const c_char, message: *const c_char) {
     loggit("", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogWarn(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogWarn(category: *const c_char, message: *const c_char) {
     loggit("WARN", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const c_char) -> () {
+pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const c_char) {
     loggit("ERROR", category, message);
 }
 
@@ -134,9 +134,7 @@ pub unsafe extern "stdcall" fn OnInitialized(
     let mut exemodule = util::to_wide_str(&exemodule);
     let cd = ((*callbacks).SetPaths)(mmpath.as_mut_ptr(), exemodule.as_mut_ptr());
     if cd == std::ptr::null_mut() {
-        write_log_file(&format!(
-            "error calling setpaths, returned conf data is null"
-        ));
+        write_log_file("error calling setpaths, returned conf data is null");
         return on_init_error_code;
     }
 
