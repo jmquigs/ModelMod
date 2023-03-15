@@ -29,17 +29,17 @@ unsafe fn hook_d3d9_device(
     _guard: &std::sync::MutexGuard<()>,
 ) -> Result<HookDirect3D9Device> {
     //write_log_file(&format!("gs hook_direct3d9device is some: {}", GLOBAL_STATE.hook_direct3d9device.is_some()));
-    write_log_file(&format!("hooking new device: {:x}", device as u64));
+    write_log_file(&format!("hooking new device: {:x}", device as usize));
     // Oddity: each device seems to have its own vtbl.  So need to hook each one of them.
     // but the direct3d9 instance seems to share a vtbl between different instances.  So need to only
     // hook those once.  I'm not sure why this is.
     let vtbl: *mut IDirect3DDevice9Vtbl = std::mem::transmute((*device).lpVtbl);
-    write_log_file(&format!("device vtbl: {:x}", vtbl as u64));
+    write_log_file(&format!("device vtbl: {:x}", vtbl as usize));
     let vsize = std::mem::size_of::<IDirect3DDevice9Vtbl>();
 
     let real_draw_indexed_primitive = (*vtbl).DrawIndexedPrimitive;
     // check for already hook devices (useful in late-hook case)
-    if real_draw_indexed_primitive as u64 == hook_draw_indexed_primitive as u64 {
+    if real_draw_indexed_primitive as usize == hook_draw_indexed_primitive as usize {
         write_log_file(&format!("error: device already appears to be hooked, skipping"));
         return Err(HookError::D3D9DeviceHookFailed);
     }
@@ -66,12 +66,12 @@ unsafe fn hook_d3d9_device(
     // to do with how reshade manages that (possibly interference from
     // minhook or imgui)
     // write_log_file(&format!("DrawIndexedPrimitive real: {:x}, hook: {:x}",
-    //     real_draw_indexed_primitive as u64,
-    //     hook_draw_indexed_primitive as u64,
+    //     real_draw_indexed_primitive as usize,
+    //     hook_draw_indexed_primitive as usize,
     // ));
     // write_log_file(&format!("Present real: {:x}, hook: {:x}",
-    //     real_present as u64,
-    //     hook_present as u64,
+    //     real_present as usize,
+    //     hook_present as usize,
     // ));
     (*vtbl).DrawIndexedPrimitive = hook_draw_indexed_primitive;
     //(*vtbl).BeginScene = hook_begin_scene;
@@ -473,10 +473,10 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         init_log(&mm_root);
 
         let direct3d9 = make_it();
-        write_log_file(&format!("created d3d: {:x}", direct3d9 as u64));
+        write_log_file(&format!("created d3d: {:x}", direct3d9 as usize));
 
         // let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
-        // write_log_file(&format!("vtbl: {:x}", vtbl as u64));
+        // write_log_file(&format!("vtbl: {:x}", vtbl as usize));
 
         // don't hook more than once
         let _lock = GLOBAL_STATE_LOCK
@@ -500,7 +500,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         let real_create_device = (*vtbl).CreateDevice;
         // write_log_file(&format!(
         //     "hooking real create device, hookfn: {:?}, realfn: {:?} ",
-        //     hook_create_device as u64, real_create_device as u64
+        //     hook_create_device as usize, real_create_device as usize
         // ));
 
         // unprotect memory and slam the vtable

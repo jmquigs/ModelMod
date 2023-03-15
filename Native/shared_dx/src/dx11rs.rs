@@ -27,7 +27,7 @@ impl Display for VertexFormat {
 pub struct DX11RenderState {
     /// Current vertex buffer properties, vector of (buf index,byte width,stride).
     pub vb_state: Vec<(u32,u32,u32)>,
-    pub input_layouts_by_ptr: FnvHashMap<u64, VertexFormat>,
+    pub input_layouts_by_ptr: FnvHashMap<usize, VertexFormat>,
     pub current_input_layout: *mut ID3D11InputLayout,
     pub prim_topology: D3D11_PRIMITIVE_TOPOLOGY,
 }

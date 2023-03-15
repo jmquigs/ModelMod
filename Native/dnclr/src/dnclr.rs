@@ -259,7 +259,7 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
 
         let argument = util::to_wide_str(&format!(
             "{}|{}|{}",
-            global_state_ptr as u64,
+            global_state_ptr as usize,
             run_context,
             NATIVE_CODE_VERSION
         ));

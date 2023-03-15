@@ -87,8 +87,8 @@ pub unsafe extern "stdcall" fn OnInitialized(
         "OnInitialized called with global state address: {}",
         global_state_pointer
     ));
-    let local_gs_addr = global_state::get_global_state_ptr() as u64;
-    if global_state_pointer != local_gs_addr {
+    let local_gs_addr = global_state::get_global_state_ptr() as usize;
+    if global_state_pointer as usize != local_gs_addr {
         write_log_file(&format!(
             "WARNING: OnInitialized's global state address {:x} differs from input param {:x}",
             local_gs_addr, global_state_pointer

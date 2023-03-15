@@ -202,7 +202,7 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
         )));
     }
     let _tex_rod = ReleaseOnDrop::new(tex);
-    if tex as u64 == GLOBAL_STATE.selection_texture as u64 {
+    if tex as usize == GLOBAL_STATE.selection_texture as usize {
         return Err(HookError::SnapshotFailed(format!(
             "not snapshotting texture on stage {} because it is the selection texture",
             idx

@@ -194,29 +194,29 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext) -> Result<i3
 
     let mut func_hooked = 0;
 
-    if (*iunknown).Release as u64 != hook_release as u64 {
+    if (*iunknown).Release as usize != hook_release as usize {
         (*iunknown).Release = hook_release;
         func_hooked += 1;
     }
-    if (*vtbl).VSSetConstantBuffers as u64 != hook_VSSetConstantBuffers as u64 {
+    if (*vtbl).VSSetConstantBuffers as usize != hook_VSSetConstantBuffers as usize {
         (*vtbl).VSSetConstantBuffers = hook_VSSetConstantBuffers;
         func_hooked += 1;
     }
     if debugmode::draw_hook_enabled() {
-        if (*vtbl).DrawIndexed as u64 != hook_draw_indexed as u64 {
+        if (*vtbl).DrawIndexed as usize != hook_draw_indexed as usize {
             (*vtbl).DrawIndexed = hook_draw_indexed;
             func_hooked += 1;
         }
     }
-    if (*vtbl).IASetVertexBuffers as u64 != hook_IASetVertexBuffers as u64 {
+    if (*vtbl).IASetVertexBuffers as usize != hook_IASetVertexBuffers as usize {
         (*vtbl).IASetVertexBuffers = hook_IASetVertexBuffers;
         func_hooked += 1;
     }
-    if (*vtbl).IASetInputLayout as u64 != hook_IASetInputLayout as u64 {
+    if (*vtbl).IASetInputLayout as usize != hook_IASetInputLayout as usize {
         (*vtbl).IASetInputLayout = hook_IASetInputLayout;
         func_hooked += 1;
     }
-    if (*vtbl).IASetPrimitiveTopology as u64 != hook_IASetPrimitiveTopology as u64 {
+    if (*vtbl).IASetPrimitiveTopology as usize != hook_IASetPrimitiveTopology as usize {
         (*vtbl).IASetPrimitiveTopology = hook_IASetPrimitiveTopology;
         func_hooked += 1;
     }
@@ -246,7 +246,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     Result<HookDirect3D11> {
 
     let hook_device = {
-        write_log_file(&format!("hooking new d3d11 device: {:x}", device as u64));
+        write_log_file(&format!("hooking new d3d11 device: {:x}", device as usize));
         let vtbl: *mut ID3D11DeviceVtbl = std::mem::transmute((*device).lpVtbl);
         let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
         let real_create_input_layout = (*vtbl).CreateInputLayout;
@@ -260,12 +260,12 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         }
     };
 
-    write_log_file(&format!("hooking new d3d11 context: {:x}", context as u64));
+    write_log_file(&format!("hooking new d3d11 context: {:x}", context as usize));
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
     let ct = (*context).GetType();
     let flags = (*context).GetContextFlags();
     write_log_file(&format!("context vtbl: {:x}, type {:x}, flags {:x}",
-        vtbl as u64, ct, flags));
+        vtbl as usize, ct, flags));
     //let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     let device_child = &mut (*vtbl).parent;
@@ -285,7 +285,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
 
     // check for already hook devices (useful in late-hook case)
-    if real_release as u64 == hook_release as u64 {
+    if real_release as usize == hook_release as usize {
         write_log_file(&format!("error: device already appears to be hooked, skipping"));
         return Err(HookError::D3D11DeviceHookFailed);
     }
@@ -489,7 +489,7 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
             // anyway these are pointers (8 bytes) so not a huge amount of space, but hashing
             // could get slow if table gets too big and a lot of stuff is hashing to same
             // values.
-            ds.rs.input_layouts_by_ptr.insert(*ppInputLayout as u64, vf);
+            ds.rs.input_layouts_by_ptr.insert(*ppInputLayout as usize, vf);
 
             if ds.rs.input_layouts_by_ptr.len() % 500 == 0 {
                 write_log_file(&format!("vertex layout table now has {} elements",

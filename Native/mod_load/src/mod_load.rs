@@ -256,7 +256,7 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         return false;
     }
 
-    //write_log_file(&format!("loading mod data on device {:x}", device as u64));
+    //write_log_file(&format!("loading mod data on device {:x}", device as usize));
 
     // extract the vertex layout pointer and d3d data to finish the load
     let (vlayout,d3d_data) =
@@ -277,9 +277,9 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     let vlayout = {
         match dev_state_d3d11_nolock() {
             Some(state) => {
-                let layout_u64 = vlayout as u64;
+                let layout_usize = vlayout as usize;
                 let res = state.rs.input_layouts_by_ptr
-                    .get(&layout_u64);
+                    .get(&layout_usize);
                 match res {
                     None => {
                         write_log_file(&format!(
@@ -745,7 +745,7 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         if let Ok(elapsed) = elapsed {
             write_log_file(
                 &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
-                cnt, elapsed.as_millis(), diff, device.as_u64(), (*DEVICE_STATE).d3d_resource_count
+                cnt, elapsed.as_millis(), diff, device.as_usize(), (*DEVICE_STATE).d3d_resource_count
             ));
         };
 }

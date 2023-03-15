@@ -274,7 +274,7 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
     let curr_input_layout = &rs.current_input_layout;
     let curr_layouts = &rs.input_layouts_by_ptr;
     let vert_size = {
-        let curr_input_layout = *curr_input_layout as u64;
+        let curr_input_layout = *curr_input_layout as usize;
         if curr_input_layout > 0 {
             curr_layouts.get(&curr_input_layout).map(|vf| vf.size)
             .unwrap_or(0)
@@ -398,7 +398,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                                     nmod.d3d_data = ModD3DState::Partial(
                                         ModD3DData::D3D11(ModD3DData11::with_layout(il)));
                                     write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
-                                    //write_log_file(&format!("current in layout is: {}", il as u64));
+                                    //write_log_file(&format!("current in layout is: {}", il as usize));
                                 }
                             }
                         }

@@ -502,7 +502,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             // if hookdevice.ref_count < 100 {
             //     write_log_file(&format!(
             //         "device {:x} refcount now {}",
-            //         THIS as u64, hookdevice.ref_count
+            //         THIS as usize, hookdevice.ref_count
             //     ));
             // }
 
@@ -518,7 +518,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                 write_log_file(&format!(
                     "device {:x} refcount is same as internal resource count ({}),
                     it is being destroyed: purging resources",
-                    THIS as u64, dev_state().d3d_resource_count
+                    THIS as usize, dev_state().d3d_resource_count
                 ));
                 purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
                 // Note, hookdevice.ref_count is wrong now since we bypassed
@@ -532,7 +532,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                 hookdevice.ref_count = (hookdevice.real_release)(THIS);
                 write_log_file(&format!(
                     "device released: {:x}, refcount: {}",
-                    THIS as u64, hookdevice.ref_count
+                    THIS as usize, hookdevice.ref_count
                 ));
                 if hookdevice.ref_count != 0 {
                     write_log_file(&format!(
@@ -624,7 +624,7 @@ unsafe fn render_mod_d3d9(THIS:*mut IDirect3DDevice9, d3dd:&ModD3DData9, nmod:&N
     let mut _st_rods:Vec<ReleaseOnDrop<*mut IDirect3DBaseTexture9>> = vec![];
     for (i,tex) in d3dd.textures.iter().enumerate() {
         if *tex != null_mut() {
-            //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as u64, NumVertices, primCount));
+            //write_log_file(&format!("set override tex stage {} to {:x} for mod {}/{}", i, *tex as usize, NumVertices, primCount));
             let mut save:*mut IDirect3DBaseTexture9 = null_mut();
             (*THIS).GetTexture(i as u32, &mut save);
             save_tex[i] = Some(save);
