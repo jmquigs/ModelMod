@@ -3,11 +3,27 @@ use shared_dx::defs_dx9::*;
 use shared_dx::types::DevicePointer;
 
 use global_state::{ GLOBAL_STATE };
+use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Resource;
 use std::ptr::null_mut;
 use shared_dx::util::ReleaseOnDrop;
 
 use types::d3dx::*;
+
+/// For use when calling this from a lib that doesn't have shared dx or types.
+pub fn deviceptr_from_d3d11(ptr:*mut ID3D11Device) -> Option<DevicePointer> {
+    if ptr.is_null() {
+        return None;
+    }
+    Some(DevicePointer::D3D11(ptr))
+}
+
+/// call load lib and store the lib in global state
+pub fn load_and_set_in_gs(mm_root: &Option<String>, device: &DevicePointer) -> Result<()> {
+    let d3dx_fn = load_lib(mm_root, device)?;
+    unsafe { GLOBAL_STATE.d3dx_fn = Some(d3dx_fn); };
+    Ok(())
+}
 
 pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DXFn> {
     let mm_root = mm_root.as_ref().ok_or(HookError::LoadLibFailed(
