@@ -31,6 +31,10 @@ pub struct DebugMode {
     /// True if MM should defer draw hooking until some time has passed.  Deferring this also
     /// defers CLR init, since that is triggered from draw.
     defer_draw_hook: bool,
+    /// Add ref on context after hooking
+    add_ref_context: bool,
+    /// Add ref on device after hooking
+    add_ref_device: bool,
 
     draw_hooked: bool,
     call_counts: [u64; 100],
@@ -44,6 +48,8 @@ thread_local! {
         protect_mem: true,
         defer_rehook: true,
         defer_draw_hook: true,
+        add_ref_context: true,
+        add_ref_device: true,
 
         call_counts: [0; 100],
         start_time: None,
@@ -70,6 +76,7 @@ pub fn check_init(mmroot:&str) {
     let mut dmfile = mmroot.to_string();
     dmfile.push_str("\\DebugMode.txt");
     let path = std::path::Path::new(&dmfile);
+    write_log_file(&format!("DebugMode: file check: {}", &dmfile));
     if path.exists() {
         DEBUG_MODE.with(|dm| {
             let mut dm = dm.borrow_mut();
@@ -94,10 +101,18 @@ pub fn check_init(mmroot:&str) {
                         else if key.to_lowercase() == "defer_draw_hook" {
                             dm.defer_draw_hook = val.to_lowercase() == "true" || val.to_lowercase() == "1";
                         }
+                        else if key.to_lowercase() == "add_ref_context" {
+                            dm.add_ref_context = val.to_lowercase() == "true" || val.to_lowercase() == "1";
+                        }
+                        else if key.to_lowercase() == "add_ref_device" {
+                            dm.add_ref_device = val.to_lowercase() == "true" || val.to_lowercase() == "1";
+                        }
                     }
                     write_log_file(&format!("DebugMode: protect_mem={}", dm.protect_mem));
                     write_log_file(&format!("DebugMode: defer_rehook={}", dm.defer_rehook));
                     write_log_file(&format!("DebugMode: defer_draw_hook={}", dm.defer_draw_hook));
+                    write_log_file(&format!("DebugMode: add_ref_context={}", dm.add_ref_context));
+                    write_log_file(&format!("DebugMode: add_ref_device={}", dm.add_ref_device));
 
                     if !dm.defer_rehook {
                         for i in 0..dm.rehook_enabled.len() {
@@ -110,29 +125,41 @@ pub fn check_init(mmroot:&str) {
                 }
             }
         });
+    } else {
+        write_log_file("DebugMode: disabled");
     }
 }
 
 #[inline]
 /// Record the fact that particular hook function was called.  When debug mode is enabled,
 /// logs the first time its called and the 1000th time.
-pub fn note_called(fn_id: DebugModeCalledFns) {
+pub fn note_called(fn_id: DebugModeCalledFns, caller_this: usize) {
     DEBUG_MODE.with(|dm| {
         let mut dm = dm.borrow_mut();
         if dm.enabled {
             dm.call_counts[fn_id as usize] += 1;
 
             if dm.call_counts[fn_id as usize] == 1 {
-                write_log_file(&format!("DebugMode: 1st call to {:?}", fn_id));
+                write_log_file(&format!("DebugMode: 1st call to {:?}, on ptr {:x}", fn_id, caller_this));
             }
             else if dm.call_counts[fn_id as usize] == 2 {
-                write_log_file(&format!("DebugMode: 2nd call to {:?}", fn_id));
+                write_log_file(&format!("DebugMode: 2nd call to {:?}, on ptr {:x}", fn_id, caller_this));
             }
             else if dm.call_counts[fn_id as usize] == 1000 {
-                write_log_file(&format!("DebugMode: 1000th call to {:?}", fn_id));
+                write_log_file(&format!("DebugMode: 1000th call to {:?}, on ptr {:x}", fn_id, caller_this));
             }
         }
     });
+}
+
+pub fn draw_already_hooked() -> bool {
+    DEBUG_MODE.with(|dm| {
+        let dm = dm.borrow_mut();
+        if !dm.enabled {
+            return true;
+        }
+        dm.draw_hooked
+    })
 }
 
 #[inline]
@@ -197,5 +224,19 @@ pub fn protect_mem() -> bool {
     DEBUG_MODE.with(|dm| {
         let dm = dm.borrow();
         dm.enabled && dm.protect_mem
+    })
+}
+
+pub fn add_ref_context() -> bool {
+    DEBUG_MODE.with(|dm| {
+        let dm = dm.borrow();
+        dm.enabled && dm.add_ref_context
+    })
+}
+
+pub fn add_ref_device() -> bool {
+    DEBUG_MODE.with(|dm| {
+        let dm = dm.borrow();
+        dm.enabled && dm.add_ref_device
     })
 }

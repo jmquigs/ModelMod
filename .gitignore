@@ -62,3 +62,4 @@ Native/snaplib/target
 Test.ManagedLaunch/obj
 Test.ManagedLaunch/bin
 
+DebugMode.txt

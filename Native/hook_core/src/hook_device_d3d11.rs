@@ -425,6 +425,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     // is disabled here for now.
     let copy_dev_vtable = false;
     let dev_vtbl: *mut ID3D11DeviceVtbl = if !copy_dev_vtable {
+        write_log_file("hooking existing device vtbl");
         std::mem::transmute((*device).lpVtbl)
     } else {
         // as with the context there are several device versions that we don't have defs for,
@@ -556,7 +557,8 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     // Inc ref count on the device
     //(*context).AddRef(); // TODO11: dx9 does this, but needed here? and where is this decremented?
 
-    write_log_file(&format!("context hook complete: {} functions hooked", func_hooked));
+    write_log_file(&format!("context hook complete: {} functions hooked; (protected mem: {})",
+        func_hooked, debugmode::protect_mem()));
     let hook_context = HookDirect3D11Context {
         real_query_interface,
         real_release,
@@ -605,7 +607,6 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             app_foreground: false,
         }));
 
-        //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO11: need to get this in d3d11
         // TODO11: d3d9 also has: d3d_resource_count: 0,
 
         write_log_file(&format!(
@@ -613,9 +614,20 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             std::thread::current().id()
         ));
 
-        // need this? I'm technically maybe add a debug mode for them
-        // (*device).AddRef();
-        // (*context).AddRef();
+        (*context).AddRef();
+        let cref = (*context).Release();
+        write_log_file(&format!("context initial ref count: {}", cref));
+        if debugmode::add_ref_context() {
+            write_log_file("adding ref on context");
+            (*context).AddRef();
+        }
+        (*device).AddRef();
+        let dref = (*device).Release();
+        write_log_file(&format!("device initial ref count: {}", dref));
+        if debugmode::add_ref_device() {
+            write_log_file("adding ref on device");
+            (*device).AddRef();
+        }
     }
 
     Ok(())
@@ -708,7 +720,7 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     BytecodeLength: SIZE_T,
     ppInputLayout: *mut *mut ID3D11InputLayout,
 ) -> HRESULT {
-    debugmode::note_called(DebugModeCalledFns::Hook_DeviceCreateInputLayoutFn);
+    debugmode::note_called(DebugModeCalledFns::Hook_DeviceCreateInputLayoutFn, THIS as usize);
     let hook_device = match get_hook_device() {
         Ok(dev) => dev,
         Err(_) => {

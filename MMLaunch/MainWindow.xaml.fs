@@ -800,6 +800,12 @@ defer_rehook=1
 # delays initialization of managed code and mod loading since those
 # are triggered by the draw function.
 defer_draw_hook=1
+
+# whether to add ref on context after hook
+add_ref_context=1 
+
+# whether to add ref on device after hook
+add_ref_device=1
 """
 
 

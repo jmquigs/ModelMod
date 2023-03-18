@@ -21,6 +21,7 @@ use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
 use device_state::{dev_state, dev_state_d3d11_nolock};
 use shared_dx::error::Result;
+use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult};
 use crate::{input_commands, debugmode};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
@@ -65,7 +66,7 @@ pub unsafe extern "system" fn hook_context_QueryInterface(
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextRelease);
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextRelease, THIS as usize);
 
     // see note in d3d9 hook_release as to why this is needed, but it "should never happen".
     let failret:ULONG = 0xFFFFFFFF;
@@ -89,7 +90,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     let rc = (hook_context.real_release)(THIS);
     // if >= 1 then this spams when Discord is running, wonder what its doing
     if rc < 1 {
-        write_log_file(&format!("hook release: rc now {}", rc));
+        write_log_file(&format!("context hook release: rc now {}", rc));
     }
     GLOBAL_STATE.in_hook_release = false;
 
@@ -153,7 +154,7 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
     THIS: *mut ID3D11DeviceContext,
     Topology: D3D11_PRIMITIVE_TOPOLOGY,
 ) {
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology);
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology, THIS as usize);
 
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
@@ -182,7 +183,7 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     pStrides: *const UINT,
     pOffsets: *const UINT,
 ) {
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetVertexBuffers);
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetVertexBuffers, THIS as usize);
 
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
@@ -241,7 +242,13 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     THIS: *mut ID3D11DeviceContext,
     pInputLayout: *mut ID3D11InputLayout,
 ) {
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetInputLayout);
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetInputLayout, THIS as usize);
+    if !debugmode::draw_already_hooked() && debugmode::draw_hook_enabled() {
+        match apply_context_hooks(THIS, false) {
+            Ok(i) => write_log_file(&format!("applied {} context hook(s)", i)),
+            Err(e) => write_log_file(&format!("error applying context hooks: {:?}", e)),
+        }
+    }
 
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
@@ -361,7 +368,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         write_log_file("ERROR: i'm in DIP already!");
         return;
     }
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed);
+    debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed, THIS as usize);
 
     let hook_context = match get_hook_context() {
         Ok(ctx) => ctx,
