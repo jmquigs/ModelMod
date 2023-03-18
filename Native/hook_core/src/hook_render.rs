@@ -160,10 +160,12 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
                         ));
                     }
                     unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
-                        write_log_file(&format!(
-                            "active texture set contains: {} textures",
-                            set.len()
-                        ))
+                        if set.len() > 0 {
+                            write_log_file(&format!(
+                                "active texture set contains: {} textures",
+                                set.len()
+                            ))
+                        }
                     });
                     metrics.last_call_log = now;
                     metrics.dip_calls = 0;
