@@ -10,6 +10,7 @@ use types::d3ddata::ModD3DData11;
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN};
+use winapi::shared::winerror::{E_NOINTERFACE};
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::d3dcommon::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D};
@@ -20,8 +21,6 @@ use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
 use device_state::{dev_state, dev_state_d3d11_nolock};
 use shared_dx::error::Result;
-
-use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult};
 use crate::{input_commands, debugmode};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
@@ -37,6 +36,32 @@ fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
         },
     };
     Ok(&mut hooks.context)
+}
+
+pub fn u8_slice_to_hex_string(slice: &[u8]) -> String {
+    let mut s = String::new();
+    for b in slice {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+pub unsafe extern "system" fn hook_context_QueryInterface(
+    THIS: *mut IUnknown,
+    riid: *const winapi::shared::guiddef::GUID,
+    ppvObject: *mut *mut winapi::ctypes::c_void,
+) -> winapi::shared::winerror::HRESULT {
+    write_log_file(&format!("Context: hook_context_QueryInterface: for id {:x} {:x} {:x} {}",
+        (*riid).Data1, (*riid).Data2, (*riid).Data3, u8_slice_to_hex_string(&(*riid).Data4)));
+
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return E_NOINTERFACE,
+    };
+
+    let hr = (hook_context.real_query_interface)(THIS, riid, ppvObject);
+    write_log_file(&format!("Context: hook_context_QueryInterface: hr {:x}", hr));
+    hr
 }
 
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
@@ -71,55 +96,58 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     rc
 }
 
-pub unsafe extern "system" fn hook_VSSetConstantBuffers(
-    THIS: *mut ID3D11DeviceContext,
-    StartSlot: UINT,
-    NumBuffers: UINT,
-    ppConstantBuffers: *const *mut ID3D11Buffer,
-) {
-    debugmode::note_called(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers);
+// this was only needed when I was "rehooking" constantly (before I switched to copying
+// the vtable).  so its disabled now.  its a fairly hot function so better not to be doing
+// stuff here if I can avoid it.
+// pub unsafe extern "system" fn hook_VSSetConstantBuffers(
+//     THIS: *mut ID3D11DeviceContext,
+//     StartSlot: UINT,
+//     NumBuffers: UINT,
+//     ppConstantBuffers: *const *mut ID3D11Buffer,
+// ) {
+//     debugmode::note_called(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers);
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
+//     let hook_context = match get_hook_context() {
+//         Ok(ctx) => ctx,
+//         Err(_) => return,
+//     };
 
-    // TODO11: probably need to get more zealous about locking around this as DX11 and later
-    // games are more likely to use multihreaded rendering, though hopefully i'll just never use
-    // MM with one of those :|
-    // But these metrics should just be thread local
+//     // TODO11: probably need to get more zealous about locking around this as DX11 and later
+//     // games are more likely to use multihreaded rendering, though hopefully i'll just never use
+//     // MM with one of those :|
+//     // But these metrics should just be thread local
 
-    let was_hooked = if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers) {
-        let func_hooked = apply_context_hooks(THIS);
-        match func_hooked {
-            Ok(n) if n > 0 => true,
-            Ok(_) => false,
-            _ => {
-                write_log_file("error late hooking");
-                false
-            }
-        }
-    } else {
-        false
-    };
+//     // let was_hooked = if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextVSSetConstantBuffers) {
+//     //     let func_hooked = apply_context_hooks(THIS, false);
+//     //     match func_hooked {
+//     //         Ok(n) if n > 0 => true,
+//     //         Ok(_) => false,
+//     //         _ => {
+//     //             write_log_file("error late hooking");
+//     //             false
+//     //         }
+//     //     }
+//     // } else {
+//     //     false
+//     // };
 
-    match dev_state_d3d11_nolock() {
-        Some(state) => {
-            state.metrics.vs_set_const_buffers_calls += 1;
-            if was_hooked {
-                state.metrics.vs_set_const_buffers_hooks += 1;
-            }
-        },
-        None => {}
-    };
+//     // match dev_state_d3d11_nolock() {
+//     //     Some(state) => {
+//     //         state.metrics.vs_set_const_buffers_calls += 1;
+//     //         if was_hooked {
+//     //             state.metrics.vs_set_const_buffers_hooks += 1;
+//     //         }
+//     //     },
+//     //     None => {}
+//     // };
 
-    (hook_context.real_vs_setconstantbuffers)(
-        THIS,
-        StartSlot,
-        NumBuffers,
-        ppConstantBuffers
-    )
-}
+//     (hook_context.real_vs_setconstantbuffers)(
+//         THIS,
+//         StartSlot,
+//         NumBuffers,
+//         ppConstantBuffers
+//     )
+// }
 
 pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
     THIS: *mut ID3D11DeviceContext,
@@ -132,10 +160,10 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
         Err(_) => return,
     };
 
-    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology) {
-        // rehook to reduce flickering
-        let _func_hooked = apply_context_hooks(THIS);
-    }
+    // if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology) {
+    //     // rehook to reduce flickering
+    //     let _func_hooked = apply_context_hooks(THIS, false);
+    // }
 
     match dev_state_d3d11_nolock() {
         Some(state) => {
@@ -161,10 +189,10 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
         Err(_) => return,
     };
 
-    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetVertexBuffers) {
-        // rehook to reduce flickering
-        let _func_hooked = apply_context_hooks(THIS);
-    }
+    // if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetVertexBuffers) {
+    //     // rehook to reduce flickering
+    //     let _func_hooked = apply_context_hooks(THIS, false);
+    // }
 
     // TODO11 use the lock function here or switch to thread local for RS
     let state = dev_state_d3d11_nolock();
@@ -220,10 +248,10 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
         Err(_) => return,
     };
 
-    if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetInputLayout) {
-        // rehook to reduce flickering
-        let _func_hooked = apply_context_hooks(THIS);
-    }
+    // if debugmode::rehook_enabled(DebugModeCalledFns::Hook_ContextIASetInputLayout) {
+    //     // rehook to reduce flickering
+    //     let _func_hooked = apply_context_hooks(THIS, false);
+    // }
 
     // TODO11 use the lock function here or switch to thread local for RS
     dev_state_d3d11_nolock().map(|state| {

@@ -1,9 +1,11 @@
 use crate::defs_dx11::*;
 
 pub struct HookDirect3D11Device {
+    pub real_query_interface: QueryInterfaceFn,
     pub real_create_input_layout: CreateInputLayoutFn
 }
 pub struct HookDirect3D11Context {
+    pub real_query_interface: QueryInterfaceFn,
     pub real_release: IUnknownReleaseFn,
     pub real_vs_setconstantbuffers: VSSetConstantBuffersFn,
     pub real_draw: DrawFn,

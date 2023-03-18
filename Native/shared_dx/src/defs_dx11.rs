@@ -1,5 +1,6 @@
 use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
+use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
 
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY};
@@ -8,6 +9,11 @@ use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
 
 pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
+pub type QueryInterfaceFn = unsafe extern "system" fn (
+    THIS: *mut IUnknown,
+    riid: REFIID,
+    ppvObject: *mut *mut c_void,
+) -> HRESULT;
 
 pub type CreateInputLayoutFn = unsafe extern "system" fn(
     THIS: *mut ID3D11Device,

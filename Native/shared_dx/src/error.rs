@@ -31,6 +31,7 @@ pub enum HookError {
     SerdeError(String),
     D3D11DeviceHookFailed,
     D3D11NoContext,
+    D3D11Unsupported(String)
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
