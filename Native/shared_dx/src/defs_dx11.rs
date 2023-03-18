@@ -3,10 +3,12 @@ use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
 
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
+
+use crate::impl_release_drop;
 
 pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
 pub type QueryInterfaceFn = unsafe extern "system" fn (
@@ -47,6 +49,12 @@ pub type IASetPrimitiveTopologyFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
     Topology: D3D11_PRIMITIVE_TOPOLOGY,
 ) -> ();
+pub type PSSetShaderResourcesFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    StartSlot: UINT,
+    NumViews: UINT,
+    ppShaderResourceViews: *const *mut ID3D11ShaderResourceView,
+) -> ();
 pub type DrawIndexedFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
@@ -86,3 +94,5 @@ pub type DrawInstancedIndirectFn = unsafe extern "system" fn (
     pBufferForArgs: *mut ID3D11Buffer,
     AlignedByteOffsetForArgs: UINT,
 ) -> ();
+
+impl_release_drop!(ID3D11ShaderResourceView);

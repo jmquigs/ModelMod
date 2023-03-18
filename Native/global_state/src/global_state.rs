@@ -1,4 +1,5 @@
 
+use types::TexPtr;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -7,7 +8,6 @@ pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std::time::SystemTime;
 use std::fmt;
-use std::ptr::null_mut;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 
@@ -78,8 +78,8 @@ pub struct HookState {
     pub load_on_next_frame: Option<FnvHashSet<String>>,
     // lists of pointers containing the set of textures in use during snapshotting.
     // these are simply compared against the selection texture, never dereferenced.
-    pub active_texture_set: Option<FnvHashSet<*mut IDirect3DBaseTexture9>>,
-    pub active_texture_list: Option<Vec<*mut IDirect3DBaseTexture9>>,
+    pub active_texture_set: Option<FnvHashSet<usize>>,
+    pub active_texture_list: Option<Vec<usize>>,
     pub making_selection: bool,
     pub in_dip: bool,
     pub in_hook_release: bool,
@@ -87,7 +87,7 @@ pub struct HookState {
     pub show_mods: bool,
     pub mm_root: Option<String>,
     pub input: Option<input::Input>,
-    pub selection_texture: *mut IDirect3DTexture9,
+    pub selection_texture: Option<TexPtr>,
     pub selected_on_stage: [bool; MAX_STAGE],
     pub curr_texture_index: usize,
     pub is_snapping: bool,
@@ -141,7 +141,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     show_mods: true,
     mm_root: None,
     input: None,
-    selection_texture: null_mut(),
+    selection_texture: None,
     selected_on_stage: [false; MAX_STAGE],
     curr_texture_index: 0,
     is_snapping: false,

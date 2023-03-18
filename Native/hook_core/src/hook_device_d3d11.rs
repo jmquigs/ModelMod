@@ -389,7 +389,10 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         (*vtbl).IASetPrimitiveTopology = hook_IASetPrimitiveTopology;
         func_hooked += 1;
     }
-    // TODO11: hook remaining draw functions (if needed)
+    if (*vtbl).PSSetShaderResources as usize != hook_PSSetShaderResources as usize {
+        (*vtbl).PSSetShaderResources = hook_PSSetShaderResources;
+        func_hooked += 1;
+    }
 
     if TRACK_REHOOK_TIME {
         let now = SystemTime::now();
@@ -544,7 +547,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_vertex_buffers = (*vtbl).IASetVertexBuffers;
     let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
-
+    let real_ps_set_shader_resources = (*vtbl).PSSetShaderResources;
 
     // check for already hook devices (useful in late-hook case)
     if real_release as usize == hook_release as usize {
@@ -573,6 +576,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_ia_set_vertex_buffers,
         real_ia_set_input_layout,
         real_ia_set_primitive_topology,
+        real_ps_set_shader_resources,
     };
 
     Ok(HookDirect3D11 { device: hook_device, context: hook_context })

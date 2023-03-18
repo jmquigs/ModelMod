@@ -1,5 +1,6 @@
 
 use shared_dx::types::DevicePointer;
+use types::TexPtr;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -60,7 +61,8 @@ pub fn init_selection_mode(device: DevicePointer) -> Result<()> {
                 protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
             },
             D3D11(_device) => {
-                write_log_file("don't know how to init selection mode in d3d11 yet")
+                // currently d3d11 just hooks what it needs from the start
+                write_log_file("selection mode initialized")
             }
         }
     }
@@ -441,7 +443,7 @@ pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> 
         })
 }
 
-pub (crate) fn create_selection_texture(device: *mut IDirect3DDevice9) {
+pub (crate) fn create_selection_texture_d3d9(device: *mut IDirect3DDevice9) {
     unsafe {
         let width = 256;
         let height = 256;
@@ -493,7 +495,7 @@ pub (crate) fn create_selection_texture(device: *mut IDirect3DDevice9) {
 
         dev_state().d3d_resource_count += diff;
 
-        GLOBAL_STATE.selection_texture = tex;
+        GLOBAL_STATE.selection_texture = Some(TexPtr::D3D9(tex));
     }
 }
 

@@ -1,5 +1,7 @@
 
+use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
+use shared_dx::types::TexPtr;
 use types::d3ddata;
 use types::native_mod::ModD3DState;
 use types::native_mod::NativeModData;
@@ -87,7 +89,7 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     write_log_file(&format!("unloaded {} mods", cnt));
 }
 
-unsafe fn load_tex(dp:DevicePointer, texpath:&[u16]) -> Option<d3dx::TexPtr> {
+unsafe fn load_tex(dp:DevicePointer, texpath:&[u16]) -> Option<TexPtr> {
     let tex = util::from_wide_str(texpath).unwrap_or_else(|e| {
         write_log_file(&format!("failed to load texture: {:?}", e));
         "".to_owned()
@@ -217,8 +219,8 @@ pub unsafe fn load_d3d_data9(device: *mut IDirect3DDevice9, callbacks: interop::
     let dp = DevicePointer::D3D9(device);
     let load_tex_d3d9 = |texpath:&[u16]| {
         match load_tex(dp, texpath) {
-            Some(d3dx::TexPtr::D3D9(lp)) => lp,
-            Some(d3dx::TexPtr::D3D11(_)) => {
+            Some(TexPtr::D3D9(lp)) => lp,
+            Some(TexPtr::D3D11(_)) => {
                 write_log_file("ERROR: loaded d3d11 tex WTF");
                 null_mut()
             },
@@ -397,8 +399,12 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     d3d_data.has_textures = false;
     let mut load_tex_d3d11 = |texpath:&[u16], idx:usize| {
         let res = match load_tex(dp, texpath) {
-            Some(d3dx::TexPtr::D3D11(lp)) => lp,
-            Some(d3dx::TexPtr::D3D9(_)) => {
+            Some(TexPtr::D3D11(D3D11Tex::Tex(lp))) => lp,
+            Some(TexPtr::D3D11(D3D11Tex::TexSrv(..))) => {
+                write_log_file("ERROR: not expecting d3d11 texsrv here");
+                return;
+            },
+            Some(TexPtr::D3D9(_)) => {
                 write_log_file("ERROR: loaded d3d9 tex WTF");
                 null_mut()
             },

@@ -1,4 +1,5 @@
 use device_state::dev_state_d3d11_nolock;
+use global_state::HookState;
 use types::d3ddata::ModD3DData9;
 use types::native_mod::ModD3DData;
 use types::native_mod::NativeModData;
@@ -37,7 +38,7 @@ pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
 pub (crate) const MAX_STAGE: usize = 16;
 
-fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
+fn get_current_texture() -> usize {
     unsafe {
         let idx = GLOBAL_STATE.curr_texture_index;
         GLOBAL_STATE
@@ -45,15 +46,40 @@ fn get_current_texture() -> *mut IDirect3DBaseTexture9 {
             .as_ref()
             .map(|list| {
                 if idx >= list.len() {
-                    null_mut()
+                    0
                 } else {
                     list[idx]
                 }
             })
-            .unwrap_or(null_mut())
+            .unwrap_or(0)
     }
 }
 
+#[inline]
+/// If selection mode is not active, this returns None.  If it is active, and the current texture
+/// is selected, returns the texture that should be used to override the current (aka the
+/// "selection texture") as well as the stage it should be set on.  For D3D9 this is the actual stage,
+/// for D3D11 it is the index into the current pixel shader resource array.  If the current texture,
+/// is not selected, returns None.
+pub unsafe fn get_override_tex_if_selected<'a, T, F>(extract_ptr:F) -> Option<(*mut T, DWORD, bool)>
+where F: FnOnce(&TexPtr) -> *mut T {
+    if GLOBAL_STATE.making_selection {
+        get_selected_texture_stage()
+            .map(|stage| {
+                GLOBAL_STATE.selection_texture.as_ref()
+                .and_then(|seltext| {
+                    Some((
+                        extract_ptr(seltext),
+                        stage,
+                        true,
+                    ))
+                })
+            })
+            .flatten()
+    } else {
+        None
+    }
+}
 fn get_selected_texture_stage() -> Option<DWORD> {
     unsafe {
         for i in 0..MAX_STAGE {
@@ -306,32 +332,44 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     Ok(())
 }
 
+pub fn track_set_texture(tex_as_int:usize, tex_stage:u32, global_state:&mut HookState) {
+    if !global_state.making_selection {
+        return;
+    }
+
+    let has_it = global_state
+        .active_texture_set
+        .as_ref()
+        .map(|set| set.contains(&tex_as_int))
+        .unwrap_or(true);
+    if !has_it {
+        global_state.active_texture_set.as_mut().map(|set| {
+            set.insert(tex_as_int);
+        });
+        global_state.active_texture_list.as_mut().map(|list| {
+            list.push(tex_as_int);
+        });
+    }
+
+    if tex_stage < MAX_STAGE as u32 {
+        let curr = get_current_texture();
+        if curr != 0 && tex_as_int == curr {
+            global_state.selected_on_stage[tex_stage as usize] = true;
+        } else if global_state.selected_on_stage[tex_stage as usize] {
+            global_state.selected_on_stage[tex_stage as usize] = false;
+        }
+    } else {
+        write_log_file(&format!("WARNING: texture stage {} is too high (max {})", tex_stage, MAX_STAGE));
+    }
+}
+
 pub (crate) unsafe extern "system" fn hook_set_texture(
     THIS: *mut IDirect3DDevice9,
     Stage: DWORD,
     pTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT {
-    let has_it = GLOBAL_STATE
-        .active_texture_set
-        .as_ref()
-        .map(|set| set.contains(&pTexture))
-        .unwrap_or(true);
-    if !has_it {
-        GLOBAL_STATE.active_texture_set.as_mut().map(|set| {
-            set.insert(pTexture);
-        });
-        GLOBAL_STATE.active_texture_list.as_mut().map(|list| {
-            list.push(pTexture);
-        });
-    }
-
-    if Stage < MAX_STAGE as u32 {
-        let curr = get_current_texture();
-        if curr != null_mut() && pTexture == curr {
-            GLOBAL_STATE.selected_on_stage[Stage as usize] = true;
-        } else if GLOBAL_STATE.selected_on_stage[Stage as usize] {
-            GLOBAL_STATE.selected_on_stage[Stage as usize] = false;
-        }
+    if GLOBAL_STATE.making_selection {
+        track_set_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
     }
 
     match (dev_state()).hook {
@@ -349,10 +387,9 @@ unsafe fn purge_device_resources(device: DevicePointer) {
         return;
     }
     mod_load::clear_loaded_mods(device);
-    if GLOBAL_STATE.selection_texture != null_mut() {
-        (*GLOBAL_STATE.selection_texture).Release();
-        GLOBAL_STATE.selection_texture = null_mut();
-    }
+    let seltext = GLOBAL_STATE.selection_texture.take();
+    seltext.map(|t| t.release());
+
     GLOBAL_STATE
         .input
         .as_mut()
@@ -438,8 +475,8 @@ pub unsafe extern "system" fn hook_present(
             call_real_present()
         });
 
-    if GLOBAL_STATE.selection_texture == null_mut() {
-        input_commands::create_selection_texture(THIS);
+    if GLOBAL_STATE.selection_texture.is_none() {
+        input_commands::create_selection_texture_d3d9(THIS);
     }
 
     if util::appwnd_is_foreground(dev_state().d3d_window) {
@@ -788,22 +825,18 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         );
     }
 
-    // snapshotting
+    // for snapshot selection, check to see if current selected texture is being rendered, and if
+    // so obtain the override (selection) texture pointer
     let (override_texture, sel_stage, this_is_selected) = {
-        let default = (null_mut(), 0, false);
-        if GLOBAL_STATE.making_selection {
-            get_selected_texture_stage()
-                .map(|stage| {
-                    (
-                        std::mem::transmute(GLOBAL_STATE.selection_texture),
-                        stage,
-                        true,
-                    )
-                })
-                .unwrap_or(default)
-        } else {
-            default
-        }
+        get_override_tex_if_selected(|tp:&TexPtr| {
+            match tp {
+                &TexPtr::D3D9(ref tex) => *tex as *mut IDirect3DBaseTexture9,
+                x => {
+                    write_log_file(&format!("ERROR: unexpected texture type in snapshot selection: {:?}", x));
+                    null_mut()
+                }
+            }
+        }).unwrap_or((null_mut(), 0, false))
     };
 
     if GLOBAL_STATE.is_snapping {
@@ -835,7 +868,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         |d3dd,nmod| {
             if let ModD3DData::D3D9(d3dd) = d3dd {
                 render_mod_d3d9(THIS, d3dd, nmod,
-                    override_texture, sel_stage,
+                    override_texture as *mut IDirect3DBaseTexture9, sel_stage,
                     (primCount,NumVertices))
             } else {
                 false
@@ -862,7 +895,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         let _st_rod = {
             if override_texture != null_mut() {
                 (*THIS).GetTexture(sel_stage, &mut save_texture);
-                (*THIS).SetTexture(sel_stage, override_texture);
+                (*THIS).SetTexture(sel_stage, override_texture as *mut IDirect3DBaseTexture9);
                 Some(ReleaseOnDrop::new(save_texture))
             } else {
                 None

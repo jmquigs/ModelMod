@@ -1,8 +1,10 @@
 use shared_dx::error::*;
 use shared_dx::defs_dx9::*;
+use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
 
 use global_state::{ GLOBAL_STATE };
+use shared_dx::types::TexPtr;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Resource;
 use std::ptr::null_mut;
@@ -133,21 +135,6 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
     }
 }
 
-// I'm not sure why the generic return type of T doesn't work for load_texture, so do this
-pub enum TexPtr {
-    D3D9(LPDIRECT3DTEXTURE9),
-    D3D11(*mut ID3D11Resource),
-}
-
-impl TexPtr {
-    pub fn is_null(&self) -> bool {
-        match self {
-            TexPtr::D3D9(tex) => tex.is_null(),
-            TexPtr::D3D11(tex) => tex.is_null(),
-        }
-    }
-}
-
 pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexPtr> {
     let d3dx_fn = GLOBAL_STATE
         .d3dx_fn
@@ -173,7 +160,7 @@ pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexP
                 return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
             }
 
-            Ok(TexPtr::D3D11(tex))
+            Ok(TexPtr::D3D11(D3D11Tex::Tex(tex)))
         },
         _ => Err(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned())),
     }
@@ -202,7 +189,7 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
         )));
     }
     let _tex_rod = ReleaseOnDrop::new(tex);
-    if tex as usize == GLOBAL_STATE.selection_texture as usize {
+    if tex as usize == GLOBAL_STATE.selection_texture.as_ref().map(|t| t.as_usize()).unwrap_or(0) as usize {
         return Err(HookError::SnapshotFailed(format!(
             "not snapshotting texture on stage {} because it is the selection texture",
             idx

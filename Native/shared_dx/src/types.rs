@@ -5,9 +5,13 @@ carries the device specific state for one or the other (but not both) at runtime
 use std::ptr::null_mut;
 use std::time::SystemTime;
 use fnv::FnvHashMap;
+use winapi::shared::d3d9::LPDIRECT3DTEXTURE9;
 use winapi::shared::windef::HWND;
 use winapi::shared::d3d9::IDirect3DDevice9;
 use winapi::um::d3d11::ID3D11Device;
+use winapi::um::d3d11::ID3D11Resource;
+use winapi::um::d3d11::ID3D11ShaderResourceView;
+use winapi::um::unknwnbase::IUnknown;
 use crate::types_dx9::HookDirect3D9Device;
 use crate::types_dx9::HookDirect3D9;
 use crate::types_dx11::HookDirect3D11;
@@ -140,6 +144,65 @@ impl DevicePointer {
         match self {
             DevicePointer::D3D9(d3d9) => *d3d9 as usize,
             DevicePointer::D3D11(d3d11) => *d3d11 as usize,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum D3D11Tex {
+    Tex(*mut ID3D11Resource),
+    TexSrv(*mut ID3D11Resource, *mut ID3D11ShaderResourceView),
+}
+
+#[derive(Debug)]
+pub enum TexPtr {
+    D3D9(LPDIRECT3DTEXTURE9),
+    D3D11(D3D11Tex),
+}
+
+impl TexPtr {
+    pub fn is_null(&self) -> bool {
+        match self {
+            TexPtr::D3D9(tex) => tex.is_null(),
+            TexPtr::D3D11(D3D11Tex::Tex(tex)) => tex.is_null(),
+            TexPtr::D3D11(D3D11Tex::TexSrv(tex, srv)) => tex.is_null() || srv.is_null(),
+        }
+    }
+
+    /// Returns the pointer value as a usize.  0 if null.  If it is the TexSrv enum for DX11, returns the srv pointer.
+    /// For other cases returns the texture pointer.
+    pub fn as_usize(&self) -> usize {
+        if self.is_null() {
+            return 0;
+        }
+        match self {
+            TexPtr::D3D9(tex) => *tex as usize,
+            TexPtr::D3D11(D3D11Tex::Tex(tex)) => *tex as usize,
+            // for this case need to pick one so use the srv
+            TexPtr::D3D11(D3D11Tex::TexSrv(_tex, srv)) => *srv as usize,
+        }
+    }
+
+    pub unsafe fn release(self) {
+        match self {
+            TexPtr::D3D9(tex) => {
+                if !tex.is_null() {
+                    (*(tex as *mut IUnknown)).Release();
+                }
+            },
+            TexPtr::D3D11(D3D11Tex::Tex(tex)) => {
+                if !tex.is_null() {
+                    (*(tex as *mut IUnknown)).Release();
+                }
+            },
+            TexPtr::D3D11(D3D11Tex::TexSrv(tex, srv)) => {
+                if !tex.is_null() {
+                    (*(tex as *mut IUnknown)).Release();
+                }
+                if !srv.is_null() {
+                    (*(srv as *mut IUnknown)).Release();
+                }
+            },
         }
     }
 }

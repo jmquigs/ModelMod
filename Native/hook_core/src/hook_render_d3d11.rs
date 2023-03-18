@@ -1,17 +1,20 @@
+use std::mem::MaybeUninit;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
 use shared_dx::dx11rs::DX11RenderState;
-use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics};
+use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
 use shared_dx::types_dx11::{HookDirect3D11Context};
-use shared_dx::util::{write_log_file};
+use shared_dx::util::{write_log_file, ReleaseOnDrop};
+use types::TexPtr;
 use types::d3ddata::ModD3DData11;
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
-use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN};
+use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM};
+use winapi::shared::dxgitype::DXGI_SAMPLE_DESC;
 use winapi::shared::winerror::{E_NOINTERFACE};
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA, ID3D11Texture2D, ID3D11Resource};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::d3dcommon::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D};
 use winapi::um::processthreadsapi::GetCurrentProcessId;
@@ -20,9 +23,9 @@ use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, GetParent, GetD
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
 use device_state::{dev_state, dev_state_d3d11_nolock};
-use shared_dx::error::Result;
+use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult};
+use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
 use crate::{input_commands, debugmode};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
@@ -358,6 +361,41 @@ fn update_drawn_recently(metrics:&mut DX11Metrics, prim_count:u32, vert_count: u
     }
 }
 
+pub unsafe extern "system" fn hook_PSSetShaderResources(
+    THIS: *mut ID3D11DeviceContext,
+    StartSlot: UINT,
+    NumViews: UINT,
+    ppShaderResourceViews: *const *mut ID3D11ShaderResourceView,
+) -> () {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    if GLOBAL_STATE.making_selection {
+        // need to iterate the srvs and track any that are 2d textures
+        for i in 0..NumViews {
+            let srv = *ppShaderResourceViews.offset(i as isize);
+            if !srv.is_null() {
+                let mut desc = MaybeUninit::uninit();
+                (*srv).GetDesc(desc.as_mut_ptr());
+                let desc = desc.assume_init();
+                if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
+                    let stage = StartSlot + i;
+                    track_set_texture(srv as usize, stage, &mut GLOBAL_STATE);
+                }
+            }
+        }
+    }
+
+    (hook_context.real_ps_set_shader_resources)(
+        THIS,
+        StartSlot,
+        NumViews,
+        ppShaderResourceViews
+    )
+}
+
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
@@ -377,6 +415,19 @@ pub unsafe extern "system" fn hook_draw_indexed(
     GLOBAL_STATE.in_dip = true;
 
     GLOBAL_STATE.metrics.dip_calls += 1;
+
+    let (override_texture, sel_stage, this_is_selected) = {
+        get_override_tex_if_selected(|tp:&TexPtr| {
+            match tp {
+                &TexPtr::D3D11(D3D11Tex::TexSrv
+                    (_tex,srv)) => srv as *mut _,
+                x => {
+                    write_log_file(&format!("ERROR: unexpected texture type in snapshot selection: {:?}", x));
+                    null_mut()
+                }
+            }
+        }).unwrap_or((null_mut(), 0, false))
+    };
 
     // TODO11 use the lock function here or switch to thread local for RS
     let state = dev_state_d3d11_nolock();
@@ -404,10 +455,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 // if there is a matching mod, render it
                 let mod_status = check_and_render_mod(prim_count, vert_count,
                     |d3dd,nmod| {
-                        let override_texture = null_mut();
-                        let override_stage = 0_u32;
                         if let ModD3DData::D3D11(d3d11d) = d3dd {
-                            render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, override_stage, (prim_count,vert_count))
+                            render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
                         } else {
                             false
                         }
@@ -454,12 +503,32 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
 
     if draw_input {
+        let mut save_srv = if override_texture != null_mut()  {
+            let mut srvs: [*mut ID3D11ShaderResourceView; 1] = [null_mut(); 1];
+            (*THIS).PSGetShaderResources(sel_stage, 1, srvs.as_mut_ptr());
+            let save_srv = srvs[0];
+            let srvs = [override_texture];
+            // bypass our hook
+            (hook_context.real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
+            if save_srv != null_mut() {
+                Some(ReleaseOnDrop::new(save_srv))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         (hook_context.real_draw_indexed)(
             THIS,
             IndexCount,
             StartIndexLocation,
             BaseVertexLocation,
         );
+        save_srv.as_mut().map(|srv| {
+            let srv_p = *srv.as_mut();
+            let srvs = [srv_p];
+            (hook_context.real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
+        });
     }
 
     // do "per frame" operations this often since I don't have any idea of when the frame
@@ -580,6 +649,13 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
                 }
             });
         }
+
+        if app_foreground {
+            if GLOBAL_STATE.selection_texture.is_none() {
+                let _ = create_selection_texture_dx11()
+                    .map_err(|e| write_log_file(&format!("create_selection_texture_dx11 error: {:?}", e)));
+            }
+        }
     }
 }
 
@@ -612,11 +688,14 @@ fn draw_periodic() {
 
 unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut HookDirect3D11Context,
      d3dd:&ModD3DData11, _nmod:&NativeModData,
-    _override_texture: *mut c_void, _override_stage:u32,
+    override_texture: *mut ID3D11ShaderResourceView, override_stage:u32,
     _primVerts:(u32,u32)) -> bool {
     if context.is_null() {
         return false;
     }
+
+    // BUG: need to call Release on the the srvs at a minimum to prevent ref count leaks,
+    // check docs for other stuff.
 
     // save current device index buffer into local variables
     let mut curr_ibuffer: *mut ID3D11Buffer = null_mut();
@@ -680,16 +759,43 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
             }
         }
 
-        // set the modded srvs
-        (*context).PSSetShaderResources(0, 16, mod_srvs.as_ptr());
+        // set the modded srvs, bypass our hook
+        (hook_context.real_ps_set_shader_resources)(context, 0, 16, mod_srvs.as_ptr());
     }
+
+    // if there is an override texture (usually the selection texture), set it.  if the mod has
+    // textures this may, uh, override what we just set (effectively we are showing the selection
+    // texture on a mod, which is slightly odd, but its actually valid to snapshot something that is
+    // already modded so its fine)
+    let mut override_save_srv = if override_texture != null_mut()  {
+        let mut srvs: [*mut ID3D11ShaderResourceView; 1] = [null_mut(); 1];
+        (*context).PSGetShaderResources(override_stage, 1, srvs.as_mut_ptr());
+        let save_srv = srvs[0];
+        let srvs = [override_texture];
+        // bypass our hook
+        (hook_context.real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
+        if save_srv != null_mut() {
+            Some(ReleaseOnDrop::new(save_srv))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // draw
     (*context).Draw(d3dd.vert_count as UINT, 0);
 
+    // restore overridden tex
+    override_save_srv.as_mut().map(|srv| {
+        let srv_p = *srv.as_mut();
+        let srvs = [srv_p];
+        (hook_context.real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
+    });
+
     // restore srvs
     if d3dd.has_textures {
-        (*context).PSSetShaderResources(0, 16, orig_srvs.as_ptr());
+        (hook_context.real_ps_set_shader_resources)(context, 0, 16, orig_srvs.as_ptr());
     }
 
     // restore index buffer
@@ -710,6 +816,70 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
 
     true
 }
+
+fn create_selection_texture_dx11() -> Result<()> {
+    if unsafe { GLOBAL_STATE.selection_texture.is_some() } {
+        return Ok(());
+    }
+    let tex_desc = D3D11_TEXTURE2D_DESC {
+        Width: 256,
+        Height: 256,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_SHADER_RESOURCE,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+    };
+
+    //let fill = 0x00FF00FFu32;
+    let fill = 0xFF00FF00u32;
+    let data = vec![fill; 256 * 256];
+
+    let tex_data = D3D11_SUBRESOURCE_DATA {
+        pSysMem: data.as_ptr() as *const u32 as *const c_void,
+        SysMemPitch: 4,
+        SysMemSlicePitch: 0,
+    };
+
+    let mut tex: *mut ID3D11Texture2D = null_mut();
+    let mut srv: *mut ID3D11ShaderResourceView = null_mut();
+
+    unsafe {
+        let dp = dev_state_d3d11_nolock().map(|ds| &mut ds.devptr);
+
+        let device = match dp {
+            Some(DevicePointer::D3D11(dev)) => *dev,
+            _ => return Err(HookError::D3D11NoContext),
+        };
+
+        let hr = (*device).CreateTexture2D(
+            &tex_desc, &tex_data, &mut tex);
+        if hr != 0 {
+            return Err(HookError::D3D11Unsupported(format!("Failed to create selection texture: {}", hr)));
+        }
+
+        let hr = (*device).CreateShaderResourceView(
+            tex as *mut ID3D11Resource, null_mut(), &mut srv);
+        if hr != 0 {
+            if !tex.is_null() {
+                (*tex).Release();
+            }
+            return Err(HookError::D3D11Unsupported(format!("Failed to create selection texture SRV: {}", hr)));
+        }
+
+        GLOBAL_STATE.selection_texture = Some(TexPtr::D3D11(D3D11Tex::TexSrv(tex as *mut ID3D11Resource, srv)));
+        write_log_file("created selection texture");
+    };
+
+    Ok(())
+}
+
 //==============================================================================
 // Unimplemented draw function hooks
 

@@ -114,6 +114,10 @@ where
     pub fn new(rd: T) -> Self {
         ReleaseOnDrop { rd }
     }
+
+    pub fn as_mut(&mut self) -> &mut T {
+        &mut self.rd
+    }
 }
 
 impl<T> std::ops::Drop for ReleaseOnDrop<T>
