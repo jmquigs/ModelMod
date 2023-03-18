@@ -8,7 +8,7 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashSet;
-use std;
+
 use std::ptr::null_mut;
 use shared_dx::util::*;
 use global_state::GLOBAL_STATE;
@@ -18,7 +18,7 @@ use crate::hook_render::MAX_STAGE;
 use crate::hook_render::CLR_OK;
 use crate::input;
 use mod_load::AsyncLoadState;
-use mod_load;
+
 use dnclr::reload_managed_dll;
 
 use shared_dx::error::*;
@@ -99,7 +99,7 @@ pub fn init_snapshot_mode() {
             let mut anim_state = AnimSnapState {
                 next_vconst_idx: 0,
                 seen_all: false,
-                expected_primverts: expected_primverts,
+                expected_primverts,
                 seen_primverts: HashSet::new(),
                 sequence_vconstants: Vec::new(),
                 sequence_start_time: SystemTime::now(), // this will get overwritten when we actually start the constant sequences
@@ -122,7 +122,7 @@ pub fn init_snapshot_mode() {
                 capture_count: 0,
                 frame: 0,
                 player_transform: Err(HookError::SnapshotFailed("".to_owned())),
-                snap_on_count: snap_on_count,
+                snap_on_count,
                 // worldmat: std::mem::zeroed(),
                 // viewmat: std::mem::zeroed(),
                 // projmat: std::mem::zeroed(),
@@ -189,14 +189,12 @@ fn cmd_clear_texture_lists(_device: DevicePointer) {
     hook_snapshot::reset();
 
     unsafe {
-        GLOBAL_STATE
+        if let Some(list) = GLOBAL_STATE
             .active_texture_list
-            .as_mut()
-            .map(|list| list.clear());
-        GLOBAL_STATE
+            .as_mut() { list.clear() }
+        if let Some(list) = GLOBAL_STATE
             .active_texture_set
-            .as_mut()
-            .map(|list| list.clear());
+            .as_mut() { list.clear() }
         GLOBAL_STATE.curr_texture_index = 0;
         for i in 0..MAX_STAGE {
             GLOBAL_STATE.selected_on_stage[i] = false;
@@ -351,7 +349,7 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     // (see purge_device_resources)
     // but lets us avoid passing a context argument through the input layer.
     inp.add_press_fn(input::DIK_F1, Box::new(move || cmd_reload_mods(device)));
-    inp.add_press_fn(input::DIK_F2, Box::new(|| cmd_toggle_show_mods()));
+    inp.add_press_fn(input::DIK_F2, Box::new(cmd_toggle_show_mods));
     inp.add_press_fn(
         input::DIK_F3,
         Box::new(move || cmd_select_next_texture(device)),
@@ -361,9 +359,9 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
         Box::new(move || cmd_select_prev_texture(device)),
     );
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
-    inp.add_press_fn(input::DIK_F7, Box::new(move || cmd_take_snapshot()));
-    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(move || select_next_variant()));
-    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_F7, Box::new(cmd_take_snapshot));
+    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
 
     // Disabling this because its ineffective: the reload will complete without error, but
     // The old managed code will still be used.  The old C++ code
@@ -376,7 +374,7 @@ fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
     write_log_file("using punct key input layout");
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     inp.add_press_fn(input::DIK_BACKSLASH, Box::new(move || cmd_reload_mods(device)));
-    inp.add_press_fn(input::DIK_RBRACKET, Box::new(|| cmd_toggle_show_mods()));
+    inp.add_press_fn(input::DIK_RBRACKET, Box::new(cmd_toggle_show_mods));
     inp.add_press_fn(input::DIK_SEMICOLON, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(
         input::DIK_COMMA,
@@ -386,11 +384,11 @@ fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
         input::DIK_PERIOD,
         Box::new(move || cmd_select_prev_texture(device)),
     );
-    inp.add_press_fn(input::DIK_SLASH, Box::new(move || cmd_take_snapshot()));
+    inp.add_press_fn(input::DIK_SLASH, Box::new(cmd_take_snapshot));
 
     // Running out of punct!  oh well use these
-    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(move || select_next_variant()));
-    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(move || select_next_variant()));
+    inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
 
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
@@ -424,9 +422,9 @@ pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> 
             let carr_ptr = &is.conf_data.InputProfile[0] as *const i8;
             unsafe { CStr::from_ptr(carr_ptr) }
                 .to_str()
-                .map_err(|e| HookError::CStrConvertFailed(e))
+                .map_err(HookError::CStrConvertFailed)
         })
-        .and_then(|inp_profile| {
+        .map(|inp_profile| {
             let lwr = inp_profile.to_owned().to_lowercase();
             if lwr.starts_with("fk") {
                 setup_fkey_input(device, inp);
@@ -439,7 +437,7 @@ pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> 
                 ));
                 setup_fkey_input(device, inp);
             }
-            Ok(())
+            
         })
 }
 

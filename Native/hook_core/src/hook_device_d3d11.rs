@@ -253,7 +253,7 @@ pub unsafe fn copy_vtable<T>(source: *const T, num_bytes:usize) -> *mut u8 {
 pub unsafe fn find_and_copy_vtable<T>(iunk:*mut IUnknown, vtable:*const c_void, ifaces:&[(GUID,usize)]) -> Result<*mut T> {
     let iface = ifaces.iter().enumerate().rev().find(|(_i,(guid,_size))| {
         let mut ptr = null_mut();
-        let res = (*iunk).QueryInterface(&*guid, &mut ptr);
+        let res = (*iunk).QueryInterface(guid, &mut ptr);
         if res == 0 {
             (*iunk).Release();
             true
@@ -337,9 +337,9 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         let mut vec = vec![(dc1guid,1072), (dc2guid,1152), (dc3guid,1176), (dc4guid,1192)];
         vec.sort_by_key(|f| f.1);
 
-        let vtbl = find_and_copy_vtable(
-            context as *mut IUnknown,(*context).lpVtbl as *const _, &vec)?;
-        vtbl
+        
+        find_and_copy_vtable(
+            context as *mut IUnknown,(*context).lpVtbl as *const _, &vec)?
     };
 
     // unprotect doesn't seem necessary (I'm overwriting my own memory, not the code segment).
@@ -353,17 +353,17 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
     };
 
     let device_child = &mut (*vtbl).parent;
-    let iunknown = &mut (*device_child).parent;
+    let iunknown = &mut device_child.parent;
 
     let mut func_hooked = 0;
 
-    if (*iunknown).QueryInterface as usize != hook_context_QueryInterface as usize {
-        (*iunknown).QueryInterface = hook_context_QueryInterface;
+    if iunknown.QueryInterface as usize != hook_context_QueryInterface as usize {
+        iunknown.QueryInterface = hook_context_QueryInterface;
         func_hooked += 1;
     }
 
-    if (*iunknown).Release as usize != hook_release as usize {
-        (*iunknown).Release = hook_release;
+    if iunknown.Release as usize != hook_release as usize {
+        iunknown.Release = hook_release;
         func_hooked += 1;
     }
     // don't need this for now
@@ -371,11 +371,9 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
     //     (*vtbl).VSSetConstantBuffers = hook_VSSetConstantBuffers;
     //     func_hooked += 1;
     // }
-    if debugmode::draw_hook_enabled() {
-        if (*vtbl).DrawIndexed as usize != hook_draw_indexed as usize {
-            (*vtbl).DrawIndexed = hook_draw_indexed;
-            func_hooked += 1;
-        }
+    if debugmode::draw_hook_enabled() && (*vtbl).DrawIndexed as usize != hook_draw_indexed as usize {
+        (*vtbl).DrawIndexed = hook_draw_indexed;
+        func_hooked += 1;
     }
     if (*vtbl).IASetVertexBuffers as usize != hook_IASetVertexBuffers as usize {
         (*vtbl).IASetVertexBuffers = hook_IASetVertexBuffers;
@@ -532,10 +530,10 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     //let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     let device_child = &mut (*vtbl).parent;
-    let iunknown = &mut (*device_child).parent;
+    let iunknown = &mut device_child.parent;
 
-    let real_release = (*iunknown).Release;
-    let real_query_interface = (*iunknown).QueryInterface;
+    let real_release = iunknown.Release;
+    let real_query_interface = iunknown.QueryInterface;
     let real_vs_setconstantbuffers = (*vtbl).VSSetConstantBuffers;
     let real_draw = (*vtbl).Draw;
     let real_draw_auto = (*vtbl).DrawAuto;
@@ -551,7 +549,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
 
     // check for already hook devices (useful in late-hook case)
     if real_release as usize == hook_release as usize {
-        write_log_file(&format!("error: device already appears to be hooked, skipping"));
+        write_log_file("error: device already appears to be hooked, skipping");
         return Err(HookError::D3D11DeviceHookFailed);
     }
 
@@ -646,7 +644,7 @@ fn get_hook_device<'a>() -> Result<&'a mut HookDirect3D11Device> {
     let hooks = match dev_state().hook {
         Some(HookDeviceState::D3D11(ref mut ds)) => &mut ds.hooks,
         _ => {
-            write_log_file(&format!("draw: No d3d11 context found"));
+            write_log_file("draw: No d3d11 context found");
             return Err(shared_dx::error::HookError::D3D11NoContext);
         },
     };
@@ -688,7 +686,7 @@ fn vertex_format_from_layout(layout: Vec<D3D11_INPUT_ELEMENT_DESC>) -> VertexFor
         let append_aligned_found =
             layout.iter().find(|x| x.AlignedByteOffset == D3D11_APPEND_ALIGNED_ELEMENT);
         if append_aligned_found.is_some() {
-            write_log_file(&format!("WARNING: vertex has dynamic size, not computed"));
+            write_log_file("WARNING: vertex has dynamic size, not computed");
             0
         } else {
             let high_el = layout.iter().rev().find(|el|
@@ -704,7 +702,7 @@ fn vertex_format_from_layout(layout: Vec<D3D11_INPUT_ELEMENT_DESC>) -> VertexFor
                 },
                 None => {
                     write_log_file(
-                        &format!("ERROR: can't compute vertex size, no high offset found"));
+                        "ERROR: can't compute vertex size, no high offset found");
                     0
                 }
             }
@@ -798,15 +796,12 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 
     let hr = (hook_device.real_query_interface)(THIS, riid, ppvObject);
     write_log_file(&format!("Device: hook_device_QueryInterface: hr {:x}", hr));
-    if hr == 0 {
-        if (*riid).Data1 == ID3D11Device::uuidof().Data1
+    if hr == 0 && (*riid).Data1 == ID3D11Device::uuidof().Data1
             && (*riid).Data2 == ID3D11Device::uuidof().Data2
-            && (*riid).Data3 == ID3D11Device::uuidof().Data3
-            && (*riid).Data4 == ID3D11Device::uuidof().Data4 {
-            let pdevice = *ppvObject as *mut ID3D11Device;
-            write_log_file(&format!("Device: query for ID3D11Device returned dev {:x} with vtable {:x}",
-            pdevice as usize, (*pdevice).lpVtbl as usize));
-        }
+            && (*riid).Data3 == ID3D11Device::uuidof().Data3 && (*riid).Data4 == ID3D11Device::uuidof().Data4 {
+        let pdevice = *ppvObject as *mut ID3D11Device;
+        write_log_file(&format!("Device: query for ID3D11Device returned dev {:x} with vtable {:x}",
+        pdevice as usize, (*pdevice).lpVtbl as usize));
     }
     hr
 }
