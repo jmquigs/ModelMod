@@ -187,6 +187,8 @@ mod tests {
     fn profile_works() {
         use shared_dx::util::*;
 
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+
         // remove previous summary file
         let testfile = "__testprofiler__test_prof_summary_log.txt";
         std::fs::remove_file(testfile).ok();

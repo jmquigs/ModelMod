@@ -3,9 +3,19 @@ use std::time::{SystemTime};
 
 const LOG_TIME:bool = true;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 lazy_static! {
     static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
     static ref LOG_INIT_TIME: std::sync::Mutex<SystemTime> = std::sync::Mutex::new(SystemTime::now());
+
+    pub static ref LOG_EXCL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+}
+
+thread_local! {
+    // create a hash map that maps strings to a count of the time that string has been logged
+    static LOG_ONCE: RefCell<std::collections::HashMap<String, u32>> = RefCell::new(HashMap::new());
 }
 
 pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
@@ -39,10 +49,56 @@ pub fn get_log_file_path() -> String {
     }
 }
 
+enum LimResult {
+    Log,
+    DontLog,
+    DontLogAndFYI(String),
+}
+fn log_limit(s:&str) -> LimResult {
+    const LOG_LIMIT:u32 = 25;
+
+    LOG_ONCE.with(|log_once| {
+        let mut map = log_once.borrow_mut();
+        let count = map.get(s);
+        match count {
+            None => {
+                map.insert(s.to_owned(), 1);
+                LimResult::Log
+            },
+            Some(c) if *c > LOG_LIMIT => {
+                LimResult::DontLog
+            },
+            Some(c) => {
+                if *c == LOG_LIMIT {
+                    let fyi = format!("performance warning: message '{}' has been logged {} times; it won't be repeated", s, LOG_LIMIT);
+                    map.get_mut(s).map(|c| *c += 1);
+                    LimResult::DontLogAndFYI(fyi)
+                } else {
+                    map.get_mut(s).map(|c| *c += 1);
+                    LimResult::Log
+                }
+            }
+        }
+    })
+
+}
+
 pub fn write_log_file(msg: &str) {
     use std::env::temp_dir;
     use std::fs::OpenOptions;
     use std::io::Write;
+
+    let alt_msg = match log_limit(msg) {
+        LimResult::Log => {
+            None
+        },
+        LimResult::DontLog => {
+            return;
+        },
+        LimResult::DontLogAndFYI(s) => {
+            Some(s)
+        }
+    };
 
     let lock = LOG_FILE_NAME.lock();
     match lock {
@@ -90,7 +146,11 @@ pub fn write_log_file(msg: &str) {
 
             let w = || -> std::io::Result<()> {
                 let mut f = OpenOptions::new().create(true).append(true).open(&*fname)?;
-                writeln!(f, "{:?}/{}ms: {}\r", tid, time_ms, msg)?;
+                if let Some(what) = alt_msg {
+                    writeln!(f, "{:?}/{}ms: {}\r", tid, time_ms, what)?;
+                } else {
+                    writeln!(f, "{:?}/{}ms: {}\r", tid, time_ms, msg)?;
+                }
                 Ok(())
             };
 
@@ -149,8 +209,6 @@ macro_rules! impl_release_drop {
 // these tests require access to test internals which is nightly only
 // to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
 mod tests {
-    use winapi::shared::winerror::D2DERR_PRINT_FORMAT_NOT_SUPPORTED;
-
     use super::*;
 
     struct Foo {
@@ -198,6 +256,58 @@ mod tests {
             let _nullrod = ReleaseOnDrop::new(std::ptr::null_mut::<Foo>());
             // should not crash when above is dropped
         }
+
+    }
+
+    #[test]
+    fn test_logging_and_limit() {
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+
+        let testfile = "__testutil__test_log_limit.txt";
+        std::fs::remove_file(testfile).ok();
+
+        set_log_file_path("", testfile).expect("doh");
+        for _i in 0..30 {
+            write_log_file("spam");
+            write_log_file("spam");
+            write_log_file("spam");
+            write_log_file("humbug");
+        }
+
+        use std::io::Read;
+        let mut f = std::fs::File::open(testfile).expect("doh");
+        let mut s = String::new();
+        f.read_to_string(&mut s).expect("doh");
+        let lines: Vec<&str> = s.lines().collect();
+
+        let spam = lines.iter().filter(|l| l.contains("spam")).count();
+        let humbug = lines.iter().filter(|l| l.contains("humbug")).count();
+        assert_eq!(spam, 26);
+        assert_eq!(humbug, 26);
+
+        let mut linei = lines.iter();
+        let aftercolon = |s: &str| {
+            let cidx = s.find(": ").expect("doh");
+            s.split_at(cidx + ": ".len() ).1.trim().to_owned()
+        };
+
+        for i in 0..8 {
+            assert_eq!(aftercolon(linei.next().unwrap()), "spam", "line {}", i);
+            assert_eq!(aftercolon(linei.next().unwrap()), "spam", "line {}", i);
+            assert_eq!(aftercolon(linei.next().unwrap()), "spam", "line {}", i);
+            assert_eq!(aftercolon(linei.next().unwrap()), "humbug", "line {}", i);
+        }
+        assert_eq!(aftercolon(linei.next().unwrap()), "spam");
+        let fyi = "performance warning: message 'spam' has been logged 25 times; it won't be repeated";
+        assert_eq!(aftercolon(linei.next().unwrap()), fyi);
+        // then this many humbug lines followed by its spam warning
+        for i in 0..17 {
+            assert_eq!(aftercolon(linei.next().unwrap()), "humbug", "{}", i);
+        }
+        let fyi = "performance warning: message 'humbug' has been logged 25 times; it won't be repeated";
+        assert_eq!(aftercolon(linei.next().unwrap()), fyi);
+
+
 
     }
 }
