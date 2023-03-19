@@ -54,23 +54,29 @@ macro_rules! debug_spam {
     };
 }
 
+#[inline(always)]
+/// Returns true if a mod is available that matches the given primitive and vertex counts.
+/// This is the first part of the work done by `select` below, and is intended to speed up
+/// hot paths (since this check is small and can be inlined).
+pub fn preselect(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32) -> bool {
+    let mod_key = NativeModData::mod_key(vert_count, prim_count);
+    mstate.mods.get(&mod_key).is_some()
+}
+
 /// Select a mod for rendering, if any.
 ///
 /// The mod state is &mut because we may need to update the last frame rendered for any
 /// parent mods we find.
 ///
-/// Perf note: the first part of this function is very hot and will be called for literally
-/// everything drawn by the game.  So its important to get out of here early if there is no match.
-/// This could check could even be inlined as a separate function, but hopefully the call
-/// doesn't add much overhead (if I did profile optimization, llvm could maybe split this into
-/// hot/cold parts)
+/// Perf note: since checking for a mod is needed for everything drawn by the game, it is better to
+/// call `preselect` first to determine if this function even needs to be called.  `select` does
+/// early out as soon as it knows there is no mod, but still incurs a bit of extra cost.
 pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64) -> Option<&NativeModData> {
     let mod_key = NativeModData::mod_key(vert_count, prim_count);
     let r = mstate.mods.get(&mod_key);
     // just get out of here if we didn't have a match
-    if r.is_none() {
-        return None;
-    }
+    r?;
+
     // found at least one mod.  do some more checks to see if each has a parent, and if the parent
     // is active.  count the active parents we find because if more than one is active,
     // we have ambiguity and can't render any of them.
@@ -134,9 +140,8 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
         }
     });
     // return if we aren't rendering it.
-    if r2.is_none() {
-        return None;
-    }
+    r2?;
+
     // ok, we're rendering it, so need to update last render frame on it,
     // which requires a mutable reference.  we couldn't use a
     // mutable ref earlier, because we had to do two simultaneous lookups on the hash table.

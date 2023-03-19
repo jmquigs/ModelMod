@@ -26,7 +26,7 @@ use device_state::{dev_state, dev_state_d3d11_nolock};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
-use crate::{input_commands, debugmode};
+use crate::{input_commands, debugmode, mod_render};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 
@@ -396,16 +396,21 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
     )
 }
 
+decl_profile_globals!(hdi);
+
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
     StartIndexLocation: UINT,
     BaseVertexLocation: INT,
 ) {
+    profile_start!(hdi, total);
     if GLOBAL_STATE.in_dip {
         write_log_file("ERROR: i'm in DIP already!");
         return;
     }
+
+    profile_start!(hdi, start);
     debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed, THIS as usize);
 
     let hook_context = match get_hook_context() {
@@ -416,6 +421,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     GLOBAL_STATE.metrics.dip_calls += 1;
 
+    profile_end!(hdi, start);
+    profile_start!(hdi, sel_tex);
     let (override_texture, sel_stage, this_is_selected) = {
         get_override_tex_if_selected(|tp:&TexPtr| {
             match tp {
@@ -428,16 +435,21 @@ pub unsafe extern "system" fn hook_draw_indexed(
             }
         }).unwrap_or((null_mut(), 0, false))
     };
+    profile_end!(hdi, sel_tex);
 
+    profile_start!(hdi, geom_check);
     // TODO11 use the lock function here or switch to thread local for RS
     let state = dev_state_d3d11_nolock();
     let draw_input = state.map(|state| {
         // this is the only prim type I support but don't log if it is something else since
         // it would be spammy (maybe log if trying to take a snapshot)
         if state.rs.prim_topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST {
+            profile_end!(hdi, geom_check);
             return true;
         }
-        match compute_prim_vert_count(IndexCount, &state.rs) {
+        let checkres = compute_prim_vert_count(IndexCount, &state.rs);
+        profile_end!(hdi, geom_check);
+        match checkres {
             Some((prim_count,vert_count)) if vert_count > 2  => {
                 // if primitive tracking is enabled, log just the primcount,vertcount if we were able
                 // to compute it, otherwise log whatever we have
@@ -453,15 +465,32 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 }
 
                 // if there is a matching mod, render it
-                let mod_status = check_and_render_mod(prim_count, vert_count,
-                    |d3dd,nmod| {
-                        if let ModD3DData::D3D11(d3d11d) = d3dd {
-                            render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
-                        } else {
-                            false
-                        }
-                    });
+                profile_start!(hdi, mod_precheck);
+                let quickcheck = GLOBAL_STATE.loaded_mods.as_mut().map(
+                    |mods| mod_render::preselect(mods, prim_count, vert_count))
+                    .unwrap_or(false);
+                let mod_status = if !quickcheck {
+                    profile_end!(hdi, mod_precheck);
+                    CheckRenderModResult::NotRendered
+                } else {
+                    profile_end!(hdi, mod_precheck);
+                    profile_start!(hdi, mod_check);
+                    let mod_status = check_and_render_mod(prim_count, vert_count,
+                        |d3dd,nmod| {
+                            profile_start!(hdi, mod_render);
+                            let res = if let ModD3DData::D3D11(d3d11d) = d3dd {
+                                render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                            } else {
+                                false
+                            };
+                            profile_end!(hdi, mod_render);
+                            res
+                        });
+                    profile_end!(hdi, mod_check);
+                    mod_status
+                };
 
+                profile_start!(hdi, post_mod_check);
                 use types::interop::ModType::GPUAdditive;
                 let draw_input = match mod_status {
                     CheckRenderModResult::NotRendered => true,
@@ -494,6 +523,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 if METRICS_TRACK_MOD_PRIMS {
                     update_drawn_recently(&mut state.metrics, prim_count, vert_count, &mod_status);
                 }
+                profile_end!(hdi, post_mod_check);
 
                 draw_input
             },
@@ -501,8 +531,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
         }
     }).unwrap_or(true);
 
-
     if draw_input {
+        profile_start!(hdi, draw_ovtex_check);
         let mut save_srv = if override_texture != null_mut()  {
             let mut srvs: [*mut ID3D11ShaderResourceView; 1] = [null_mut(); 1];
             (*THIS).PSGetShaderResources(sel_stage, 1, srvs.as_mut_ptr());
@@ -518,19 +548,25 @@ pub unsafe extern "system" fn hook_draw_indexed(
         } else {
             None
         };
+        profile_end!(hdi, draw_ovtex_check);
+        profile_start!(hdi, draw_input);
         (hook_context.real_draw_indexed)(
             THIS,
             IndexCount,
             StartIndexLocation,
             BaseVertexLocation,
         );
+        profile_end!(hdi, draw_input);
+        profile_start!(hdi, draw_ovtex_reset);
         save_srv.as_mut().map(|srv| {
             let srv_p = *srv.as_mut();
             let srvs = [srv_p];
             (hook_context.real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
         });
+        profile_end!(hdi, draw_ovtex_reset);
     }
 
+    profile_start!(hdi, post_draw);
     // do "per frame" operations this often since I don't have any idea of when the frame
     // ends in this API right now
     if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
@@ -550,7 +586,12 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     process_metrics(&mut GLOBAL_STATE.metrics, true, 250000);
 
+    profile_end!(hdi, post_draw);
+
     GLOBAL_STATE.in_dip = false;
+
+    profile_end!(hdi, total);
+    profile_summarize!(hdi, 10.0);
 }
 
 /// Call a function with the d3d11 device pointer if it's available.  If pointer is a different,
