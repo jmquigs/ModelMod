@@ -16,6 +16,7 @@ lazy_static! {
 thread_local! {
     // create a hash map that maps strings to a count of the time that string has been logged
     static LOG_ONCE: RefCell<std::collections::HashMap<String, u32>> = RefCell::new(HashMap::new());
+    static LOG_LIMIT: RefCell<u32> = RefCell::new(100);
 }
 
 pub fn set_log_file_path(path: &str, name: &str) -> Result<()> {
@@ -49,13 +50,16 @@ pub fn get_log_file_path() -> String {
     }
 }
 
+pub fn set_log_limit(limit: u32) {
+    LOG_LIMIT.with(|log_limit| *log_limit.borrow_mut() = limit);
+}
 enum LimResult {
     Log,
     DontLog,
     DontLogAndFYI(String),
 }
 fn log_limit(s:&str) -> LimResult {
-    const LOG_LIMIT:u32 = 25;
+    let limit = LOG_LIMIT.with(|log_limit| *log_limit.borrow());
 
     LOG_ONCE.with(|log_once| {
         let mut map = log_once.borrow_mut();
@@ -65,12 +69,12 @@ fn log_limit(s:&str) -> LimResult {
                 map.insert(s.to_owned(), 1);
                 LimResult::Log
             },
-            Some(c) if *c > LOG_LIMIT => {
+            Some(c) if *c > limit => {
                 LimResult::DontLog
             },
             Some(c) => {
-                if *c == LOG_LIMIT {
-                    let fyi = format!("performance warning: message '{}' has been logged {} times; it won't be repeated", s, LOG_LIMIT);
+                if *c == limit {
+                    let fyi = format!("performance warning: message '{}' has been logged {} times; it won't be repeated", s, limit);
                     map.get_mut(s).map(|c| *c += 1);
                     LimResult::DontLogAndFYI(fyi)
                 } else {
@@ -265,6 +269,7 @@ mod tests {
 
         let testfile = "__testutil__test_log_limit.txt";
         std::fs::remove_file(testfile).ok();
+        set_log_limit(25);
 
         set_log_file_path("", testfile).expect("doh");
         for _i in 0..30 {
