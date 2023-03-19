@@ -367,7 +367,7 @@ impl Input {
 
         profile_end!(inp, process);
 
-        profile_summarize!(inp);
+        profile_summarize!(inp, 10.0);
 
         Ok(())
     }

@@ -927,7 +927,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     GLOBAL_STATE.in_dip = false;
     profile_end!(hdip, hook_dip);
 
-    profile_summarize!(hdip);
+    profile_summarize!(hdip, 10.0);
 
     dresult
 }

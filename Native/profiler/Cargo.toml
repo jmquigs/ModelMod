@@ -8,3 +8,8 @@ edition = "2021"
 
 [dependencies]
 shared_dx = { path = "../shared_dx" }
+fnv = "1.0.6"
+
+[features]
+default = []
+profile = []
