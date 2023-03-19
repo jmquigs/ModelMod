@@ -735,15 +735,13 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
         return false;
     }
 
-    // BUG: need to call Release on the the srvs at a minimum to prevent ref count leaks,
-    // check docs for other stuff.
-
     // save current device index buffer into local variables
     let mut curr_ibuffer: *mut ID3D11Buffer = null_mut();
     let mut curr_ibuffer_offset: UINT = 0;
     let mut curr_ibuffer_format: DXGI_FORMAT = DXGI_FORMAT_UNKNOWN;
     (*context).IAGetIndexBuffer(&mut curr_ibuffer, &
         mut curr_ibuffer_format, &mut curr_ibuffer_offset);
+    let _ib_rod = ReleaseOnDrop::new(curr_ibuffer);
 
     // save current device vertex buffer into local variables
     const MAX_VBUFFERS: usize = 16;
@@ -754,6 +752,9 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
         curr_vbuffers.as_mut_ptr(),
         curr_vbuffer_strides.as_mut_ptr(),
         curr_vbuffer_offsets.as_mut_ptr());
+    let _vb_rods =
+        curr_vbuffers.iter().filter(|vb| !vb.is_null())
+         .map(|vb| ReleaseOnDrop::new(*vb)).collect::<Vec<_>>();
 
     // set the mod vertex buffer
     let vbuffer = d3dd.vb;
@@ -774,9 +775,12 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
     // keep this outside of if block so it doesn't get dropped while the context (maybe)
     // still has a reference to it
     let mut mod_srvs;
+    let _srv_rods;
     if d3dd.has_textures {
         // save the current shader resources
         (*context).PSGetShaderResources(0, 16, orig_srvs.as_mut_ptr());
+        _srv_rods = orig_srvs.iter().filter(|srv| !srv.is_null())
+            .map(|srv| ReleaseOnDrop::new(*srv)).collect::<Vec<_>>();
 
         // clone the resource list, then replace any texture srvs sequentially with the mod textures
         mod_srvs = orig_srvs.clone();

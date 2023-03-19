@@ -144,3 +144,60 @@ macro_rules! impl_release_drop {
         }
     };
 }
+
+#[cfg(test)]
+// these tests require access to test internals which is nightly only
+// to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
+mod tests {
+    use winapi::shared::winerror::D2DERR_PRINT_FORMAT_NOT_SUPPORTED;
+
+    use super::*;
+
+    struct Foo {
+        released: bool
+    }
+    impl Foo {
+        fn new() -> Self {
+            Foo { released: false }
+        }
+
+        fn Release(&mut self) {
+            self.released = true;
+        }
+    }
+
+    impl_release_drop!(Foo);
+
+    #[test]
+    pub fn test_release_on_drop() {
+        let mut foo = Foo::new();
+        let rod = ReleaseOnDrop::new(&mut foo as *mut Foo);
+        assert_eq!(foo.released, false);
+        std::mem::drop(rod);
+        assert_eq!(foo.released, true);
+
+        let mut foo = Foo::new();
+        {
+            let _rod = ReleaseOnDrop::new(&mut foo as *mut Foo);
+            assert_eq!(foo.released, false);
+        }
+        assert_eq!(foo.released, true);
+
+        let mut foo = Foo::new();
+        {
+            let _arod;
+            {
+                _arod = vec![ReleaseOnDrop::new(&mut foo as *mut Foo)];
+                assert_eq!(foo.released, false);
+            }
+        }
+
+        assert_eq!(foo.released, true);
+
+        {
+            let _nullrod = ReleaseOnDrop::new(std::ptr::null_mut::<Foo>());
+            // should not crash when above is dropped
+        }
+
+    }
+}

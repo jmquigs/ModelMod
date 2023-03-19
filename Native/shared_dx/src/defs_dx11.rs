@@ -96,3 +96,4 @@ pub type DrawInstancedIndirectFn = unsafe extern "system" fn (
 ) -> ();
 
 impl_release_drop!(ID3D11ShaderResourceView);
+impl_release_drop!(ID3D11Buffer);
