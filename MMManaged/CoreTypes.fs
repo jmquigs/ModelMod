@@ -325,6 +325,7 @@ module VertexTypes =
         SemanticIndex: int
         Type: MMVertexElementType
         Offset: int
+        Slot: int
     }
     let elSemanticNameToDeclSemantic =
         Map.ofList [
@@ -364,6 +365,7 @@ module VertexTypes =
           SemanticIndex = el.SemanticIndex
           Type = MMVertexElementType.Format(el.Format)
           Offset = el.AlignedByteOffset
+          Slot = el.Slot
         }
 
     let sdxDeclElementToMMDeclElement (el:SDXVertexElement) =
@@ -371,4 +373,5 @@ module VertexTypes =
           SemanticIndex = int el.UsageIndex
           Type = MMVertexElementType.DeclType el.Type
           Offset = int el.Offset
+          Slot = int el.UsageIndex
         }

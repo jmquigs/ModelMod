@@ -190,7 +190,7 @@ pub unsafe fn load_d3d_data9(device: *mut IDirect3DDevice9, callbacks: interop::
     }
 
     if ret != 0 {
-        write_log_file(&format!("failed to fill mod data: {}", ret));
+        write_log_file(&format!("failed to fill mod data: fill ret {} for mod {} ", ret, nmd.name));
         (*vb).Release();
         return;
     }

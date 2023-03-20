@@ -658,6 +658,12 @@ pub fn get_format_size_bytes(format:&DXGI_FORMAT) -> Option<u32> {
     // for the ones I've observed
     let size =
         match format {
+            &DXGI_FORMAT_R8G8B8A8_UNORM => 4,
+            &DXGI_FORMAT_R8G8B8A8_UNORM_SRGB => 4,
+            &DXGI_FORMAT_R8G8B8A8_UINT => 4,
+            &DXGI_FORMAT_R8G8B8A8_SNORM => 4,
+            &DXGI_FORMAT_R8G8B8A8_SINT => 4,
+            &DXGI_FORMAT_R8G8B8A8_TYPELESS => 4,
             &DXGI_FORMAT_R32G32_FLOAT => 8,
             &DXGI_FORMAT_R32G32B32_FLOAT => 12,
             &DXGI_FORMAT_R32G32B32A32_FLOAT => 16,
@@ -667,7 +673,21 @@ pub fn get_format_size_bytes(format:&DXGI_FORMAT) -> Option<u32> {
             &DXGI_FORMAT_R32G32_SINT => 8,
             &DXGI_FORMAT_R32G32B32_SINT => 12,
             &DXGI_FORMAT_R32G32B32A32_SINT => 16,
-            _ => 0,
+
+            &DXGI_FORMAT_R16G16_FLOAT => 4,
+            &DXGI_FORMAT_R16G16B16A16_FLOAT => 8,
+            &DXGI_FORMAT_R16G16_UNORM => 4,
+            &DXGI_FORMAT_R16G16B16A16_UNORM => 8,
+            &DXGI_FORMAT_R16G16_UINT => 4,
+            &DXGI_FORMAT_R16G16B16A16_UINT => 8,
+            &DXGI_FORMAT_R16G16_SNORM => 4,
+            &DXGI_FORMAT_R16G16B16A16_SNORM => 8,
+            &DXGI_FORMAT_R16G16_SINT => 4,
+            &DXGI_FORMAT_R16G16B16A16_SINT => 8,
+
+            _ => {
+                return None;
+            },
         };
     Some(size)
 }
@@ -764,8 +784,6 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
             // could hook Release on the layout to remove them, ugh.
             // this does appear to accumulate at a rate of a few hundred every few secs,
             // when game is loading assets anyway.
-            // an alt strategy would be to just parse the layout now and store the
-            // results of that, instead of every possible layout pointer.
             // anyway these are pointers (8 bytes) so not a huge amount of space, but hashing
             // could get slow if table gets too big and a lot of stuff is hashing to same
             // values.

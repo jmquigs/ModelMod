@@ -676,7 +676,7 @@ module ModDBInterop =
 
                 let srcVbSize = md.PrimCount * 3 * vertSizeBytes
                 if (destVbSize <> srcVbSize) then
-                    failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcVbSize destVbSize
+                    failwithf "VB size src/dest mismatch: src: %d, dest: %d (prims: %A, vert size: %A)" srcVbSize destVbSize md.PrimCount vertSizeBytes
 
                 let bw = destVbBw
                 // sort vertex elements in offset order ascending, so that we don't have to reposition the memory stream
@@ -904,6 +904,8 @@ module ModDBInterop =
                         log.Info "Vert type %A contains %d elements" (elStr.GetHashCode()) elements.Length
                         for sxel in elements do 
                             log.Info "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type
+                            if sxel.Slot > 0 then 
+                                log.Warn "    %A uses unsupported slot %A, data from (if any) slot 0 will be used to fill this" sxel.Semantic sxel.Slot
                         observedVertTypes.Add(elStr) |> ignore
                     let declArg = ReadD3D11Layout(elements)
                     let vertSize = MeshUtil.getVertSizeFromEls elements
