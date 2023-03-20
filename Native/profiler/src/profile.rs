@@ -21,11 +21,11 @@ cat logfilename | grep -i "mod_precheck" | grep -v post | awk '{print $4}' | sor
 
 Which prints results like
 
-      3 (0.0%)
-      1 (0.2%)
-      1 (0.3%)
-      5 (0.4%)
-     12 (0.5%)
+3 (0.0%)
+1 (0.2%)
+1 (0.3%)
+5 (0.4%)
+12 (0.5%)
 
 showing that in 12 of the samples, this particular block took 0.5% of the total time, which given
 the 10 second reporting interval is about 50ms in each of those samples.
