@@ -40,6 +40,7 @@
 //! work is in a stash.
 //!
 //!
+use std::cell::RefCell;
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
 use std::ptr::null_mut;
@@ -55,7 +56,7 @@ use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::dxgiformat::DXGI_FORMAT;
 use winapi::shared::guiddef::GUID;
-use winapi::shared::winerror::S_FALSE;
+use winapi::shared::winerror::E_NOINTERFACE;
 use winapi::um::d3d11::D3D11_APPEND_ALIGNED_ELEMENT;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 use winapi::um::d3d11::ID3D11DeviceVtbl;
@@ -337,7 +338,7 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         let mut vec = vec![(dc1guid,1072), (dc2guid,1152), (dc3guid,1176), (dc4guid,1192)];
         vec.sort_by_key(|f| f.1);
 
-        
+
         find_and_copy_vtable(
             context as *mut IUnknown,(*context).lpVtbl as *const _, &vec)?
     };
@@ -799,6 +800,9 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     res
 }
 
+thread_local! {
+    static DEVICE_IN_QI: RefCell<bool>  = RefCell::new(false);
+}
 pub unsafe extern "system" fn hook_device_QueryInterface(
     THIS: *mut IUnknown,
     riid: *const winapi::shared::guiddef::GUID,
@@ -809,17 +813,42 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 
     let hook_device = match get_hook_device() {
         Ok(ctx) => ctx,
-        Err(_) => return S_FALSE,
+        Err(_) => {
+            write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due to missing device"));
+            return E_NOINTERFACE;
+        }
     };
+
+    if hook_device.real_query_interface as usize == hook_device_QueryInterface as usize {
+        write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due real fn same as hook fn"));
+        return E_NOINTERFACE;
+    }
+
+    let r = DEVICE_IN_QI.with(|in_qi| {
+        if *in_qi.borrow() {
+            write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due to re-entrant call"));
+            return E_NOINTERFACE;
+        }
+        *in_qi.borrow_mut() = true;
+        0
+    });
+    if r != 0 {
+        return r;
+    }
 
     let hr = (hook_device.real_query_interface)(THIS, riid, ppvObject);
     write_log_file(&format!("Device: hook_device_QueryInterface: hr {:x}", hr));
     if hr == 0 && (*riid).Data1 == ID3D11Device::uuidof().Data1
             && (*riid).Data2 == ID3D11Device::uuidof().Data2
-            && (*riid).Data3 == ID3D11Device::uuidof().Data3 && (*riid).Data4 == ID3D11Device::uuidof().Data4 {
+            && (*riid).Data3 == ID3D11Device::uuidof().Data3
+            && (*riid).Data4 == ID3D11Device::uuidof().Data4 {
         let pdevice = *ppvObject as *mut ID3D11Device;
         write_log_file(&format!("Device: query for ID3D11Device returned dev {:x} with vtable {:x}",
         pdevice as usize, (*pdevice).lpVtbl as usize));
     }
+
+    DEVICE_IN_QI.with(|in_qi| {
+        *in_qi.borrow_mut() = false;
+    });
     hr
 }
