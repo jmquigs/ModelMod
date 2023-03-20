@@ -94,6 +94,7 @@ let ``ModDBInterop: DataWriters functions``() =
         SemanticIndex = 0 // unused by this test
         Type = DeclType(SDXVertexDeclType.Unused) // will be set to something real below
         Offset = 0 // unused by this test
+        Slot = 0 // unused by this test
     }
 
     // modmBlendIndex
@@ -303,6 +304,7 @@ let ``ModDBInterop: RawBinaryWriters functions``() =
         SemanticIndex = 0 // unused by this test
         Type = DeclType(SDXVertexDeclType.Unused) // will be set to something real below
         Offset = 0 // unused by this test
+        Slot = 0 // unused by this test
     }
 
     let targEl = { targEl with Semantic = MMVertexElemSemantic.BlendIndices }
