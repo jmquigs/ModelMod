@@ -98,6 +98,20 @@ pub struct HookD3D11State {
     pub app_foreground: bool,
 }
 
+impl HookD3D11State {
+    pub fn from(hooks:HookDirect3D11, devptr:*mut ID3D11Device ) -> Self {
+        HookD3D11State {
+            hooks,
+            devptr: DevicePointer::D3D11(devptr),
+            metrics: DX11Metrics::new(),
+            rs: DX11RenderState::new(),
+            app_hwnds: Vec::new(),
+            last_timebased_update: SystemTime::now(),
+            app_foreground: false,
+        }
+    }
+}
+
 pub enum HookDeviceState {
     D3D9(HookD3D9State),
     D3D11(HookD3D11State),

@@ -852,3 +852,130 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
     });
     hr
 }
+
+#[cfg(test)]
+// these tests require access to test internals which is nightly only
+// to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
+mod tests {
+    use std::mem::MaybeUninit;
+
+    use device_state::DEVICE_STATE_LOCK;
+    use shared_dx::util::{LOG_EXCL_LOCK, set_log_file_path};
+    use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
+
+    use super::*;
+
+    pub unsafe extern "system" fn dummy_addref(_ik: *mut IUnknown) -> u32 {
+        1
+    }
+    pub unsafe extern "system" fn dummy_release(_ik: *mut IUnknown) -> u32 {
+        1
+    }
+
+    #[test]
+    fn test_query_interface() {
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+
+        let testlog = "__testhd3d11__test_query_interface.txt";
+        std::fs::remove_file(testlog).expect("doh");
+        set_log_file_path("", testlog).expect("doh");
+
+        let _lock = unsafe {
+            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            if DEVICE_STATE != null_mut() {
+                panic!("DEVICE_STATE already initialized");
+            }
+            init_device_state_once();
+            lock
+        };
+
+        let iunkvtbl = IUnknownVtbl {
+            QueryInterface: hook_device_QueryInterface,
+            AddRef: dummy_addref,
+            Release: dummy_release,
+        };
+        let mut iunk = IUnknown {
+            lpVtbl: Box::into_raw(Box::new(iunkvtbl)) as *mut IUnknownVtbl,
+        };
+
+        // called without device should return E_NOINTERFACE
+        unsafe {
+            assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
+                &ID3D11Device::uuidof() as *const GUID,
+                null_mut()), E_NOINTERFACE);
+        };
+        assert!(std::fs::read_to_string(testlog).unwrap().contains("E_NOINTERFACE due to missing device"));
+
+        // init a fake device, this breaks rust rules due to null hook function pointers,
+        // but this is a test, soo....
+        let bytes = [0_u8; std::mem::size_of::<HookDirect3D11>()];
+        unsafe {
+            let mut hs:MaybeUninit<HookDirect3D11> = MaybeUninit::uninit();
+            hs.write(std::mem::transmute(bytes));
+            let hs = hs.assume_init();
+
+            let h11 = HookD3D11State::from(hs, null_mut());
+            (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(h11));
+        };
+
+        // setting the real function to be the hook function should fail
+        unsafe {
+            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = hook_device_QueryInterface;
+            assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
+                &ID3D11Device::uuidof() as *const GUID,
+                null_mut()), E_NOINTERFACE);
+        }
+        assert!(std::fs::read_to_string(testlog).unwrap().contains("E_NOINTERFACE due real fn same as hook fn"));
+
+        // make a nasty re-entrant test function
+        unsafe extern "system" fn nasty_reentrant_test_function(ik: *mut IUnknown,
+            riid: *const GUID,
+            ppvObject: *mut *mut c_void) -> HRESULT {
+            hook_device_QueryInterface(ik, riid, ppvObject)
+        }
+
+        unsafe {
+            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = nasty_reentrant_test_function;
+            assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
+                &ID3D11Device::uuidof() as *const GUID,
+                null_mut()), E_NOINTERFACE);
+        }
+        assert!(std::fs::read_to_string(testlog).unwrap().contains("E_NOINTERFACE due to re-entrant call"));
+
+        // finally a valid hook qi should return S_OK, make a function to do that
+        unsafe extern "system" fn valid_qi(_ik: *mut IUnknown,
+            riid: *const GUID,
+            ppvObject: *mut *mut c_void) -> HRESULT {
+                // create and leak fake device
+                let dev = Box::into_raw(Box::new(ID3D11Device {
+                    lpVtbl: null_mut()
+                }));
+
+                if (*riid).Data1 == ID3D11Device::uuidof().Data1
+                    && (*riid).Data2 == ID3D11Device::uuidof().Data2
+                    && (*riid).Data3 == ID3D11Device::uuidof().Data3
+                    && (*riid).Data4 == ID3D11Device::uuidof().Data4 {
+                    *ppvObject = dev as *mut c_void;
+                    0
+                } else {
+                    E_NOINTERFACE
+                }
+        }
+
+        unsafe {
+            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = valid_qi;
+            let mut pdev:*mut ID3D11Device = null_mut();
+            let ppdev: *mut *mut ID3D11Device= &mut pdev;
+            assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
+                &ID3D11Device::uuidof() as *const GUID,
+                ppdev as *mut *mut c_void), 0);
+        }
+        assert!(std::fs::read_to_string(testlog).unwrap().contains("hr 0"));
+
+        // cleanup
+        unsafe {
+            let _unbox = Box::from_raw(DEVICE_STATE);
+            DEVICE_STATE = null_mut();
+        }
+    }
+}

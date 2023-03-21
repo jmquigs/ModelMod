@@ -5,6 +5,15 @@ use shared_dx::util::write_log_file;
 // At some point need to make this private and just use accessor functions (especially with locks)
 pub static mut DEVICE_STATE: *mut DeviceState = null_mut();
 
+/// This is primarily used by tests at the moment that need the device state.  In general MM
+/// is not currently thread safe, as all supported games use only a single render
+/// thread, but that might change in the future.  The perf overhead of locking inside
+/// draw primitive is probably too great but a thread local might be viable, however I tried
+/// that before and didn't like it, but maybe I was just wrong (prev commit is in
+/// dc46643366ba6f44306ee79448afd73aec5038aa ).
+/// Note: if you are using this and the log lock in a test, lock the log first ^_^
+pub static mut DEVICE_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn dev_state() -> &'static mut DeviceState {
     unsafe {
         if DEVICE_STATE == null_mut() {

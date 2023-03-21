@@ -66,3 +66,4 @@ DebugMode.txt
 dDebugMode.txt
 Native/profiler/__testprofiler__test_prof_summary_log.txt
 Native/shared_dx/__testutil__test_log_limit.txt
+Native/hook_core/__testhd3d11__test_query_interface.txt
