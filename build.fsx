@@ -475,6 +475,14 @@ let doCISetup() =
                 printfn "fsharp targets: %A" fsharpFiles
             | None -> failwithf "no vs path found, searched %A" VSSearchPaths
 
+    // put the current directory into the registry as the MMRoot
+    // let cu = Microsoft.Win32.RegistryHive.CurrentUser
+    // let mmRoot = "SOFTWARE\\ModelMod"
+    printfn "set registry key HKEY_CURRENT_USER\\SOFTWARE\\ModelMod\\MMRoot to %s" (System.IO.Directory.GetCurrentDirectory())
+    Microsoft.Win32.Registry.SetValue("HKEY_CURRENT_USER\\SOFTWARE\\ModelMod", "MMRoot", System.IO.Directory.GetCurrentDirectory())
+    // if not (Directory.Exists("Logs")) then
+    //     Directory.CreateDirectory("Logs") |> ignore
+
     printfn "action setup complete"
 
 let getVSPath() =
