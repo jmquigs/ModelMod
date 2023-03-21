@@ -299,7 +299,6 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
             }
             byteWidth
         },
-        // TODO11: log warning but it could be spammy, maybe throttle it
         0 => {
             write_log_file("compute_prim_vert_count: no current vertex buffer set");
             return None;
@@ -404,6 +403,31 @@ pub unsafe extern "system" fn hook_draw_indexed(
     StartIndexLocation: UINT,
     BaseVertexLocation: INT,
 ) {
+    // Helper local function for periodic operations, since I don't have any idea of when the frame
+    // ends in this API right now
+    let periodic = || {
+        profile_start!(hdi, periodic);
+
+        if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
+            draw_periodic();
+        }
+
+        // input needs faster processing but it won't update faster than 1 per 16ms
+        let fore = dev_state_d3d11_nolock().map(|state| state.app_foreground).unwrap_or(false);
+        if GLOBAL_STATE.metrics.dip_calls % 250 == 0 && fore {
+            GLOBAL_STATE.input.as_mut().map(|inp| {
+                if inp.get_press_fn_count() > 0 {
+                    inp.process()
+                    .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
+                }
+            });
+        }
+
+        process_metrics(&mut GLOBAL_STATE.metrics, true, 250000);
+
+        profile_end!(hdi, periodic);
+    };
+
     profile_start!(hdi, total);
     if GLOBAL_STATE.in_dip {
         write_log_file("ERROR: i'm in DIP already!");
@@ -417,9 +441,27 @@ pub unsafe extern "system" fn hook_draw_indexed(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    GLOBAL_STATE.in_dip = true;
 
     GLOBAL_STATE.metrics.dip_calls += 1;
+
+    if !GLOBAL_STATE.is_snapping && (!GLOBAL_STATE.show_mods) {
+        profile_end!(hdi, start);
+        periodic(); // need to do this so that input processes
+
+        profile_start!(hdi, draw_input);
+        (hook_context.real_draw_indexed)(
+            THIS,
+            IndexCount,
+            StartIndexLocation,
+            BaseVertexLocation,
+        );
+        profile_end!(hdi, draw_input);
+
+        profile_end!(hdi, total);
+        return;
+    }
+
+    GLOBAL_STATE.in_dip = true;
 
     profile_end!(hdi, start);
     profile_start!(hdi, sel_tex);
@@ -566,27 +608,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         profile_end!(hdi, draw_ovtex_reset);
     }
 
-    profile_start!(hdi, post_draw);
-    // do "per frame" operations this often since I don't have any idea of when the frame
-    // ends in this API right now
-    if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
-        draw_periodic();
-    }
-
-    // input needs faster processing but it won't update faster than 1 per 16ms
-    let fore = dev_state_d3d11_nolock().map(|state| state.app_foreground).unwrap_or(false);
-    if GLOBAL_STATE.metrics.dip_calls % 250 == 0 && fore {
-        GLOBAL_STATE.input.as_mut().map(|inp| {
-            if inp.get_press_fn_count() > 0 {
-                inp.process()
-                .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
-            }
-        });
-    }
-
-    process_metrics(&mut GLOBAL_STATE.metrics, true, 250000);
-
-    profile_end!(hdi, post_draw);
+    periodic();
 
     GLOBAL_STATE.in_dip = false;
 
