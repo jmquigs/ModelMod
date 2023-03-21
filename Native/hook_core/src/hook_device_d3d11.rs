@@ -1085,9 +1085,17 @@ mod tests {
             assert_eq!(res, 0);
         }
 
+        let assert_log = |expected_count:usize,msg:&str| {
+            let logtext = std::fs::read_to_string(testlog).unwrap();
+            let count = logtext.matches(msg).count();
+            if count != expected_count {
+                eprintln!("logtext: {}", logtext);
+            }
+            assert_eq!(count, expected_count);
+        };
+
         // log file should contain stuff
-        let logtext = std::fs::read_to_string(testlog).unwrap();
-        assert_eq!(1, logtext.matches("hook_device_QueryInterface: hr 0").count());
+        assert_log(1, "hook_device_QueryInterface: hr 0");
 
         unsafe {
             (*device).Release();
@@ -1097,8 +1105,7 @@ mod tests {
         }
 
         // context should release
-        let logtext = std::fs::read_to_string(testlog).unwrap();
-        assert_eq!(1, logtext.matches("context hook release: rc now 0").count());
+        assert_log(1, "context hook release: rc now 0");
 
         // if a new device is created things should not explode or go into
         // weird infinite loops or otherwise be bad.
@@ -1115,8 +1122,7 @@ mod tests {
             &mut context);
 
         // log should note that we already did this
-        let logtext = std::fs::read_to_string(testlog).unwrap();
-        assert_eq!(1, logtext.matches("WARNING: device state was already initialized").count());
+        assert_log(1, "WARNING: device state was already initialized");
 
         // query interface on device should succeed
         let mut pdev:*mut ID3D11Device = null_mut();
@@ -1132,8 +1138,7 @@ mod tests {
         }
 
         // context should release. 2 because we did it twice
-        let logtext = std::fs::read_to_string(testlog).unwrap();
-        assert_eq!(2, logtext.matches("context hook release: rc now 0").count());
+        assert_log(2, "context hook release: rc now 0");
 
         unsafe {
             let _unbox = Box::from_raw(DEVICE_STATE);
