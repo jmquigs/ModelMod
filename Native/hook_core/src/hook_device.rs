@@ -6,6 +6,7 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std;
+use std::cell::RefCell;
 use std::ptr::null_mut;
 use shared_dx::types::*;
 use shared_dx::types_dx9::*;
@@ -277,16 +278,23 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
     }
 }
 
-pub fn init_device_state_once() {
+pub fn init_device_state_once() -> bool {
     unsafe {
-        if DEVICE_STATE == null_mut() {
-            DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
-                hook: None,
-                d3d_window: null_mut(),
-                d3d_resource_count: 0,
-            }));
-        }
-    };
+        // its possible to get in here more than once in same process
+        // (if it creates multiple devices).  leak the previous
+        // pointer to avoided crashes; if the game is creating devices
+        // in a tight loop we've got bigger problems than a memory leak.
+        // note: in a single threaded env nothing else should be
+        // using the state right now so we could free it.
+        let was_init = DEVICE_STATE != null_mut();
+        DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
+            hook: None,
+            d3d_window: null_mut(),
+            d3d_resource_count: 0,
+        }));
+
+        was_init
+    }
 }
 
 pub fn mm_verify_load() -> Option<String> {
@@ -310,7 +318,25 @@ pub fn mm_verify_load() -> Option<String> {
     };
 }
 
+thread_local! {
+    static LOG_WAS_INIT: RefCell<bool> = RefCell::new(false);
+}
+
+/// Useful for tests to avoid log file getting put in wrong place.
+pub fn init_log_no_root(file_name:&str) -> Result<()> {
+    set_log_file_path(&"", &file_name)?;
+
+    LOG_WAS_INIT.with(|was_init| {
+        *was_init.borrow_mut() = true;
+    });
+    Ok(())
+}
+
 pub fn init_log(mm_root:&str) {
+    if LOG_WAS_INIT.with(|x| *x.borrow()) {
+        write_log_file("log already initialized on this thread");
+        return;
+    }
     // try to create log file using module name and root dir.  if it fails then just
     // let logging go to the temp dir file.
     get_module_name()
@@ -352,6 +378,10 @@ pub fn init_log(mm_root:&str) {
             set_log_file_path(&tdir, &file_name)?;
 
             eprintln!("Log File: {}", tname);
+
+            LOG_WAS_INIT.with(|was_init| {
+                *was_init.borrow_mut() = true;
+            });
 
             Ok(())
         })

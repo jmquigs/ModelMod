@@ -415,112 +415,164 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
     Ok(func_hooked)
 }
 
-unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
-    Result<HookDirect3D11> {
+unsafe fn copy_device_vtable(device:*mut ID3D11Device) -> Result<*mut ID3D11DeviceVtbl> {
+    // as with the context there are several device versions that we don't have defs for,
+    // but we need to make a copy of the vtable to hook it.
 
+    // so we need to query
+    // various interfaces that the device might support.  though devices support DXGI
+    // interfaces, for this purpose we only care about the device interfaces.
+
+    // convert the guid "a04bfb29-08ef-43d6-a49c-a9bdbdcbe686" into a id we can pass to QueryInterface
+    // for ID3D11Device1
+    let d1_guid = GUID {
+        Data1: 0xa04bfb29,
+        Data2: 0x08ef,
+        Data3: 0x43d6,
+        Data4: [0xa4, 0x9c, 0xa9, 0xbd, 0xbd, 0xcb, 0xe6, 0x86],
+    };
+    // same for "9d06dffa-d1e5-4d07-83a8-1bb123f2f841" for ID3D11Device2
+    let d2_guid = GUID {
+        Data1: 0x9d06dffa,
+        Data2: 0xd1e5,
+        Data3: 0x4d07,
+        Data4: [0x83, 0xa8, 0x1b, 0xb1, 0x23, 0xf2, 0xf8, 0x41],
+    };
+    // same for "A05C8C37-D2C6-4732-B3A0-9CE0B0DC9AE6" for ID3D11Device3
+    let d3_guid = GUID {
+        Data1: 0xa05c8c37,
+        Data2: 0xd2c6,
+        Data3: 0x4732,
+        Data4: [0xb3, 0xa0, 0x9c, 0xe0, 0xb0, 0xdc, 0x9a, 0xe6],
+    };
+    // same for "8992ab71-02e6-4b8d-ba48-b056dcda42c4" for ID3D11Device4
+    let d4_guid = GUID {
+        Data1: 0x8992ab71,
+        Data2: 0x02e6,
+        Data3: 0x4b8d,
+        Data4: [0xba, 0x48, 0xb0, 0x56, 0xdc, 0xda, 0x42, 0xc4],
+    };
+    // same for "8ffde202-a0e7-45df-9e01-e837801b5ea0" for ID3D11Device5
+    let d5_guid = GUID {
+        Data1: 0x8ffde202,
+        Data2: 0xa0e7,
+        Data3: 0x45df,
+        Data4: [0x9e, 0x01, 0xe8, 0x37, 0x80, 0x1b, 0x5e, 0xa0],
+    };
+    // make a vec of guids and hardcoded sizes for each
+    let mut guids = vec![
+        (d1_guid, 400),
+        (d2_guid, 432),
+        (d3_guid, 520),
+        (d4_guid, 536),
+        (d5_guid, 552),
+    ];
+    // sort just in case
+    guids.sort_by_key(|f| f.1);
+    // now copy
+    let vtbl: *mut ID3D11DeviceVtbl = find_and_copy_vtable(
+        device as *mut IUnknown,(*device).lpVtbl as *const _, &guids)?;
+
+    // TODO: dc1 and dc2 have updated getImmediateContext functions, probably should hook those,
+    // but winapi doesn't have defs for them right now...could make a partial struct with just
+    // those since they are the first functions defined in each case.  OTOH they don't have
+    // anything I want to hook so maybe ok to just let them pass through.  probably depends on
+    // whether a game calls draw on them or just uses the earlier version for that.
+    Ok(vtbl)
+}
+
+thread_local! {
+    static SAVE_DEV_VTABLE: RefCell<*mut ID3D11DeviceVtbl> = RefCell::new(null_mut());
+}
+
+unsafe fn hook_device(device:*mut ID3D11Device) -> Result<HookDirect3D11Device> {
     write_log_file(&format!("hooking new d3d11 device: {:x}", device as usize));
-    // copying vtable works...except when discord is running.  in which case the game crashes.
+
+    // ideally we'd make a copy of the vtable like we do with context and hook that.
+    // that works...except when discord is running.  in which case the game crashes.
     // When discord starts I can see something discord querying for ID3D11Device (the first version)
     // on the game's render thread and crash happens right after that.
     // but the game itself queries for the same device pointer earlier and doesn't crash.
     // if I don't use the copy and just reuse the original then it works.  so copy
     // is disabled here for now.
     let copy_dev_vtable = false;
+
     let dev_vtbl: *mut ID3D11DeviceVtbl = if !copy_dev_vtable {
         write_log_file("hooking existing device vtbl");
         std::mem::transmute((*device).lpVtbl)
     } else {
-        // as with the context there are several device versions that we don't have defs for,
-        // but we need to make a copy of the vtable to hook it.
-
-        // so we need to query
-        // various interfaces that the device might support.  though devices support DXGI
-        // interfaces, for this purpose we only care about the device interfaces.
-
-        // convert the guid "a04bfb29-08ef-43d6-a49c-a9bdbdcbe686" into a id we can pass to QueryInterface
-        // for ID3D11Device1
-        let d1_guid = GUID {
-            Data1: 0xa04bfb29,
-            Data2: 0x08ef,
-            Data3: 0x43d6,
-            Data4: [0xa4, 0x9c, 0xa9, 0xbd, 0xbd, 0xcb, 0xe6, 0x86],
-        };
-        // same for "9d06dffa-d1e5-4d07-83a8-1bb123f2f841" for ID3D11Device2
-        let d2_guid = GUID {
-            Data1: 0x9d06dffa,
-            Data2: 0xd1e5,
-            Data3: 0x4d07,
-            Data4: [0x83, 0xa8, 0x1b, 0xb1, 0x23, 0xf2, 0xf8, 0x41],
-        };
-        // same for "A05C8C37-D2C6-4732-B3A0-9CE0B0DC9AE6" for ID3D11Device3
-        let d3_guid = GUID {
-            Data1: 0xa05c8c37,
-            Data2: 0xd2c6,
-            Data3: 0x4732,
-            Data4: [0xb3, 0xa0, 0x9c, 0xe0, 0xb0, 0xdc, 0x9a, 0xe6],
-        };
-        // same for "8992ab71-02e6-4b8d-ba48-b056dcda42c4" for ID3D11Device4
-        let d4_guid = GUID {
-            Data1: 0x8992ab71,
-            Data2: 0x02e6,
-            Data3: 0x4b8d,
-            Data4: [0xba, 0x48, 0xb0, 0x56, 0xdc, 0xda, 0x42, 0xc4],
-        };
-        // same for "8ffde202-a0e7-45df-9e01-e837801b5ea0" for ID3D11Device5
-        let d5_guid = GUID {
-            Data1: 0x8ffde202,
-            Data2: 0xa0e7,
-            Data3: 0x45df,
-            Data4: [0x9e, 0x01, 0xe8, 0x37, 0x80, 0x1b, 0x5e, 0xa0],
-        };
-        // make a vec of guids and hardcoded sizes for each
-        let mut guids = vec![
-            (d1_guid, 400),
-            (d2_guid, 432),
-            (d3_guid, 520),
-            (d4_guid, 536),
-            (d5_guid, 552),
-        ];
-        // sort just in case
-        guids.sort_by_key(|f| f.1);
-        // now copy
-        let vtbl: *mut ID3D11DeviceVtbl = find_and_copy_vtable(
-            device as *mut IUnknown,(*device).lpVtbl as *const _, &guids)?;
-
-        // TODO: dc1 and dc2 have updated getImmediateContext functions, probably should hook those,
-        // but winapi doesn't have defs for them right now...could make a partial struct with just
-        // those since they are the first functions defined in each case.  OTOH they don't have
-        // anything I want to hook so maybe ok to just let them pass through.  probably depends on
-        // whether a game calls draw on them or just uses the earlier version for that.
-        vtbl
+        copy_device_vtable(device)?
     };
 
-    let hook_device = {
-        let vtbl = dev_vtbl;
-        // can just use the size of the base interface here since we don't overwrite anything else,
+    let vtbl = dev_vtbl;
 
-        let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
-        let real_create_input_layout = (*vtbl).CreateInputLayout;
-        let real_query_interface = (*vtbl).parent.QueryInterface;
+    // make a reference copy of the vtable, which we'll save and won't hook.
+    // we may need it to find the original function pointers if we
+    // hook another device.
+    if SAVE_DEV_VTABLE.with(|f| f.borrow().is_null()) {
+        let copy = copy_device_vtable(device)?;
+        SAVE_DEV_VTABLE.with(|f| *f.borrow_mut() = copy);
+    }
 
-        // note: this unprotect _is_ needed here it seems, game crashes without it esp if
-        // we don't copy the vtable.
-        let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
-        (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
-        (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
-        util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
-
-        if copy_dev_vtable {
-            write_log_file(&format!("replacing device {:x} orig vtbl {:x} with new vrbl {:x}",
-            device as usize, (*device).lpVtbl as usize, vtbl as usize));
-            (*device).lpVtbl = vtbl;
-        }
-
-        HookDirect3D11Device {
-            real_query_interface,
-            real_create_input_layout,
+    // find the real functions, which might be in the original vtable or the copy we saved.
+    // note: this could benefit from some macros, but would need at least two
+    // macros due to differing iunknown/device types unless I get a lot better at macros.
+    let real_create_input_layout = {
+        if (*vtbl).CreateInputLayout as usize == hook_CreateInputLayoutFn as usize {
+            SAVE_DEV_VTABLE.with(|f| {
+                let savevtbl = *f.borrow();
+                (*savevtbl).CreateInputLayout
+            })
+        } else {
+            (*vtbl).CreateInputLayout
         }
     };
+    let real_query_interface = {
+        if (*vtbl).parent.QueryInterface as usize == hook_device_QueryInterface as usize {
+            SAVE_DEV_VTABLE.with(|f| {
+                let savevtbl = *f.borrow();
+                (*savevtbl).parent.QueryInterface
+            })
+        } else {
+            (*vtbl).parent.QueryInterface
+        }
+    };
+
+    // if we didn't find the real functions we are fucked
+    if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
+        return Err(HookError::D3D11DeviceHookFailed(
+            format!("unable to hook CreateInputLayout due to missing real function")));
+    }
+    if real_query_interface as usize == hook_device_QueryInterface as usize {
+        return Err(HookError::D3D11DeviceHookFailed(
+            format!("unable to hook QueryInterface due to missing real function")));
+    }
+
+    // can just use the size of the base interface here since we don't overwrite anything else,
+    let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
+    // note: this unprotect _is_ needed here it seems, game crashes without it esp if
+    // we don't copy the vtable.
+    let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+    (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
+    (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
+    util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+
+    if copy_dev_vtable {
+        write_log_file(&format!("replacing device {:x} orig vtbl {:x} with new vrbl {:x}",
+        device as usize, (*device).lpVtbl as usize, vtbl as usize));
+        (*device).lpVtbl = vtbl;
+    }
+
+    Ok(HookDirect3D11Device {
+        real_query_interface,
+        real_create_input_layout,
+    })
+}
+
+unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
+    Result<HookDirect3D11> {
+
+    let hook_device = hook_device(device)?;
 
     write_log_file(&format!("hooking new d3d11 context: {:x}", context as usize));
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
@@ -528,7 +580,6 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let flags = (*context).GetContextFlags();
     write_log_file(&format!("context vtbl: {:x}, type {:x}, flags {:x}",
         vtbl as usize, ct, flags));
-    //let vsize = std::mem::size_of::<ID3D11DeviceContextVtbl>();
 
     let device_child = &mut (*vtbl).parent;
     let iunknown = &mut device_child.parent;
@@ -548,10 +599,17 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
     let real_ps_set_shader_resources = (*vtbl).PSSetShaderResources;
 
-    // check for already hook devices (useful in late-hook case)
+    // since we always make a copy of the vtable in the context at the moment, we don't search
+    // for the real functions as we do in the device case, since a new context should always have
+    // the real functions.  but error out if that is not so.  check 1 function on iunknown and 1
+    // on device (but not drawindexed since we can late hook that).
     if real_release as usize == hook_release as usize {
-        write_log_file("error: device already appears to be hooked, skipping");
-        return Err(HookError::D3D11DeviceHookFailed);
+        write_log_file("error: context already appears to be hooked");
+        return Err(HookError::D3D11DeviceHookFailed("context already hooked".to_string()));
+    }
+    if real_ia_set_input_layout as usize == hook_IASetInputLayout as usize {
+        write_log_file("error: context already appears to be hooked");
+        return Err(HookError::D3D11DeviceHookFailed("context already hooked".to_string()));
     }
 
     let func_hooked = apply_context_hooks(context, true)?;
@@ -582,13 +640,16 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
 }
 
 fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
-    init_device_state_once();
+    let was_init = init_device_state_once();
     let mm_root = match mm_verify_load() {
         Some(dir) => dir,
         None => {
             return Err(HookError::D3D9DeviceHookFailed)
         }
     };
+    if was_init {
+        write_log_file("WARNING: device state was already initialized");
+    }
     init_log(&mm_root);
     debugmode::check_init(&mm_root);
     unsafe {
@@ -857,11 +918,13 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 // these tests require access to test internals which is nightly only
 // to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
 mod tests {
-    use std::mem::MaybeUninit;
+    use std::{mem::MaybeUninit, sync::MutexGuard};
 
     use device_state::DEVICE_STATE_LOCK;
-    use shared_dx::util::{LOG_EXCL_LOCK, set_log_file_path};
-    use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
+    use shared_dx::util::{LOG_EXCL_LOCK};
+    use winapi::um::{unknwnbase::{IUnknown, IUnknownVtbl}, d3dcommon::D3D_DRIVER_TYPE_HARDWARE, d3d11::D3D11_SDK_VERSION};
+
+    use crate::hook_device::init_log_no_root;
 
     use super::*;
 
@@ -872,13 +935,20 @@ mod tests {
         1
     }
 
+    pub fn prep_log_file<'a>(_lock: &MutexGuard<()>, filename:&'a str) -> std::io::Result<&'a str> {
+        if std::path::Path::new(filename).exists() {
+            std::fs::remove_file(filename)?;
+        }
+        init_log_no_root(filename)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)))?;
+        Ok(filename)
+    }
+
     #[test]
     fn test_query_interface() {
         let _loglock = LOG_EXCL_LOCK.lock().unwrap();
 
-        let testlog = "__testhd3d11__test_query_interface.txt";
-        std::fs::remove_file(testlog).expect("doh");
-        set_log_file_path("", testlog).expect("doh");
+        let testlog = prep_log_file(&_loglock, "__testhd3d11__test_query_interface.txt").expect("doh");
 
         let _lock = unsafe {
             let lock = DEVICE_STATE_LOCK.lock().unwrap();
@@ -973,6 +1043,98 @@ mod tests {
         assert!(std::fs::read_to_string(testlog).unwrap().contains("hr 0"));
 
         // cleanup
+        unsafe {
+            let _unbox = Box::from_raw(DEVICE_STATE);
+            DEVICE_STATE = null_mut();
+        }
+    }
+
+    #[test]
+    fn test_create_device() {
+
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+        let testlog = prep_log_file(&_loglock, "__testhd3d11__test_create_device.txt").expect("doh");
+
+        let _lock = unsafe {
+            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            if DEVICE_STATE != null_mut() {
+                panic!("DEVICE_STATE already initialized");
+            }
+            lock
+        };
+
+        let mut device = std::ptr::null_mut();
+        let mut context = std::ptr::null_mut();
+
+        D3D11CreateDevice(null_mut(),
+        D3D_DRIVER_TYPE_HARDWARE,
+            null_mut(),
+            0,
+            null_mut(),
+             0,
+            D3D11_SDK_VERSION,
+            &mut device,
+            null_mut(),
+            &mut context);
+
+        // query interface on device should succeed
+        let mut pdev:*mut ID3D11Device = null_mut();
+        let ppdev: *mut *mut ID3D11Device = &mut pdev;
+        unsafe {
+            let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
+            assert_eq!(res, 0);
+        }
+
+        // log file should contain stuff
+        let logtext = std::fs::read_to_string(testlog).unwrap();
+        assert_eq!(1, logtext.matches("hook_device_QueryInterface: hr 0").count());
+
+        unsafe {
+            (*device).Release();
+            device = null_mut();
+            (*context).Release();
+            context = null_mut();
+        }
+
+        // context should release
+        let logtext = std::fs::read_to_string(testlog).unwrap();
+        assert_eq!(1, logtext.matches("context hook release: rc now 0").count());
+
+        // if a new device is created things should not explode or go into
+        // weird infinite loops or otherwise be bad.
+
+        D3D11CreateDevice(null_mut(),
+        D3D_DRIVER_TYPE_HARDWARE,
+            null_mut(),
+            0,
+            null_mut(),
+                0,
+            D3D11_SDK_VERSION,
+            &mut device,
+            null_mut(),
+            &mut context);
+
+        // log should note that we already did this
+        let logtext = std::fs::read_to_string(testlog).unwrap();
+        assert_eq!(1, logtext.matches("WARNING: device state was already initialized").count());
+
+        // query interface on device should succeed
+        let mut pdev:*mut ID3D11Device = null_mut();
+        let ppdev: *mut *mut ID3D11Device = &mut pdev;
+        unsafe {
+            let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
+            assert_eq!(res, 0);
+
+            (*device).Release();
+            //device = null_mut();
+            (*context).Release();
+            //context = null_mut();
+        }
+
+        // context should release. 2 because we did it twice
+        let logtext = std::fs::read_to_string(testlog).unwrap();
+        assert_eq!(2, logtext.matches("context hook release: rc now 0").count());
+
         unsafe {
             let _unbox = Box::from_raw(DEVICE_STATE);
             DEVICE_STATE = null_mut();

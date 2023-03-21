@@ -29,9 +29,9 @@ pub enum HookError {
     SnapshotPluginError(String),
     NoShader(),
     SerdeError(String),
-    D3D11DeviceHookFailed,
+    D3D11DeviceHookFailed(String),
     D3D11NoContext,
-    D3D11Unsupported(String)
+    D3D11Unsupported(String),
 }
 
 impl std::convert::From<std::ffi::NulError> for HookError {
