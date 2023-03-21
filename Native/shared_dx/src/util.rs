@@ -1,10 +1,10 @@
 use crate::error::{HookError, Result};
 use std::time::{SystemTime};
+use fnv::{FnvHashMap};
 
 const LOG_TIME:bool = true;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 lazy_static! {
     static ref LOG_FILE_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
@@ -14,8 +14,8 @@ lazy_static! {
 }
 
 thread_local! {
-    // create a hash map that maps strings to a count of the time that string has been logged
-    static LOG_ONCE: RefCell<std::collections::HashMap<String, u32>> = RefCell::new(HashMap::new());
+    // create a map that maps string hash codes to a count of the time that string has been logged
+    static LOG_COUNT: RefCell<FnvHashMap<String, u32>> = RefCell::new(FnvHashMap::with_capacity_and_hasher(5000, Default::default()));
     static LOG_LIMIT: RefCell<u32> = RefCell::new(100);
 }
 
@@ -61,7 +61,7 @@ enum LimResult {
 fn log_limit(s:&str) -> LimResult {
     let limit = LOG_LIMIT.with(|log_limit| *log_limit.borrow());
 
-    LOG_ONCE.with(|log_once| {
+    LOG_COUNT.with(|log_once| {
         let mut map = log_once.borrow_mut();
         let count = map.get(s);
         match count {
