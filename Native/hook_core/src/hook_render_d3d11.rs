@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 use std::ptr::null_mut;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
@@ -22,7 +23,7 @@ use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, GetParent, GetDesktopWindow, GetForegroundWindow};
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
-use device_state::{dev_state, dev_state_d3d11_nolock};
+use device_state::{dev_state, dev_state_d3d11_nolock, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
@@ -309,7 +310,7 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
         }
     };
     let curr_input_layout = &rs.current_input_layout;
-    let curr_layouts = &rs.input_layouts_by_ptr;
+    let curr_layouts = &rs.context_input_layouts_by_ptr;
     let vert_size = {
         let curr_input_layout = *curr_input_layout as usize;
         if curr_input_layout > 0 {
@@ -409,7 +410,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         profile_start!(hdi, periodic);
 
         if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
-            draw_periodic();
+            draw_periodic(THIS);
         }
 
         // input needs faster processing but it won't update faster than 1 per 16ms
@@ -653,9 +654,43 @@ unsafe fn find_app_windows() {
     EnumWindows(Some(enum_windows_proc), my_pid as isize);
 }
 
-unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
-    if mselapsed > 1000 {
+unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
+    if mselapsed > 500 {
         if let Some(state) = dev_state_d3d11_nolock() { state.last_timebased_update = now; }
+
+        frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
+            write_log_file(&format!("init clr failed: {:?}", e)));
+
+        // make sure the device referenced by this context matches the one in our hook state
+        let mut devptr = null_mut();
+        (*context).GetDevice(&mut devptr);
+        if !devptr.is_null() {
+            dev_state_d3d11_nolock().map(|state| {
+                if state.devptr.maybe_update(devptr) {
+                    // a bit weird so log it
+                    write_log_file("Warning: device pointer changed");
+                }
+            });
+            (*devptr).Release();
+        }
+
+        let need_layout_copy = unsafe {dev_state_d3d11_nolock()}.map(|state| {
+            state.rs.num_input_layouts.load(Ordering::Relaxed) != state.rs.context_input_layouts_by_ptr.len()
+        }).unwrap_or(false);
+        if need_layout_copy {
+            unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
+                state.rs.context_input_layouts_by_ptr.clear();
+                state.rs.context_input_layouts_by_ptr.extend(
+                    state.rs.device_input_layouts_by_ptr.iter().map(|(k,v)| {
+                        (*k, v.clone())
+                    }));
+            });
+        }
+
+        with_dev_ptr(|deviceptr| {
+            frame_load_mods(deviceptr);
+        });
+
         let wnd_count = dev_state_d3d11_nolock().map(|state| {
             state.app_hwnds.len()
         }).unwrap_or(0);
@@ -723,14 +758,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime) {
 }
 
 /// Called by DrawIndexed every few 10s of MS but not exactly every frame.
-fn draw_periodic() {
-    frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
-        write_log_file(&format!("init clr failed: {:?}", e)));
-
-    with_dev_ptr(|deviceptr| {
-        frame_load_mods(deviceptr);
-    });
-
+fn draw_periodic(context:*mut ID3D11DeviceContext) {
     unsafe {
         let now = SystemTime::now();
         let (el_sec,el_ms) =
@@ -745,7 +773,7 @@ fn draw_periodic() {
                 }
             }).unwrap_or((0,0));
         let time = (el_sec * 1000) as u128 + el_ms;
-        time_based_update(time, now);
+        time_based_update(time, now, context);
     }
 }
 

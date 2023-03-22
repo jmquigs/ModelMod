@@ -280,7 +280,7 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         match dev_state_d3d11_nolock() {
             Some(state) => {
                 let layout_usize = vlayout as usize;
-                let res = state.rs.input_layouts_by_ptr
+                let res = state.rs.context_input_layouts_by_ptr
                     .get(&layout_usize);
                 match res {
                     None => {

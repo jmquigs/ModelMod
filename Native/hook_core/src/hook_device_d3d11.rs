@@ -46,9 +46,11 @@ use std::mem::ManuallyDrop;
 use std::ptr::null_mut;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use device_state::dev_state_d3d11_nolock;
+use device_state::dev_state_d3d11_write;
 use shared_dx::dx11rs::DX11RenderState;
 use shared_dx::dx11rs::VertexFormat;
 use shared_dx::types::DX11Metrics;
@@ -853,8 +855,8 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     if res == 0 && has_position && ppInputLayout != null_mut() && (*ppInputLayout) != null_mut() {
         let vf = vertex_format_from_layout(elements);
 
-        dev_state_d3d11_nolock()
-        .map(|ds| {
+        dev_state_d3d11_write()
+        .map(|(_lock,ds)| {
             // add layout to hash
             // TODO11: when to clear this?  what happens if it gets big?
             // (maybe game recreates layouts on device reset?)
@@ -864,12 +866,14 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
             // anyway these are pointers (8 bytes) so not a huge amount of space, but hashing
             // could get slow if table gets too big and a lot of stuff is hashing to same
             // values.
-            ds.rs.input_layouts_by_ptr.insert(*ppInputLayout as usize, vf);
+            ds.rs.device_input_layouts_by_ptr.insert(*ppInputLayout as usize, vf);
 
-            if ds.rs.input_layouts_by_ptr.len() % 500 == 0 {
+            if ds.rs.device_input_layouts_by_ptr.len() % 500 == 0 {
                 write_log_file(&format!("vertex layout table now has {} elements",
-                ds.rs.input_layouts_by_ptr.len()));
+                ds.rs.device_input_layouts_by_ptr.len()));
             }
+            let len =ds.rs.device_input_layouts_by_ptr.len();
+            ds.rs.num_input_layouts.store(len, Ordering::Relaxed);
         });
     }
 
@@ -1022,7 +1026,7 @@ mod tests {
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_query_interface.txt").expect("doh");
 
         let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            let lock = DEVICE_STATE_LOCK.write().unwrap();
             if DEVICE_STATE != null_mut() {
                 panic!("DEVICE_STATE already initialized");
             }
@@ -1136,7 +1140,7 @@ mod tests {
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_create_device.txt").expect("doh");
 
         let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            let lock = DEVICE_STATE_LOCK.write().unwrap();
             if DEVICE_STATE != null_mut() {
                 panic!("DEVICE_STATE already initialized");
             }
@@ -1221,7 +1225,7 @@ mod tests {
         let _loglock = LOG_EXCL_LOCK.lock().unwrap();
 
         let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            let lock = DEVICE_STATE_LOCK.write().unwrap();
             if DEVICE_STATE != null_mut() {
                 panic!("DEVICE_STATE already initialized");
             }

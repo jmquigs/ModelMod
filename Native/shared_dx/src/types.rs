@@ -160,6 +160,31 @@ impl DevicePointer {
             DevicePointer::D3D11(d3d11) => *d3d11 as usize,
         }
     }
+    /// If `new_ptr` is not null and differs from the current pointer in self,
+    /// change the self pointer to `new_ptr` and return true.  Otherwise return false.
+    pub fn maybe_update<T>(&mut self, new_ptr: *mut T) -> bool {
+        if new_ptr.is_null() {
+            return false;
+        }
+        match self {
+            DevicePointer::D3D9(d3d9) => {
+                if *d3d9 != new_ptr as *mut IDirect3DDevice9 {
+                    *d3d9 = new_ptr as *mut IDirect3DDevice9;
+                    true
+                } else {
+                    false
+                }
+            },
+            DevicePointer::D3D11(d3d11) => {
+                if *d3d11 != new_ptr as *mut ID3D11Device {
+                    *d3d11 = new_ptr as *mut ID3D11Device;
+                    true
+                } else {
+                    false
+                }
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
