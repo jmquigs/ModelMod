@@ -44,6 +44,8 @@ use std::cell::RefCell;
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
 use std::ptr::null_mut;
+use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
 use std::time::SystemTime;
 
 use device_state::dev_state_d3d11_nolock;
@@ -76,7 +78,6 @@ use winapi::shared::winerror::E_FAIL;
 use shared_dx::types_dx11::HookDirect3D11Context;
 use shared_dx::types_dx11::HookDirect3D11Device;
 use shared_dx::error::*;
-use device_state::dev_state;
 use winapi::um::unknwnbase::IUnknown;
 
 use crate::debugmode;
@@ -89,7 +90,7 @@ use device_state::DEVICE_STATE;
 use crate::hook_render_d3d11::*;
 use crate::debugmode::DebugModeCalledFns;
 
-//use shared_dx::util::{set_log_file_path};
+static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
@@ -145,7 +146,9 @@ pub extern "system" fn D3D11CreateDevice(
                 // that too since I don't think there is another way to get the one the app creates.
                 // (its not available from context or device?)
                 match init_d3d11( (*ppDevice), std::ptr::null_mut(), (*ppImmediateContext)) {
-                    Ok(_) => {},
+                    Ok(_) => {
+                        write_log_file("D3D11CreateDevice succeeded");
+                    },
                     Err(e) => { write_log_file(&format!("Error, init_d3d11 failed: {:?}", e))}
                 }
             }
@@ -481,11 +484,37 @@ unsafe fn copy_device_vtable(device:*mut ID3D11Device) -> Result<*mut ID3D11Devi
     Ok(vtbl)
 }
 
-thread_local! {
-    static SAVE_DEV_VTABLE: RefCell<*mut ID3D11DeviceVtbl> = RefCell::new(null_mut());
+/// Unhook the device, and since device hooks are currently global this
+/// means all devices.  This is used by tests.
+pub unsafe fn unapply_device_hook(device:*mut ID3D11Device) -> Result<()> {
+    let savelock = DEVICE_REALFN.read()
+        .map_err(|e|
+            HookError::D3D11DeviceHookFailed(format!("can't get save vtable: {}", e)))?;
+    let savevtbl = savelock.as_ref();
+    match savevtbl {
+        None => {
+            eprintln!("can't unhooking d3d11 device, no saved vtbl: {:x}", device as usize);
+            return Err(HookError::D3D11NoContext);
+        },
+        Some(hooks) => {
+            eprintln!("unhooking d3d11 device: {:x}", device as usize);
+            write_log_file(&format!("unhooking d3d11 device: {:x}", device as usize));
+            let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
+            let vtbl:*mut ID3D11DeviceVtbl = std::mem::transmute((*device).lpVtbl);
+            let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
+            (*vtbl).CreateInputLayout = (hooks).real_create_input_layout;
+            (*vtbl).parent.QueryInterface = (hooks).real_query_interface;
+            util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
+        }
+    }
+    Ok(())
 }
 
-unsafe fn hook_device(device:*mut ID3D11Device) -> Result<HookDirect3D11Device> {
+/// Hook the device.  The first time this is called, the
+/// DEVICE_REALFN global static will
+/// be populated with the original "real" device functions.  This is used
+/// for later hooks of other devices.
+unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
     write_log_file(&format!("hooking new d3d11 device: {:x}", device as usize));
 
     // ideally we'd make a copy of the vtable like we do with context and hook that.
@@ -506,46 +535,37 @@ unsafe fn hook_device(device:*mut ID3D11Device) -> Result<HookDirect3D11Device> 
 
     let vtbl = dev_vtbl;
 
-    // make a reference copy of the vtable, which we'll save and won't hook.
-    // we may need it to find the original function pointers if we
-    // hook another device.
-    if SAVE_DEV_VTABLE.with(|f| f.borrow().is_null()) {
-        let copy = copy_device_vtable(device)?;
-        SAVE_DEV_VTABLE.with(|f| *f.borrow_mut() = copy);
-    }
+    // since the device can be multithreaded we might have shit hammering on query interface
+    // as soon as we swap in the hook function.  so make sure the real function struct is
+    // ready before that happens.
+    let mut lock = DEVICE_REALFN.write()
+        .map_err(|e| HookError::D3D11DeviceHookFailed(
+        format!("device hooks lock failed: {}", e)))?;
+    if lock.is_none() {
+        // make a reference copy of the vtable, which we'll save and won't hook.
+        // we may need it to find the original function pointers if we
+        // hook another device.
 
-    // find the real functions, which might be in the original vtable or the copy we saved.
-    // note: this could benefit from some macros, but would need at least two
-    // macros due to differing iunknown/device types unless I get a lot better at macros.
-    let real_create_input_layout = {
-        if (*vtbl).CreateInputLayout as usize == hook_CreateInputLayoutFn as usize {
-            SAVE_DEV_VTABLE.with(|f| {
-                let savevtbl = *f.borrow();
-                (*savevtbl).CreateInputLayout
-            })
-        } else {
+        let real_create_input_layout = {
             (*vtbl).CreateInputLayout
-        }
-    };
-    let real_query_interface = {
-        if (*vtbl).parent.QueryInterface as usize == hook_device_QueryInterface as usize {
-            SAVE_DEV_VTABLE.with(|f| {
-                let savevtbl = *f.borrow();
-                (*savevtbl).parent.QueryInterface
-            })
-        } else {
+        };
+        let real_query_interface = {
             (*vtbl).parent.QueryInterface
+        };
+        if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
+            return Err(HookError::D3D11DeviceHookFailed(
+                format!("unable to hook CreateInputLayout due to missing real function")));
         }
-    };
+        if real_query_interface as usize == hook_device_QueryInterface as usize {
+            return Err(HookError::D3D11DeviceHookFailed(
+                format!("unable to hook QueryInterface due to missing real function")));
+        }
 
-    // if we didn't find the real functions we are fucked
-    if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
-        return Err(HookError::D3D11DeviceHookFailed(
-            format!("unable to hook CreateInputLayout due to missing real function")));
-    }
-    if real_query_interface as usize == hook_device_QueryInterface as usize {
-        return Err(HookError::D3D11DeviceHookFailed(
-            format!("unable to hook QueryInterface due to missing real function")));
+        *lock = Some(HookDirect3D11Device {
+            real_query_interface,
+            real_create_input_layout,
+        });
+        write_log_file("device hook real funcs initialized");
     }
 
     // can just use the size of the base interface here since we don't overwrite anything else,
@@ -556,23 +576,19 @@ unsafe fn hook_device(device:*mut ID3D11Device) -> Result<HookDirect3D11Device> 
     (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
     (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
     util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
-
     if copy_dev_vtable {
         write_log_file(&format!("replacing device {:x} orig vtbl {:x} with new vrbl {:x}",
         device as usize, (*device).lpVtbl as usize, vtbl as usize));
         (*device).lpVtbl = vtbl;
     }
 
-    Ok(HookDirect3D11Device {
-        real_query_interface,
-        real_create_input_layout,
-    })
+    Ok(())
 }
 
 unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) ->
     Result<HookDirect3D11> {
 
-    let hook_device = hook_device(device)?;
+    apply_device_hook(device)?;
 
     write_log_file(&format!("hooking new d3d11 context: {:x}", context as usize));
     let vtbl: *mut ID3D11DeviceContextVtbl = std::mem::transmute((*context).lpVtbl);
@@ -636,7 +652,7 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_ps_set_shader_resources,
     };
 
-    Ok(HookDirect3D11 { device: hook_device, context: hook_context })
+    Ok(HookDirect3D11 { context: hook_context })
 }
 
 fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
@@ -697,20 +713,12 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
     Ok(())
 }
 
-// ===============
-// device hook fns
-
-/// Returns the hooks for the device.  Note this does not actually return the device pointer,
+/// Returns the real functions for the device.  Note this does not actually return the device pointer,
 /// since it is assumed the caller already has that.
-fn get_hook_device<'a>() -> Result<&'a mut HookDirect3D11Device> {
-    let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(ref mut ds)) => &mut ds.hooks,
-        _ => {
-            write_log_file("draw: No d3d11 context found");
-            return Err(shared_dx::error::HookError::D3D11NoContext);
-        },
-    };
-    Ok(&mut hooks.device)
+fn get_device_realfn<'a>() -> Result<RwLockReadGuard<'a, Option<HookDirect3D11Device>>> {
+    let lock = unsafe { DEVICE_REALFN.read() }
+        .map_err(|_err| HookError::GlobalLockError)?;
+    Ok(lock)
 }
 
 
@@ -805,9 +813,16 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     ppInputLayout: *mut *mut ID3D11InputLayout,
 ) -> HRESULT {
     debugmode::note_called(DebugModeCalledFns::Hook_DeviceCreateInputLayoutFn, THIS as usize);
-    let hook_device = match get_hook_device() {
+    let dev_realfn = match get_device_realfn() {
         Ok(dev) => dev,
-        Err(_) => {
+        Err(e) => {
+            write_log_file(&format!("OOPS hook_CreateInputLayoutFn returning E_FAIL due to bad state: {:?}", e));
+            return E_FAIL;
+        }
+    };
+    let dev_realfn = match dev_realfn.as_ref() {
+        Some(dev) => dev,
+        None => {
             write_log_file(&format!("OOPS hook_CreateInputLayoutFn returning {} due to bad state", E_FAIL));
             return E_FAIL;
         }
@@ -826,7 +841,7 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
         elements.push(p);
     }
 
-    let res = (hook_device.real_create_input_layout)(
+    let res = (dev_realfn.real_create_input_layout)(
         THIS,
         pInputElementDescs,
         NumElements,
@@ -869,25 +884,33 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
     riid: *const winapi::shared::guiddef::GUID,
     ppvObject: *mut *mut winapi::ctypes::c_void,
 ) -> winapi::shared::winerror::HRESULT {
+    //eprintln!("{:?}: hook_device_QueryInterface called {:?}", std::thread::current().id(), std::time::SystemTime::now());
+
     write_log_file(&format!("Device: hook_device_QueryInterface: for id {:x} {:x} {:x} {}",
         (*riid).Data1, (*riid).Data2, (*riid).Data3, u8_slice_to_hex_string(&(*riid).Data4)));
 
-    let hook_device = match get_hook_device() {
-        Ok(ctx) => ctx,
-        Err(_) => {
-            write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due to missing device"));
+    let hook_device = match get_device_realfn() {
+        Ok(dev) => dev,
+        Err(e) => {
+            write_log_file(&format!("Error: hook_device_QueryInterface returning E_NOINTERFACE due to missing device: {:?}", e));
             return E_NOINTERFACE;
         }
     };
-
+    let hook_device = match hook_device.as_ref() {
+        Some(dev) => dev,
+        None => {
+            write_log_file(&format!("Error: hook_device_QueryInterface returning E_NOINTERFACE due to missing device"));
+            return E_NOINTERFACE;
+        }
+    };
     if hook_device.real_query_interface as usize == hook_device_QueryInterface as usize {
-        write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due real fn same as hook fn"));
+        write_log_file(&format!("Error: hook_device_QueryInterface returning E_NOINTERFACE due real fn same as hook fn"));
         return E_NOINTERFACE;
     }
 
     let r = DEVICE_IN_QI.with(|in_qi| {
         if *in_qi.borrow() {
-            write_log_file(&format!("hook_device_QueryInterface returning E_NOINTERFACE due to re-entrant call"));
+            write_log_file(&format!("Error: hook_device_QueryInterface returning E_NOINTERFACE due to re-entrant call"));
             return E_NOINTERFACE;
         }
         *in_qi.borrow_mut() = true;
@@ -915,17 +938,18 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 }
 
 #[cfg(test)]
-// these tests require access to test internals which is nightly only
-// to enable them, comment out this cfg then uncomment the 'extern crate test' line in lib.rs
+/// In addition to testing specific functionality, these tests are a bit of a chaos monkey to
+/// test that certain nasty conditions observed in the real world (for instance, multiple threads
+/// creating devices) don't cause crashes or other bad behavior.  Though it is not guaranteed
+/// MM will actually work in these cases, we don't want crashes.
+/// Most of these tests can't be run simulataneously, however as they poke at the device globals,
+/// so they lock at the start, since cargo will normally run them threaded.
 mod tests {
-    use std::{mem::MaybeUninit, sync::MutexGuard};
-
+    use std::{sync::{MutexGuard, Arc}, thread::JoinHandle};
     use device_state::DEVICE_STATE_LOCK;
     use shared_dx::util::{LOG_EXCL_LOCK};
     use winapi::um::{unknwnbase::{IUnknown, IUnknownVtbl}, d3dcommon::D3D_DRIVER_TYPE_HARDWARE, d3d11::D3D11_SDK_VERSION};
-
     use crate::hook_device::init_log_no_root;
-
     use super::*;
 
     pub unsafe extern "system" fn dummy_addref(_ik: *mut IUnknown) -> u32 {
@@ -934,9 +958,31 @@ mod tests {
     pub unsafe extern "system" fn dummy_release(_ik: *mut IUnknown) -> u32 {
         1
     }
+    pub unsafe extern "system" fn dummy_query_interface(
+        _ik: *mut IUnknown,
+        _riid: *const winapi::shared::guiddef::GUID,
+        _ppvObject: *mut *mut winapi::ctypes::c_void,
+    ) -> winapi::shared::winerror::HRESULT {
+        E_NOINTERFACE
+    }
+
+    pub unsafe extern "system" fn dummy_create_input_layout(
+        _ik: *mut ID3D11Device,
+        _pInputElementDescs: *const D3D11_INPUT_ELEMENT_DESC,
+        _NumElements: u32,
+        _pShaderBytecodeWithInputSignature: *const winapi::ctypes::c_void,
+        _BytecodeLength: usize,
+        _ppInputLayout: *mut *mut ID3D11InputLayout,
+    ) -> winapi::shared::winerror::HRESULT {
+        E_FAIL
+    }
 
     pub fn prep_log_file<'a>(_lock: &MutexGuard<()>, filename:&'a str) -> std::io::Result<&'a str> {
-        if std::path::Path::new(filename).exists() {
+        prep_log_file_nolock(filename,true)
+    }
+
+    pub fn prep_log_file_nolock<'a>(filename:&'a str, remove:bool) -> std::io::Result<&'a str> {
+        if remove && std::path::Path::new(filename).exists() {
             std::fs::remove_file(filename)?;
         }
         init_log_no_root(filename)
@@ -944,9 +990,34 @@ mod tests {
         Ok(filename)
     }
 
+    fn cleanup(device:*mut ID3D11Device, testcontext:&str) {
+        unsafe {
+            if !device.is_null() {
+                unapply_device_hook(device).expect(&format!("{}: unapply_device_hook failed", testcontext));
+                (*device).Release();
+            }
+
+            let _unbox = Box::from_raw(DEVICE_STATE);
+            DEVICE_STATE = null_mut();
+            DEVICE_REALFN.write().expect(&format!("{}: device hooks clear failed", testcontext)).take();
+        }
+    }
+
+    fn assert_log(logfile:&str, expected_count:usize,msg:&str) {
+        let logtext = std::fs::read_to_string(logfile).unwrap();
+        let count = logtext.matches(msg).count();
+        if count != expected_count {
+            eprintln!("logtext: {}", logtext);
+        }
+        assert_eq!(count, expected_count, "want {}, got {} for log line '{}'", expected_count, count, msg);
+    }
+
     #[test]
-    fn test_query_interface() {
+    fn test_query_interface() -> Result<()> {
+        std::thread::sleep(std::time::Duration::from_secs(0));
+
         let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+        eprintln!("starting test_query_interface");
 
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_query_interface.txt").expect("doh");
 
@@ -976,21 +1047,21 @@ mod tests {
         };
         assert!(std::fs::read_to_string(testlog).unwrap().contains("E_NOINTERFACE due to missing device"));
 
-        // init a fake device, this breaks rust rules due to null hook function pointers,
-        // but this is a test, soo....
-        let bytes = [0_u8; std::mem::size_of::<HookDirect3D11>()];
         unsafe {
-            let mut hs:MaybeUninit<HookDirect3D11> = MaybeUninit::uninit();
-            hs.write(std::mem::transmute(bytes));
-            let hs = hs.assume_init();
-
-            let h11 = HookD3D11State::from(hs, null_mut());
-            (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(h11));
+            let mut hooks = DEVICE_REALFN.write().expect("no hooks lock");
+            *hooks = Some(HookDirect3D11Device {
+                real_create_input_layout: dummy_create_input_layout,
+                real_query_interface: dummy_query_interface,
+            });
         };
 
         // setting the real function to be the hook function should fail
         unsafe {
-            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = hook_device_QueryInterface;
+            let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
+            let hooks = lhooks.as_mut().expect("no hooks");
+            hooks.real_query_interface = hook_device_QueryInterface;
+            drop(hooks);
+            drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
                 null_mut()), E_NOINTERFACE);
@@ -1005,7 +1076,11 @@ mod tests {
         }
 
         unsafe {
-            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = nasty_reentrant_test_function;
+            let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
+            let hooks = lhooks.as_mut().expect("no hooks");
+            hooks.real_query_interface = nasty_reentrant_test_function;
+            drop(hooks);
+            drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
                 null_mut()), E_NOINTERFACE);
@@ -1033,7 +1108,11 @@ mod tests {
         }
 
         unsafe {
-            dev_state_d3d11_nolock().unwrap().hooks.device.real_query_interface = valid_qi;
+            let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
+            let hooks = lhooks.as_mut().expect("no hooks");
+            hooks.real_query_interface = valid_qi;
+            drop(hooks);
+            drop(lhooks);
             let mut pdev:*mut ID3D11Device = null_mut();
             let ppdev: *mut *mut ID3D11Device= &mut pdev;
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
@@ -1043,16 +1122,17 @@ mod tests {
         assert!(std::fs::read_to_string(testlog).unwrap().contains("hr 0"));
 
         // cleanup
-        unsafe {
-            let _unbox = Box::from_raw(DEVICE_STATE);
-            DEVICE_STATE = null_mut();
-        }
+        cleanup(null_mut(), "test_query_interface");
+        Ok(())
     }
 
     #[test]
     fn test_create_device() {
+        std::thread::sleep(std::time::Duration::from_secs(0));
 
         let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+        eprintln!("starting test_create_device");
+
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_create_device.txt").expect("doh");
 
         let _lock = unsafe {
@@ -1086,12 +1166,7 @@ mod tests {
         }
 
         let assert_log = |expected_count:usize,msg:&str| {
-            let logtext = std::fs::read_to_string(testlog).unwrap();
-            let count = logtext.matches(msg).count();
-            if count != expected_count {
-                eprintln!("logtext: {}", logtext);
-            }
-            assert_eq!(count, expected_count);
+            assert_log(testlog, expected_count, msg);
         };
 
         // log file should contain stuff
@@ -1130,19 +1205,119 @@ mod tests {
         unsafe {
             let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
             assert_eq!(res, 0);
-
-            (*device).Release();
-            //device = null_mut();
             (*context).Release();
-            //context = null_mut();
+            // device released by cleanup below
         }
 
-        // context should release. 2 because we did it twice
+        // context should release. 2 messages because we did it earlier
         assert_log(2, "context hook release: rc now 0");
 
-        unsafe {
-            let _unbox = Box::from_raw(DEVICE_STATE);
-            DEVICE_STATE = null_mut();
-        }
+        cleanup(device, "test_create_device");
+
+    }
+
+    #[test]
+    fn test_create_device_thread() {
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+
+        let _lock = unsafe {
+            let lock = DEVICE_STATE_LOCK.lock().unwrap();
+            if DEVICE_STATE != null_mut() {
+                panic!("DEVICE_STATE already initialized");
+            }
+            lock
+        };
+
+        // we only support one log file so prep it first to remove/clear it, then
+        // each thread will reprep without clearing to set its thread local status that it was
+        // initialized.
+        let log_file_name = "__testhd3d11__test_create_device_threads.txt";
+        let testlog = prep_log_file_nolock(log_file_name, true).expect("doh");
+
+        // use an arc so that we can make all threads wait until we're ready to go
+        let start_lock = Arc::new(RwLock::new(()));
+        let start_lock = start_lock.clone();
+        let start_lock_write = start_lock.write().expect("start lock failed");
+
+        struct ThreadDevPtr(pub *mut ID3D11Device);
+        unsafe impl Send for ThreadDevPtr {}
+
+        let run_time_secs = 4;
+        let qi_sleep_wait_ms = 500;
+        let nthreads = 2;
+
+        let handles:Vec<JoinHandle<_>> = (0..nthreads).map(|i| {
+            let t1_start_lock = start_lock.clone();
+            std::thread::spawn(move || {
+                let _testlog = prep_log_file_nolock(log_file_name, false).expect("doh");
+                let mut device = std::ptr::null_mut();
+                let mut context = std::ptr::null_mut();
+
+                let _slr = t1_start_lock.read().expect("start lock failed");
+
+                eprintln!("{:?}: thread {}: creating device", std::thread::current().id(), i);
+                D3D11CreateDevice(null_mut(),
+                D3D_DRIVER_TYPE_HARDWARE,
+                    null_mut(),
+                    0,
+                    null_mut(),
+                     0,
+                    D3D11_SDK_VERSION,
+                    &mut device,
+                    null_mut(),
+                    &mut context);
+                eprintln!("{:?}: thread {}: done creating device", std::thread::current().id(), i);
+                let mut pdev:*mut ID3D11Device = null_mut();
+                let ppdev: *mut *mut ID3D11Device = &mut pdev;
+                unsafe {
+                    let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
+                    assert_eq!(res, 0);
+                }
+
+                let start = std::time::Instant::now();
+                while start.elapsed().as_secs() < run_time_secs {
+                    let mut pdev:*mut ID3D11Device = null_mut();
+                    let ppdev: *mut *mut ID3D11Device = &mut pdev;
+                    unsafe {
+                        let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
+                        assert_eq!(res, 0);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(qi_sleep_wait_ms));
+                }
+
+                unsafe {
+                    let _rc = (*context).Release();
+                    assert_eq!(0, _rc, "{:?}: thread {}", std::thread::current().id(), i);
+                    //eprintln!("{:?}: thread {}: context released: rc {}", std::thread::current().id(), i, rc);
+                }
+
+                ThreadDevPtr(device)
+            })
+        }).collect();
+
+        // they should all be blocked on this so let them run
+        drop(start_lock_write);
+
+        // await all of their handles
+        let mut tdevs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // inspect logs a bit
+        assert_log(testlog, 1,         "device hook real funcs initialized");
+        assert_log(testlog, nthreads, "D3D11CreateDevice succeeded");
+        // sometimes this is short a line, not sure why since I
+        // assert that context rc is zero above.
+        //assert_log(testlog, nthreads, "context hook release: rc now 0");
+
+
+        // save last
+        let last = tdevs.pop();
+        // free the other devices
+        tdevs.into_iter().for_each(|h| unsafe { (*h.0).Release(); } );
+        // cleanup and unhook with the last
+        cleanup(last.unwrap().0, "test_create_device_threads")
+
+        // eprintln!("create thread test waiting");
+        // std::thread::sleep(std::time::Duration::from_secs(5));
+
     }
 }

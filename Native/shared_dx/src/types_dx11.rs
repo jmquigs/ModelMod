@@ -20,7 +20,6 @@ pub struct HookDirect3D11Context {
     pub real_ia_set_primitive_topology: IASetPrimitiveTopologyFn,
     pub real_ps_set_shader_resources: PSSetShaderResourcesFn,
 }
-pub struct HookDirect3D11 { // TODO11: need ref_count field? d3d9 has one
-    pub device: HookDirect3D11Device,
+pub struct HookDirect3D11 {
     pub context: HookDirect3D11Context,
 }
