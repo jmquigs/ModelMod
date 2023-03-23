@@ -69,3 +69,4 @@ Native/shared_dx/__testutil__test_log_limit.txt
 Native/hook_core/__testhd3d11__test_query_interface.txt
 Native/hook_core/__testhd3d11__test_create_device.txt
 Native/hook_core/__testhd3d11__test_create_device_threads.txt
+Native/hook_core/__testhd3d11__create_and_draw.txt

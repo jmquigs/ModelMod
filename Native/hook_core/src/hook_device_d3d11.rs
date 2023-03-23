@@ -857,21 +857,9 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
 
         dev_state_d3d11_write()
         .map(|(_lock,ds)| {
-            // add layout to hash
-            // TODO11: when to clear this?  what happens if it gets big?
-            // (maybe game recreates layouts on device reset?)
-            // could hook Release on the layout to remove them, ugh.
-            // this does appear to accumulate at a rate of a few hundred every few secs,
-            // when game is loading assets anyway.
-            // anyway these are pointers (8 bytes) so not a huge amount of space, but hashing
-            // could get slow if table gets too big and a lot of stuff is hashing to same
-            // values.
+            // add layout to hash, context will copy it out later
             ds.rs.device_input_layouts_by_ptr.insert(*ppInputLayout as usize, vf);
 
-            if ds.rs.device_input_layouts_by_ptr.len() % 500 == 0 {
-                write_log_file(&format!("vertex layout table now has {} elements",
-                ds.rs.device_input_layouts_by_ptr.len()));
-            }
             let len =ds.rs.device_input_layouts_by_ptr.len();
             ds.rs.num_input_layouts.store(len, Ordering::Relaxed);
         });
@@ -941,6 +929,20 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
     hr
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////
+//
+//   //////////////  //////////////  //////////////  //////////////  //////////////
+//         //        //              //                    //        //
+//         //        //              //                    //        //
+//         //        //              //                    //        //
+//         //        ///////////     //////////////        //        //////////////
+//         //        //                          //        //                    //
+//         //        //                          //        //                    //
+//         //        //                          //        //                    //
+//         //        //////////////  //////////////        //        //////////////
+//
+////////////////////////////////////////////////////////////////////////////////////////////
+// That ^^ is legible in the vscode sidebar preview ==> ^_^
 #[cfg(test)]
 /// In addition to testing specific functionality, these tests are a bit of a chaos monkey to
 /// test that certain nasty conditions observed in the real world (for instance, multiple threads
@@ -952,7 +954,9 @@ mod tests {
     use std::{sync::{MutexGuard, Arc}, thread::JoinHandle};
     use device_state::DEVICE_STATE_LOCK;
     use shared_dx::util::{LOG_EXCL_LOCK};
-    use winapi::um::{unknwnbase::{IUnknown, IUnknownVtbl}, d3dcommon::D3D_DRIVER_TYPE_HARDWARE, d3d11::D3D11_SDK_VERSION};
+    use winapi::{um::{unknwnbase::{IUnknown, IUnknownVtbl},
+        d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
+        d3d11::{D3D11_SDK_VERSION, D3D11_INPUT_PER_VERTEX_DATA}}, shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT};
     use crate::hook_device::init_log_no_root;
     use super::*;
 
@@ -978,7 +982,13 @@ mod tests {
         _BytecodeLength: usize,
         _ppInputLayout: *mut *mut ID3D11InputLayout,
     ) -> winapi::shared::winerror::HRESULT {
-        E_FAIL
+
+        let mut fakelayout:Vec<u8> = Vec::with_capacity(std::mem::size_of::<ID3D11InputLayout>());
+        let ptr = fakelayout.as_mut_ptr();
+        std::mem::forget(fakelayout);
+        *_ppInputLayout = ptr as *mut ID3D11InputLayout;
+        write_log_file("note: dummy_create_input_layout returning real but invalid pointer");
+        0
     }
 
     pub fn prep_log_file<'a>(_lock: &MutexGuard<()>, filename:&'a str) -> std::io::Result<&'a str> {
@@ -1322,6 +1332,92 @@ mod tests {
 
         // eprintln!("create thread test waiting");
         // std::thread::sleep(std::time::Duration::from_secs(5));
+
+    }
+
+    #[test]
+    fn create_and_draw() {
+        let _loglock = LOG_EXCL_LOCK.lock().unwrap();
+
+        // note we can't lock device state in this test because we are invoking the
+        // hook functions which also lock.  so rely on the loglock to keep other tests
+        // from running.
+
+        let log_file_name = "__testhd3d11__create_and_draw.txt";
+        let _testlog = prep_log_file_nolock(log_file_name, true).expect("doh");
+
+        let mut device = std::ptr::null_mut();
+        let mut context = std::ptr::null_mut();
+
+        let res = D3D11CreateDevice(null_mut(),
+        D3D_DRIVER_TYPE_HARDWARE,
+            null_mut(),
+            0,
+            null_mut(),
+             0,
+            D3D11_SDK_VERSION,
+            &mut device,
+            null_mut(),
+            &mut context);
+        assert_eq!(res, 0);
+
+        unsafe {
+            // need to use the dummy function because the real function expects a shader which
+            // we don't have.
+            DEVICE_REALFN.write().expect("no real fn").as_mut().map(|rfn| {
+                rfn.real_create_input_layout = dummy_create_input_layout;
+            });
+            let desc = vec![
+                D3D11_INPUT_ELEMENT_DESC {
+                    SemanticName: b"POSITION\0".as_ptr() as *const i8,
+                    SemanticIndex: 0,
+                    Format: DXGI_FORMAT_R32G32B32_FLOAT,
+                    InputSlot: 0,
+                    AlignedByteOffset: 0,
+                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                    InstanceDataStepRate: 0
+                }];
+            let mut pLayout:*mut ID3D11InputLayout = null_mut();
+            let ret = (*device).CreateInputLayout(desc.as_ptr(), 1,
+                null_mut(), 0, &mut pLayout);
+            assert_eq!(ret, 0);
+            assert!(!pLayout.is_null()); // don't deref this, its garbage
+
+            dev_state_d3d11_nolock().map(|ds| {
+                assert_eq!(ds.rs.num_input_layouts.load(Ordering::Relaxed), 1);
+                assert_eq!(ds.rs.device_input_layouts_by_ptr.len(), 1);
+                assert!(ds.rs.device_input_layouts_by_ptr.contains_key(&(pLayout as usize)));
+                let vf = ds.rs.device_input_layouts_by_ptr.get(&(pLayout as usize)).unwrap();
+                assert_eq!(vf.layout.len(), 1);
+                assert_eq!(vf.size, 12);
+                //assert_eq!(vf.layout[0].SemanticName, b"POSITION\0".as_ptr() as *const i8);
+                assert_eq!(ds.rs.context_input_layouts_by_ptr.len(), 0);
+            });
+
+            // after some dip calls, draw will trigger first periodic call which does nothing
+            GLOBAL_STATE.metrics.dip_calls = HOOK_DRAW_PERIODIC_CALLS - 1;
+            (*context).DrawIndexed(12, 0, 0);
+            assert_eq!(GLOBAL_STATE.metrics.dip_calls, HOOK_DRAW_PERIODIC_CALLS);
+            // the func we are interested is called on a time basis so need to let some go by...
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            GLOBAL_STATE.clr.runtime_pointer = Some(1); // this will prevent the clr from initting
+            // this should trigger the second periodic call which copies layouts amongst other things
+            GLOBAL_STATE.metrics.dip_calls += HOOK_DRAW_PERIODIC_CALLS - 1;
+            (*context).DrawIndexed(12, 0, 0);
+            assert_eq!(GLOBAL_STATE.metrics.dip_calls, 2 * HOOK_DRAW_PERIODIC_CALLS);
+            dev_state_d3d11_nolock().map(|ds| {
+                assert_eq!(ds.rs.num_input_layouts.load(Ordering::Relaxed), 0);
+                assert_eq!(ds.rs.device_input_layouts_by_ptr.len(), 0);
+                assert_eq!(ds.rs.context_input_layouts_by_ptr.len(), 1);
+                assert!(ds.rs.context_input_layouts_by_ptr.contains_key(&(pLayout as usize)));
+
+                ds.rs = DX11RenderState::new();
+            });
+
+            GLOBAL_STATE.clr.runtime_pointer = None;
+        }
+
+        cleanup(device, "create_and_draw")
 
     }
 }

@@ -398,6 +398,8 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
 
 decl_profile_globals!(hdi);
 
+pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 20000;
+
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
@@ -409,7 +411,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
     let periodic = || {
         profile_start!(hdi, periodic);
 
-        if GLOBAL_STATE.metrics.dip_calls % 20000 == 0 {
+        if GLOBAL_STATE.metrics.dip_calls % HOOK_DRAW_PERIODIC_CALLS == 0 {
             draw_periodic(THIS);
         }
 
@@ -675,15 +677,24 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
         }
 
         let need_layout_copy = unsafe {dev_state_d3d11_nolock()}.map(|state| {
-            state.rs.num_input_layouts.load(Ordering::Relaxed) != state.rs.context_input_layouts_by_ptr.len()
+            state.rs.num_input_layouts.load(Ordering::Relaxed) > 0
         }).unwrap_or(false);
         if need_layout_copy {
             unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
-                state.rs.context_input_layouts_by_ptr.clear();
+                // copy new layouts.  note currently we don't clear the context layouts ever.
+                // maybe hook release on them at some point so we can dispose of those entries.
                 state.rs.context_input_layouts_by_ptr.extend(
                     state.rs.device_input_layouts_by_ptr.iter().map(|(k,v)| {
                         (*k, v.clone())
                     }));
+                // clear the device layouts
+                state.rs.device_input_layouts_by_ptr.clear();
+                state.rs.num_input_layouts.store(0, Ordering::Relaxed);
+                // report as it gets bigger
+                if state.rs.context_input_layouts_by_ptr.len() % 500 == 0 {
+                    write_log_file(&format!("vertex layout table now has {} elements",
+                    state.rs.context_input_layouts_by_ptr.len()));
+                }
             });
         }
 

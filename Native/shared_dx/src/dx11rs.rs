@@ -28,7 +28,7 @@ impl Display for VertexFormat {
 pub struct DX11RenderState {
     /// Current vertex buffer properties, vector of (buf index,byte width,stride).
     pub vb_state: Vec<(u32,u32,u32)>,
-    /// Count of layouts stored in `device_input_layouts_by_ptr`.
+    /// Number of layouts in `device_input_layouts_by_ptr`
     pub num_input_layouts: std::sync::atomic::AtomicUsize,
     /// Input layouts that were created on the device.  This should not be accessed without a
     /// lock (obtained with `dev_state_d3d11_write()`) because the device can have multiple threads.
