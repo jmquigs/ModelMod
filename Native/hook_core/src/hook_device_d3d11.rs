@@ -1160,7 +1160,8 @@ mod tests {
         let mut device = std::ptr::null_mut();
         let mut context = std::ptr::null_mut();
 
-        D3D11CreateDevice(null_mut(),
+
+        let res = D3D11CreateDevice(null_mut(),
         D3D_DRIVER_TYPE_HARDWARE,
             null_mut(),
             0,
@@ -1171,6 +1172,7 @@ mod tests {
             null_mut(),
             &mut context);
 
+        assert_eq!(res, 0);
         // query interface on device should succeed
         let mut pdev:*mut ID3D11Device = null_mut();
         let ppdev: *mut *mut ID3D11Device = &mut pdev;
@@ -1189,7 +1191,8 @@ mod tests {
         unsafe {
             (*device).Release();
             device = null_mut();
-            (*context).Release();
+            let rc = (*context).Release();
+            assert_eq!(rc, 0);
             context = null_mut();
         }
 
@@ -1199,7 +1202,7 @@ mod tests {
         // if a new device is created things should not explode or go into
         // weird infinite loops or otherwise be bad.
 
-        D3D11CreateDevice(null_mut(),
+        let ret = D3D11CreateDevice(null_mut(),
         D3D_DRIVER_TYPE_HARDWARE,
             null_mut(),
             0,
@@ -1209,6 +1212,7 @@ mod tests {
             &mut device,
             null_mut(),
             &mut context);
+        assert_eq!(ret, 0);
 
         // log should note that we already did this
         assert_log(1, "WARNING: device state was already initialized");
@@ -1219,7 +1223,8 @@ mod tests {
         unsafe {
             let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
             assert_eq!(res, 0);
-            (*context).Release();
+            let rc = (*context).Release();
+            assert_eq!(rc, 0);
             // device released by cleanup below
         }
 
@@ -1270,7 +1275,7 @@ mod tests {
                 let _slr = t1_start_lock.read().expect("start lock failed");
 
                 eprintln!("{:?}: thread {}: creating device", std::thread::current().id(), i);
-                D3D11CreateDevice(null_mut(),
+                let res = D3D11CreateDevice(null_mut(),
                 D3D_DRIVER_TYPE_HARDWARE,
                     null_mut(),
                     0,
@@ -1280,6 +1285,8 @@ mod tests {
                     &mut device,
                     null_mut(),
                     &mut context);
+                assert_eq!(res, 0);
+
                 eprintln!("{:?}: thread {}: done creating device", std::thread::current().id(), i);
                 let mut pdev:*mut ID3D11Device = null_mut();
                 let ppdev: *mut *mut ID3D11Device = &mut pdev;
@@ -1300,8 +1307,8 @@ mod tests {
                 }
 
                 unsafe {
-                    let _rc = (*context).Release();
-                    assert_eq!(0, _rc, "{:?}: thread {}", std::thread::current().id(), i);
+                    let rc = (*context).Release();
+                    assert_eq!(0, rc, "{:?}: thread {}", std::thread::current().id(), i);
                     //eprintln!("{:?}: thread {}: context released: rc {}", std::thread::current().id(), i, rc);
                 }
 
@@ -1415,6 +1422,8 @@ mod tests {
             });
 
             GLOBAL_STATE.clr.runtime_pointer = None;
+            let rc = (*context).Release();
+            assert_eq!(rc, 0);
         }
 
         cleanup(device, "create_and_draw")
