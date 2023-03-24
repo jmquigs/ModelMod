@@ -304,6 +304,7 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
             None
         };
 
+    let mut copied = false;
     let vtbl: *mut ID3D11DeviceContextVtbl = if !first_hook {
         // reuse existing vtable on second and future calls.
         // TODO: or maybe change this to redo the copy if I ever need to rehook, as there is
@@ -343,7 +344,7 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         let mut vec = vec![(dc1guid,1072), (dc2guid,1152), (dc3guid,1176), (dc4guid,1192)];
         vec.sort_by_key(|f| f.1);
 
-
+        copied = true;
         find_and_copy_vtable(
             context as *mut IUnknown,(*context).lpVtbl as *const _, &vec)?
     };
@@ -415,6 +416,13 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     }
 
+    //write_log_file(&format!("context {:p} using vtbl {:p}, replacing with copy {:p}", context, (*context).lpVtbl, vtbl));
+    if copied {
+        ORIG_VTABLE.with(|orig_vtable| {
+            let mut orig_vtable = orig_vtable.borrow_mut();
+            orig_vtable.insert(context as usize, (*context).lpVtbl);
+        });
+    }
     (*context).lpVtbl = vtbl;
 
     Ok(func_hooked)
@@ -1302,6 +1310,9 @@ mod tests {
                     unsafe {
                         let res = (*device).QueryInterface(&ID3D11Device::uuidof() as *const GUID, ppdev as *mut *mut c_void);
                         assert_eq!(res, 0);
+                        // addref and release on the context for funsies
+                        let _rc = (*context).AddRef();
+                        let _rc = (*context).Release();
                     }
                     std::thread::sleep(std::time::Duration::from_millis(qi_sleep_wait_ms));
                 }

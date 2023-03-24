@@ -58,6 +58,15 @@ thread_local! {
     });
 }
 
+pub fn log(msg:&str) {
+    DEBUG_MODE.with(|dm| {
+        let dm = dm.borrow();
+        if dm.enabled {
+            write_log_file(&format!("DebugMode: {}", msg));
+        }
+    });
+}
+
 /// Return seconds since debug mode was initialized.
 pub fn seconds_since_start(dm:&RefMut<DebugMode>) -> u64 {
     if let Some(start_time) = dm.start_time {

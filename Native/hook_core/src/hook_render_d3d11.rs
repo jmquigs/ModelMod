@@ -1,5 +1,6 @@
+use std::cell::RefCell;
 use std::mem::MaybeUninit;
-use std::ptr::null_mut;
+use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
@@ -30,6 +31,7 @@ use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check
 use crate::{input_commands, debugmode, mod_render};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
+use fnv::FnvHashMap;
 
 /// Return the d3d11 context hooks.
 fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
@@ -69,6 +71,13 @@ pub unsafe extern "system" fn hook_context_QueryInterface(
     hr
 }
 
+thread_local! {
+    /// Stores the original context vtable used by any context created in this thread.
+    /// This can be a thread local because according to the docs context is not thread safe and
+    /// thus nobody should be calling it from multiple threads.  However it must be a map rather
+    /// than a single value because a thread can create as many contexts as it wants.
+    pub static ORIG_VTABLE: RefCell<FnvHashMap<usize, *const winapi::um::d3d11::ID3D11DeviceContextVtbl>> = RefCell::new(FnvHashMap::default());
+}
 pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextRelease, THIS as usize);
 
@@ -86,6 +95,22 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         }
     };
 
+    // the context could delete itself when released but we don't know because we don't track
+    // the ref count.  in case it does, replace the vtable with the original one.  so that if it
+    // does delete and its vtable is deallocated, it doesn't crash.  i've never seen that crash
+    // before I started doing this, that I know of anyway, but it could happen.
+    let mut save_table = null();
+    ORIG_VTABLE.with(|orig_vtable| {
+        let orig_vtable = orig_vtable.borrow();
+        let orig_vtable = orig_vtable.get(&(THIS as usize)).unwrap_or(&null());
+        if !(orig_vtable).is_null() {
+            // in debug mode note that we are doing this (let the log limiter throttle it)
+            debugmode::log("context hook release: restoring vtable in case of delete");
+            save_table = (*THIS).lpVtbl;
+            (*THIS).lpVtbl = *orig_vtable as *const winapi::um::unknwnbase::IUnknownVtbl;
+        }
+    });
+
     if GLOBAL_STATE.in_hook_release {
         //write_log_file(&format!("warn: re-entrant hook release"));
         return (hook_context.real_release)(THIS);
@@ -95,6 +120,9 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     // if >= 1 then this spams when Discord is running, wonder what its doing
     if rc < 1 {
         write_log_file(&format!("context hook release: rc now {}", rc));
+    } else if !save_table.is_null() {
+        debugmode::log("context hook release: obj not deleted, replaced hook vtable");
+        (*THIS).lpVtbl = save_table;
     }
     GLOBAL_STATE.in_hook_release = false;
 
