@@ -282,8 +282,6 @@ module RegConfig =
         
     /// Load a runconfig form the specified profile path and key.
     let loadFromFullProfileKey(profPath:string) (profileKeyName:string):RunConfig = 
-        let mmHiveRoot = regLoc.HiveRoot
-
         let mutable rc = { 
             DocRoot = getDocRoot() // eventually this may come from the profile as well, right now it is global
 

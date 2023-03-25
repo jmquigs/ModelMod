@@ -124,6 +124,7 @@ pub struct ConfData {
     pub LoadModsOnStart: bool,
     pub InputProfile: [c_char; 512],
     pub MinimumFPS: i32,
+    pub ProfileKey: [c_char; 512],
 }
 
 #[derive(Copy, Clone)]

@@ -27,6 +27,7 @@ pub enum HookError {
     SnapshotFailed(String),
     CaptureFailed(String),
     SnapshotPluginError(String),
+    MeshUpdateFailed(String),
     NoShader(),
     SerdeError(String),
     D3D11DeviceHookFailed(String),

@@ -1,4 +1,7 @@
 
+use shared_dx::dx11rs::VertexFormat;
+use shared_dx::error;
+use shared_dx::error::HookError;
 use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
 use shared_dx::types::TexPtr;
@@ -8,6 +11,9 @@ use types::native_mod::NativeModData;
 use winapi::ctypes::c_void;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R32G32B32A32_FLOAT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM;
 pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
@@ -28,6 +34,7 @@ use fnv::FnvHashMap;
 use util;
 use d3dx;
 use std;
+use std::ffi::CStr;
 use std::ptr::null_mut;
 use shared_dx::util::*;
 use device_state::*;
@@ -346,6 +353,11 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         write_log_file(&format!("failed to fill mod data: {}", ret));
         return false;
     }
+
+    let _ = update_normals(vb_data.as_mut_ptr(), vert_count, &vlayout)
+        .map_err(|e| {
+            write_log_file(&format!("Warning: failed to update normals: {:?}", e));
+        });
 
     // create vb
     let mut vb_desc = D3D11_BUFFER_DESC {
@@ -754,4 +766,179 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                 cnt, elapsed.as_millis(), diff, device.as_usize(), (*DEVICE_STATE).d3d_resource_count
             ));
         };
+}
+
+#[repr(C)]
+#[derive(Debug)]
+struct Float3 {
+    x:f32,
+    y:f32,
+    z:f32
+}
+
+
+#[allow(dead_code)]
+#[repr(u32)]
+#[derive(Debug, Copy, Clone)]
+enum CNormFlags {
+    Default = 0,
+    WeightByArea = 1,
+    WeightEqual = 2,
+    WindCW = 4,
+}
+
+#[allow(non_camel_case_types)]
+/// DirectXMesh doesn't normally build as a dll.  Had to change it to do that and then manually
+/// export this function.
+type DirectX_ComputeNormals_32Fn = unsafe extern "stdcall" fn(indices:*const u32,
+    nFaces: usize, positions: *const Float3, nVerts:usize, flags:CNormFlags, normals:*mut Float3) -> HRESULT;
+
+// obviously need to change this if I ever use this code officially.  Probably put the lib in TPLib.
+const DXMESH_DLL:&'static str = r#"F:\Dev\github_ro\DirectXMesh\DirectXMesh\Bin\Desktop_2019\x64\Debug\DirectXMesh.dll"#;
+
+/// Experimental code to update normals using DirectXMesh.  Enabled based on registry settings,
+/// disabled by default.  The normals it generates seem better on some models, however, they aren't
+/// smooth shaded like normals from blender.  Therefore the faces appear, well, faceted.  There
+/// is a flag to control how it computes the normals but none produce whatever blender is doing.
+fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
+    let mut update_normals = false;
+    let mut flags = CNormFlags::Default;
+    let mut reverse:bool = false;
+
+    // determine config and whether we should even do this
+    let res = unsafe { &GLOBAL_STATE.interop_state }
+        .as_ref()
+        .ok_or(HookError::DInputCreateFailed(String::from(
+            "no interop state: was device created?",
+        )))
+        .and_then(|is| {
+            let carr_ptr = &is.conf_data.ProfileKey[0] as *const i8;
+            unsafe { CStr::from_ptr(carr_ptr) }
+            .to_str()
+            .map_err(HookError::CStrConvertFailed)
+        })
+        .and_then(|profile_root| {
+            unsafe {
+                let do_update = util::reg_query_dword(profile_root, "GameProfileUpdateNormals")
+                .map_err(|e| {
+                    write_log_file(&format!("failed to get {}\\GameProfileUpdateNormals, not changing normals. error: {:?}", profile_root, e));
+                }).unwrap_or(0);
+                update_normals = do_update > 0;
+                if !update_normals {
+                    return Ok(());
+                }
+                flags = util::reg_query_dword(profile_root, "GameProfileUpdateNormalFlags",)
+                .map(|f| std::mem::transmute(f))
+                .map_err(|e| {
+                    write_log_file(&format!("failed to get {}\\GameProfileUpdateNormalFlags, using default: {:?}, error: {:?}", profile_root, flags, e));
+                }).unwrap_or(flags);
+
+                reverse = util::reg_query_dword(profile_root,"GameProfileReverseNormals",)
+                .map(|f| f > 0)
+                .map_err(|e| {
+                    write_log_file(&format!("failed to get {}\\GameProfileReverseNormals, using default: {:?}, error: {:?}", profile_root, reverse, e));
+                }).unwrap_or(reverse);
+
+                Ok(())
+            }
+        });
+    res?;
+    if !update_normals {
+        return Ok(());
+    }
+    write_log_file(&format!("updating normals, flags: {:?}, reverse: {}", flags, reverse));
+
+    let lib = util::load_lib(DXMESH_DLL)?;
+    let addr = util::get_proc_address(lib, "DirectX_ComputeNormals_32")?;
+    let compute_normals_32:DirectX_ComputeNormals_32Fn = unsafe { std::mem::transmute(addr) };
+
+    // don't have an index buffer, so will need to generate an index array, using a 1:1 mapping between verts and indices
+    let indices:Vec<u32> = (0..vert_count).collect();
+
+    let ptr_to_str = |ptr:*const i8| -> String {
+        let cstr = unsafe { CStr::from_ptr(ptr) };
+        let s = cstr.to_string_lossy().to_ascii_lowercase().to_string();
+        //write_log_file(&format!("ptr_to_str: {:?} for ptr {:p}", s, ptr));
+        s
+    };
+    // find the position offset in the layout
+    let pos_elem = layout.layout.iter()
+        .find(|l| ptr_to_str(l.SemanticName).starts_with("position"))
+        .ok_or(HookError::MeshUpdateFailed("missing position in input layout".to_owned()))?;
+    // we can do this if the pos is 3 or 4 F32s but not anything else
+    if pos_elem.Format != DXGI_FORMAT_R32G32B32_FLOAT && pos_elem.Format != DXGI_FORMAT_R32G32B32A32_FLOAT {
+        return Err(HookError::MeshUpdateFailed("unsupported position format".to_owned()).into());
+    }
+    // to write the normals back we need the normal offset
+    let norm_elem = layout.layout.iter()
+        .find(|l| ptr_to_str(l.SemanticName).starts_with("normal"))
+        .ok_or(HookError::MeshUpdateFailed("missing normal in input layout".to_owned()))?;
+
+    let pos_offset = pos_elem.AlignedByteOffset as usize;
+
+    // need to create separate arrays for the input positions and the output normals.
+    let mut positions:Vec<Float3> = Vec::with_capacity(vert_count as usize);
+    let mut normals:Vec<Float3> = Vec::with_capacity(vert_count as usize);
+    for i in 0..vert_count {
+        // compute the offset to the vert and then the offset to the position in the vert using
+        // pos_offset
+        unsafe {
+            let vertpos = data.offset((i * layout.size) as isize + pos_offset as isize);
+            // there are at least 3 f32s starting at vertpos so copy them into a Float3 position
+            positions.push(Float3 {
+                x:*(vertpos as *const f32),
+                y:*(vertpos.offset(4) as *const f32),
+                z:*(vertpos.offset(8) as *const f32) });
+        }
+
+        normals.push(Float3 { x:0.0, y:0.0, z:0.0 });
+    }
+
+    // can now compute the normals
+    let nfaces = indices.len() / 3;
+    let ret = unsafe {
+        compute_normals_32(indices.as_ptr(), nfaces, positions.as_ptr(), positions.len(), flags, normals.as_mut_ptr())
+    };
+
+    if ret != S_OK {
+        return Err(HookError::MeshUpdateFailed(format!("failed to compute normals: {}", ret)));
+    }
+
+    // now we need to write the normals back to the original data using the normal offset
+    let norm_offset = norm_elem.AlignedByteOffset as usize;
+
+    for i in 0..vert_count {
+        unsafe {
+            let vertpos = data.offset((i * layout.size) as isize + norm_offset as isize);
+            // handle various formats
+            if norm_elem.Format == DXGI_FORMAT_R8G8B8A8_UNORM {
+                // transform each component to a byte value using
+                // the formula ((floating_point_value + 1) * 127.5 + 0.5)
+                let fval = |f:f32| -> u8 {
+                    //((f + 1.0) * 127.5 + 0.5) as u8
+                    ((f + 1.0) * 127.5).round() as u8
+                    //round((floating_point_value + 1) * 127.5)
+                };
+                if reverse {
+                    *(vertpos) = fval(normals[i as usize].z);
+                    *(vertpos.offset(1)) = fval(normals[i as usize].y);
+                    *(vertpos.offset(2)) = fval(normals[i as usize].x);
+                    *(vertpos.offset(3)) = 0;
+                } else {
+                    *(vertpos) = fval(normals[i as usize].x);
+                    *(vertpos.offset(1)) = fval(normals[i as usize].y);
+                    *(vertpos.offset(2)) = fval(normals[i as usize].z);
+                    *(vertpos.offset(3)) = 0;
+                }
+            } else if norm_elem.Format == DXGI_FORMAT_R32G32B32A32_FLOAT {
+                return Err(HookError::MeshUpdateFailed(format!("unsupported normal format: {}", norm_elem.Format)));
+            } else {
+                return Err(HookError::MeshUpdateFailed(format!("unsupported normal format: {}", norm_elem.Format)));
+            }
+        }
+    }
+
+    write_log_file("updated normals");
+
+    Ok(())
 }
