@@ -1,6 +1,7 @@
 
 
 
+use shared_dx::defs_dx9::DWORD;
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::windef::{HWND};
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
@@ -105,17 +106,79 @@ fn get_mm_reg_key() -> &'static str {
 fn get_mm_reg_key() -> &'static str {
     "Software\\ModelMod"
 }
+
+pub unsafe fn reg_query_string(path:&str, key:&str) -> Result<String> {
+    use winapi::ctypes::c_void;
+    use winapi::shared::winerror::ERROR_SUCCESS;
+    use winapi::um::winreg::*;
+
+    use std::os::windows::prelude::*;
+    let sk = to_wide_str(path);
+    let kv = to_wide_str(key);
+    let mut max_path: DWORD = 65535;
+    // path could have wide chars, use u16
+    let mut out_buf: Vec<u16> = Vec::with_capacity(max_path as usize);
+
+    // max path input is in bytes
+    max_path *= 2;
+    let res = RegGetValueW(
+        HKEY_CURRENT_USER,
+        sk.as_ptr(),
+        kv.as_ptr(),
+        RRF_RT_REG_SZ,
+        std::ptr::null_mut(),
+        out_buf.as_mut_ptr() as *mut c_void,
+        &mut max_path,
+    );
+    if res as DWORD != ERROR_SUCCESS {
+        return Err(HookError::ConfReadFailed(format!(
+            "Error reading {}\\{} registry key as string: {}",
+            path, key, res
+        )));
+    }
+    //println!("bytes read from registry {}", max_path);
+    // convert bytes read to chars and remove null terminator
+    let nchars = (max_path / 2) - 1;
+    let wslice = std::slice::from_raw_parts(out_buf.as_mut_ptr(), nchars as usize);
+    let wpath = OsString::from_wide(wslice).into_string()?;
+    Ok(wpath)
+}
+
+pub unsafe fn reg_query_dword(path:&str, key:&str) -> Result<DWORD> {
+    use winapi::ctypes::c_void;
+    use winapi::shared::winerror::ERROR_SUCCESS;
+    use winapi::um::winreg::*;
+
+    let sk = to_wide_str(path);
+    let kv = to_wide_str(key);
+    let mut out_val: DWORD = 0;
+    let p_out_val: *mut c_void = std::mem::transmute(&mut out_val);
+    let mut out_val_dw: DWORD = std::mem::size_of::<DWORD>() as DWORD;
+    let res = RegGetValueW(
+        HKEY_CURRENT_USER,
+        sk.as_ptr(),
+        kv.as_ptr(),
+        RRF_RT_REG_DWORD,
+        std::ptr::null_mut(),
+        p_out_val,
+        &mut out_val_dw,
+    );
+    if res as DWORD != ERROR_SUCCESS {
+        return Err(HookError::ConfReadFailed(format!(
+            "Error reading {}\\{} registry key as dword: {}",
+            path, key, res
+        )));
+    }
+    Ok(out_val)
+}
+
 pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
     unsafe {
         let reg_root = get_mm_reg_key();
         // find the MM install directory, this must be set in the registry by the launcher.
         // the launcher will also set whether MM is active.
-        use winapi::ctypes::c_void;
-        use winapi::shared::minwindef::DWORD;
-        use winapi::shared::winerror::ERROR_SUCCESS;
-        use winapi::um::winreg::*;
+        let wpath = reg_query_string(reg_root, "MMRoot")?;
 
-        use std::os::windows::prelude::*;
 
         // first check if it is active
         // {
@@ -143,34 +206,7 @@ pub fn get_mm_conf_info() -> Result<(bool, Option<String>)> {
 
         // its active, so get path and make sure it exists
         {
-            let sk = to_wide_str(reg_root);
-            let kv = to_wide_str("MMRoot");
-            let mut max_path: DWORD = 65535;
-            // path could have wide chars, use u16
-            let mut out_buf: Vec<u16> = Vec::with_capacity(max_path as usize);
 
-            // max path input is in bytes
-            max_path *= 2;
-            let res = RegGetValueW(
-                HKEY_CURRENT_USER,
-                sk.as_ptr(),
-                kv.as_ptr(),
-                RRF_RT_REG_SZ,
-                std::ptr::null_mut(),
-                out_buf.as_mut_ptr() as *mut c_void,
-                &mut max_path,
-            );
-            if res as DWORD != ERROR_SUCCESS {
-                return Err(HookError::ConfReadFailed(format!(
-                    "Error reading MMRoot registry key: {}",
-                    res
-                )));
-            }
-            //println!("bytes read from registry {}", max_path);
-            // convert bytes read to chars and remove null terminator
-            let nchars = (max_path / 2) - 1;
-            let wslice = std::slice::from_raw_parts(out_buf.as_mut_ptr(), nchars as usize);
-            let wpath = OsString::from_wide(wslice).into_string()?;
 
             // check if path exists
 
@@ -322,6 +358,13 @@ mod tests {
     pub fn test_get_mm_conf_info() {
         // TODO: actually add the requisite values to the registry instead of
         // just assuming they are there.
+        // test the reg funcs
+        unsafe {
+            let active = super::reg_query_dword(get_mm_reg_key(), "Active").expect("doh no active key");
+            assert_eq!(active, 1);
+            let docroot = super::reg_query_string(get_mm_reg_key(), "DocRoot").expect("doh no active key");
+            assert_eq!(docroot, "M:\\ModelMod\\TestData");
+        }
         let res = get_mm_conf_info();
         match res {
             Err(e) => assert!(false, "conf test failed: {:?}", e),
