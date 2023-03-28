@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
-use shared_dx::dx11rs::DX11RenderState;
+use shared_dx::dx11rs::{DX11RenderState};
 use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::{write_log_file, ReleaseOnDrop};
@@ -16,7 +16,10 @@ use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM};
 use winapi::shared::dxgitype::DXGI_SAMPLE_DESC;
 use winapi::shared::winerror::{E_NOINTERFACE};
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA, ID3D11Texture2D, ID3D11Resource};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY,
+    ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC,
+    D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA,
+    ID3D11Texture2D, ID3D11Resource};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::d3dcommon::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D};
 use winapi::um::processthreadsapi::GetCurrentProcessId;
@@ -712,8 +715,8 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 // copy new layouts.  note currently we don't clear the context layouts ever.
                 // maybe hook release on them at some point so we can dispose of those entries.
                 state.rs.context_input_layouts_by_ptr.extend(
-                    state.rs.device_input_layouts_by_ptr.iter().map(|(k,v)| {
-                        (*k, v.clone())
+                    state.rs.device_input_layouts_by_ptr.iter().map(|(k,vf)| {
+                        (*k, vf.shallow_copy())
                     }));
                 // clear the device layouts
                 state.rs.device_input_layouts_by_ptr.clear();

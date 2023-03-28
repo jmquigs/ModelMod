@@ -4,10 +4,29 @@ use fnv::FnvHashMap;
 use winapi::um::{d3d11::{ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, D3D11_PRIMITIVE_TOPOLOGY}, d3dcommon::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED};
 
 
-#[derive(Clone)]
+/// Container for a vertex format.  Contains a list of elements used by the format and its size in bytes.
+/// The vertex elements contain raw pointers which are const char* from the C-world.
+/// Prior to creating a `VertexFormat`, these strings are copied and then the pointers updated to point
+/// at `device_semantic_string_table`
+/// in `DX11RenderState`.  Because of this, this struct does not implement Copy or Clone as I don't
+/// want random copies of it getting strewn about.
+///
+/// `shallow_copy` can be used on the format to
+/// make a copy, but since this aliases the pointer it should be used very sparingly.
 pub struct VertexFormat {
     pub layout: Vec<D3D11_INPUT_ELEMENT_DESC>,
     pub size: u32,
+}
+
+impl VertexFormat {
+    /// Create a shallow copy of the vertex format.  This will copy the layout vector, but the
+    /// pointers in the vector elements will still point to the same strings as the original.
+    pub fn shallow_copy(&self) -> Self {
+        VertexFormat {
+            layout: self.layout.clone(),
+            size: self.size,
+        }
+    }
 }
 
 impl Display for VertexFormat {
@@ -43,6 +62,13 @@ pub struct DX11RenderState {
     pub current_input_layout: *mut ID3D11InputLayout,
     /// The last primitive topology that was set on the context via IASetPrimitiveTopology.
     pub prim_topology: D3D11_PRIMITIVE_TOPOLOGY,
+    /// Contains the semantic string pointers used by the `VertexFormats` in
+    /// `device_input_layouts_by_ptr` and `context_input_layouts_by_ptr`.
+    /// Clearing this will invalidate and leave dangling all the pointers
+    /// those structures.  As well as any clones that exist elsewhere.
+    /// So probably you shouldn't clear it, unless you can clear those as well or this entire
+    /// structure and you know there aren't any clones.
+    pub device_semantic_string_table: FnvHashMap<String, Vec<u8>>,
 }
 
 impl DX11RenderState {
@@ -54,6 +80,7 @@ impl DX11RenderState {
             context_input_layouts_by_ptr: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
             current_input_layout: std::ptr::null_mut(),
             prim_topology: D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
+            device_semantic_string_table: FnvHashMap::with_capacity_and_hasher(64, Default::default()),
         }
     }
 }

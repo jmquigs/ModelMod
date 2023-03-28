@@ -861,10 +861,35 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     );
 
     if res == 0 && has_position && ppInputLayout != null_mut() && (*ppInputLayout) != null_mut() {
-        let vf = vertex_format_from_layout(elements);
-
         dev_state_d3d11_write()
         .map(|(_lock,ds)| {
+            // update the elements and replace the semantic string pointers with table pointers.
+            // this is defensive coding since I haven't seen a problem with this and those pointers
+            // are probably static strings, but it isn't guaranteed, they could become garbage any
+            // time after this call.
+            elements.iter_mut().for_each(|el| {
+                let cname = CStr::from_ptr(el.SemanticName);
+                let name =  cname.to_string_lossy().to_string(); // keep case
+                let len = ds.rs.device_semantic_string_table.capacity();
+                match ds.rs.device_semantic_string_table.get(&name) {
+                    Some(bstr) => {
+                        el.SemanticName = bstr.as_ptr() as *const i8;
+                    },
+                    None => {
+                        // need a byte string with nul term for the table so make that
+                        let semcopy = cname.to_bytes_with_nul().to_vec();
+                        let ptr = semcopy.as_ptr() as *const i8;
+                        ds.rs.device_semantic_string_table.insert(name, semcopy);
+                        el.SemanticName = ptr;
+                    }
+                }
+                if len != ds.rs.device_semantic_string_table.capacity() {
+                    write_log_file(&format!("WARNING: device semantic string table resized to {}", ds.rs.device_semantic_string_table.capacity()));
+                }
+            });
+
+            let vf = vertex_format_from_layout(elements);
+
             // add layout to hash, context will copy it out later
             ds.rs.device_input_layouts_by_ptr.insert(*ppInputLayout as usize, vf);
 
