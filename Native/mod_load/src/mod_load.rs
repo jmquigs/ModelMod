@@ -1139,7 +1139,7 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
         }
     }
 
-    write_log_file(&format!("finished updating {}", what));
+    //write_log_file(&format!("finished updating {}", what));
 
     Ok(())
 }
