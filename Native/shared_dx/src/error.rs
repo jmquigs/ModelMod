@@ -12,6 +12,7 @@ pub enum HookError {
     Direct3D9InstanceNotFound,
     CreateDeviceFailed(i32),
     ConfReadFailed(String),
+    NoRegistryKey(String),
     FailedToConvertString(OsString),
     WinApiError(String),
     ModuleNameError(String),

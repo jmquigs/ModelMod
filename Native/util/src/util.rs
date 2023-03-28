@@ -4,6 +4,7 @@
 use shared_dx::defs_dx9::DWORD;
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::windef::{HWND};
+use winapi::shared::winerror::ERROR_FILE_NOT_FOUND;
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
@@ -163,12 +164,21 @@ pub unsafe fn reg_query_dword(path:&str, key:&str) -> Result<DWORD> {
         p_out_val,
         &mut out_val_dw,
     );
-    if res as DWORD != ERROR_SUCCESS {
-        return Err(HookError::ConfReadFailed(format!(
-            "Error reading {}\\{} registry key as dword: {}",
-            path, key, res
-        )));
+    match res as DWORD {
+        ERROR_SUCCESS => {}
+        ERROR_FILE_NOT_FOUND => {
+            return Err(HookError::NoRegistryKey(format!(
+                "{}\\{} not found", path, key
+            )));
+        }
+        _ => {
+            return Err(HookError::ConfReadFailed(format!(
+                "Error reading {}\\{} registry key as dword: {}",
+                path, key, res
+            )));
+        }
     }
+
     Ok(out_val)
 }
 
