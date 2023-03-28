@@ -761,10 +761,12 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         let now = std::time::SystemTime::now();
         let elapsed = now.duration_since(ml_start);
         if let Ok(elapsed) = elapsed {
+            if cnt > 0 {
             write_log_file(
                 &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
                 cnt, elapsed.as_millis(), diff, device.as_usize(), (*DEVICE_STATE).d3d_resource_count
             ));
+            }
         };
 }
 
