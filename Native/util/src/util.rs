@@ -316,7 +316,6 @@ pub fn to_wide_str(s: &str) -> Vec<u16> {
 
 pub fn get_module_name() -> Result<String> {
     use std::os::windows::prelude::*;
-    use winapi::shared::minwindef::DWORD;
     use winapi::um::libloaderapi::*;
 
     unsafe {

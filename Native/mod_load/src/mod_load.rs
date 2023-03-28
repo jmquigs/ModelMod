@@ -808,16 +808,24 @@ type DirectX_ComputeTangentFrame_32TBFn = unsafe extern "stdcall" fn(indices:*co
     nFaces: usize, positions: *const Float3, normals:*const Float3, texcoords:*const Float2,
     nVerts:usize, tangents:*mut Float3, binormals:*mut Float3) -> HRESULT;
 
-// obviously need to change this if I ever use this code officially.  Probably put the lib in TPLib.
-const DXMESH_DLL:&'static str = r#"C:\Dev\DirectXMesh\DirectXMesh\Bin\Desktop_2019\x64\Debug\DirectXMesh.dll"#;
+// use different dlls for 32/64 bit
+#[cfg(target_pointer_width = "32")]
+const DXMESH_DLL:&'static str = r#"TPLib\DirectXMesh_x86.dll"#;
+#[cfg(target_pointer_width = "64")]
+const DXMESH_DLL:&'static str = r#"TPLib\DirectXMesh_x64.dll"#;
 
-/// Experimental code to update normals using DirectXMesh.  Enabled based on registry settings,
-/// disabled by default.  The normals it generates seem better on some models, however, they aren't
-/// smooth shaded like normals from blender.  Therefore the faces appear, well, faceted.  There
-/// is a flag to control how it computes the normals but none produce whatever blender is doing.
+/// Update normals and tangents/bitangents using DirectXMesh.
+///
+/// Normal update generally disabled by default since it doesn't do smooth normals like blender,
+/// and the faceting looks bad most of the time.  Useful for debugging normals though, since the
+/// normals are accurate.
+///
+/// Tangent/bitangent update is enabled by default since its generates vectors that are much more
+/// accurate for most models than what the managed code generates (which is basically just wrong).
+///
 fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
     let mut update_normals = false;
-    let mut update_tangents = false;
+    let mut update_tangents = true;
     let mut flags = CNormFlags::Default;
     let mut reverse = false;
 
@@ -841,10 +849,17 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
                 }).unwrap_or(0);
                 update_normals = do_update_nrm > 0;
 
-                let do_update_tan = util::reg_query_dword(profile_root, "GameProfileUpdateTangents")
-                .map_err(|e| {
-                    write_log_file(&format!("tangent update disabled: {:?}", e));
-                }).unwrap_or(0);
+                let tankey = "GameProfileUpdateTangents";
+                let do_update_tan = util::reg_query_dword(profile_root, tankey)
+                .map(|f| {
+                    if f == 0 {
+                        write_log_file(&format!("tangent update disabled by registry {}\\{}", profile_root, tankey));
+                    }
+                    f
+                })
+                .map_err(|_e| {
+                    //write_log_file(&format!("tangent update disabled: {:?}", e));
+                }).unwrap_or(1);
                 update_tangents = do_update_tan > 0;
 
                 if !update_normals && !update_tangents {
@@ -880,7 +895,11 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
     };
     write_log_file(&format!("updating {}; reverse: {}", what, reverse));
 
-    let lib = util::load_lib(DXMESH_DLL)?;
+    let mut dllpath = unsafe { &GLOBAL_STATE.mm_root.as_ref() }.ok_or_else (||
+        HookError::MeshUpdateFailed(String::from("no mmroot")))?.to_owned();
+    dllpath.push('\\');
+    dllpath.push_str(DXMESH_DLL);
+    let lib = util::load_lib(&dllpath)?;
 
     let compute_normals_32:Option<DirectX_ComputeNormals_32Fn> = if update_normals {
         let addr = util::get_proc_address(lib, "DirectX_ComputeNormals_32")?;
