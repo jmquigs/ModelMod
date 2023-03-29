@@ -53,7 +53,7 @@ tro to use it.
 
 */
 
-use std::time::{SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Ok;
 use winapi::{um::{winuser::{CreateWindowExW, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, ShowWindow,
@@ -80,8 +80,13 @@ use winapi::{um::{winuser::{CreateWindowExW, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
 use winapi::um::d3dcommon::{D3D_DRIVER_TYPE,D3D_FEATURE_LEVEL};
 
 use winapi::um::errhandlingapi::GetLastError;
+
+use crate::load_mmobj::test_load_mmobj;
+
 #[macro_use]
 extern crate anyhow;
+
+mod load_mmobj;
 
 #[repr(C, align(8))]
 struct SimpleVertex {
@@ -484,7 +489,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
         ShowWindow(window, SW_SHOWDEFAULT);
 
         // load d3d11
-        let create_dev_fn = load_d3d11().ok_or(anyhow!("failed to load d3d11"))?;
+        let create_dev_fn = load_d3d11().ok_or_else(|| anyhow!("failed to load d3d11"))?;
         println!("create_dev_fn: {:x}", create_dev_fn as usize);
         let (device,context, swapchain)
             = create_d3d11_device(window, create_dev_fn)?;
@@ -591,7 +596,15 @@ unsafe fn runapp() -> anyhow::Result<()> {
     Ok(())
 }
 
+
 fn main() {
+    // use env to figure out mode, default is run d3d app
+    let mode = std::env::var("MODE").unwrap_or("d3d".to_string());
+    if mode == "mmobj" {
+        let res = test_load_mmobj();
+        println!("res: {:?}", res);
+        return;
+    }
     unsafe {
         let res = runapp();
         println!("res: {:?}", res);

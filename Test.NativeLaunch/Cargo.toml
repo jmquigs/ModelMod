@@ -11,3 +11,4 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "dxgi",
     "dinput", "sysinfoapi", "errhandlingapi"] }
 anyhow = "*"
 rand = "*"
+aho-corasick = "0.7.20"
