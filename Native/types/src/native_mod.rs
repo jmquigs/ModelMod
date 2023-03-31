@@ -22,6 +22,14 @@ impl ModD3DState {
             }
         }
     }
+
+    pub fn is_loaded(&self) -> bool {
+        use crate::native_mod::ModD3DState::Loaded;
+        match self {
+            Loaded(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct NativeModData {
@@ -30,9 +38,11 @@ pub struct NativeModData {
     pub d3d_data: ModD3DState,
     pub is_parent: bool,
     pub parent_mod_names: Vec<String>,
-    pub last_frame_render: u64, // only set for parent mods
+    pub last_frame_render: u64,
     pub name: String,
 }
+
+pub const MAX_RECENT_RENDER_FRAMES:u64 = 500;
 
 impl NativeModData {
     pub fn new() -> Self {
@@ -55,7 +65,7 @@ impl NativeModData {
             // we rendered in the future, so I guess that is recent?
             return true;
         }
-        curr_frame_num - self.last_frame_render <= 10 // last 150ms or so ought to be fine
+        curr_frame_num - self.last_frame_render <= MAX_RECENT_RENDER_FRAMES
     }
     /// Utility function to split a potentially or'ed list of parents into individual strings
     pub fn split_parent_string(pstr:&str) -> Vec<String> {
