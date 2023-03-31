@@ -580,9 +580,15 @@ module ModDB =
                         )
                         match oldMeshRel with
                         | Some(meshRel) ->
-                            nCached <- nCached + 1
-                            //log().Info "Using cached mesh rel for mod %A, ref %A" meshRel.DBMod.Name meshRel.DBRef.Name
-                            meshRel
+                            // update the DB references to pick up new settings in the yaml files, but we can't change anything
+                            // else without a rebuild
+                            try
+                                meshRel.UpdateDBElems(dbmod, dbRef)
+                                nCached <- nCached + 1
+                                //log().Info "Using cached mesh rel for mod %A, ref %A" meshRel.DBMod.Name meshRel.DBRef.Name
+                                meshRel
+                            with
+                            | e -> newMeshRel()
                         | None -> newMeshRel()
                     | _ -> newMeshRel()
                 )

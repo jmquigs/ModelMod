@@ -1,4 +1,4 @@
-﻿// ModelMod: 3d data snapshotting & substitution program.
+// ModelMod: 3d data snapshotting & substitution program.
 // Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
@@ -69,14 +69,35 @@ module MeshRelation =
     }
 
     type MeshRelation(md:DBMod, ref:DBReference) =
-        let sw = new Util.StopwatchTracker("MeshRel:" + md.Name + "/" + ref.Name)
-        let modMesh = 
-            match md.Mesh with 
-            | None -> failwith "cannot build vertrel for mod with no mesh"
-            | Some (mesh) -> mesh
+        let verifyAndGet(name:string) (mo:Mesh option) =
+            match mo with
+            | None -> failwithf "cannot build vertrel for mod/ref with no mesh: %A" name
+            | Some (m) -> m
+
+        let modMesh = verifyAndGet md.Name md.Mesh
         let refMesh = ref.Mesh
-        // Note: if this calculation is modified in the future to use something 
-        // other than mesh data, the caching assumptions on reload may change 
+
+        let mutable md = md
+        let mutable ref = ref
+
+        let updateDBElems (newMd:DBMod) (newRef:DBReference) =
+            // can change the mod entries if the meshes didn't change or if the _only_ thing that changed is the cached flag
+            // (and it was set to true)
+            let newModMesh = verifyAndGet newMd.Name newMd.Mesh
+            let newRefMesh = newRef.Mesh
+
+            let oldModMesh = {modMesh with Cached = true}
+            let oldRefMesh = {refMesh with Cached = true}
+
+            // perfnote: these are deep equality compares of the structs
+            if newModMesh <> oldModMesh then failwithf "updateDBElems: cannot change mod mesh; make a new mesh relation"
+            if newRefMesh <> oldRefMesh then failwithf "updateDBElems: cannot change ref mesh; make a new mesh relation"
+            md <- newMd
+            ref <- newRef
+
+        let sw = new Util.StopwatchTracker("MeshRel:" + md.Name + "/" + ref.Name)
+        // Note: if this calculation is modified in the future to use something
+        // other than mesh data, the caching assumptions on reload may change
         // (see `loadModDB`)
 
         let buildTris (mesh:Mesh) =
@@ -249,9 +270,13 @@ module MeshRelation =
     
         member x.DBMod = md
         member x.DBRef = ref
-        member x.VertRelations = vertRels
+
+        member x.UpdateDBElems(dbMod,dbRef) = updateDBElems dbMod dbRef
+
         member x.ModMesh = modMesh
         member x.RefMesh = refMesh
+
+        member x.VertRelations = vertRels
         member x.ModVertRels = vertRels
 
         member x.GetVertDeclaration() =
