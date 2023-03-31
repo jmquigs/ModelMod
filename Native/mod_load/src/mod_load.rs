@@ -583,7 +583,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         //write_log_file(&format!("mod: {}, parents: {:?}", native_mod_data.name, native_mod_data.parent_mod_names));
 
         if is_deletion_mod {
-            loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
+            loaded_mods.entry(mod_key).or_insert_with(|| vec![]).push(native_mod_data);
             // thats all we need to do for these.
             continue;
         }
@@ -592,7 +592,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         // mod is actually referenced so that we don't clog d3d with a bunch of possibly unused
         // stuff. (see `load_deferred_mods`)
 
-        loaded_mods.entry(mod_key).or_insert(vec![]).push(native_mod_data);
+        loaded_mods.entry(mod_key).or_insert_with(|| vec![]).push(native_mod_data);
     }
 
     // mark all parent mods as such, and also warn about any parents that didn't load
@@ -844,8 +844,8 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
         .and_then(|profile_root| {
             unsafe {
                 let do_update_nrm = util::reg_query_dword(profile_root, "GameProfileUpdateNormals")
-                .map_err(|e| {
-                    write_log_file(&format!("normal update disabled: {:?}", e));
+                .map_err(|_e| {
+                    //write_log_file(&format!("normal update disabled: {:?}", e));
                 }).unwrap_or(0);
                 update_normals = do_update_nrm > 0;
 
