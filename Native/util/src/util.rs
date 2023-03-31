@@ -1,6 +1,7 @@
 
 
 
+use aho_corasick::AhoCorasick;
 use shared_dx::defs_dx9::DWORD;
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::windef::{HWND};
@@ -337,6 +338,46 @@ pub fn get_module_name() -> Result<String> {
     }
 }
 
+pub fn get_module_name_base() -> Result<String> {
+    get_module_name()
+        .and_then(|mod_name| {
+            use std::path::PathBuf;
+
+            let stem = {
+                let pb = PathBuf::from(&mod_name);
+                let s = pb
+                    .file_stem()
+                    .ok_or(HookError::ConfReadFailed("no stem".to_owned()))?;
+                let s = s
+                    .to_str()
+                    .ok_or(HookError::ConfReadFailed("cant't make stem".to_owned()))?;
+                (*s).to_owned()
+            };
+
+            Ok(stem)
+        })
+}
+
+pub fn format_time(time: &std::time::SystemTime) -> String {
+    use chrono::prelude::*;
+    let dt = DateTime::<Local>::from(*time);
+    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+pub fn aho_corasick_scan<'b, B, I, P>(patterns: I, numpat:usize, haystack: &'b B) -> Vec<Vec<(usize,usize)>>
+    where
+    B: ?Sized + AsRef<[u8]>,
+    I: IntoIterator<Item = P>,
+    P: AsRef<[u8]> {
+    let mut outputs:Vec<Vec<(usize,usize)>> =
+        (0..numpat).into_iter().map(|_u| vec![]).collect();
+
+    let ac = AhoCorasick::new(patterns);
+    ac.find_iter(&haystack).for_each(|mat| {
+        outputs[mat.pattern()].push( (mat.start(), mat.end()) );
+    });
+    outputs
+}
 
 pub use winapi::shared::d3d9::{IDirect3DBaseTexture9,
     IDirect3DVertexDeclaration9,IDirect3DIndexBuffer9,IDirect3DPixelShader9,

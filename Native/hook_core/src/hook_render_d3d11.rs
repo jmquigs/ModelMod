@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
-use std::time::SystemTime;
+use std::time::{SystemTime};
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
 use shared_dx::dx11rs::{DX11RenderState};
@@ -31,7 +31,7 @@ use device_state::{dev_state, dev_state_d3d11_nolock, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
-use crate::{input_commands, debugmode, mod_render};
+use crate::{input_commands, debugmode, mod_render, mod_stats};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 use fnv::FnvHashMap;
@@ -689,7 +689,14 @@ unsafe fn find_app_windows() {
 
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
-        if let Some(state) = dev_state_d3d11_nolock() { state.last_timebased_update = now; }
+        if let Some(state) = dev_state_d3d11_nolock() {
+            state.last_timebased_update = now;
+        }
+        // keep the frame counter rolling even though we don't know when the frames end.  some
+        // mod loading selection features rely on this to see if a mod has been rendered recently.
+        GLOBAL_STATE.metrics.total_frames += ((mselapsed as f32 / 1000.0) * 60.0) as u64;
+
+        mod_stats::update(&now);
 
         frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
             write_log_file(&format!("init clr failed: {:?}", e)));

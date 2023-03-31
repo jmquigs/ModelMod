@@ -20,6 +20,7 @@ use mod_load;
 use mod_load::AsyncLoadState;
 use crate::input_commands;
 use crate::mod_render;
+use crate::mod_stats;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use global_state::FrameMetrics;
 use device_state::dev_state;
@@ -330,6 +331,8 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
 
     const METRICS_DIPS_INTERVAL:u32 = 1_000_000;
     process_metrics(metrics, false, METRICS_DIPS_INTERVAL);
+
+    mod_stats::update(&SystemTime::now());
 
     Ok(())
 }

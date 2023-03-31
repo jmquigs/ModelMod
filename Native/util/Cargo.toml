@@ -14,3 +14,5 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "objidl
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput"] }
 shared_dx = { path = "../shared_dx" }
+chrono = "*"
+aho-corasick = "0.7.20"

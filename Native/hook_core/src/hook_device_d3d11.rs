@@ -983,7 +983,7 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 /// MM will actually work in these cases, we don't want crashes.
 /// Most of these tests can't be run simulataneously, however as they poke at the device globals,
 /// so they lock at the start, since cargo will normally run them threaded.
-mod tests {
+pub mod tests {
     use std::{sync::{MutexGuard, Arc}, thread::JoinHandle};
     use device_state::DEVICE_STATE_LOCK;
     use shared_dx::util::{LOG_EXCL_LOCK};
