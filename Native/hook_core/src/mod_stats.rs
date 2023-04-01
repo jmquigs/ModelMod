@@ -61,11 +61,14 @@ enum ThreadReply {
 const DEF_FILE_NAME: &str = "mod_stats.txt";
 const DEF_IDLE_SECS: u64 = 240;
 const DEF_UPD_INTERVAL_SECS: u64 = 5;
+const DEF_MIN_ACTIVE_TIME_SECS: u64 = 60;
+
 thread_local! {
     static MOD_STATS: RefCell<ModStats>  = RefCell::new(ModStats::new());
     static UPD_INTERVAL: RefCell<Duration> = RefCell::new(Duration::from_secs(DEF_UPD_INTERVAL_SECS));
     static IDLE_NEW: RefCell<Duration> = RefCell::new(Duration::from_secs(DEF_IDLE_SECS));
     static MOD_STAT_FILE: RefCell<String> = RefCell::new(DEF_FILE_NAME.to_string());
+    static MIN_ACTIVE_TIME: RefCell<Duration> = RefCell::new(Duration::from_secs(DEF_MIN_ACTIVE_TIME_SECS));
 }
 
 fn reset() {
@@ -91,6 +94,10 @@ fn reset() {
     MOD_STAT_FILE.with(|s| {
         let mut s = s.borrow_mut();
         *s = DEF_FILE_NAME.to_string();
+    });
+    MIN_ACTIVE_TIME.with(|s| {
+        let mut s = s.borrow_mut();
+        *s = Duration::from_secs(DEF_MIN_ACTIVE_TIME_SECS);
     });
 }
 
@@ -408,7 +415,14 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
                                 total_active += 1;
                                 *dur += elapsed;
                                 *upd = *now;
-                                modmsg = Some(ModMsg::ModActive(nmod.name.clone(), *start_time, *dur));
+                                // don't report unless duration exceeds min active time
+                                modmsg = MIN_ACTIVE_TIME.with(|min| {
+                                    if *dur > *min.borrow() {
+                                        Some(ModMsg::ModActive(nmod.name.clone(), *start_time, *dur))
+                                    } else {
+                                        None
+                                    }
+                                });
                             }
                         };
                         if let Some(msg) = modmsg {
