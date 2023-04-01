@@ -131,6 +131,7 @@ dependencies = [
  "interop",
  "lazy_static",
  "mod_load",
+ "mod_stats",
  "profiler",
  "rustc_version",
  "shader_capture",
@@ -221,6 +222,17 @@ dependencies = [
  "types",
  "util",
  "winapi",
+]
+
+[[package]]
+name = "mod_stats"
+version = "0.1.0"
+dependencies = [
+ "fnv",
+ "global_state",
+ "shared_dx",
+ "types",
+ "util",
 ]
 
 [[package]]

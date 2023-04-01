@@ -37,7 +37,6 @@ mod hook_device;
 //mod hook_constants;
 mod mod_render;
 mod hook_device_d3d11;
-mod mod_stats;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};

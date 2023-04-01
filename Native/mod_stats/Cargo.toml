@@ -1,0 +1,13 @@
+[package]
+name = "mod_stats"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fnv = "1.0.6"
+shared_dx = { path = "../shared_dx" }
+util = { path = "../util" }
+global_state = { path = "../global_state" }
+types = { path = "../types" }

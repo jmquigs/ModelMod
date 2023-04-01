@@ -16,6 +16,7 @@ constant_tracking = { path = "../constant_tracking" }
 d3dx = { path = "../d3dx" }
 types = { path = "../types" }
 mod_load = { path = "../mod_load" }
+mod_stats = { path = "../mod_stats" }
 device_state = { path = "../device_state" }
 dnclr = { path = "../dnclr" }
 interop = { path = "../interop" }

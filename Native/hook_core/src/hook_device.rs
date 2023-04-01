@@ -297,43 +297,8 @@ pub fn init_device_state_once() -> bool {
     }
 }
 
-pub fn mm_verify_load() -> Option<String> {
-    match get_mm_conf_info() {
-        Ok((true, Some(dir))) => return Some(dir),
-        Ok((false, _)) => {
-            write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
-            return None;
-        }
-        Ok((true, None)) => {
-            write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
-            return None;
-        }
-        Err(e) => {
-            write_log_file(&format!(
-                "ModelMod not initializing due to conf error: {:?}",
-                e
-            ));
-            return None;
-        }
-    };
-}
-
-thread_local! {
-    static LOG_WAS_INIT: RefCell<bool> = RefCell::new(false);
-}
-
-/// Useful for tests to avoid log file getting put in wrong place.
-pub fn init_log_no_root(file_name:&str) -> Result<()> {
-    set_log_file_path(&"", &file_name)?;
-
-    LOG_WAS_INIT.with(|was_init| {
-        *was_init.borrow_mut() = true;
-    });
-    Ok(())
-}
-
 pub fn init_log(mm_root:&str) {
-    if LOG_WAS_INIT.with(|x| *x.borrow()) {
+    if log_initted_on_this_thread() {
         write_log_file("log already initialized on this thread");
         return;
     }
@@ -379,9 +344,7 @@ pub fn init_log(mm_root:&str) {
 
             eprintln!("Log File: {}", tname);
 
-            LOG_WAS_INIT.with(|was_init| {
-                *was_init.borrow_mut() = true;
-            });
+            set_log_initted_on_this_thread();
 
             Ok(())
         })

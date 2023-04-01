@@ -3,13 +3,16 @@
 
 use aho_corasick::AhoCorasick;
 use shared_dx::defs_dx9::DWORD;
+use shared_dx::util::{write_log_file, set_log_file_path};
 use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
 use winapi::shared::windef::{HWND};
 use winapi::shared::winerror::ERROR_FILE_NOT_FOUND;
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::um::winuser::{GetAncestor, GetForegroundWindow, GetParent};
 
+use std::cell::RefCell;
 use std::ffi::OsString;
+use std::sync::MutexGuard;
 
 use shared_dx::error::*;
 
@@ -358,6 +361,27 @@ pub fn get_module_name_base() -> Result<String> {
         })
 }
 
+pub fn mm_verify_load() -> Option<String> {
+    match get_mm_conf_info() {
+        Ok((true, Some(dir))) => return Some(dir),
+        Ok((false, _)) => {
+            write_log_file(&format!("ModelMod not initializing because it is not active (did you start it with the ModelMod launcher?)"));
+            return None;
+        }
+        Ok((true, None)) => {
+            write_log_file(&format!("ModelMod not initializing because install dir not found (did you start it with the ModelMod launcher?)"));
+            return None;
+        }
+        Err(e) => {
+            write_log_file(&format!(
+                "ModelMod not initializing due to conf error: {:?}",
+                e
+            ));
+            return None;
+        }
+    };
+}
+
 pub fn format_time(time: &std::time::SystemTime) -> String {
     use chrono::prelude::*;
     let dt = DateTime::<Local>::from(*time);
@@ -379,6 +403,48 @@ pub fn aho_corasick_scan<'b, B, I, P>(patterns: I, numpat:usize, haystack: &'b B
     outputs
 }
 
+thread_local! {
+    static LOG_WAS_INIT: RefCell<bool>  = RefCell::new(false);
+}
+
+pub fn log_initted_on_this_thread() -> bool {
+    LOG_WAS_INIT.with(|was_init| {
+        *was_init.borrow()
+    })
+}
+
+pub fn set_log_initted_on_this_thread() {
+    LOG_WAS_INIT.with(|was_init| {
+        *was_init.borrow_mut() = true;
+    });
+}
+
+/// Useful for tests to avoid log file getting put in wrong place.
+#[allow(dead_code)]
+pub fn init_log_no_root(file_name:&str) -> Result<()> {
+    set_log_file_path(&"", &file_name)?;
+
+    LOG_WAS_INIT.with(|was_init| {
+        *was_init.borrow_mut() = true;
+    });
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn prep_log_file<'a>(_lock: &MutexGuard<()>, filename:&'a str) -> std::io::Result<&'a str> {
+    prep_log_file_nolock(filename,true)
+}
+
+#[allow(dead_code)]
+pub fn prep_log_file_nolock<'a>(filename:&'a str, remove:bool) -> std::io::Result<&'a str> {
+    if remove && std::path::Path::new(filename).exists() {
+        std::fs::remove_file(filename)?;
+    }
+    init_log_no_root(filename)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)))?;
+    Ok(filename)
+}
+
 pub use winapi::shared::d3d9::{IDirect3DBaseTexture9,
     IDirect3DVertexDeclaration9,IDirect3DIndexBuffer9,IDirect3DPixelShader9,
     IDirect3DVertexShader9};
@@ -386,6 +452,8 @@ pub use winapi::shared::d3d9::{IDirect3DBaseTexture9,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
 
     #[test]
     pub fn test_nasty_string_utils() {

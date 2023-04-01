@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use global_state::GLOBAL_STATE;
 use shared_dx::util::write_log_file;
 
-use crate::hook_device::mm_verify_load;
+use util::mm_verify_load;
 
 struct LogThread {
     pub sender: Sender<ThreadCommand>,
@@ -71,6 +71,7 @@ thread_local! {
     static MIN_ACTIVE_TIME: RefCell<Duration> = RefCell::new(Duration::from_secs(DEF_MIN_ACTIVE_TIME_SECS));
 }
 
+#[allow(dead_code)]
 fn reset() {
     MOD_STATS.with(|s| {
         let mut s = s.borrow_mut();
@@ -91,10 +92,7 @@ fn reset() {
         let mut s = s.borrow_mut();
         *s = Duration::from_secs(DEF_IDLE_SECS);
     });
-    MOD_STAT_FILE.with(|s| {
-        let mut s = s.borrow_mut();
-        *s = DEF_FILE_NAME.to_string();
-    });
+    set_filename(DEF_FILE_NAME);
     MIN_ACTIVE_TIME.with(|s| {
         let mut s = s.borrow_mut();
         *s = Duration::from_secs(DEF_MIN_ACTIVE_TIME_SECS);
@@ -472,8 +470,7 @@ mod tests {
     use types::{native_mod::{self, NativeModData, ModD3DState, ModD3DData, MAX_RECENT_RENDER_FRAMES}, interop::ModData, d3ddata::ModD3DData11};
 
     use super::*;
-    use crate::hook_device_d3d11::tests::prep_log_file;
-    use crate::util::format_time;
+    use util::{format_time, prep_log_file};
 
     fn set_update_interval_ms(ms:u64) {
         UPD_INTERVAL.with(|ui| {

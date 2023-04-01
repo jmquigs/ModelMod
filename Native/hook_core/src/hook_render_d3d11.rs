@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime};
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
+use mod_stats::mod_stats;
 use shared_dx::dx11rs::{DX11RenderState};
 use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
 use shared_dx::types_dx11::{HookDirect3D11Context};
@@ -31,7 +32,7 @@ use device_state::{dev_state, dev_state_d3d11_nolock, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
-use crate::{input_commands, debugmode, mod_render, mod_stats};
+use crate::{input_commands, debugmode, mod_render};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 use fnv::FnvHashMap;

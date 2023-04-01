@@ -55,6 +55,7 @@ use shared_dx::dx11rs::DX11RenderState;
 use shared_dx::dx11rs::VertexFormat;
 use shared_dx::types::DX11Metrics;
 use shared_dx::types::DevicePointer;
+use util::mm_verify_load;
 use winapi::Interface;
 use winapi::ctypes::c_void;
 use winapi::shared::basetsd::SIZE_T;
@@ -83,7 +84,7 @@ use shared_dx::error::*;
 use winapi::um::unknwnbase::IUnknown;
 
 use crate::debugmode;
-use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log, mm_verify_load};
+use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log};
 use shared_dx::util::write_log_file;
 use shared_dx::types_dx11::HookDirect3D11;
 use shared_dx::types::HookDeviceState;
@@ -984,13 +985,13 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 /// Most of these tests can't be run simulataneously, however as they poke at the device globals,
 /// so they lock at the start, since cargo will normally run them threaded.
 pub mod tests {
-    use std::{sync::{MutexGuard, Arc}, thread::JoinHandle};
+    use std::{sync::{Arc}, thread::JoinHandle};
     use device_state::DEVICE_STATE_LOCK;
     use shared_dx::util::{LOG_EXCL_LOCK};
+    use util::{prep_log_file, prep_log_file_nolock};
     use winapi::{um::{unknwnbase::{IUnknown, IUnknownVtbl},
         d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
         d3d11::{D3D11_SDK_VERSION, D3D11_INPUT_PER_VERTEX_DATA}}, shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT};
-    use crate::hook_device::init_log_no_root;
     use super::*;
 
     pub unsafe extern "system" fn dummy_addref(_ik: *mut IUnknown) -> u32 {
@@ -1022,19 +1023,6 @@ pub mod tests {
         *_ppInputLayout = ptr as *mut ID3D11InputLayout;
         write_log_file("note: dummy_create_input_layout returning real but invalid pointer");
         0
-    }
-
-    pub fn prep_log_file<'a>(_lock: &MutexGuard<()>, filename:&'a str) -> std::io::Result<&'a str> {
-        prep_log_file_nolock(filename,true)
-    }
-
-    pub fn prep_log_file_nolock<'a>(filename:&'a str, remove:bool) -> std::io::Result<&'a str> {
-        if remove && std::path::Path::new(filename).exists() {
-            std::fs::remove_file(filename)?;
-        }
-        init_log_no_root(filename)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)))?;
-        Ok(filename)
     }
 
     fn cleanup(device:*mut ID3D11Device, testcontext:&str) {

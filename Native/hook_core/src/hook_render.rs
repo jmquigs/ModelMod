@@ -20,7 +20,7 @@ use mod_load;
 use mod_load::AsyncLoadState;
 use crate::input_commands;
 use crate::mod_render;
-use crate::mod_stats;
+use mod_stats::mod_stats;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 use global_state::FrameMetrics;
 use device_state::dev_state;
