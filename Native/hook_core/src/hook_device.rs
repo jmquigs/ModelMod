@@ -6,7 +6,6 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std;
-use std::cell::RefCell;
 use std::ptr::null_mut;
 use shared_dx::types::*;
 use shared_dx::types_dx9::*;

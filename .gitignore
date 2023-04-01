@@ -71,8 +71,8 @@ Native/hook_core/__testhd3d11__test_create_device.txt
 Native/hook_core/__testhd3d11__test_create_device_threads.txt
 Native/hook_core/__testhd3d11__create_and_draw.txt
 Test.NativeLaunch/mmobjlist.txt
-Native/hook_core/__test_mod_stats_update.txt
-Native/hook_core/__test_mod_stats.txt
-Native/hook_core/__test_process_messages_1.txt
-Native/hook_core/__test_process_messages_2.txt
-Native/hook_core/__test_process_messages_3.txt
+Native/mod_stats/__test_mod_stats_update.txt
+Native/mod_stats/__test_mod_stats.txt
+Native/mod_stats/__test_process_messages_1.txt
+Native/mod_stats/__test_process_messages_2.txt
+Native/mod_stats/__test_process_messages_3.txt

@@ -177,7 +177,7 @@ mod tests {
     use super::*;
     use global_state::new_fnv_map;
     use global_state::{LoadedModState,LoadedModsMap,ModsByNameMap};
-    use types::native_mod::NativeModData;
+    use types::native_mod::{NativeModData, MAX_RECENT_RENDER_PARENT_THRESH};
 
     fn new_mod(name:&str, prims:i32, verts:i32) -> NativeModData {
         let mut m = NativeModData::new();
@@ -274,19 +274,21 @@ mod tests {
         assert!(r.is_none());
         // update so that we have just one recent parent
         let pmod = get_parent(&mut mstate, "Mod1P");
-        pmod.last_frame_render = 50;
+        let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
+        pmod.last_frame_render = frame;
         // trying to select child when one parent has rendered recently should find it
-        let r = select(&mut mstate, 101, 201, 50);
+        let r = select(&mut mstate, 101, 201, frame);
         assert_eq!(r.expect("no mod found").name, "mod2c".to_string());
         // and should not when parent hasn't been rendered
-        let r = select(&mut mstate, 101, 201, 100);
+        let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
+        let r = select(&mut mstate, 101, 201, frame);
         assert!(r.is_none());
         // when a parent is rendered, its frame should update
-        let r = select(&mut mstate, 100, 200, 60);
+        let r = select(&mut mstate, 100, 200, frame+60);
         match r {
             Some(nmod) => {
                 assert_eq!(nmod.name, "mod1p".to_string());
-                assert_eq!(nmod.last_frame_render, 60);
+                assert_eq!(nmod.last_frame_render, frame+60);
             },
             _ => panic!("test failed")
         }
@@ -305,16 +307,17 @@ mod tests {
         add_mod(&mut modmap, child);
 
         let mut mstate = new_state(modmap);
-        // Make Mod1P active recently, which should not matter for us because it isn't
-        // our parent.
+        // Make Mod1P active recently, which should not matter for ModC because it isn't
+        // ModC's parent.
         let pmod = get_parent(&mut mstate, "Mod1P");
-        pmod.last_frame_render = 50;
-        let r = select(&mut mstate, 101, 201, 50);
+        let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
+        pmod.last_frame_render = frame;
+        let r = select(&mut mstate, 101, 201, frame);
         assert!(r.is_none());
         // and if we update our parent, we should be selected now
         let pmod = get_parent(&mut mstate, "Mod4P");
-        pmod.last_frame_render = 50;
-        let r = select(&mut mstate, 101, 201, 50);
+        pmod.last_frame_render = frame;
+        let r = select(&mut mstate, 101, 201, frame);
         assert_eq!(r.expect("no mod found").name, "modc".to_string());
     }
 
@@ -332,16 +335,20 @@ mod tests {
         child.parent_mod_names.push("Mod1P".to_string());
         add_mod(&mut modmap, child);
         let mut mstate = new_state(modmap);
-        // both recent = no child render
+        // both recent = no child render.  since they are new mods their last recent frame is zero
+        // (which is a bit ugly, actually it should be an option with None)
         let r = select(&mut mstate, 101, 201, 0);
         assert!(r.is_none());
         let pmod = get_parent(&mut mstate, "Mod4P");
-        pmod.last_frame_render = 50;
-        let r = select(&mut mstate, 101, 201, 50);
+        // advance frame to put all mods out of recent window except this one
+        let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
+        pmod.last_frame_render = frame;
+        let r = select(&mut mstate, 101, 201, frame);
         assert_eq!(r.expect("no mod found").name, "modc".to_string());
         let pmod = get_parent(&mut mstate, "Mod1P");
-        pmod.last_frame_render = 100;
-        let r = select(&mut mstate, 101, 201, 100);
+        let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10;
+        pmod.last_frame_render = frame;
+        let r = select(&mut mstate, 101, 201, frame);
         assert_eq!(r.expect("no mod found").name, "modc".to_string());
     }
 
@@ -361,24 +368,25 @@ mod tests {
         assert_eq!(r.expect("no mod found").name, "modc".to_string());
         // now select with a more recent frame to exclude the parent, this should return the first
         // mod, because we haven't selected a variant yet, so the default is the first
-        let r = select(&mut mstate, 100, 200, 50);
+        let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
+        let r = select(&mut mstate, 100, 200, frame);
         //assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
         assert_eq!(r.expect("no mod found").name, "mod1".to_string());
         // now pick a variant.  the indexes will be the same as the mod insertion order.
         let mk = NativeModData::mod_key(200, 100);
         mstate.selected_variant.insert(mk, 0);
-        let r = select(&mut mstate, 100, 200, 50);
+        let r = select(&mut mstate, 100, 200, frame);
         assert_eq!(r.expect("no mod found").name, "mod1".to_string());
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 1;
-        let r = select(&mut mstate, 100, 200, 50);
+        let r = select(&mut mstate, 100, 200, frame);
         assert_eq!(r.expect("no mod found").name, "mod2".to_string());
         // select() should not return a selected child
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 2;
-        let r = select(&mut mstate, 100, 200, 50);
+        let r = select(&mut mstate, 100, 200, frame);
         assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
         // select() should not puke if selected child is out of range
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 3;
-        let r = select(&mut mstate, 100, 200, 50);
+        let r = select(&mut mstate, 100, 200, frame);
         assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
     }
 

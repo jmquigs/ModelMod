@@ -386,7 +386,7 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
                     //     write_log_file(&format!("loaded mod: {}, last frame: {}, cur frame: {}",
                     //     nmd.name, nmd.last_frame_render, GLOBAL_STATE.metrics.total_frames ));
                     // }
-                    nmd.d3d_data.is_loaded() && nmd.recently_rendered(total_frames)
+                    nmd.d3d_data.is_loaded() && nmd.recently_used(total_frames)
                 })))
             .map(|i| {
                 for nmod in i {
@@ -467,7 +467,7 @@ mod tests {
     use fnv::FnvHashMap;
     use global_state::LoadedModState;
     use shared_dx::util::LOG_EXCL_LOCK;
-    use types::{native_mod::{self, NativeModData, ModD3DState, ModD3DData, MAX_RECENT_RENDER_FRAMES}, interop::ModData, d3ddata::ModD3DData11};
+    use types::{native_mod::{self, NativeModData, ModD3DState, ModD3DData, MAX_RECENT_RENDER_USAGE_THRESH}, interop::ModData, d3ddata::ModD3DData11};
 
     use super::*;
     use util::{format_time, prep_log_file};
@@ -759,7 +759,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(2));
         assert_eq!(update(&SystemTime::now()), Some((0,1)));
         std::thread::sleep(Duration::from_millis(2));
-        advance_frames(MAX_RECENT_RENDER_FRAMES+1);
+        advance_frames(MAX_RECENT_RENDER_USAGE_THRESH+1);
         assert_eq!(update(&SystemTime::now()), Some((0,0)));
         set_mod_rendered("mod_100_200_2", 1);
         assert_eq!(update(&SystemTime::now()), Some((0,1)));

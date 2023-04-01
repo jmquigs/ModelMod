@@ -42,7 +42,8 @@ pub struct NativeModData {
     pub name: String,
 }
 
-pub const MAX_RECENT_RENDER_FRAMES:u64 = 500;
+pub const MAX_RECENT_RENDER_USAGE_THRESH:u64 = 500;
+pub const MAX_RECENT_RENDER_PARENT_THRESH:u64 = 90;
 
 impl NativeModData {
     pub fn new() -> Self {
@@ -60,12 +61,27 @@ impl NativeModData {
         //https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
         ((vert_count + prim_count) * (vert_count + prim_count + 1) / 2) + prim_count
     }
+    /// True if mod has been used (rendered) recently, as in the past few seconds.  This activity
+    /// window is signficantly longer than that of `recently_rendered` so it can be used by
+    /// processes that update less frequently.
+    pub fn recently_used(&self, curr_frame_num:u64) -> bool {
+        if self.last_frame_render > curr_frame_num {
+            // we rendered in the future, so I guess that is recent?
+            return true;
+        }
+        curr_frame_num - self.last_frame_render <= MAX_RECENT_RENDER_USAGE_THRESH
+    }
+    /// True if mod has been rendered in the last MAX_RECENT_RENDER_PARENT_THRESH frames.
+    /// Used for parent mod selection (when a mod with a parent becomes active or goes inactive,
+    /// this amount of time passes before children are hidden or visible).  This window needs to be
+    /// short enough to avoid visual artifacts, but long enough that renderers who don't have a
+    /// good idea of the framerate (dx11 currently) have updated the frame count.
     pub fn recently_rendered(&self, curr_frame_num:u64) -> bool {
         if self.last_frame_render > curr_frame_num {
             // we rendered in the future, so I guess that is recent?
             return true;
         }
-        curr_frame_num - self.last_frame_render <= MAX_RECENT_RENDER_FRAMES
+        curr_frame_num - self.last_frame_render <= MAX_RECENT_RENDER_PARENT_THRESH
     }
     /// Utility function to split a potentially or'ed list of parents into individual strings
     pub fn split_parent_string(pstr:&str) -> Vec<String> {
