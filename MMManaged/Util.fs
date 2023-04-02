@@ -25,10 +25,10 @@ module REUtil =
     let private reLog = Logging.getLogger("Regex")
 
     /// Checks that a regex matches the specified pattern and subgroup count; if so returns the groups, if not,
-    /// returns None.  Note that the group count is one higher than the number of apparent groups in the regexp, 
+    /// returns None.  Note that the group count is one higher than the number of apparent groups in the regexp,
     /// because there is an implicit first group that matches everything on success.
     /// e.g. "baz(.*)foo(.*)bar" = 3 expected groups
-    let checkGroupMatch pattern count str  = 
+    let checkGroupMatch pattern count str  =
         let m = Regex.Match(str,pattern)
         if m.Success && m.Groups.Count = count then
             Some(m.Groups)
@@ -36,34 +36,34 @@ module REUtil =
             None
 
     /// Extract values from a list of groups, starting at the specified index and continuing to the end of the
-    /// groups.  Uses the specified extraction function to 
+    /// groups.  Uses the specified extraction function to
     /// transform each group value.  Returns an array of all the extract values.
     /// If any value fails to extract, returns None.  Also returns None if the starting index is >= the
     /// number of groups.
     let extract start xFn (groups:GroupCollection option)  =
-        match groups with 
+        match groups with
             | None -> None
-            | Some groups -> 
-                let tryExtract v = 
+            | Some groups ->
+                let tryExtract v =
                     // use a try here so that we can make sure the value text is included
                     // in the error message if the extraction fails
-                    try 
-                        let res = xFn (v) 
+                    try
+                        let res = xFn (v)
                         res
-                    with 
+                    with
                         | ex -> failwithf "Illegal value: %A: %s" v ex.Message
 
-                try 
+                try
                     let endI = groups.Count - 1
 
-                    let res = [| 
+                    let res = [|
                         for i in [start .. endI] do
                             let v = groups.[i].Value.Trim()
                             yield tryExtract v
                     |]
                     Some (res)
-                with 
-                    | ex -> 
+                with
+                    | ex ->
                         reLog.Error "Failed to extract value from groups[len %d]: %s" groups.Count ex.Message
                         None
 
@@ -75,10 +75,10 @@ module Util =
 
     let private swEnabled = true
 
-    /// Use for basic timing measurements.  If you create it with a "use" statement, it will print the 
+    /// Use for basic timing measurements.  If you create it with a "use" statement, it will print the
     /// elapsed time to the log when it goes out of scope.  Otherwise you can manually print the elapsed time
     /// with StopAndPrint().
-    type StopwatchTracker(name) = 
+    type StopwatchTracker(name) =
         let sw = new Stopwatch()
         do sw.Start()
 
@@ -86,8 +86,8 @@ module Util =
 
         member x.SW = sw
         member x.Name = name
-        member x.StopAndPrint() = 
-            if swEnabled && sw.IsRunning then 
+        member x.StopAndPrint() =
+            if swEnabled && sw.IsRunning then
                 sw.Stop()
                 log.Info "finished: %dms" sw.ElapsedMilliseconds
 
@@ -105,7 +105,7 @@ module Util =
         log.Info "Memory: (clr: %3.2fMB; process: %3.2f MB)" manangedMemory procMemMB
 
 // Source: https://gist.github.com/haf/8140280
-module CRC32 = 
+module CRC32 =
   let IEEE = 0xedb88320u
 
   /// The seed value default: all ones, CRC depends fully on its input.

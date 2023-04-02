@@ -242,9 +242,9 @@ module ModDBInterop =
             | None -> ""
             | Some(name) -> name
 
-        let updateTS = 
-            match meshrel.DBMod.UpdateTangentSpace with 
-            | None -> -1 
+        let updateTS =
+            match meshrel.DBMod.UpdateTangentSpace with
+            | None -> -1
             | Some(upd) -> if upd then 1 else 0
 
         {
@@ -600,9 +600,9 @@ module ModDBInterop =
                 let sxel = new SharpDX.Direct3D11.InputElement(name, int semIndex, format, int offset, int slot, slotclass, int stepRate)
                 let mmel = VertexTypes.layoutElToMMEl sxel name
                 els.Add(mmel)
-            else 
+            else
                 log.Warn "  Unrecognized slot class in vert: class %A, semantic %A" slotclass name
-        
+
         els.ToArray()
 
     type VertexDecl =
@@ -865,7 +865,7 @@ module ModDBInterop =
                 // Write all the triangles to the buffer.
                 modm.Triangles |> Array.iter writeTriangle
 
-                if int64 destVbSize <> bw.BaseStream.Position then 
+                if int64 destVbSize <> bw.BaseStream.Position then
                     // uh oh
                     log.Warn "vb fill did not produce the expected number of bytes (want %A, got %A)" destVbSize bw.BaseStream.Position
             0
@@ -874,12 +874,12 @@ module ModDBInterop =
                 log.Error "%s" e.Message
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
-    
+
     let observedVertTypes = new System.Collections.Generic.HashSet<string>()
 
-    let vertElsToString(elements:MMVertexElement[]) = 
+    let vertElsToString(elements:MMVertexElement[]) =
         use sw = new StringWriter()
-        for sxel in elements do 
+        for sxel in elements do
             sw.WriteLine(sprintf "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type)
         sw.Flush()
         sw.ToString()
@@ -908,11 +908,11 @@ module ModDBInterop =
                     let elements = d3d11LayoutToMMVert br (int64 destDeclSize)
                     // log the vert details if we haven't seen it before
                     let elStr = vertElsToString(elements)
-                    if not (observedVertTypes.Contains(elStr)) then 
+                    if not (observedVertTypes.Contains(elStr)) then
                         log.Info "Vert type %A contains %d elements" (elStr.GetHashCode()) elements.Length
-                        for sxel in elements do 
+                        for sxel in elements do
                             log.Info "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type
-                            if sxel.Slot > 0 then 
+                            if sxel.Slot > 0 then
                                 log.Warn "    %A uses unsupported slot %A, data from (if any) slot 0 will be used to fill this" sxel.Semantic sxel.Slot
                         observedVertTypes.Add(elStr) |> ignore
                     let declArg = ReadD3D11Layout(elements)

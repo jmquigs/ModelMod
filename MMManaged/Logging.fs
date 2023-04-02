@@ -29,7 +29,7 @@ module Logging =
     type LoggerFactory = CategoryName -> NewCategoryName * ILog
 
     let ConsoleLoggerFactory category =
-        // based on 
+        // based on
         // http://stackoverflow.com/questions/5277902/printf-style-logging-for-f?lq=1
         let formatInfo (result : string ) = printfn "info [%s]: %s" category result
         let formatWarn (result : string ) = printfn "warn [%s]: %s" category result
@@ -50,15 +50,15 @@ module Logging =
         loggerFactory <- f
 
     let makeLogger x = loggerFactory x
-    
-    let getLogger(category) = 
+
+    let getLogger(category) =
         let ok, logger = loggers.TryGetValue(category)
-        let logger = 
-            if ok then logger 
+        let logger =
+            if ok then logger
             else
-                // ignore the returned category; it may have changed, and we want to store it in the dict 
+                // ignore the returned category; it may have changed, and we want to store it in the dict
                 // using the input name so that we can reuse it for future uses of the same category.
-                let _,logger = makeLogger(category) 
-                loggers.Add(category,logger) 
+                let _,logger = makeLogger(category)
+                loggers.Add(category,logger)
                 logger
         logger

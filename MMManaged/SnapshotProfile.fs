@@ -6,18 +6,18 @@ open System
 open System.IO
 
 /// A snapshot profile controls what types of data transformations
-/// (typically vertex position and uv coordinates) that are applied by the snapshotter.  These are typically used to 
-/// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may 
-/// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is 
+/// (typically vertex position and uv coordinates) that are applied by the snapshotter.  These are typically used to
+/// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may
+/// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is
 /// in the correct space for the game.
 /// SnapshotProfiles are loaded from yaml files in the "SnapshotProfiles" subdirectory of the modelmod installation folder.
 module SnapshotProfile =
-    type Profile(name,posX,uvX) = 
+    type Profile(name,posX,uvX) =
         member x.Name() = name
         member x.PosXForm() = posX
         member x.UVXForm() = uvX
 
-        override x.ToString() = 
+        override x.ToString() =
             sprintf "[SnapshotProfile: %s; pos: %A; uv: %A]" name posX uvX
 
     let EmptyProfile = Profile("",[],[])
@@ -27,7 +27,7 @@ module SnapshotProfile =
     let DefaultProfileName = "Profile1"
 
     /// Returns a map of all available profiles.  Throws exception if the profiles cannot be loaded.
-    let GetAll rootDir = 
+    let GetAll rootDir =
         let pDir = Path.Combine(rootDir, "SnapshotProfiles")
         if not (Directory.Exists(pDir)) then
             failwithf "Profile directory does not exist %A" pDir
@@ -44,20 +44,18 @@ module SnapshotProfile =
                         let pname = p.Key |> Yaml.toString
                         let pvals = p.Value |> Yaml.toMapping "expected a mapping"
 
-                        let getStrList def key = 
-                            pvals 
+                        let getStrList def key =
+                            pvals
                             |> Yaml.getOptionalValue key
                             |> Yaml.toOptionalSequence
-                            |> function 
+                            |> function
                                 | None -> def
                                 | Some s -> s |> Seq.map Yaml.toString |> List.ofSeq
-                            
+
                         let posX = getStrList [] "pos"
                         let uvX = getStrList [] "uv"
 
                         profiles.Add(pname,Profile(pname,posX,uvX))
             )
         profiles.ToArray() |> Map.ofArray
-            
 
-        

@@ -147,13 +147,13 @@ module Snapshot = // TODO11 lots of stuff below
         }
 
     let getResult():InteropTypes.SnapshotResult =
-        
-        let getLen (s:string) = 
-            if s.Length < 8192 
-            then s.Length 
+
+        let getLen (s:string) =
+            if s.Length < 8192
+            then s.Length
             else
                 log.Warn "string too long: %A" s
-                0 
+                0
         {
             Directory = lastBaseDir.Value
             SnapFilePrefix = lastBaseName.Value
@@ -171,11 +171,11 @@ module Snapshot = // TODO11 lots of stuff below
         let mutable vbLocked = false
         let mutable ibLocked = false
 
-        let unlock() = 
+        let unlock() =
             log.Info ("unlocking snapshot buffers")
-            if ibLocked then 
+            if ibLocked then
                 ib.Unlock()
-            if vbLocked then 
+            if vbLocked then
                 vb.Unlock()
         try
             incr snapshotNum
@@ -351,7 +351,7 @@ module Snapshot = // TODO11 lots of stuff below
 
             let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.PrimCount sd.NumVertices
 
-            lastBaseDir := baseDir 
+            lastBaseDir := baseDir
             lastBaseName := sbasename
 
             // write textures for enabled stages only
@@ -474,9 +474,9 @@ module Snapshot = // TODO11 lots of stuff below
 
             // Global transforms
             // Usually, only old games that still use fixed function for part of their rendering
-            // Will set these, since shaders use constants to get these values instead.  
+            // Will set these, since shaders use constants to get these values instead.
             // So only write out the file if at least one of these is non-identity.
-            let _ = 
+            let _ =
                 let w0 = device.GetTransform(TransformState.World);
                 let w1 = device.GetTransform(TransformState.World1);
                 let w2 = device.GetTransform(TransformState.World2);
@@ -484,8 +484,8 @@ module Snapshot = // TODO11 lots of stuff below
                 let view = device.GetTransform(TransformState.View);
                 let proj = device.GetTransform(TransformState.Projection)
                 use s = new StringWriter()
-                let writeMat (mat:SharpDX.Matrix) label = 
-                    if not (mat.IsIdentity) then 
+                let writeMat (mat:SharpDX.Matrix) label =
+                    if not (mat.IsIdentity) then
                         s.WriteLine(sprintf "%s: values=%A" label mat)
 
                 writeMat w0 "w0"
@@ -496,7 +496,7 @@ module Snapshot = // TODO11 lots of stuff below
                 writeMat proj "proj"
 
                 let s = s.ToString()
-                if s <> "" then 
+                if s <> "" then
                     let fname = Path.Combine(baseDir, (sprintf "%s_Transforms.txt" sbasename))
                     File.WriteAllText(fname, s.ToString())
 

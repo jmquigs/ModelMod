@@ -23,7 +23,7 @@ open YamlDotNet.RepresentationModel
 open CoreTypes
 
 /// Contains startup configuration utilities.
-/// Allows override of the standard registry and modindex load 
+/// Allows override of the standard registry and modindex load
 /// scheme.  Normally only used for non-game invocations
 /// (preview window and MMView tool).  Unlike RunConfig, StartConf data is not stored in the registry.
 module StartConf =
@@ -40,13 +40,13 @@ module StartConf =
         CamPosition: Vec3F option
         MeshReadFlags: MeshReadFlags
     }
-    type Conf = { 
+    type Conf = {
         ModIndexFile: string option
         FilesToLoad: string list
         AppSettings: AppSettings option // only present for the UI tools; MMView, etc
     }
 
-    let loadConf confPath (appSettings:AppSettings option) = 
+    let loadConf confPath (appSettings:AppSettings option) =
         let text = File.ReadAllText(confPath)
         use input = new StringReader(text)
         let yamlStream = new YamlStream()
@@ -54,12 +54,12 @@ module StartConf =
         let docCount = yamlStream.Documents.Count
         if (docCount <> 1) then
             failwithf "Expected 1 document, got %d" docCount
-        let mapNode = Yaml.toMapping "No root node found" (yamlStream.Documents.[0].RootNode) 
+        let mapNode = Yaml.toMapping "No root node found" (yamlStream.Documents.[0].RootNode)
 
         let modIndexFile = mapNode |> Yaml.getOptionalValue "modIndex" |> Yaml.toOptionalString
 
         let files = mapNode |> Yaml.getOptionalValue "files" |> Yaml.toOptionalSequence // Yaml "'Files' must be a list of files to load" |> Seq.map string |> List.ofSeq
-        let files = 
+        let files =
             match files with
             | None -> []
             | Some files -> files |> Seq.map string |> List.ofSeq

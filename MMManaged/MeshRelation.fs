@@ -23,7 +23,7 @@ open Microsoft.Xna.Framework
 
 open CoreTypes
 
-/// Utilities for comparing a Mod to a Reference and copying any required data from the Ref to the Mod 
+/// Utilities for comparing a Mod to a Reference and copying any required data from the Ref to the Mod
 /// (such as blend weight information).
 module MeshRelation =
     let private log = Logging.getLogger("MeshRelation")
@@ -36,19 +36,19 @@ module MeshRelation =
         Normal: Vec3F[];
     }
 
-    type MVProjections = { X:float ; Y:float ; Z:float } 
+    type MVProjections = { X:float ; Y:float ; Z:float }
 
-    /// Data required for CPU animations.  These are currently unimplemented, but this is some of the 
+    /// Data required for CPU animations.  These are currently unimplemented, but this is some of the
     /// data that is needed using a method I prototyped before.  That method is roughly as follows
     /// 1) for each mod vert, compute an offset vector from the ref to the mod, with both in a neutral/root position
-    /// The offset vector is computed from nearest vertex of the nearest triangle to the mod vert.  The centroids 
-    /// of each triangle containing the ref vert are used to find the nearest triangle to the mod vert (normals 
+    /// The offset vector is computed from nearest vertex of the nearest triangle to the mod vert.  The centroids
+    /// of each triangle containing the ref vert are used to find the nearest triangle to the mod vert (normals
     /// should probably be used as well so that double-sided triangles don't cause problems).
-    /// 2) At run-time, on each frame, whenever the original ref is drawn, lock the VB and read back the 
+    /// 2) At run-time, on each frame, whenever the original ref is drawn, lock the VB and read back the
     /// ref data into system memory.  For each mod vert, re-compute the (current) projection triangle, and compute
     /// the projection vectors again.  Use the projection vectors to offset the ref verts.
     /// 3) Write a new vb using the new ref verts; draw it, and Voila, its the animated mod.
-    /// Provided you aren't doing this for a huge amount of data, the performance hit barely registers (though, to be 
+    /// Provided you aren't doing this for a huge amount of data, the performance hit barely registers (though, to be
     /// fair, the original code was in C++, so I don't know how well managed code would handle it).
     type CPUSkinningData = {
         UseRef: bool
@@ -101,7 +101,7 @@ module MeshRelation =
         // (see `loadModDB`)
 
         let buildTris (mesh:Mesh) =
-            let tris = mesh.Triangles |> Array.map (fun iTri -> 
+            let tris = mesh.Triangles |> Array.map (fun iTri ->
                     let derefed = iTri.Verts |> Array.map (fun vtn ->
                             let pos = refMesh.Positions.[vtn.Pos]
                             let tc = Vector2(0.f,0.f) // refMesh.UVs.[vtn.T]
@@ -123,23 +123,23 @@ module MeshRelation =
             // otherwise the ref vert is included
 
             // use active patterns to implement the rules; if a pattern returns Some(x), then the ref is excluded
-            let (|UnconditionalExclude|_|) (refAnnts:string list,_:string list) = 
-                refAnnts |> List.tryFind (fun (s:string) -> 
+            let (|UnconditionalExclude|_|) (refAnnts:string list,_:string list) =
+                refAnnts |> List.tryFind (fun (s:string) ->
                     s.ToUpperInvariant().Equals("EXCLUDE"))
 
             let (|ModExcludesRef|_|) (refAnnts:string list,modAnnts:string list) =
                 refAnnts |> List.tryFind (fun refA ->
                     let refA = refA.ToUpperInvariant()
-                    modAnnts 
-                        |> List.tryFind (fun modA -> 
+                    modAnnts
+                        |> List.tryFind (fun modA ->
                             let modA = modA.ToUpperInvariant()
                             modA = "EXCLUDE." + refA
                         ) <> None
                 )
 
-            let (|ModIncludeNotFoundInRef|_|) (refAnnts:string list, modAnnts:string list) = 
-                modAnnts 
-                    |> List.tryFind (fun modA -> 
+            let (|ModIncludeNotFoundInRef|_|) (refAnnts:string list, modAnnts:string list) =
+                modAnnts
+                    |> List.tryFind (fun modA ->
                         let modA = modA.ToUpperInvariant()
 
                         if not (modA.StartsWith("Include.", StringComparison.InvariantCultureIgnoreCase)) then
@@ -149,10 +149,10 @@ module MeshRelation =
                             // search the refs for the target include
                             refAnnts |> List.tryFind (fun refA ->
                                 let refA = refA.ToUpperInvariant()
-                                
+
                                 modA = "INCLUDE." + refA
                             ) = None
-                    ) 
+                    )
 
             if refMesh.AnnotatedVertexGroups.Length = 0 || modMesh.AnnotatedVertexGroups.Length = 0 then
                 false
@@ -170,37 +170,37 @@ module MeshRelation =
                     | [],[] -> false
                     | UnconditionalExclude groupName ->
                         true
-                    | ModExcludesRef groupName -> 
+                    | ModExcludesRef groupName ->
                         true
-                    | ModIncludeNotFoundInRef groupName -> 
+                    | ModIncludeNotFoundInRef groupName ->
                         true
                     | _,_ -> false
 
-        let buildVertRels():VertRel[] = 
+        let buildVertRels():VertRel[] =
             // for CPU-skinning mods only: build triangles for ref and mod
-            let modTris,refTris = 
-                match modMesh.Type with 
+            let modTris,refTris =
+                match modMesh.Type with
                 | CPUReplacement -> buildTris modMesh, buildTris refMesh
                 | GPUReplacement
                 | GPUAdditive
-                | Deletion 
+                | Deletion
                 | Reference -> [||],[||]
-                
+
             let exclusionCheckingEnabled = true
 
             let exclusionFilter = if exclusionCheckingEnabled then isExcluded else (fun _ _ -> false)
 
             // for a single mod position index and value, find the relation data
-            let getVertRel modIdx (modPos:Vec3F) = 
-                let closestDist,closestIdx = 
+            let getVertRel modIdx (modPos:Vec3F) =
+                let closestDist,closestIdx =
                     let mutable currIdx = 0
                     let mutable closestDist = System.Single.MaxValue
                     let mutable closestIdx = -1
 
                     // This is a straight up, bad-ass linear search through the ref positions.
-                    // This loop was pretty hot on the instrumentation profiler, but a lot of that was 
-                    // because function calls like LengthSquared() only appear to be expensive because of the sheer 
-                    // number of invocations. They still add up to something, so I reduced the intensity 
+                    // This loop was pretty hot on the instrumentation profiler, but a lot of that was
+                    // because function calls like LengthSquared() only appear to be expensive because of the sheer
+                    // number of invocations. They still add up to something, so I reduced the intensity
                     // by "inlining" the vector subtraction/distance calculations.  This saved about 12% on load times.
                     for refPos in ref.Mesh.Positions do
                         let vX = modPos.X - refPos.X
@@ -210,7 +210,7 @@ module MeshRelation =
                              (vX) * (vX) +
                              (vY) * (vY) +
                              (vZ) * (vZ)
-                        
+
                         if (lenSqrd >= closestDist) || (exclusionFilter modIdx currIdx) then
                             ()
                         else
@@ -228,9 +228,9 @@ module MeshRelation =
 //                do
 //                    printfn "%A: %A (%A)" modIdx closestIdx closestDist
 
-                let cpuSkinningData = 
-                    match modMesh.Type with 
-                    | Reference 
+                let cpuSkinningData =
+                    match modMesh.Type with
+                    | Reference
                     | Deletion
                     | GPUAdditive
                     | GPUReplacement -> None
@@ -240,19 +240,19 @@ module MeshRelation =
                         //   CPU-only: compute coordinate system
                         None
 
-                {   RefPointIdx = closestIdx; 
-                    ModVertPos = modPos; 
+                {   RefPointIdx = closestIdx;
+                    ModVertPos = modPos;
                     RefVertPos = ref.Mesh.Positions.[closestIdx]
-                    Distance = closestDist 
+                    Distance = closestDist
                     CpuSkinningData = cpuSkinningData }
-                                    
+
             // for all mod positions, find the relation data
             let modVertRels = modMesh.Positions |> Array.mapi getVertRel
 
             // warn if median distance is "large" (could be an indicator of mismatched transforms between ref and mod),
             // in which case the relation is going to be jacked.  This can produce false positives, though.
-            modVertRels 
-                |> Array.sortBy (fun vr -> vr.Distance) 
+            modVertRels
+                |> Array.sortBy (fun vr -> vr.Distance)
                 |> (fun sortedVRs ->
                     let mid = sortedVRs.Length / 2
                     let el = sortedVRs.[mid]
@@ -261,13 +261,13 @@ module MeshRelation =
                 )
 
             modVertRels
-    
+
         let vertRels = buildVertRels()
 
-        do 
+        do
             log.Info "built mesh relation from mod '%s' to ref '%s'" md.Name ref.Name
             sw.StopAndPrint()
-    
+
         member x.DBMod = md
         member x.DBRef = ref
 

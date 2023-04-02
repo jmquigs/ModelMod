@@ -26,7 +26,7 @@ open System.Collections.Generic
 /// This is a simple in-memory cache for loaded meshes.  It speeds up reload iteration time,
 /// since only modified meshes are reloaded.  Would be nice to extend this to other things
 /// (yaml, meshrelation), since time spent in those can add up as well.
-/// To force a clear of the cache, use the full reload keybinding to reload the 
+/// To force a clear of the cache, use the full reload keybinding to reload the
 /// whole assembly.
 module MemoryCache =
     let private log = Logging.getLogger("MemoryCache")
@@ -61,7 +61,7 @@ module MemoryCache =
             log.Info "Cache miss for file: %s" path
             None
 
-    let save(path, (modType:ModType), flags, (mesh:Mesh)) = 
+    let save(path, (modType:ModType), flags, (mesh:Mesh)) =
         let mtime = File.GetLastWriteTime(path)
         let entry = {
             Type = modType
