@@ -225,6 +225,8 @@ module ModDB =
 
         let parentModName = node |> Yaml.getOptionalValue "ParentModName" |> Yaml.toOptionalString
 
+        let computeTS = node |> Yaml.getOptionalValue "UpdateTangentSpace" |> Yaml.toOptionalBool
+
         let md = {
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
@@ -234,6 +236,7 @@ module ModDB =
             Attributes = attrs
             PixelShader = pixelShader
             ParentModName = parentModName
+            UpdateTangentSpace = computeTS
         }
 
         let numOverrideTextures =

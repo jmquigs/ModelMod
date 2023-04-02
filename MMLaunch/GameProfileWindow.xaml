@@ -3,7 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:MMLaunch;assembly=MMLaunch"
     xmlns:fsxaml="http://github.com/fsprojects/FsXaml"
-    Title="Preferences" Height="210.072" Width="312.971"
+    Title="Preferences" Height="251" Width="312.971"
     ResizeMode="NoResize">
     <Window.DataContext>
         <local:GameProfileViewModel/>
@@ -12,9 +12,13 @@
         <CheckBox x:Name="checkBox"
                   IsChecked="{Binding Path=ReverseNormals}"
                   Content="Reverse Normal Components" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="184" ToolTip="If the lighting looks wrong on your exported models, try checking this."/>
-        <Label x:Name="label" Content="Command line arguments:&#xD;&#xA;" HorizontalAlignment="Left" Margin="10,36,0,-11" VerticalAlignment="Top" Width="184" Height="33"/>
-        <TextBox x:Name="commandLine" HorizontalAlignment="Left" Height="23" Margin="10,58,-80,-23" TextWrapping="Wrap" Text="{Binding Path=CommandLineArguments}" VerticalAlignment="Top" Width="264" ToolTip="Enter command line arguments that should be passed to the game here."/>
-        <Label x:Name="label_Copy" Content="Data Path Name:&#xA;" HorizontalAlignment="Left" Margin="10,100,0,-65" VerticalAlignment="Top" Width="174" Height="23"/>
-        <TextBox x:Name="profilePathName" HorizontalAlignment="Left" Height="23" Margin="10,123,-80,-88" TextWrapping="Wrap" Text="{Binding Path=DataPathName}" VerticalAlignment="Top" Width="264" ToolTip="If the game's data directory differs is different from the base name of the executable, you can enter the data directory name here.  For example, if the game exe is called Foo64.exe but the data directory is Foo, enter Foo here.  This can also be an absolute path to the game's data directory.  "/>
+        <Label x:Name="label" Content="Command line arguments:&#xD;&#xA;" HorizontalAlignment="Left" Margin="10,73,0,-43" VerticalAlignment="Top" Width="184" Height="28"/>
+
+        <TextBox x:Name="commandLine" HorizontalAlignment="Left" Height="23" Margin="10,101,-80,-66" TextWrapping="Wrap" Text="{Binding Path=CommandLineArguments}" VerticalAlignment="Top" Width="264" ToolTip="Enter command line arguments that should be passed to the game here." RenderTransformOrigin="0.492,1.391"/>
+        <Label x:Name="label_Copy" Content="Data Path Name:&#xA;" HorizontalAlignment="Left" Margin="10,129,0,-94" VerticalAlignment="Top" Width="174" Height="23"/>
+        <TextBox x:Name="profilePathName" HorizontalAlignment="Left" Height="23" Margin="10,157,-80,-122" TextWrapping="Wrap" Text="{Binding Path=DataPathName}" VerticalAlignment="Top" Width="264" ToolTip="If the game's data directory differs is different from the base name of the executable, you can enter the data directory name here.  For example, if the game exe is called Foo64.exe but the data directory is Foo, enter Foo here.  This can also be an absolute path to the game's data directory.  " RenderTransformOrigin="0.455,3.348"/>
+        <CheckBox x:Name="checkBox_Copy"
+            IsChecked="{Binding UpdateTangentSpace}"
+            Content="Update Tangents" HorizontalAlignment="Left" Margin="10,33,0,0" VerticalAlignment="Top" Width="184" ToolTip="If the lighting looks wrong on your exported models, try checking this."/>
     </Grid>
 </Window>

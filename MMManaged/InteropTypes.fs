@@ -62,6 +62,8 @@ module InteropTypes =
         DeclSizeBytes: int
         VertSizeBytes: int
         IndexElemSizeBytes: int
+        // official end of "mod numbers" in native struct
+        UpdateTangentSpace: int
         // Size must match MaxModTexPathLen from native code
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         Tex0Path: string
@@ -95,9 +97,10 @@ module InteropTypes =
         Tex1Path = ""
         Tex2Path = ""
         Tex3Path = ""
-        ModName = "" 
+        ModName = ""
         ParentModName = ""
         PixelShaderPath = ""
+        UpdateTangentSpace = -1
     }
 
     [<StructLayout(LayoutKind.Sequential)>]
@@ -177,7 +180,7 @@ module InteropTypes =
     /// failures occurr.
     let GenericFailureCode = 47
 
-    /// Returned when native code with a different version attempts to initialize this managed dll.  
+    /// Returned when native code with a different version attempts to initialize this managed dll.
     /// Versions must be an exact match, otherwise a crash is possible.
     let NativeCodeMismatch = 48
 

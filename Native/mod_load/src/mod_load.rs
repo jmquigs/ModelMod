@@ -356,7 +356,8 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
         return false;
     }
 
-    let _ = update_normals(vb_data.as_mut_ptr(), vert_count, &vlayout)
+    let mod_ts_update = (*mdat).update_tangent_space;
+    let _ = update_normals(vb_data.as_mut_ptr(), &nmd.name, mod_ts_update, vert_count, &vlayout)
         .map_err(|e| {
             write_log_file(&format!("Warning: failed to update normals: {:?}", e));
         });
@@ -823,7 +824,7 @@ const DXMESH_DLL:&'static str = r#"TPLib\DirectXMesh_x64.dll"#;
 /// Tangent/bitangent update is enabled by default since its generates vectors that are much more
 /// accurate for most models than what the managed code generates (which is basically just wrong).
 ///
-fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
+fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
     let mut update_normals = false;
     let mut update_tangents = true;
     let mut flags = CNormFlags::Default;
@@ -862,6 +863,12 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
                 }).unwrap_or(1);
                 update_tangents = do_update_tan > 0;
 
+                reverse = util::reg_query_dword(profile_root,"GameProfileReverseNormals",)
+                .map(|f| f > 0)
+                .map_err(|e| {
+                    write_log_file(&format!("using default {:?} for reverse normals: {:?}", reverse, e));
+                }).unwrap_or(reverse);
+
                 if !update_normals && !update_tangents {
                     return Ok(());
                 }
@@ -873,16 +880,28 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
                     }).unwrap_or(flags);
                 }
 
-                reverse = util::reg_query_dword(profile_root,"GameProfileReverseNormals",)
-                .map(|f| f > 0)
-                .map_err(|e| {
-                    write_log_file(&format!("using default {:?} for reverse normals: {:?}", reverse, e));
-                }).unwrap_or(reverse);
-
                 Ok(())
             }
         });
     res?;
+
+    let mod_wants_ts_update = match mod_ts_update {
+        0 => Some(false),
+        1 => Some(true),
+        -1 => None,
+        wat => {
+            write_log_file(&format!("mod '{}' wants unknown tangent update setting {}", name, wat));
+            None
+        }
+    };
+
+    if let Some(mod_wants_ts_update) = mod_wants_ts_update {
+        if mod_wants_ts_update != update_tangents {
+            write_log_file(&format!("mod '{}' tangent update setting {} overridding default {}", name, mod_wants_ts_update, update_tangents));
+            update_tangents = mod_wants_ts_update;
+        }
+    }
+
     if !update_normals && !update_tangents {
         return Ok(());
     }
@@ -893,7 +912,7 @@ fn update_normals(data:*mut u8, vert_count:u32, layout:&VertexFormat) -> error::
     } else {
         format!("tangents and bitangents")
     };
-    write_log_file(&format!("updating {}; reverse: {}", what, reverse));
+    write_log_file(&format!("mod '{}': updating {}; reverse: {}", name, what, reverse));
 
     let mut dllpath = unsafe { &GLOBAL_STATE.mm_root.as_ref() }.ok_or_else (||
         HookError::MeshUpdateFailed(String::from("no mmroot")))?.to_owned();

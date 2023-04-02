@@ -72,6 +72,9 @@ module CoreTypes =
         /// Controls the order in which normal vector components are written to D3D buffers.
         /// False: XYZW; True: ZYXW
         ReverseNormals: bool
+        /// Controls whether tangent space updates are globally enabled or disabled.  Whatever this setting is, mods 
+        /// can opt in or out by setting "UpdateTangentSpace" to true or false in their yaml files.
+        UpdateTangentSpace: bool
         /// Command line arguments that should be passed to the game when launched.
         CommandLineArguments: string
         /// An alternate name for the game data directory data directory in case the exe base name does not map to any extant directory.
@@ -81,6 +84,7 @@ module CoreTypes =
 
     let DefaultGameProfile = {
         ReverseNormals = false
+        UpdateTangentSpace = true
         CommandLineArguments = ""
         DataPathName = ""
     }
@@ -285,6 +289,16 @@ module CoreTypes =
         PixelShader: string
         Attributes: ModAttributes
         ParentModName: string option
+        /// Whether to update the tangent space (tangent and bitangent vectors) of the mod.  MM currently doesn't load these, and the 
+        /// python exporter doesn't export them.
+        /// A default binormal/tangent is generated on a fixed coordinate axis without using texture data.  This generates results 
+        /// that are ok in some cases, bad in others.
+        /// As of v1.2, MM will, by default, try to generate updated tangents and bitangent vectors the proper way using DirectXMesh.  
+        /// In general these look better, but in some cases they don't (in particular meshes that use left-right symmetric UV coordinates
+        /// can have artifacts in some faces).  
+        /// Setting this to false disables the update (and thus the fixed coordinate axis will be used).  Setting this to true always 
+        /// regenerates even if tangent space is globally disabled in the game profile.  When left unspecified the global default is used.
+        UpdateTangentSpace: bool option 
     }
 
     /// Union Parent type for the yaml objects.

@@ -37,6 +37,7 @@ pub struct ModNumbers {
 /// only contain types that can be marshalled over the interop boundary.
 pub struct ModData {
     pub numbers: ModNumbers,
+    pub update_tangent_space: i32,
     pub texPath0: [WCHAR; MAX_TEX_PATH_LEN],
     pub texPath1: [WCHAR; MAX_TEX_PATH_LEN],
     pub texPath2: [WCHAR; MAX_TEX_PATH_LEN],

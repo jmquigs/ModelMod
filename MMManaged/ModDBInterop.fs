@@ -242,6 +242,11 @@ module ModDBInterop =
             | None -> ""
             | Some(name) -> name
 
+        let updateTS = 
+            match meshrel.DBMod.UpdateTangentSpace with 
+            | None -> -1 
+            | Some(upd) -> if upd then 1 else 0
+
         {
             InteropTypes.ModData.ModType = modType
             PrimType = primType
@@ -260,6 +265,7 @@ module ModDBInterop =
             PixelShaderPath = meshrel.DBMod.PixelShader
             ModName = mname
             ParentModName = parentModName
+            UpdateTangentSpace = updateTS
         }
 
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.

@@ -42,12 +42,20 @@ module Yaml =
     let toOptionalString (node:YamlNode option) =
         node |> Option.map (fun n -> toString(n))
 
+    let toOptionalBool (node: YamlNode option) = 
+        node |> Option.map (fun n -> 
+            match n with 
+            | :? YamlScalarNode as scalar -> 
+                Convert.ToBoolean scalar.Value
+            | _ -> failwithf "Cannot extract bool from node %A" node
+        )
+
     /// Convert the node to an integer.  Throws exception on failure.
     let toInt (node:YamlNode) =
         match node with 
         | :? YamlScalarNode as scalar -> 
             Convert.ToInt32 scalar.Value
-        | _ -> failwithf "Cannot extract string from node %A" node
+        | _ -> failwithf "Cannot extract int from node %A" node
 
     let toOptionalInt (node:YamlNode option) =
         node |> Option.map (fun n -> toInt(n))

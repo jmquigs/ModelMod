@@ -41,9 +41,10 @@ module RegKeys =
     let ProfGPReverseNormals = "GameProfileReverseNormals"
     let ProfGPCommandLineArguments = "GameProfileCommandLineArguments"
     let ProfGPDataPathName = "GameProfileDataPathName"
-      
+    let ProfGPUpdateTangentSpace = "GameProfileUpdateTangents"
+
 /// Various registry access utilities.
-module RegUtil = 
+module RegUtil =
     /// Registry path concatenator.
     // not using path.combine here; has some weird behavior: System.IO.Path.Combine(@"a",@"\b") -> "\b"
     // however, this doesn't handle the case where a or b has more than one consecutive \
@@ -235,9 +236,10 @@ module RegConfig =
                 DocRoot = "" // custom doc root not yet supported
                 LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
                 MinimumFPS = profSave RegKeys.ProfMinimumFPS conf.MinimumFPS
-                GameProfile = 
-                    { 
+                GameProfile =
+                    {
                         ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
+                        UpdateTangentSpace = profSave RegKeys.ProfGPUpdateTangentSpace (boolAsDword conf.GameProfile.UpdateTangentSpace) |> dwordAsBool
                         CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
                         DataPathName = profSave RegKeys.ProfGPDataPathName conf.GameProfile.DataPathName
                     }
@@ -297,6 +299,7 @@ module RegConfig =
             GameProfile =
                 {
                     ReverseNormals = dwordAsBool (regget(profPath,RegKeys.ProfGPReverseNormals, DefaultGameProfile.ReverseNormals |> boolAsDword) :?> int)
+                    UpdateTangentSpace = dwordAsBool (regget(profPath,RegKeys.ProfGPUpdateTangentSpace, DefaultGameProfile.UpdateTangentSpace |> boolAsDword) :?> int)
                     CommandLineArguments = regget(profPath, RegKeys.ProfGPCommandLineArguments, DefaultGameProfile.CommandLineArguments) :?> string
                     DataPathName = regget(profPath, RegKeys.ProfGPDataPathName, DefaultGameProfile.DataPathName) :?> string
                 }

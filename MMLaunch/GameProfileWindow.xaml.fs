@@ -42,6 +42,7 @@ type GameProfileViewModel() =
     // The viewmodel is also the actual Model for the GameProfile
     let mutable profile = { 
         GameProfile.ReverseNormals = false
+        UpdateTangentSpace = true
         CommandLineArguments = ""
         DataPathName = ""
     }
@@ -64,6 +65,10 @@ type GameProfileViewModel() =
     member x.ReverseNormals
         with get () = profile.ReverseNormals
         and set (value:bool) = updateProfile { profile with ReverseNormals = value }
+
+    member x.UpdateTangentSpace 
+        with get() = profile.UpdateTangentSpace
+        and set (value:bool) = updateProfile { profile with UpdateTangentSpace = value }
 
     member x.CommandLineArguments
         with get () = profile.CommandLineArguments
