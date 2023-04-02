@@ -87,6 +87,7 @@ use crate::load_mmobj::test_load_mmobj;
 extern crate anyhow;
 
 mod load_mmobj;
+mod interop_mmobj;
 
 #[repr(C, align(8))]
 struct SimpleVertex {

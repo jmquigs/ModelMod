@@ -2,26 +2,73 @@ use std::{str::{Split, FromStr}, time::{SystemTime, Duration}, collections::Hash
 use std::fmt::Debug;
 use aho_corasick::AhoCorasick;
 
+use crate::interop_mmobj::make_interop_mmobj;
+
+
+#[repr(C)]
+#[derive(Debug,Copy,Clone)]
+pub struct Float3 {
+    pub x:f32,
+    pub y:f32,
+    pub z:f32
+}
+
+#[repr(C)]
+#[derive(Debug,Copy,Clone)]
+pub struct Float2 {
+    pub x:f32,
+    pub y:f32,
+}
+
+#[repr(C)]
+#[derive(Debug,Copy,Clone)]
+pub struct BlendPair {
+    pub idx:u32,
+    pub weight:f32,
+}
+
+#[repr(C)]
+#[derive(Debug,Copy,Clone)]
+pub struct FaceVert {
+    pub pos:usize,
+    pub nrm:usize,
+    pub tex:usize,
+}
+
+pub struct MMObj {
+    pub filename: String,
+    pub positions: Vec<Float3>,
+    pub texcoord: Vec<Float2>,
+    pub normals: Vec<Float3>,
+    pub vgroup_names:Vec<String>,
+    pub vgroup_lists:Vec<Vec<i32>>,
+    pub vblend:Vec<Vec<BlendPair>>,
+    pub posx:Vec<Vec<String>>,
+    pub uvx:Vec<Vec<String>>,
+    pub faces:Vec<[FaceVert;3]>,
+    pub mtllib:Vec<String>,
+}
+
 fn pf32 (sp: &mut Split<&[char]>) -> anyhow::Result<f32> {
     // call next on the iter and return the err if result is None
     let sval = sp.next().ok_or_else(|| anyhow!("pf32: bad split"))?.trim();
     let fval = sval.parse::<f32>().map_err(|e| anyhow!("failed to parse float from str '{}': {}", sval, e))?;
     Ok(fval)
 }
-fn parse_2_f32(off:usize, text:&str) -> anyhow::Result<(f32,f32)> {
+fn parse_2_f32(off:usize, text:&str) -> anyhow::Result<Float2> {
     let slc = &text[off..];
     let mut i = slc.split([' ', '\n', '\r'].as_ref());
     let f1 = pf32(&mut i)?;
     let f2 = pf32(&mut i)?;
-    Ok((f1,f2))
+    Ok(Float2 { x:f1, y:f2 })
 }
-fn parse_3_f32(off:usize, text:&str) -> anyhow::Result<(f32,f32,f32)> {
+fn parse_3_f32(off:usize, text:&str) -> anyhow::Result<Float3> {
     let slc = &text[off..];
     let mut i = slc.split([' ', '\n', '\r'].as_ref());
     let f1 = pf32(&mut i)?;
     let f2 = pf32(&mut i)?;
     let f3 = pf32(&mut i)?;
-    Ok((f1,f2,f3))
+    Ok(Float3 { x:f1, y:f2, z:f3 })
 }
 fn parse_1_str(off:usize, text:&str) -> anyhow::Result<String> {
     let slc = &text[off..];
@@ -46,7 +93,7 @@ fn parse_n_int<T: FromStr>(off:usize, text:&str) -> anyhow::Result<Vec<T>>
     }
     Ok(v)
 }
-fn parse_blendpairs(off:usize, text:&str) -> anyhow::Result<Vec<(u32,f32)>> {
+fn parse_blendpairs(off:usize, text:&str) -> anyhow::Result<Vec<BlendPair>> {
     let slc = &text[off..];
     let eol = slc.find('\n').ok_or_else(
         || anyhow!("parse_blendpairs: newline required"))?;
@@ -60,7 +107,7 @@ fn parse_blendpairs(off:usize, text:&str) -> anyhow::Result<Vec<(u32,f32)>> {
             .parse::<u32>().map_err(|e| anyhow!("parse_blendpairs: failed to parse bp int from str '{}': {}", s, e))?;
         let bw = i.next().ok_or_else(|| anyhow!("parse_blendpairs: bad split"))?
             .parse::<f32>().map_err(|e| anyhow!("parse_blendpairs: failed to parse bp f32 from str '{}': {}", s, e))?;
-        v.push((bidx,bw));
+        v.push(BlendPair { idx:bidx, weight:bw });
     }
     Ok(v)
 }
@@ -79,12 +126,12 @@ fn parse_n_strs(off:usize, text:&str) -> anyhow::Result<Vec<String>> {
     }
     Ok(v)
 }
-fn parse_face_pos_tex_nrm(off:usize, text:&str) -> anyhow::Result<[(u32,u32,u32);3]> {
+fn parse_face_pos_tex_nrm(off:usize, text:&str) -> anyhow::Result<[FaceVert;3]> {
     let slc = &text[off..];
     let eol = slc.find('\n').ok_or_else(|| anyhow!("parse_face_pos_tex_nrm: newline required"))?;
     let slc = &slc[0..eol].trim();
     let mut slc = slc.split(' ');
-    let mut res = [(0,0,0);3];
+    let mut res = [FaceVert { pos: 0, nrm: 0, tex: 0} ;3];
     for f in 0..3 { // 3 points because triangles
         let slc = slc.next().ok_or_else(|| anyhow!("bad split"))?;
         let mut i = slc.split(['/'].as_ref());
@@ -98,7 +145,7 @@ fn parse_face_pos_tex_nrm(off:usize, text:&str) -> anyhow::Result<[(u32,u32,u32)
         let n = i.next().ok_or_else(|| anyhow!("parse_face_pos_tex_nrm: bad split"))?
             .parse::<u32>().map_err(|e| anyhow!("failed to parse f nrm int from str '{}': {}", slc, e))?
             .checked_sub(1).ok_or_else(|| anyhow!("parse_face_pos_tex_nrm: bad index"))?;
-        res[f] = (p,t,n);
+        res[f] = FaceVert { pos:p as usize, nrm:n as usize, tex:t as usize };
     }
 
     Ok(res)
@@ -125,20 +172,6 @@ fn parse_x<F,D>(offsets:&Vec<usize>, text:&str, defv:D, pfn:F) -> anyhow::Result
 fn dedup<T: Ord>(v:Vec<T>) -> Vec<T> {
     let set = std::collections::BTreeSet::from_iter(v.into_iter());
     set.into_iter().collect()
-}
-
-struct MMObj {
-    pub filename: String,
-    pub positions: Vec<(f32,f32,f32)>,
-    pub texcoord: Vec<(f32,f32)>,
-    pub normals: Vec<(f32,f32,f32)>,
-    pub vgroup_names:Vec<String>,
-    pub vgroup_lists:Vec<Vec<i32>>,
-    pub vblend:Vec<Vec<(u32,f32)>>,
-    pub posx:Vec<Vec<String>>,
-    pub uvx:Vec<Vec<String>>,
-    pub faces:Vec<[(u32,u32,u32);3]>,
-    pub mtllib:Vec<String>,
 }
 
 /// Experimental function to load a set of mmobj files.  Instead of using regex/captures like the managed
@@ -198,6 +231,7 @@ pub fn test_load_mmobj() -> anyhow::Result<()> {
     // slurp all files
     let mut io_total = Duration::from_millis(0);
     let mut ac_total = Duration::from_millis(0);
+    let mut interop_copy_total = Duration::from_millis(0);
     for f in &files {
         let io_start = SystemTime::now();
         let filetext = std::fs::read_to_string(&f).map_err(|e| anyhow!(e))?;
@@ -213,10 +247,10 @@ pub fn test_load_mmobj() -> anyhow::Result<()> {
         });
         ac_total = ac_total.add(ac_start.elapsed()?);
 
-        let parseall = || -> anyhow::Result<MMObj> {
-            let texcoord = parse_x(&outputs[0], &filetext, (0.0,0.0), parse_2_f32)?;
-            let positions = parse_x(&outputs[1], &filetext, (0.0,0.0,0.0), parse_3_f32)?;
-            let normals = parse_x(&outputs[2], &filetext, (0.0,0.0,0.0), parse_3_f32)?;
+        let mut parseall = || -> anyhow::Result<MMObj> {
+            let texcoord = parse_x(&outputs[0], &filetext, Float2 { x: 0.0, y: 0.0 }, parse_2_f32)?;
+            let positions = parse_x(&outputs[1], &filetext, Float3 { x: 0.0, y: 0.0, z:0.0 }, parse_3_f32)?;
+            let normals = parse_x(&outputs[2], &filetext, Float3 { x: 0.0, y: 0.0, z:0.0 }, parse_3_f32)?;
             let vgroup_names = parse_x(&outputs[3], &filetext, String::new(), parse_1_str)?;
             let vgroup_lists = parse_x(&outputs[4], &filetext, Vec::new(), parse_n_int::<i32>)?;
             let vblend = parse_x(&outputs[5], &filetext, Vec::new(), parse_blendpairs)?;
@@ -224,7 +258,8 @@ pub fn test_load_mmobj() -> anyhow::Result<()> {
             let posx = dedup(posx);
             let uvx = parse_x(&outputs[7], &filetext, Vec::new(), parse_n_strs)?;
             let uvx = dedup(uvx);
-            let faces = parse_x(&outputs[8], &filetext, [(0,0,0);3], parse_face_pos_tex_nrm)?;
+            let faces = parse_x(&outputs[8], &filetext,
+                [FaceVert { pos: 0, nrm: 0, tex: 0 };3], parse_face_pos_tex_nrm)?;
             let mtllib = parse_x(&outputs[9], &filetext, String::new(), parse_1_str)?;
 
             let mmobj = MMObj {
@@ -240,7 +275,13 @@ pub fn test_load_mmobj() -> anyhow::Result<()> {
                 faces,
                 mtllib,
             };
-            Ok(mmobj)
+
+            let start = SystemTime::now();
+            let pair = make_interop_mmobj(mmobj);
+
+            interop_copy_total += start.elapsed().unwrap();
+
+            Ok(pair.discard_interop())
         };
 
         let mmobj = parseall().map_err(|e| anyhow!("error parsing {}: {}", f, e))?;
@@ -250,6 +291,7 @@ pub fn test_load_mmobj() -> anyhow::Result<()> {
     println!("{} files in {:?}ms",  files.len(), start.elapsed().unwrap().as_millis());
     println!("io: {:?}", io_total.as_millis());
     println!("ac: {:?}", ac_total.as_millis());
+    println!("interop copy: {:?}", interop_copy_total.as_millis());
 
     // print one to make sure I didn't just make a bunch of bullshit
     let mmobjkey = loadres.keys().find(|k| k.contains("FNH_ZodiacArmorMod")).expect("no key?");
