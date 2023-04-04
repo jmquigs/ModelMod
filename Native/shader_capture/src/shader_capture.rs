@@ -1,4 +1,5 @@
 use shared_dx::error::*;
+use shared_dx::types::DevicePointer;
 use shared_dx::util;
 use global_state::GLOBAL_STATE;
 
@@ -24,13 +25,9 @@ fn check_hr(hr:i32, context:&str) -> Result<()> {
 // Old skool "generic" because I'm too lazy to make a Trait to abstract the two variants
 macro_rules! impl_save_shader {
     ($name:ident, $ptrtype:ident, $getfn:ident) => {
-        unsafe fn $name(snap_dir:&str, snap_prefix:&str, suffix:&str) -> Result<bool> {
-            let device_ptr = GLOBAL_STATE
-                .device
-                .as_ref()
-                .ok_or(HookError::CaptureFailed("device not found".to_owned()))?;
+        unsafe fn $name(device_ptr:*mut IDirect3DDevice9, snap_dir:&str, snap_prefix:&str, suffix:&str) -> Result<bool> {
             let mut shader: *mut $ptrtype = null_mut();
-            check_hr((*(*device_ptr)).$getfn(&mut shader), "get shader")?;
+            check_hr( (*device_ptr).$getfn(&mut shader), "get shader")?;
             if shader == null_mut() {
                 return Err(HookError::CaptureFailed("no shader".to_owned()));
             }
@@ -78,26 +75,33 @@ macro_rules! impl_save_shader {
                 },
             }
 
-
             Ok(true)
         }
     };
 }
 
-impl_save_shader!(save_pixel_shader, IDirect3DPixelShader9, GetPixelShader);
-impl_save_shader!(save_vertex_shader, IDirect3DVertexShader9, GetVertexShader);
+impl_save_shader!(save_pixel_shader_d3d9, IDirect3DPixelShader9, GetPixelShader);
+impl_save_shader!(save_vertex_shader_d3d9, IDirect3DVertexShader9, GetVertexShader);
 
-pub fn take_snapshot(snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
+pub fn take_snapshot(device:&DevicePointer, snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
     unsafe {
-        let gotpix = save_pixel_shader(snap_dir, snap_prefix, "_pshader").unwrap_or_else(|e| {
-            util::write_log_file(&format!("failed to save shader: {:?}", e));
-            false
-        });
-        let gotvert = save_vertex_shader(snap_dir, snap_prefix, "_vshader").unwrap_or_else(|e| {
-            util::write_log_file(&format!("failed to save shader: {:?}", e));
-            false
-        });
+        match device {
+            DevicePointer::D3D9(device) => {
+                let gotpix = save_pixel_shader_d3d9(*device, snap_dir, snap_prefix, "_pshader").unwrap_or_else(|e| {
+                    util::write_log_file(&format!("failed to save shader: {:?}", e));
+                    false
+                });
+                let gotvert = save_vertex_shader_d3d9(*device, snap_dir, snap_prefix, "_vshader").unwrap_or_else(|e| {
+                    util::write_log_file(&format!("failed to save shader: {:?}", e));
+                    false
+                });
 
-        (gotpix, gotvert)
+                (gotpix, gotvert)
+            },
+            DevicePointer::D3D11(_device) => {
+                util::write_log_file("shader capture not implemented for D3D11");
+                (false,false)
+            },
+        }
     }
 }

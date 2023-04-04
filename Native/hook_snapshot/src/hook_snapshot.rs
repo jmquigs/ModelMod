@@ -1,3 +1,4 @@
+use global_state::HookState;
 use shared_dx::types::DevicePointer;
 use winapi::shared::d3d9::*;
 use winapi::shared::d3d9types::*;
@@ -8,6 +9,7 @@ use d3dx;
 use global_state::{GLOBAL_STATE};
 
 use std;
+use std::collections::BTreeMap;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -90,6 +92,8 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
     if device == null_mut() {
         return;
     }
+    let dp = DevicePointer::D3D9(device); // TEMP: remove later
+
     let snap_conf =
         match SNAP_CONFIG.read() {
             Err(e) => {
@@ -99,9 +103,124 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
             Ok(c) => c.clone()
         };
 
-    let mut autosnap = false;
-
     let gs = unsafe {&mut GLOBAL_STATE };
+    let autosnap = if let Some(_) = &gs.anim_snap_state {
+        auto_snap_anim(device, sd, gs, &snap_conf)
+    } else {
+        false
+    };
+
+    let do_snap = (this_is_selected || autosnap) && gs.is_snapping;
+
+    if !do_snap {
+        return;
+    }
+
+    let pre_rc;
+    // snap in a block so that drops within activate and we can check ref count after
+    unsafe {
+        write_log_file("Snap started");
+
+        (*device).AddRef();
+        pre_rc = (*device).Release();
+
+        gs.device = Some(device);
+
+        if gs.d3dx_fn.is_none() {
+            gs.d3dx_fn = d3dx::load_lib(&gs.mm_root, &dp)
+                .map_err(|e| {
+                    write_log_file(&format!(
+                        "failed to load d3dx: texture snapping not available: {:?}",
+                        e
+                    ));
+                    e
+                })
+                .ok();
+        }
+
+        save_constants(device, gs, &snap_conf);
+
+        let save_rs = save_render_state(device);
+
+        let bufs = set_buffers(device, sd);
+
+        if let Ok(_bufs) = bufs {
+            write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
+            GLOBAL_STATE.interop_state.as_mut().map(|is| {
+
+                // call into managed code to do the a lot of the data writing
+                let cb = is.callbacks;
+                let res = (cb.TakeSnapshot)(device, sd);
+
+                if res == 0 && snapshot_extra() {
+                    let sresult = *(cb.GetSnapshotResult)();
+                    let dir = &sresult.directory[0..(sresult.directory_len as usize)];
+                    let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
+
+                    let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
+
+                    gs.anim_snap_state.as_mut().map(|ass| {
+                        if ass.snap_dir == "" {
+                            ass.snap_dir = dir.to_owned();
+                        }
+                    });
+                    let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
+                    // write_log_file(&format!("snap save dir: {}", dir));
+                    // write_log_file(&format!("snap prefix: {}", sprefix));
+                    let (gotpix,gotvert) = shader_capture::take_snapshot(&dp, &dir, &sprefix);
+                    let vc = if gotvert { &gs.vertex_constants } else { &None };
+                    let pc = if gotpix { &gs.pixel_constants } else { &None };
+                    constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
+
+                    if save_rs.has_state() {
+                        let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
+                        let _r = save_rs.save(&file).map_err(|e| {
+                            write_log_file(&format!("failed to snap blend states: {:?}", e));
+                        });
+                    }
+
+                    // for animations, validate that shader is GPU animated
+                    if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
+                        use std::path::Path;
+                        let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
+                        if Path::new(&file).exists() {
+                            use std::fs;
+
+                            fs::read_to_string(&file).map_err(|e| {
+                                write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
+                            }).map(|contents| {
+                                if contents.contains("m4x4 oPos, v0, c0") {
+                                    write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
+                                    write_log_file(&format!("file: {}", &file));
+                                    gs.is_snapping = false;
+                                    gs.anim_snap_state = None;
+                            }
+                            }).unwrap_or_default();
+                        }
+                    }
+                }
+            });
+        }
+        gs.device = None;
+    }
+    // check for resource leak, we do this in another block so that all the release on
+    // drops activated.
+    unsafe {
+        (*device).AddRef();
+        let post_rc = (*device).Release();
+        if pre_rc != post_rc {
+            write_log_file(&format!(
+                "WARNING: device ref count before snapshot ({}) does not
+                equal count after snapshot ({}), likely resources were leaked",
+                pre_rc, post_rc
+            ));
+        }
+    }
+}
+
+
+fn auto_snap_anim(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, gs:&mut HookState, snap_conf:&SnapConfig) -> bool {
+    let mut autosnap = false;
 
     // experimental animation snapping. not normally used and no modding support at this time.
     // VERY game and even model specific, hard to generalize.
@@ -165,203 +284,163 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
         }
     }
 
-    let do_snap = (this_is_selected || autosnap) && gs.is_snapping;
+    return autosnap;
 
-    if !do_snap {
-        return;
+}
+
+fn save_constants(device:*mut IDirect3DDevice9, gs:&mut HookState, snap_conf:&SnapConfig) {
+    // constant tracking workaround: read back all the constants
+    if constant_tracking::is_enabled() {
+        gs.vertex_constants.as_mut().map(|vconsts| {
+            set_vconsts(device, snap_conf.vconsts_to_capture, vconsts, true);
+        });
+        gs.pixel_constants.as_mut().map(|pconsts| {
+            set_pconsts(device, snap_conf.pconsts_to_capture, pconsts);
+        });
     }
+}
 
-    let pre_rc;
-    // snap in a block so that drops within activate and we can check ref count after
-    unsafe {
-        write_log_file("Snap started");
+trait SnapRendState {
+    fn has_state(&self) -> bool;
+    fn save(self, file:&str) -> Result<()>;
+}
 
-        (*device).AddRef();
-        pre_rc = (*device).Release();
-
-        gs.device = Some(device);
-
-        if gs.d3dx_fn.is_none() {
-            let dp = DevicePointer::D3D9(device);
-            gs.d3dx_fn = d3dx::load_lib(&gs.mm_root, &dp)
-                .map_err(|e| {
-                    write_log_file(&format!(
-                        "failed to load d3dx: texture snapping not available: {:?}",
-                        e
-                    ));
-                    e
-                })
-                .ok();
-        }
-        // constant tracking workaround: read back all the constants
-        if constant_tracking::is_enabled() {
-            gs.vertex_constants.as_mut().map(|vconsts| {
-                set_vconsts(device, snap_conf.vconsts_to_capture, vconsts, true);
-            });
-            gs.pixel_constants.as_mut().map(|pconsts| {
-                set_pconsts(device, snap_conf.pconsts_to_capture, pconsts);
-            });
-        }
-
-        use std::collections::BTreeMap;
-        let mut blendstates: BTreeMap<DWORD, DWORD> = BTreeMap::new();
-        let mut tstagestates: Vec<BTreeMap<DWORD, DWORD>> = vec![];
-
-        let mut save_state = |statename| {
-            let mut state = 0;
-            (*device).GetRenderState(statename, &mut state);
-            blendstates.insert(statename, state);
-        };
-
-        save_state(D3DRS_CULLMODE);
-
-        save_state(D3DRS_ALPHABLENDENABLE);
-        save_state(D3DRS_SRCBLEND);
-        save_state(D3DRS_DESTBLEND);
-        save_state(D3DRS_BLENDOP);
-        save_state(D3DRS_SEPARATEALPHABLENDENABLE);
-        save_state(D3DRS_SRCBLENDALPHA);
-        save_state(D3DRS_DESTBLENDALPHA);
-        save_state(D3DRS_BLENDOPALPHA);
-        save_state(D3DRS_ALPHATESTENABLE);
-        save_state(D3DRS_ALPHAFUNC);
-        save_state(D3DRS_ALPHAREF);
-        save_state(D3DRS_COLORWRITEENABLE);
-
-        tstagestates.resize_with(4, BTreeMap::new);
-        let mut save_state = |tex, statename| {
-            let mut state = 0;
-            (*device).GetTextureStageState(tex, statename, &mut state);
-            let tex = tex as usize;
-            if tex >= tstagestates.len() {
-                return;
-            }
-            tstagestates[tex].insert(statename, state);
-        };
-
-        for tex in (0..4).rev() {
-            save_state(tex, D3DTSS_COLOROP);
-            save_state(tex, D3DTSS_COLORARG1);
-            save_state(tex, D3DTSS_COLORARG2);
-            save_state(tex, D3DTSS_COLORARG0);
-            save_state(tex, D3DTSS_ALPHAOP);
-            save_state(tex, D3DTSS_ALPHAARG1);
-            save_state(tex, D3DTSS_ALPHAARG2);
-            save_state(tex, D3DTSS_ALPHAARG0);
-            save_state(tex, D3DTSS_TEXTURETRANSFORMFLAGS);
-            save_state(tex, D3DTSS_RESULTARG);
-        }
-
-        // TODO: warn about active streams that are in use but not supported
-        let mut blending_enabled: DWORD = 0;
-        let hr = (*device).GetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, &mut blending_enabled);
-        if hr == 0 && blending_enabled > 0 {
-            write_log_file("WARNING: vertex blending is enabled, this mesh may not be supported");
-        }
-
-        let mut ok = true;
-        let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
-        // sharpdx does not expose GetVertexDeclaration, so need to do it here
-        let hr = (*device).GetVertexDeclaration(&mut vert_decl);
-
-        if hr != 0 {
-            write_log_file(&format!(
-                "Error, can't get vertex declaration.
-                Cannot snap; HR: {:x}",
-                hr
-            ));
-        }
-        let _vert_decl_rod = ReleaseOnDrop::new(vert_decl);
-
-        ok = ok && hr == 0;
-        let mut ib: *mut IDirect3DIndexBuffer9 = null_mut();
-        let hr = (*device).GetIndices(&mut ib);
-        if hr != 0 {
-            write_log_file(&format!(
-                "Error, can't get index buffer.  Cannot snap; HR: {:x}",
-                hr
-            ));
-        }
-        let _ib_rod = ReleaseOnDrop::new(ib);
-
-        ok = ok && hr == 0;
-
-        if ok {
-            // fill in remaining snap data
-            sd.vert_decl = vert_decl;
-            sd.index_buffer = ib;
-
-            write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
-            GLOBAL_STATE.interop_state.as_mut().map(|is| {
-                let cb = is.callbacks;
-                let res = (cb.TakeSnapshot)(device, sd);
-                if res == 0 && snapshot_extra() {
-                    let sresult = *(cb.GetSnapshotResult)();
-                    let dir = &sresult.directory[0..(sresult.directory_len as usize)];
-                    let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
-
-                    let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
-
-                    gs.anim_snap_state.as_mut().map(|ass| {
-                        if ass.snap_dir == "" {
-                            ass.snap_dir = dir.to_owned();
-                        }
-                    });
-                    let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
-                    // write_log_file(&format!("snap save dir: {}", dir));
-                    // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let (gotpix,gotvert) = shader_capture::take_snapshot(&dir, &sprefix);
-                    let vc = if gotvert { &gs.vertex_constants } else { &None };
-                    let pc = if gotpix { &gs.pixel_constants } else { &None };
-                    constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
-
-                    if blendstates.len() > 0 {
-                        let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
-                        let _r = write_obj_to_file(&file, false, &RenderStateMap {
-                            blendstates,
-                            tstagestates,
-                        }).map_err(|e| {
-                            write_log_file(&format!("failed to snap blend states: {:?}", e));
-                        });
-                    }
-
-                        // for animations, validate that shader is GPU animated
-                        if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
-                            use std::path::Path;
-                            let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
-                            if Path::new(&file).exists() {
-                                use std::fs;
-
-                                fs::read_to_string(&file).map_err(|e| {
-                                    write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
-                                }).map(|contents| {
-                                    if contents.contains("m4x4 oPos, v0, c0") {
-                                        write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
-                                        write_log_file(&format!("file: {}", &file));
-                                        gs.is_snapping = false;
-                                        gs.anim_snap_state = None;
-                            }
-                            }).unwrap_or_default();
-                        }
-                    }
-                }
-            });
-        }
-        gs.device = None;
+struct D3D9SnapRenderState {
+    blendstates: BTreeMap<DWORD, DWORD>,
+    tstagestates: Vec<BTreeMap<DWORD, DWORD>>,
+}
+impl SnapRendState for D3D9SnapRenderState {
+    fn has_state(&self) -> bool {
+        self.blendstates.len() > 0
     }
-    // check for resource leak, we do this in another block so that all the release on
-    // drops activated.
-    unsafe {
-        (*device).AddRef();
-        let post_rc = (*device).Release();
-        if pre_rc != post_rc {
-            write_log_file(&format!(
-                "WARNING: device ref count before snapshot ({}) does not
-                equal count after snapshot ({}), likely resources were leaked",
-                pre_rc, post_rc
-            ));
+    fn save(self, file:&str) -> Result<()> {
+        if self.has_state() {
+            write_obj_to_file(&file, false, &RenderStateMap {
+                blendstates: self.blendstates,
+                tstagestates: self.tstagestates,
+            })
+        } else {
+            Ok(())
         }
     }
+}
+
+unsafe fn save_render_state_d3d9(device:*mut IDirect3DDevice9) -> impl SnapRendState {
+    let mut blendstates: BTreeMap<DWORD, DWORD> = BTreeMap::new();
+    let mut tstagestates: Vec<BTreeMap<DWORD, DWORD>> = vec![];
+
+    let mut save_state = |statename| {
+        let mut state = 0;
+        (*device).GetRenderState(statename, &mut state);
+        blendstates.insert(statename, state);
+    };
+
+    save_state(D3DRS_CULLMODE);
+
+    save_state(D3DRS_ALPHABLENDENABLE);
+    save_state(D3DRS_SRCBLEND);
+    save_state(D3DRS_DESTBLEND);
+    save_state(D3DRS_BLENDOP);
+    save_state(D3DRS_SEPARATEALPHABLENDENABLE);
+    save_state(D3DRS_SRCBLENDALPHA);
+    save_state(D3DRS_DESTBLENDALPHA);
+    save_state(D3DRS_BLENDOPALPHA);
+    save_state(D3DRS_ALPHATESTENABLE);
+    save_state(D3DRS_ALPHAFUNC);
+    save_state(D3DRS_ALPHAREF);
+    save_state(D3DRS_COLORWRITEENABLE);
+
+    tstagestates.resize_with(4, BTreeMap::new);
+    let mut save_state = |tex, statename| {
+        let mut state = 0;
+        (*device).GetTextureStageState(tex, statename, &mut state);
+        let tex = tex as usize;
+        if tex >= tstagestates.len() {
+            return;
+        }
+        tstagestates[tex].insert(statename, state);
+    };
+
+    for tex in (0..4).rev() {
+        save_state(tex, D3DTSS_COLOROP);
+        save_state(tex, D3DTSS_COLORARG1);
+        save_state(tex, D3DTSS_COLORARG2);
+        save_state(tex, D3DTSS_COLORARG0);
+        save_state(tex, D3DTSS_ALPHAOP);
+        save_state(tex, D3DTSS_ALPHAARG1);
+        save_state(tex, D3DTSS_ALPHAARG2);
+        save_state(tex, D3DTSS_ALPHAARG0);
+        save_state(tex, D3DTSS_TEXTURETRANSFORMFLAGS);
+        save_state(tex, D3DTSS_RESULTARG);
+    }
+
+    // TODO: warn about active streams that are in use but not supported
+    let mut blending_enabled: DWORD = 0;
+    let hr = (*device).GetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, &mut blending_enabled);
+    if hr == 0 && blending_enabled > 0 {
+        write_log_file("WARNING: vertex blending is enabled, this mesh may not be supported");
+    }
+
+    D3D9SnapRenderState {
+        blendstates,
+        tstagestates,
+    }
+}
+
+fn save_render_state(device:*mut IDirect3DDevice9) -> impl SnapRendState {
+    unsafe { save_render_state_d3d9(device) }
+}
+
+trait SnapDeviceBuffers {}
+
+struct D3D9SnapDeviceBuffers {
+    _index_buffer: *mut IDirect3DIndexBuffer9,
+    _vert_decl: *mut IDirect3DVertexDeclaration9,
+    _ib_rod: ReleaseOnDrop<*mut IDirect3DIndexBuffer9>,
+    _vert_decl_rod: ReleaseOnDrop<*mut IDirect3DVertexDeclaration9>,
+}
+
+impl SnapDeviceBuffers for D3D9SnapDeviceBuffers{}
+
+unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<impl SnapDeviceBuffers> {
+    let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
+    // sharpdx does not expose GetVertexDeclaration, so need to do it here
+    let hr = (*device).GetVertexDeclaration(&mut vert_decl);
+
+    if hr != 0 {
+        write_log_file(&format!(
+            "Error, can't get vertex declaration.
+            Cannot snap; HR: {:x}",
+            hr
+        ));
+        return Err(HookError::SnapshotFailed("failed snapshot".to_string()));
+    }
+    let vert_decl_rod = ReleaseOnDrop::new(vert_decl);
+
+    let mut ib: *mut IDirect3DIndexBuffer9 = null_mut();
+    let hr = (*device).GetIndices(&mut ib);
+    if hr != 0 {
+        write_log_file(&format!(
+            "Error, can't get index buffer.  Cannot snap; HR: {:x}",
+            hr
+        ));
+        return Err(HookError::SnapshotFailed("failed snapshot".to_string()));
+    }
+    let ib_rod = ReleaseOnDrop::new(ib);
+
+    // fill in snap data
+    sd.vert_decl = vert_decl;
+    sd.index_buffer = ib;
+
+    Ok(D3D9SnapDeviceBuffers {
+        _index_buffer: ib,
+        _vert_decl: vert_decl,
+        _ib_rod: ib_rod,
+        _vert_decl_rod: vert_decl_rod,
+    })
+}
+fn set_buffers(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<impl SnapDeviceBuffers> {
+    unsafe { set_buffers_d3d9(device, sd) }
 }
 
 fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
