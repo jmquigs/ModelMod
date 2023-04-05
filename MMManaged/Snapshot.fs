@@ -23,7 +23,15 @@ namespace ModelMod
 open System.IO
 open System.Runtime.InteropServices
 
-open SharpDX.Direct3D9
+type VertexBuffer9 = SharpDX.Direct3D9.VertexBuffer
+type IndexBuffer9 = SharpDX.Direct3D9.IndexBuffer
+type PrimitiveType9 = SharpDX.Direct3D9.PrimitiveType
+type Device9 = SharpDX.Direct3D9.Device
+type VertexDeclaration9 = SharpDX.Direct3D9.VertexDeclaration
+type Format9 = SharpDX.Direct3D9.Format
+type LockFlags9 = SharpDX.Direct3D9.LockFlags
+type TextureStage9 = SharpDX.Direct3D9.TextureStage
+type TransformState9 = SharpDX.Direct3D9.TransformState
 
 open CoreTypes
 
@@ -55,7 +63,7 @@ module Extractors =
         a,b,c,d
 
 /// Snapshot utilities.
-module Snapshot = // TODO11 lots of stuff below
+module Snapshot =
 
     let private log = Logging.getLogger("Snapshot")
 
@@ -80,7 +88,13 @@ module Snapshot = // TODO11 lots of stuff below
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
-    let private readElement (fns:ReadOutputFunctions) reader (el:SDXVertexElement) =
+    let private readElement (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:SDXVertexElement) =
+        let fns =
+            if el.UsageIndex = byte 0 then
+                fns
+            else
+                ignoreFns
+
         let handleVector name outputFn =
             match el.Type with
             | SDXVertexDeclType.Float3 ->
@@ -162,12 +176,24 @@ module Snapshot = // TODO11 lots of stuff below
             SnapFilePrefixLen = getLen lastBaseName.Value
         }
 
-    /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
-    /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
-    /// Returns 0 on success.
-    let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
-        let mutable vb:VertexBuffer = null
-        let mutable ib:IndexBuffer = null
+    type IDeviceSnapState =
+        inherit System.IDisposable
+
+        abstract member StrideBytes: int
+        abstract member OffsetBytes: int
+        abstract member IBReader: BinaryReader
+        abstract member VBReader: BinaryReader
+        abstract member VertElements: SharpDX.Direct3D9.VertexElement []
+        abstract member VBDS: SharpDX.DataStream
+        abstract member IBDS: SharpDX.DataStream
+
+        abstract member GetEnabledTextureStages: unit -> int list
+        abstract member WriteDecl: string * string -> unit
+        abstract member WriteTransforms: string * string -> unit
+
+    type SnapStateD3D9(device:nativeint,sd:InteropTypes.SnapshotData) =
+        let mutable vb:VertexBuffer9 = null
+        let mutable ib:IndexBuffer9 = null
         let mutable vbLocked = false
         let mutable ibLocked = false
 
@@ -177,80 +203,59 @@ module Snapshot = // TODO11 lots of stuff below
                 ib.Unlock()
             if vbLocked then
                 vb.Unlock()
-        try
-            incr snapshotNum
-            log.Info "Snapshot: number %d" snapshotNum.Value
 
-            let saveTexture,getPixelShader =
-                match State.Context with
-                | "mm_native" ->
-                    (NativeImportsAsMMNative.SaveTexture, NativeImportsAsMMNative.GetPixelShader)
-                | "d3d9" ->
-                    (NativeImportsAsD3D9.SaveTexture, NativeImportsAsD3D9.GetPixelShader)
-                | "d3d11" ->
-                    (NativeImportsAsD3D11.SaveTexture, NativeImportsAsD3D11.GetPixelShader)
-                | s ->
-                    failwithf "unrecognized context: %s" s
+        let mutable offsetBytes = 0
+        let mutable strideBytes = 0
+        let mutable deviceopt = None
+        let mutable vbDisposable = None
+        let mutable declBytes = [||]
 
-            let inpSize = sd.SDSize
-            let mySize = uint32 (System.Runtime.InteropServices.Marshal.SizeOf(typeof<InteropTypes.SnapshotData>))
-
-            log.Info "  Input Snapshot data struct is %d" sd.SDSize
-            log.Info "  Managed Snapshot data struct size is %d" mySize
-
-            if inpSize <> mySize then
-                failwithf "aborting: input snapshot struct size %d does not match code size %d" inpSize mySize
-
-            log.Info "  Capturing %d primitives composed of %d vertices with primitive type %d" sd.PrimCount sd.NumVertices sd.PrimType
-            log.Info "  MinVertexIndex: %d, BaseVertexIndex: %d, StartIndex: %d" sd.MinVertexIndex sd.BaseVertexIndex sd.StartIndex
-
+        let ibReader,vbReader,elements,vbDS,ibDS =
             if sd.BaseVertexIndex <> 0 || sd.MinVertexIndex <> 0u then
                 // need a test case for these
                 log.Warn "One or more of baseVertexIndex, minVertexIndex is not zero.  Snapshot may not handle this case"
 
             // check primitive type
-            let primType = enum<PrimitiveType>(sd.PrimType)
-            if primType <> PrimitiveType.TriangleList then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
+            let primType = enum<PrimitiveType9>(sd.PrimType)
+            if primType <> PrimitiveType9.TriangleList then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
 
             // create the device from the native pointer.
             // note: creating a new sharpdx wrapper object from a native pointer does not increase the com ref count.
             // however, disposing that object will decrease the ref count, which can lead to a crash.  Therefore,
             // we must only dispose objects that are allocated from scratch or via a d3d device call, such as
             // GetStreamSource below.
-            let device = new Device(device)
-
-            // get active stream information for stream 0.  currently we ignore other streams (will log a warning below if the declaration
-            // uses data from non-stream 0).
-            let mutable offsetBytes = 0
-            let mutable strideBytes = 0
-
-            device.GetStreamSource(0,&vb,&offsetBytes,&strideBytes)
-            match vb with
-            | null -> failwith "Stream 0 VB is null, cannot snap"
-            | _ -> ()
-
-            // need to dispose the vb
-            use dVB = makeLoggedDisposable vb "disposing stream 0 vb"
-
-            log.Info "Stream 0: offset: %d, stride: %d" offsetBytes strideBytes
+            let device = new Device9(device)
+            deviceopt <- Some(device) // make a reference to prevent GC from doing anything funky with it
 
             // check the divider
             let mutable divider = 0
             device.GetStreamSourceFrequency(0, &divider)
             if divider <> 1 then failwith "Divider must be 1" // this code doesn't handle other cases right now
 
+            // get active stream information for stream 0.  currently we ignore other streams (will log a warning below if the declaration
+            // uses data from non-stream 0).
+            device.GetStreamSource(0,&vb,&offsetBytes,&strideBytes)
+            match vb with
+            | null -> failwith "Stream 0 VB is null, cannot snap"
+            | _ -> ()
+
+            // need to dispose the vb
+            vbDisposable <- Some(makeLoggedDisposable vb "disposing stream 0 vb")
+
+            log.Info "Stream 0: offset: %d, stride: %d" offsetBytes strideBytes
+
             // index buffer
             if sd.IndexBuffer = 0n then failwith "Index buffer is null"
-            ib <- new IndexBuffer(sd.IndexBuffer) // do not dispose, native code owns it
+            ib <- new IndexBuffer9(sd.IndexBuffer) // do not dispose, native code owns it
             let ibDesc = ib.Description
             log.Info"IndexBuffer: Format: %A, Usage: %A, Pool: %A, Size: %d" ibDesc.Format ibDesc.Usage ibDesc.Pool ibDesc.Size
 
             // check format
-            if ibDesc.Format <> Format.Index16 then failwithf "Cannot snap indices of type: %A; only index16 are supported" ibDesc.Format
+            if ibDesc.Format <> Format9.Index16 then failwithf "Cannot snap indices of type: %A; only index16 are supported" ibDesc.Format
 
             // vertex declaration
             if sd.VertDecl = 0n then failwith "Vertex declaration is null"
-            let decl = new VertexDeclaration(sd.VertDecl) // do not dispose, native code owns it
+            let decl = new VertexDeclaration9(sd.VertDecl) // do not dispose, native code owns it
 
             let elements = decl.Elements
             log.Info "Declaration: %d elements" elements.Length
@@ -268,21 +273,145 @@ module Snapshot = // TODO11 lots of stuff below
             let declWriter = new BinaryWriter(declMS)
             elements |> Array.iter (fun el -> ModDB.writeVertexElement el declWriter)
             declWriter.Close()
-            let declBytes = declMS.ToArray()
+            declBytes <- declMS.ToArray()
 
             // lock vb and ib
-            let vbDS = vb.Lock(0, vb.Description.SizeInBytes, LockFlags.ReadOnly)
+            let vbDS = vb.Lock(0, vb.Description.SizeInBytes, LockFlags9.ReadOnly)
             // sharpdx always appears to return a valid object even if lock fails, so consider it locked
             vbLocked <- true
             if not vbDS.CanRead then failwith "Failed to lock vertex buffer for reading"
-            use vbReader = new BinaryReader(vbDS) // disposable
-            let ibDS = ib.Lock(0, ib.Description.Size, LockFlags.ReadOnly)
+            let vbReader = new BinaryReader(vbDS)
+            let ibDS = ib.Lock(0, ib.Description.Size, LockFlags9.ReadOnly)
             ibLocked <- true
             if not ibDS.CanRead then failwith "Failed to lock index buffer for reading"
-            use ibReader = new BinaryReader(ibDS) // disposable
+            let ibReader = new BinaryReader(ibDS)
+            (ibReader,vbReader,elements,vbDS,ibDS)
+
+        let mutable disposed = false
+
+        interface System.IDisposable with
+            member x.Dispose() =
+                if not disposed then
+                    disposed <- true
+                    ibReader.Dispose()
+                    vbReader.Dispose()
+                    unlock()
+                    vbDisposable |> Option.iter (fun vb -> vb.Dispose())
+
+        interface IDeviceSnapState with
+            member x.StrideBytes = strideBytes
+            member x.OffsetBytes = offsetBytes
+            member x.IBReader = ibReader
+            member x.VBReader = vbReader
+            member x.VertElements = elements
+            member x.VBDS = vbDS
+            member x.IBDS = ibDS
+
+            member x.GetEnabledTextureStages() =
+                // write textures for enabled stages only
+                // Note: Sometimes we can't read textures from the device.
+                // The flags need to be set properly in CreateTexture to make this
+                // possible, and some games don't do that.  I'm fuzzy on the specifics, but I think its
+                // D3DUSAGE_DYNAMIC that prevents capture, because the
+                // driver might decide to put the texture in video memory and then we can't read it.
+                // We could override that universally but it could harm
+                // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be
+                // useful.
+                let maxStage = 7 // 8 textures ought to be enough for anybody.
+
+                match deviceopt with
+                | Some(device) ->
+                    [0..maxStage]
+                    |> List.filter (fun i ->
+                        let state = device.GetTextureStageState(i, TextureStage9.ColorOperation)
+                        if state <> 1 then // 1 = D3DTOP_DISABLE
+                            true
+                        else
+                            // some games disable the stage but put textures on it anyway.
+                            let stageTex = device.GetTexture(i)
+                            use disp = makeLoggedDisposable stageTex (sprintf "disposing snapshot texture %d" i)
+                            stageTex <> null)
+                | None -> []
+
+            member x.WriteDecl(basedir,basename) =
+                let declfile = Path.Combine(basedir, (sprintf "%s_VBDecl.dat" basename))
+                File.WriteAllBytes(declfile, declBytes)
+
+            member x.WriteTransforms(basedir,basename) =
+                // Global transforms
+                // Usually, only old games that still use fixed function for part of their rendering
+                // Will set these, since shaders use constants to get these values instead.
+                // So only write out the file if at least one of these is non-identity.
+                match deviceopt with
+                | None -> ()
+                | Some(device) ->
+                    let w0 = device.GetTransform(TransformState9.World);
+                    let w1 = device.GetTransform(TransformState9.World1);
+                    let w2 = device.GetTransform(TransformState9.World2);
+                    let w3 = device.GetTransform(TransformState9.World3);
+                    let view = device.GetTransform(TransformState9.View);
+                    let proj = device.GetTransform(TransformState9.Projection)
+                    use s = new StringWriter()
+                    let writeMat (mat:SharpDX.Matrix) label =
+                        if not (mat.IsIdentity) then
+                            s.WriteLine(sprintf "%s: values=%A" label mat)
+
+                    writeMat w0 "w0"
+                    writeMat w1 "w1"
+                    writeMat w2 "w2"
+                    writeMat w3 "w3"
+                    writeMat view "view"
+                    writeMat proj "proj"
+
+                    let s = s.ToString()
+                    if s <> "" then
+                        let fname = Path.Combine(basedir, (sprintf "%s_Transforms.txt" basename))
+                        File.WriteAllText(fname, s.ToString())
+
+    /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
+    /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
+    /// Returns 0 on success.
+    let take (device: nativeint) (sd:InteropTypes.SnapshotData) =
+        try
+            // check context and grab the saveTexture funcptr while we're at it
+            let saveTexture =
+                match State.Context with
+                | "mm_native" ->
+                    (NativeImportsAsMMNative.SaveTexture)
+                | "d3d9" ->
+                    (NativeImportsAsD3D9.SaveTexture)
+                | "d3d11" ->
+                    (NativeImportsAsD3D11.SaveTexture)
+                | s ->
+                    failwithf "unrecognized context: %s" s
+
+            incr snapshotNum
+            log.Info "Snapshot: number %d" snapshotNum.Value
+
+            let inpSize = sd.SDSize
+            let mySize = uint32 (System.Runtime.InteropServices.Marshal.SizeOf(typeof<InteropTypes.SnapshotData>))
+
+            log.Info "  Input Snapshot data struct is %d" sd.SDSize
+            log.Info "  Managed Snapshot data struct size is %d" mySize
+
+            if inpSize <> mySize then
+                // of course is input is larger than my size we just blew the stack, but log anyway
+                failwithf "aborting: input snapshot struct size %d does not match code size %d" inpSize mySize
+
+            log.Info "  Capturing %d primitives composed of %d vertices with primitive type %d" sd.PrimCount sd.NumVertices sd.PrimType
+            log.Info "  MinVertexIndex: %d, BaseVertexIndex: %d, StartIndex: %d" sd.MinVertexIndex sd.BaseVertexIndex sd.StartIndex
+
+            let dss =
+                match State.Context with
+                | "d3d9" ->
+                    new SnapStateD3D9(device, sd) :> IDeviceSnapState
+                | "d3d11" ->
+                    failwith "Snapshot.take not yet implemented for d3d11"
+                | s ->
+                    failwithf "unrecognized context: %s" s
 
             // sort elements ascending by offset to avoid seeking the reader
-            let declElements = decl.Elements |> List.ofArray |> List.sortBy (fun el -> el.Offset)
+            let declElements = dss.VertElements |> List.ofArray |> List.sortBy (fun el -> el.Offset)
 
             // create arrays for storage
             let positions = new ResizeArray<Vec3F>()
@@ -301,20 +430,35 @@ module Snapshot = // TODO11 lots of stuff below
                 BlendIndex = (fun (a, b, c, d) -> blendIndices.Add(Vec4X(a,b,c,d)))
                 BlendWeight = (fun (a, b, c, d) -> blendWeights.Add(Vec4F(a,b,c,d)))
             }
+            // we don't support usage indices > 0 for any semantic so create some trashcan readers for those
+            let readIgnoreFns = {
+                ReadOutputFunctions.Pos = fun (x,y,z) -> ()
+                Normal = fun (x,y,z) -> ()
+                TexCoord = fun (u,v) -> ()
+                Binormal = fun (x,y,z) -> ()
+                Tangent = fun (x,y,z) -> ()
+                BlendIndex = fun (a, b, c, d) -> ()
+                BlendWeight = fun (a, b, c, d) -> ()
+            }
+            // log if any usages over 0 are found
+            declElements |> List.iter (fun el ->
+                if el.UsageIndex > byte 0 then
+                    log.Warn "usage index %A not supported for semantic %A, this data will be ignored" el.UsageIndex el.Usage
+            )
 
             // create per-element read function bound to the reader
-            let readVertElement = readElement readOutputFns vbReader
+            let readVertElement = readElement readOutputFns readIgnoreFns dss.VBReader
 
             // start at minIndex and write out numVerts (we only write the verts used by the DIP call)
-            let vbStartOffset = int64 offsetBytes + ((int64 sd.BaseVertexIndex + int64 sd.MinVertexIndex) * int64 strideBytes)
-            ignore (vbDS.Seek(vbStartOffset, SeekOrigin.Begin) )
+            let vbStartOffset = int64 dss.OffsetBytes + ((int64 sd.BaseVertexIndex + int64 sd.MinVertexIndex) * int64 dss.StrideBytes)
+            ignore (dss.VBDS.Seek(vbStartOffset, SeekOrigin.Begin) )
             // walk the verts to populate data arrays.
             // elements are sorted in offset order, so we only need to seek the reader between verts (not between elements)
             // we do assume that each extractor reads the full
             // amount of data for its type (for example a ubyte4 extractor should read 4 bytes even if the 4th is ignored)
-            let stride = strideBytes
+            let stride = dss.StrideBytes
             let processVert i =
-                ignore (vbDS.Seek(vbStartOffset + (int64 i * int64 stride),SeekOrigin.Begin))
+                ignore (dss.VBDS.Seek(vbStartOffset + (int64 i * int64 stride),SeekOrigin.Begin))
                 declElements |> List.iter readVertElement
             [0..(int sd.NumVertices-1)] |> List.iter processVert
 
@@ -324,15 +468,16 @@ module Snapshot = // TODO11 lots of stuff below
             // TODO: I think I've seen this work with minVertexIndex <> 0, but I'm not sure since that is an uncommon case;
             // needs definitive test.
             let indexElemSize = 2 // 2 = sizeof short (Format.Index16)
+            // TODO: check for dx11
             let ibStartOffset = int64 sd.MinVertexIndex * (int64 indexElemSize) + int64 (sd.StartIndex * uint32 indexElemSize)
-            ignore (ibDS.Seek(ibStartOffset, SeekOrigin.Begin))
+            ignore (dss.IBDS.Seek(ibStartOffset, SeekOrigin.Begin))
 
             let triangles = new ResizeArray<IndexedTri>()
 
             let processTriangle _ =
-                let a = int (ibReader.ReadInt16())
-                let b = int (ibReader.ReadInt16())
-                let c = int (ibReader.ReadInt16())
+                let a = int (dss.IBReader.ReadInt16())
+                let b = int (dss.IBReader.ReadInt16())
+                let c = int (dss.IBReader.ReadInt16())
 
                 // since vert,normal,texture arrays are all the same size, use the same index for each.
                 let verts:PTNIndex[] = Array.zeroCreate 3
@@ -354,28 +499,8 @@ module Snapshot = // TODO11 lots of stuff below
             lastBaseDir := baseDir
             lastBaseName := sbasename
 
-            // write textures for enabled stages only
-            // Note: Sometimes we can't read textures from the device.
-            // The flags need to be set properly in CreateTexture to make this
-            // possible, and some games don't do that.  I'm fuzzy on the specifics, but I think its
-            // D3DUSAGE_DYNAMIC that prevents capture, because the
-            // driver might decide to put the texture in video memory and then we can't read it.
-            // We could override that universally but it could harm
-            // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be
-            // useful.
-            let maxStage = 7 // 8 textures ought to be enough for anybody.
-
             let texturePaths =
-                [0..maxStage]
-                |> List.filter (fun i ->
-                    let state = device.GetTextureStageState(i, TextureStage.ColorOperation)
-                    if state <> 1 then // 1 = D3DTOP_DISABLE
-                        true
-                    else
-                        // some games disable the stage but put textures on it anyway.
-                        let stageTex = device.GetTexture(i)
-                        use disp = makeLoggedDisposable stageTex (sprintf "disposing snapshot texture %d" i)
-                        stageTex <> null)
+                dss.GetEnabledTextureStages()
                 |> List.map (fun i ->
                     let texName = sprintf "%s_texture%d.dds" sbasename i
                     let texPath = Path.Combine(baseDir, texName)
@@ -434,8 +559,7 @@ module Snapshot = // TODO11 lots of stuff below
             MeshUtil.writeObj mesh meshfile
 
             // write vert decl
-            let declfile = Path.Combine(baseDir, (sprintf "%s_VBDecl.dat" sbasename))
-            File.WriteAllBytes(declfile, declBytes)
+            dss.WriteDecl(baseDir, sbasename)
 
             // write raw ib and vb; just write the portion that was used by the DIP call
             // Note: these are generally for debug only; create mod tool doesn't even use them.
@@ -446,7 +570,7 @@ module Snapshot = // TODO11 lots of stuff below
                 data
 
             let ibBytesToRead = int sd.PrimCount * 3 * int indexElemSize
-            getStreamBytes ibStartOffset ibDS ibBytesToRead
+            getStreamBytes ibStartOffset dss.IBDS ibBytesToRead
                 |>
                 (fun bytes ->
                     // write header
@@ -460,8 +584,9 @@ module Snapshot = // TODO11 lots of stuff below
                     bw.Write(bytes)
                     ())
 
-            let vbBytesToRead = int sd.NumVertices * strideBytes
-            getStreamBytes vbStartOffset vbDS vbBytesToRead
+            let vbBytesToRead = int sd.NumVertices * dss.StrideBytes
+            //log.Warn "read vb: num: %A, stride: %A, startoff: %A, bytes: %A" sd.NumVertices dss.StrideBytes vbStartOffset vbBytesToRead
+            getStreamBytes vbStartOffset dss.VBDS vbBytesToRead
                 |>
                 (fun bytes ->
                     // write header
@@ -472,41 +597,15 @@ module Snapshot = // TODO11 lots of stuff below
                     bw.Write(bytes)
                     ())
 
-            // Global transforms
-            // Usually, only old games that still use fixed function for part of their rendering
-            // Will set these, since shaders use constants to get these values instead.
-            // So only write out the file if at least one of these is non-identity.
-            let _ =
-                let w0 = device.GetTransform(TransformState.World);
-                let w1 = device.GetTransform(TransformState.World1);
-                let w2 = device.GetTransform(TransformState.World2);
-                let w3 = device.GetTransform(TransformState.World3);
-                let view = device.GetTransform(TransformState.View);
-                let proj = device.GetTransform(TransformState.Projection)
-                use s = new StringWriter()
-                let writeMat (mat:SharpDX.Matrix) label =
-                    if not (mat.IsIdentity) then
-                        s.WriteLine(sprintf "%s: values=%A" label mat)
-
-                writeMat w0 "w0"
-                writeMat w1 "w1"
-                writeMat w2 "w2"
-                writeMat w3 "w3"
-                writeMat view "view"
-                writeMat proj "proj"
-
-                let s = s.ToString()
-                if s <> "" then
-                    let fname = Path.Combine(baseDir, (sprintf "%s_Transforms.txt" sbasename))
-                    File.WriteAllText(fname, s.ToString())
+            dss.WriteTransforms(baseDir, sbasename)
 
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
 
-            unlock()
+            dss.Dispose()
             0
         with
             e ->
                 log.Error "%A" e
-                // Note, don't do this, it crashes.
+                // Note, don't do this, it crashes. // TODO11: recheck this
                 //unlock()
                 InteropTypes.GenericFailureCode

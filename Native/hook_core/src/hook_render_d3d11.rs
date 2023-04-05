@@ -534,8 +534,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 vert_decl: null_mut(), // filled in by take()
                 index_buffer: null_mut(), // filled in by take()
             };
-            // disable this until I can commit managed code
-            //hook_snapshot::take(&mut state.devptr, &mut sd, this_is_selected);
+            hook_snapshot::take(&mut state.devptr, &mut sd, this_is_selected);
         });
 
     }
