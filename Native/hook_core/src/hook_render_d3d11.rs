@@ -443,6 +443,11 @@ pub unsafe extern "system" fn hook_draw_indexed(
     let periodic = || {
         profile_start!(hdi, periodic);
 
+        if GLOBAL_STATE.is_snapping {
+            // this may set is_snapping = false if the snapshot is done
+            hook_snapshot::present_process();
+        }
+
         if GLOBAL_STATE.metrics.dip_calls % HOOK_DRAW_PERIODIC_CALLS == 0 {
             draw_periodic(THIS);
         }
@@ -499,7 +504,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
     GLOBAL_STATE.in_dip = true;
 
     profile_end!(hdi, start);
-    profile_start!(hdi, sel_tex);
+    profile_start!(hdi, sel_tex_snap);
     let (override_texture, sel_stage, this_is_selected) = {
         get_override_tex_if_selected(|tp:&TexPtr| {
             match tp {
@@ -512,7 +517,31 @@ pub unsafe extern "system" fn hook_draw_indexed(
             }
         }).unwrap_or((null_mut(), 0, false))
     };
-    profile_end!(hdi, sel_tex);
+
+    if GLOBAL_STATE.is_snapping {
+        dev_state_d3d11_nolock().map(|state| {
+            let checkres = compute_prim_vert_count(IndexCount, &state.rs);
+            let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
+            // TODO11: need to pass IndexCount?
+            let mut sd = types::interop::SnapshotData {
+                sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
+                prim_type: state.rs.prim_topology as i32,
+                base_vertex_index: BaseVertexLocation,
+                min_vertex_index: 0,
+                num_vertices: vert_count,
+                start_index: StartIndexLocation,
+                prim_count: prim_count,
+                vert_decl: null_mut(), // filled in by take()
+                index_buffer: null_mut(), // filled in by take()
+            };
+            // disable this until I can commit managed code
+            //hook_snapshot::take(&mut state.devptr, &mut sd, this_is_selected);
+        });
+
+    }
+
+    profile_end!(hdi, sel_tex_snap);
+
 
     profile_start!(hdi, geom_check);
     // TODO11 use the lock function here or switch to thread local for RS

@@ -83,7 +83,7 @@ macro_rules! impl_save_shader {
 impl_save_shader!(save_pixel_shader_d3d9, IDirect3DPixelShader9, GetPixelShader);
 impl_save_shader!(save_vertex_shader_d3d9, IDirect3DVertexShader9, GetVertexShader);
 
-pub fn take_snapshot(device:&DevicePointer, snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
+pub fn take_snapshot(device:&mut DevicePointer, snap_dir:&str, snap_prefix:&str) -> (bool,bool) {
     unsafe {
         match device {
             DevicePointer::D3D9(device) => {

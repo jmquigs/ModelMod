@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use std::ffi::c_void;
 use std::os::raw::c_char;
 use winapi::um::winnt::WCHAR;
 pub use winapi::shared::d3d9::*;
@@ -95,7 +96,7 @@ type FillModDataCB = unsafe extern "stdcall" fn(
     ibSize: i32,
 ) -> i32;
 type TakeSnapshotCB = unsafe extern "stdcall" fn(
-    device: *mut IDirect3DDevice9,
+    device: *mut c_void,  // *mut IDirect3DDevice9 or *mut IDirect3D11Device
     snapdata: *mut SnapshotData,
 ) -> i32;
 type GetSnapshotResultCB = unsafe extern "stdcall" fn() -> *mut SnapshotResult;

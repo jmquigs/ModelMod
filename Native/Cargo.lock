@@ -110,6 +110,7 @@ dependencies = [
  "fnv",
  "input",
  "lazy_static",
+ "shared_dx",
  "snaplib",
  "types",
  "winapi",

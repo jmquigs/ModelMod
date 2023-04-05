@@ -702,12 +702,10 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
 
         // ensure d3dx is loaded in case we need to load mod textures
         match device {
-            DevicePointer::D3D9(dev) => {
-                GLOBAL_STATE.device = Some(dev); // TODO: this gross even for d3d9, really
-                // should just pass the device in from whomever is calling it (who should have
-                // the current device pointer)
+            DevicePointer::D3D9(_dev) => {
+                GLOBAL_STATE.device = Some(device);
             },
-            DevicePointer::D3D11(_dev) => {}, // skip
+            DevicePointer::D3D11(_dev) => {}, // dx11 doesn't need this skip
         }
         if GLOBAL_STATE.d3dx_fn.is_none() {
             GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root, &device)

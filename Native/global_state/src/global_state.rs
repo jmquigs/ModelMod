@@ -1,4 +1,5 @@
 
+use shared_dx::types::DevicePointer;
 use types::TexPtr;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
@@ -93,7 +94,7 @@ pub struct HookState {
     pub is_snapping: bool,
     pub snap_start: SystemTime,
     pub d3dx_fn: Option<d3dx::D3DXFn>,
-    pub device: Option<*mut IDirect3DDevice9>, // only valid during snapshots
+    pub device: Option<DevicePointer>,
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,

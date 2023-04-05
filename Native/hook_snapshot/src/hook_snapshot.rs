@@ -88,11 +88,10 @@ fn set_pconsts(device: *mut IDirect3DDevice9, num_to_read:usize, pconsts: &mut c
     pconsts.bools.set(0, dest.as_ptr(), num_to_read as u32);
 }
 
-pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, this_is_selected:bool) {
-    if device == null_mut() {
+pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, this_is_selected:bool) {
+    if devptr.is_null() {
         return;
     }
-    let dp = DevicePointer::D3D9(device); // TEMP: remove later
 
     let snap_conf =
         match SNAP_CONFIG.read() {
@@ -105,7 +104,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
 
     let gs = unsafe {&mut GLOBAL_STATE };
     let autosnap = if let Some(_) = &gs.anim_snap_state {
-        auto_snap_anim(device, sd, gs, &snap_conf)
+        auto_snap_anim(devptr, sd, gs, &snap_conf)
     } else {
         false
     };
@@ -121,13 +120,12 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
     unsafe {
         write_log_file("Snap started");
 
-        (*device).AddRef();
-        pre_rc = (*device).Release();
+        pre_rc = devptr.get_ref_count();
 
-        gs.device = Some(device);
+        gs.device = Some(*devptr);
 
         if gs.d3dx_fn.is_none() {
-            gs.d3dx_fn = d3dx::load_lib(&gs.mm_root, &dp)
+            d3dx::load_and_set_in_gs(&gs.mm_root, &devptr)
                 .map_err(|e| {
                     write_log_file(&format!(
                         "failed to load d3dx: texture snapping not available: {:?}",
@@ -138,11 +136,11 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
                 .ok();
         }
 
-        save_constants(device, gs, &snap_conf);
+        save_constants(devptr, gs, &snap_conf);
 
-        let save_rs = save_render_state(device);
+        let save_rs = save_render_state(devptr);
 
-        let bufs = set_buffers(device, sd);
+        let bufs = set_buffers(devptr, sd);
 
         if let Ok(_bufs) = bufs {
             write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
@@ -150,7 +148,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
 
                 // call into managed code to do the a lot of the data writing
                 let cb = is.callbacks;
-                let res = (cb.TakeSnapshot)(device, sd);
+                let res = (cb.TakeSnapshot)(devptr.as_c_void(), sd);
 
                 if res == 0 && snapshot_extra() {
                     let sresult = *(cb.GetSnapshotResult)();
@@ -167,7 +165,7 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
                     let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
                     // write_log_file(&format!("snap save dir: {}", dir));
                     // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let (gotpix,gotvert) = shader_capture::take_snapshot(&dp, &dir, &sprefix);
+                    let (gotpix,gotvert) = shader_capture::take_snapshot(devptr, &dir, &sprefix);
                     let vc = if gotvert { &gs.vertex_constants } else { &None };
                     let pc = if gotpix { &gs.pixel_constants } else { &None };
                     constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
@@ -205,9 +203,8 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
     }
     // check for resource leak, we do this in another block so that all the release on
     // drops activated.
-    unsafe {
-        (*device).AddRef();
-        let post_rc = (*device).Release();
+    {
+        let post_rc = devptr.get_ref_count();
         if pre_rc != post_rc {
             write_log_file(&format!(
                 "WARNING: device ref count before snapshot ({}) does not
@@ -219,7 +216,14 @@ pub fn take(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, 
 }
 
 
-fn auto_snap_anim(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData, gs:&mut HookState, snap_conf:&SnapConfig) -> bool {
+fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, gs:&mut HookState, snap_conf:&SnapConfig) -> bool {
+    let device = match devptr {
+        DevicePointer::D3D9(d) => *d as *mut _,
+        | _ => {
+            write_log_file("auto_snap_anim: not a d3d9 device");
+            return false;
+        }
+    };
     let mut autosnap = false;
 
     // experimental animation snapping. not normally used and no modding support at this time.
@@ -288,7 +292,13 @@ fn auto_snap_anim(device:*mut IDirect3DDevice9, sd:&mut types::interop::Snapshot
 
 }
 
-fn save_constants(device:*mut IDirect3DDevice9, gs:&mut HookState, snap_conf:&SnapConfig) {
+fn save_constants(devptr:&mut DevicePointer, gs:&mut HookState, snap_conf:&SnapConfig) {
+    let device = match devptr {
+        &mut DevicePointer::D3D9(device) => device,
+        &mut DevicePointer::D3D11(_) => {
+            return;
+        },
+    };
     // constant tracking workaround: read back all the constants
     if constant_tracking::is_enabled() {
         gs.vertex_constants.as_mut().map(|vconsts| {
@@ -302,7 +312,7 @@ fn save_constants(device:*mut IDirect3DDevice9, gs:&mut HookState, snap_conf:&Sn
 
 trait SnapRendState {
     fn has_state(&self) -> bool;
-    fn save(self, file:&str) -> Result<()>;
+    fn save(self: Box<Self>, file:&str) -> Result<()>;
 }
 
 struct D3D9SnapRenderState {
@@ -313,7 +323,7 @@ impl SnapRendState for D3D9SnapRenderState {
     fn has_state(&self) -> bool {
         self.blendstates.len() > 0
     }
-    fn save(self, file:&str) -> Result<()> {
+    fn save(self: Box<Self>, file:&str) -> Result<()> {
         if self.has_state() {
             write_obj_to_file(&file, false, &RenderStateMap {
                 blendstates: self.blendstates,
@@ -325,7 +335,7 @@ impl SnapRendState for D3D9SnapRenderState {
     }
 }
 
-unsafe fn save_render_state_d3d9(device:*mut IDirect3DDevice9) -> impl SnapRendState {
+unsafe fn save_render_state_d3d9(device:*mut IDirect3DDevice9) -> Box<dyn SnapRendState> {
     let mut blendstates: BTreeMap<DWORD, DWORD> = BTreeMap::new();
     let mut tstagestates: Vec<BTreeMap<DWORD, DWORD>> = vec![];
 
@@ -381,14 +391,30 @@ unsafe fn save_render_state_d3d9(device:*mut IDirect3DDevice9) -> impl SnapRendS
         write_log_file("WARNING: vertex blending is enabled, this mesh may not be supported");
     }
 
-    D3D9SnapRenderState {
+    Box::new(D3D9SnapRenderState {
         blendstates,
         tstagestates,
+    })
+}
+
+struct D3D11SnapRenderState {}
+impl SnapRendState for D3D11SnapRenderState {
+    fn has_state(&self) -> bool {
+        false
+    }
+    fn save(self: Box<Self>, _file:&str) -> Result<()> {
+        Ok(())
     }
 }
 
-fn save_render_state(device:*mut IDirect3DDevice9) -> impl SnapRendState {
-    unsafe { save_render_state_d3d9(device) }
+fn save_render_state_d3d11() -> Box<dyn SnapRendState> {
+    Box::new(D3D11SnapRenderState{})
+}
+fn save_render_state(devptr:&mut DevicePointer) -> Box<dyn SnapRendState> {
+    match devptr {
+        &mut DevicePointer::D3D9(device) => unsafe { save_render_state_d3d9(device) },
+        &mut DevicePointer::D3D11(_) => save_render_state_d3d11(),
+    }
 }
 
 trait SnapDeviceBuffers {}
@@ -402,7 +428,7 @@ struct D3D9SnapDeviceBuffers {
 
 impl SnapDeviceBuffers for D3D9SnapDeviceBuffers{}
 
-unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<impl SnapDeviceBuffers> {
+unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
     let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
     // sharpdx does not expose GetVertexDeclaration, so need to do it here
     let hr = (*device).GetVertexDeclaration(&mut vert_decl);
@@ -432,15 +458,22 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
     sd.vert_decl = vert_decl;
     sd.index_buffer = ib;
 
-    Ok(D3D9SnapDeviceBuffers {
+    Ok(Box::new(D3D9SnapDeviceBuffers {
         _index_buffer: ib,
         _vert_decl: vert_decl,
         _ib_rod: ib_rod,
         _vert_decl_rod: vert_decl_rod,
-    })
+    }))
 }
-fn set_buffers(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<impl SnapDeviceBuffers> {
-    unsafe { set_buffers_d3d9(device, sd) }
+
+struct D3D11SnapDeviceBuffers {}
+impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{}
+
+fn set_buffers(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
+    match devptr {
+        &mut DevicePointer::D3D9(device) => unsafe { set_buffers_d3d9(device, sd) },
+        &mut DevicePointer::D3D11(_) => Ok(Box::new(D3D11SnapDeviceBuffers{})),
+    }
 }
 
 fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {

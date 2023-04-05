@@ -179,34 +179,42 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
         .as_ref()
         .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
 
-    let mut tex: *mut IDirect3DBaseTexture9 = null_mut();
+    match device_ptr {
+        DevicePointer::D3D9(device) => {
+            let mut tex: *mut IDirect3DBaseTexture9 = null_mut();
 
-    let hr = (*(*device_ptr)).GetTexture(idx as u32, &mut tex);
-    if hr != 0 {
-        return Err(HookError::SnapshotFailed(format!(
-            "failed to get texture on stage {} for snapshotting: {:x}",
-            idx, hr
-        )));
-    }
-    let _tex_rod = ReleaseOnDrop::new(tex);
-    if tex as usize == GLOBAL_STATE.selection_texture.as_ref().map(|t| t.as_usize()).unwrap_or(0) {
-        return Err(HookError::SnapshotFailed(format!(
-            "not snapshotting texture on stage {} because it is the selection texture",
-            idx
-        )));
-    }
-
-    match d3dx_fn {
-        D3DXFn::DX9(d3dx_fn) => {
-            let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
+            let hr = (**device).GetTexture(idx as u32, &mut tex);
             if hr != 0 {
                 return Err(HookError::SnapshotFailed(format!(
-                    "failed to save snapshot texture on stage {}: {:x}",
+                    "failed to get texture on stage {} for snapshotting: {:x}",
                     idx, hr
                 )));
             }
-            Ok(())
+            let _tex_rod = ReleaseOnDrop::new(tex);
+            if tex as usize == GLOBAL_STATE.selection_texture.as_ref().map(|t| t.as_usize()).unwrap_or(0) {
+                return Err(HookError::SnapshotFailed(format!(
+                    "not snapshotting texture on stage {} because it is the selection texture",
+                    idx
+                )));
+            }
+
+            match d3dx_fn {
+                D3DXFn::DX9(d3dx_fn) => {
+                    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
+                    if hr != 0 {
+                        return Err(HookError::SnapshotFailed(format!(
+                            "failed to save snapshot texture on stage {}: {:x}",
+                            idx, hr
+                        )));
+                    }
+                    Ok(())
+                },
+                _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
+            }
         },
-        _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
+        DevicePointer::D3D11(_device) => {
+            return Err(HookError::SnapshotFailed("d3dx11 save texture not yet implemented".to_owned()));
+        }
     }
+
 }

@@ -1,3 +1,4 @@
+use std::ffi::c_void;
 /*
 Contains combinations of types from both DX9 and 11, most notably `HookDeviceState` which
 carries the device specific state for one or the other (but not both) at runtime.
@@ -158,6 +159,13 @@ impl DevicePointer {
         match self {
             DevicePointer::D3D9(d3d9) => *d3d9 as usize,
             DevicePointer::D3D11(d3d11) => *d3d11 as usize,
+        }
+    }
+    /// Returns the pointer value as a *mut c_void.
+    pub fn as_c_void(&mut self) -> *mut c_void {
+        match self {
+            DevicePointer::D3D9(d3d9) => *d3d9 as *mut c_void,
+            DevicePointer::D3D11(d3d11) => *d3d11 as *mut c_void,
         }
     }
     /// If `new_ptr` is not null and differs from the current pointer in self,

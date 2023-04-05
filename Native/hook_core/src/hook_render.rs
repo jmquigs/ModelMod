@@ -856,7 +856,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             vert_decl: null_mut(), // filled in by take()
             index_buffer: null_mut(), // filled in by take()
         };
-        hook_snapshot::take(THIS, &mut sd, this_is_selected);
+        let mut dp = DevicePointer::D3D9(THIS);
+        hook_snapshot::take(&mut dp, &mut sd, this_is_selected);
     }
 
     profile_start!(hdip, main_combinator);
