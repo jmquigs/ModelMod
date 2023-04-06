@@ -605,6 +605,30 @@ module ModDBInterop =
 
         els.ToArray()
 
+    let vertElsToString(elements:MMVertexElement[]) =
+        use sw = new StringWriter()
+        for sxel in elements do
+            sw.WriteLine(sprintf "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type)
+        sw.Flush()
+        sw.ToString()
+
+    let observedVertTypes = new System.Collections.Generic.HashSet<string>()
+    let d3d11ElementsFromPtr (ptr:nativeptr<byte>) (sizebytes:int) = 
+        // "use" the stream, but the docs say disposal isn't necessary
+        use stream = new UnmanagedMemoryStream(ptr, int64 sizebytes, int64 sizebytes, FileAccess.Read)
+        use br = new BinaryReader(stream)
+        let elements = d3d11LayoutToMMVert br (int64 sizebytes)
+        // log the vert details if we haven't seen it before
+        let elStr = vertElsToString(elements)
+        if not (observedVertTypes.Contains(elStr)) then
+            log.Info "Vert type %A contains %d elements" (elStr.GetHashCode()) elements.Length
+            for sxel in elements do
+                log.Info "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type
+                if sxel.Slot > 0 then
+                    log.Warn "    %A uses unsupported slot %A, data from (if any) slot 0 will be used to fill this" sxel.Semantic sxel.Slot
+            observedVertTypes.Add(elStr) |> ignore
+        (elements,elStr)
+
     type VertexDecl =
         WriteD3D9Decl of (BinaryWriter * int)
         | ReadD3D11Layout of (MMVertexElement [])
@@ -875,15 +899,6 @@ module ModDBInterop =
                 log.Error "%s" e.StackTrace
                 InteropTypes.GenericFailureCode
 
-    let observedVertTypes = new System.Collections.Generic.HashSet<string>()
-
-    let vertElsToString(elements:MMVertexElement[]) =
-        use sw = new StringWriter()
-        for sxel in elements do
-            sw.WriteLine(sprintf "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type)
-        sw.Flush()
-        sw.ToString()
-
     /// Fill the render buffers associated with the specified mod.
     let fillModData
         (modIndex:int)
@@ -902,19 +917,7 @@ module ModDBInterop =
             | "d3d11" ->
                 try
                     // create vertex element description from declData buffer
-                    // "use" the stream, but the docs say disposal isn't necessary
-                    use stream = new UnmanagedMemoryStream(destDeclData, int64 destDeclSize, int64 destDeclSize, FileAccess.Read)
-                    use br = new BinaryReader(stream)
-                    let elements = d3d11LayoutToMMVert br (int64 destDeclSize)
-                    // log the vert details if we haven't seen it before
-                    let elStr = vertElsToString(elements)
-                    if not (observedVertTypes.Contains(elStr)) then
-                        log.Info "Vert type %A contains %d elements" (elStr.GetHashCode()) elements.Length
-                        for sxel in elements do
-                            log.Info "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type
-                            if sxel.Slot > 0 then
-                                log.Warn "    %A uses unsupported slot %A, data from (if any) slot 0 will be used to fill this" sxel.Semantic sxel.Slot
-                        observedVertTypes.Add(elStr) |> ignore
+                    let (elements,elStr) = d3d11ElementsFromPtr destDeclData destDeclSize
                     let declArg = ReadD3D11Layout(elements)
                     let vertSize = MeshUtil.getVertSizeFromEls elements
                     log.Info "filling d3d11 vertex buffer stream size: %A; vert size: %A, vert type id: %A" destVbSize vertSize (elStr.GetHashCode())

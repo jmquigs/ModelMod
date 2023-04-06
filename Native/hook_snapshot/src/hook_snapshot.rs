@@ -1,5 +1,8 @@
+use device_state::dev_state_d3d11_nolock;
 use global_state::HookState;
 use shared_dx::types::DevicePointer;
+use types::interop::D3D11SnapshotRendData;
+use types::interop::D3D9SnapshotRendData;
 use winapi::shared::d3d9::*;
 use winapi::shared::d3d9types::*;
 use winapi::shared::minwindef::{DWORD, UINT, BOOL};
@@ -7,6 +10,8 @@ use winapi::shared::minwindef::{DWORD, UINT, BOOL};
 use constant_tracking;
 use d3dx;
 use global_state::{GLOBAL_STATE};
+use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::ID3D11Device;
 
 use std;
 use std::collections::BTreeMap;
@@ -455,8 +460,8 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
     let ib_rod = ReleaseOnDrop::new(ib);
 
     // fill in snap data
-    sd.vert_decl = vert_decl;
-    sd.index_buffer = ib;
+    sd.rend_data.d3d9 = D3D9SnapshotRendData::from(vert_decl, ib);
+    //write_log_file(&format!("rend data: {:?}", sd.rend_data.d3d9));
 
     Ok(Box::new(D3D9SnapDeviceBuffers {
         _index_buffer: ib,
@@ -466,13 +471,37 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
     }))
 }
 
-struct D3D11SnapDeviceBuffers {}
+struct D3D11SnapDeviceBuffers {
+    pub _ld:Vec<D3D11_INPUT_ELEMENT_DESC>,
+}
 impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{}
+
+unsafe fn set_buffers_d3d11(_device:*mut ID3D11Device, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
+    if let Some(state) = dev_state_d3d11_nolock() {
+        let vf = state.rs.get_current_vertex_format().ok_or_else(|| {
+            HookError::SnapshotFailed("no current input layout, cannot snap".to_string())
+        })?;
+
+        let mut ld = vf.layout.clone();
+        let layout_data_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * ld.len();
+        let decl_data = ld.as_mut_ptr();
+
+        sd.rend_data.d3d11 = D3D11SnapshotRendData {
+            layout_elems: decl_data,
+            layout_size_bytes: layout_data_size as u64,
+        };
+
+        return Ok(Box::new(D3D11SnapDeviceBuffers{
+            _ld: ld
+        }))
+    }
+    Err(HookError::SnapshotFailed("set_buffers_d3d11: failed snapshot".to_string()))
+}
 
 fn set_buffers(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
     match devptr {
         &mut DevicePointer::D3D9(device) => unsafe { set_buffers_d3d9(device, sd) },
-        &mut DevicePointer::D3D11(_) => Ok(Box::new(D3D11SnapDeviceBuffers{})),
+        &mut DevicePointer::D3D11(device) => unsafe { set_buffers_d3d11(device, sd) },
     }
 }
 

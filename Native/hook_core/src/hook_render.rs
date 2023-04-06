@@ -1,6 +1,8 @@
 use device_state::dev_state_d3d11_nolock;
 use global_state::HookState;
 use types::d3ddata::ModD3DData9;
+use types::interop::D3D9SnapshotRendData;
+use types::interop::SnapshotRendData;
 use types::native_mod::ModD3DData;
 use types::native_mod::NativeModData;
 use winapi::um::unknwnbase::IUnknown;
@@ -853,8 +855,10 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
             num_vertices: NumVertices,
             start_index: startIndex,
             prim_count: primCount,
-            vert_decl: null_mut(), // filled in by take()
-            index_buffer: null_mut(), // filled in by take()
+            rend_data: SnapshotRendData {
+                // this value is overwritten by hook_snapshot::take()
+                d3d9: D3D9SnapshotRendData::new()
+            },
         };
         let mut dp = DevicePointer::D3D9(THIS);
         hook_snapshot::take(&mut dp, &mut sd, this_is_selected);

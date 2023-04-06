@@ -83,4 +83,12 @@ impl DX11RenderState {
             device_semantic_string_table: FnvHashMap::with_capacity_and_hasher(64, Default::default()),
         }
     }
+
+    pub fn get_current_vertex_format(&self) -> Option<&VertexFormat>  {
+        if self.current_input_layout.is_null() {
+            return None;
+        }
+        let ptr = self.current_input_layout as usize;
+        self.context_input_layouts_by_ptr.get(&ptr)
+    }
 }

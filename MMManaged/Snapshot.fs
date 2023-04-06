@@ -277,6 +277,14 @@ module Snapshot =
             let primType = enum<PrimitiveType9>(sd.PrimType)
             if primType <> PrimitiveType9.TriangleList then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
 
+            // check for null pointers in sd
+            let indexBuffer = sd.RendData.d3d9.IndexBuffer
+            let vertDecl = sd.RendData.d3d9.VertDecl
+            
+            //log.Info "DX9 sd: vertDecl: %A, indexBuffer: %A" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
+            if indexBuffer = 0n then failwithf "Index buffer is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
+            if vertDecl = 0n then failwithf "Vertex declaration is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
+
             // create the device from the native pointer.
             // note: creating a new sharpdx wrapper object from a native pointer does not increase the com ref count.
             // however, disposing that object will decrease the ref count, which can lead to a crash.  Therefore,
@@ -303,8 +311,7 @@ module Snapshot =
             log.Info "Stream 0: offset: %d, stride: %d" offsetBytes strideBytes
 
             // index buffer
-            if sd.IndexBuffer = 0n then failwith "Index buffer is null"
-            ib <- new IndexBuffer9(sd.IndexBuffer) // do not dispose, native code owns it
+            ib <- new IndexBuffer9(indexBuffer) // do not dispose, native code owns it
             let ibDesc = ib.Description
             log.Info"IndexBuffer: Format: %A, Usage: %A, Pool: %A, Size: %d" ibDesc.Format ibDesc.Usage ibDesc.Pool ibDesc.Size
 
@@ -312,9 +319,7 @@ module Snapshot =
             if ibDesc.Format <> Format9.Index16 then failwithf "Cannot snap indices of type: %A; only index16 are supported" ibDesc.Format
 
             // vertex declaration
-            if sd.VertDecl = 0n then failwith "Vertex declaration is null"
-            let decl = new VertexDeclaration9(sd.VertDecl) // do not dispose, native code owns it
-
+            let decl = new VertexDeclaration9(vertDecl) // do not dispose, native code owns it
             let elements = decl.Elements
             log.Info "Declaration: %d elements" elements.Length
             for el in elements do
@@ -451,10 +456,9 @@ module Snapshot =
             let inpSize = sd.SDSize
             let mySize = uint32 (System.Runtime.InteropServices.Marshal.SizeOf(typeof<InteropTypes.SnapshotData>))
 
-            log.Info "  Input Snapshot data struct is %d" sd.SDSize
-            log.Info "  Managed Snapshot data struct size is %d" mySize
+            log.Info "  Snapshot data struct size: managed: %d, native: %d"  mySize inpSize
 
-            if inpSize <> mySize then
+            if mySize <> inpSize then
                 // of course is input is larger than my size we just blew the stack, but log anyway
                 failwithf "aborting: input snapshot struct size %d does not match code size %d" inpSize mySize
 
@@ -466,6 +470,10 @@ module Snapshot =
                 | "d3d9" ->
                     new SnapStateD3D9(device, sd) :> IDeviceSnapState
                 | "d3d11" ->
+                    log.Info "DX11 sd: layoutptr: %A, sizebytes: %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
+                    let (elems,elStr) = ModDBInterop.d3d11ElementsFromPtr sd.RendData.d3d11.LayoutElems (int sd.RendData.d3d11.LayoutElemsSizeBytes)
+                    log.Info "DX11 elements: vert code %A, elements:\n%s" (elStr.GetHashCode()) elStr
+                    //log.Info "DX11 vert type id: %A" (elStr.GetHashCode())
                     failwith "Snapshot.take not yet implemented for d3d11"
                 | s ->
                     failwithf "unrecognized context: %s" s

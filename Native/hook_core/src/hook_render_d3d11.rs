@@ -12,6 +12,7 @@ use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::{write_log_file, ReleaseOnDrop};
 use types::TexPtr;
 use types::d3ddata::ModD3DData11;
+use types::interop::{SnapshotRendData, D3D11SnapshotRendData};
 use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM};
@@ -522,7 +523,6 @@ pub unsafe extern "system" fn hook_draw_indexed(
         dev_state_d3d11_nolock().map(|state| {
             let checkres = compute_prim_vert_count(IndexCount, &state.rs);
             let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
-            // TODO11: need to pass IndexCount?
             let mut sd = types::interop::SnapshotData {
                 sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
                 prim_type: state.rs.prim_topology as i32,
@@ -531,8 +531,10 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 num_vertices: vert_count,
                 start_index: StartIndexLocation,
                 prim_count: prim_count,
-                vert_decl: null_mut(), // filled in by take()
-                index_buffer: null_mut(), // filled in by take()
+                rend_data: SnapshotRendData {
+                    // this value is overwritten by hook_snapshot::take()
+                    d3d11: D3D11SnapshotRendData::new(),
+                },
             };
             hook_snapshot::take(&mut state.devptr, &mut sd, this_is_selected);
         });

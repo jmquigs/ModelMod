@@ -103,7 +103,41 @@ module InteropTypes =
         UpdateTangentSpace = -1
     }
 
-    [<StructLayout(LayoutKind.Sequential)>]
+    [<StructLayout(LayoutKind.Sequential, Pack=4)>]
+    type D3D9SnapshotRendData = {
+        /// Vertex declaration pointer
+        VertDecl:nativeint
+        /// Index buffer pointer
+        IndexBuffer:nativeint
+    }
+    [<StructLayout(LayoutKind.Sequential, Pack=4)>]
+    type D3D11SnapshotRendData = {
+          /// Vertex declaration pointer
+          LayoutElems:nativeptr<byte>
+          /// Index buffer pointer
+          LayoutElemsSizeBytes:uint64
+      }
+
+    [<StructLayout(LayoutKind.Explicit, Pack=4)>]
+    /// This represents a C-style union in the native code.  Only one of these fields will be valid at a time.
+    /// The native representation for these fields ensures that both structs are the same size, using padding 
+    /// if necessary.  The padding is not declared in the managed code (since it depends on whether native is 32 or 64 bit 
+    /// and .net marshalling doesn't appear to have a good way to represent that kind of variation).  Although the managed 
+    /// code does not declare the padding, since the size of this type is equal to the larger of the two fields, 
+    /// the size in managed code must always equal the native size.
+    /// 
+    /// Pack=4 is used to make the alignment predictable for both 32/64 bit, there is a performance penalty on 64 bit,
+    /// but since this struct is accessed just a few times per snapshot, it should not matter.  
+    /// I tried using Pack=8 but it was causing unexpected marshalling errors in 32 bit.
+    type SnapshotRendData = {
+        [<FieldOffset(0)>]
+        d3d9: D3D9SnapshotRendData
+
+        [<FieldOffset(0)>]
+        d3d11: D3D11SnapshotRendData
+    }
+
+    [<StructLayout(LayoutKind.Sequential, Pack=4)>]
     /// Data provided by native code for snapshotting.  Most of these fields come from the DrawIndexedPrimitive()
     /// arguments.  Some are manually filled in by the native code, because managed code can't easily obtain them
     /// from the SharpDX device.
@@ -115,11 +149,7 @@ module InteropTypes =
         NumVertices: uint32
         StartIndex: uint32
         PrimCount: uint32
-
-        /// Vertex buffer pointer
-        VertDecl:nativeint
-        /// Index buffer pointer
-        IndexBuffer:nativeint
+        RendData: SnapshotRendData
     }
 
     [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]

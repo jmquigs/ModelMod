@@ -4,6 +4,7 @@ use std::os::raw::c_char;
 use winapi::um::winnt::WCHAR;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
+use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 
 pub enum ModType {
     None = 0,
@@ -54,7 +55,78 @@ impl ModData {
     }
 }
 
-#[repr(C)]
+#[repr(C, packed(4))]
+#[derive(Copy,Clone,Debug)]
+pub struct D3D9SnapshotRendData {
+    /// Vertex declaration pointer.
+    pub vert_decl: *mut IDirect3DVertexDeclaration9,
+    /// Index buffer pointer
+    pub index_buffer: *mut IDirect3DIndexBuffer9,
+    /// Increases size of this struct to match D3D11 size.
+    /// See comment for `SnapshotRendData` for why this is necessary.
+    #[cfg(target_pointer_width = "32")]
+    pub _pad:u32,
+}
+impl D3D9SnapshotRendData {
+    pub fn new() -> Self {
+        Self {
+            vert_decl: std::ptr::null_mut(),
+            index_buffer: std::ptr::null_mut(),
+            #[cfg(target_pointer_width = "32")]
+            _pad: 0xDEADBEEF,
+        }
+    }
+    pub fn from(vert_decl: *mut IDirect3DVertexDeclaration9, index_buffer: *mut IDirect3DIndexBuffer9) -> Self {
+        Self {
+            vert_decl,
+            index_buffer,
+            #[cfg(target_pointer_width = "32")]
+            _pad: 0xDEADBEEF,
+        }
+    }
+}
+
+#[repr(C, packed(4))]
+#[derive(Copy,Clone)]
+pub struct D3D11SnapshotRendData {
+    pub layout_elems: *const D3D11_INPUT_ELEMENT_DESC,
+    pub layout_size_bytes: u64,
+}
+impl D3D11SnapshotRendData {
+    pub fn new() -> Self {
+        Self {
+            layout_elems: std::ptr::null(),
+            layout_size_bytes: 0,
+        }
+    }
+}
+
+/// See comment for `SnapshotRendData` for why this is necessary.
+macro_rules! check_size {
+    ($name:ident) => {
+        if std::mem::size_of::<D3D9SnapshotRendData>() == std::mem::size_of::<D3D11SnapshotRendData>() {
+            1
+        } else {
+            1/0 // Make compile fail because D3D9SnapshotRendData and D3D11SnapshotRendData have different size
+        }
+    }
+}
+const _HACK_SIZE_CHECK: i32 = check_size!(__unused);
+
+
+/// Union type to represent D3D version-specific data.  Note, due to a quirk with
+/// how the .Net marshals these, these structs must be _the same size_.  Failure to do this
+/// will cause the .net marshal to read a short amount of bytes for the smaller struct,
+/// most likely resulting in a crash.
+/// Note that in Rust, `packed` must be used to lower the bytes from the
+/// default, whereas `align` is use to raise it.
+#[repr(C, packed(4))]
+pub union SnapshotRendData {
+    pub d3d9: D3D9SnapshotRendData,
+    pub d3d11: D3D11SnapshotRendData,
+}
+
+#[repr(C, packed(4))]
 pub struct SnapshotData {
     pub sd_size: u32,
     pub prim_type: i32,
@@ -64,10 +136,7 @@ pub struct SnapshotData {
     pub start_index: u32,
     pub prim_count: u32,
 
-    /// Vertex buffer pointer
-    pub vert_decl: *mut IDirect3DVertexDeclaration9,
-    /// Index buffer pointer
-    pub index_buffer: *mut IDirect3DIndexBuffer9,
+    pub rend_data: SnapshotRendData,
 }
 
 #[repr(C)]
