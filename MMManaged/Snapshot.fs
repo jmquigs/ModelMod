@@ -1,4 +1,4 @@
-﻿// ModelMod: 3d data snapshotting & substitution program.
+// ModelMod: 3d data snapshotting & substitution program.
 // Copyright(C) 2015,2016 John Quigley
 
 // This program is free software : you can redistribute it and / or modify
@@ -64,6 +64,10 @@ module Extractors =
 
 /// Snapshot utilities.
 module Snapshot =
+    type MMVES = VertexTypes.MMVertexElemSemantic
+    type MMET = VertexTypes.MMVertexElementType
+    type SDXVT = SDXVertexDeclType
+    type SDXF = SharpDX.DXGI.Format
 
     let private log = Logging.getLogger("Snapshot")
 
@@ -88,69 +92,123 @@ module Snapshot =
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
-    let private readElement (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:SDXVertexElement) =
+    let private readElement (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
         let fns =
-            if el.UsageIndex = byte 0 then
+            if el.SemanticIndex = 0 then
                 fns
             else
                 ignoreFns
 
         let handleVector name outputFn =
             match el.Type with
-            | SDXVertexDeclType.Float3 ->
-                outputFn (Extractors.xNrmFromFloat3 reader)
-            | SDXVertexDeclType.Color
-            | SDXVertexDeclType.UByte4N
-            | SDXVertexDeclType.Ubyte4 ->
-                outputFn (Extractors.xNrmFromUbyte4 reader)
-            | _ -> failwithf "Unsupported type for %s: %A" name el.Type
-
-        match el.Usage with
-            | SDXVertexDeclUsage.Position ->
-                match el.Type with
-                | SDXVertexDeclType.Unused -> ()
+            | MMET.DeclType(dt) ->
+                match dt with
                 | SDXVertexDeclType.Float3 ->
-                    fns.Pos (Extractors.xPosFromFloat3 reader)
-                | _ -> failwithf "Unsupported type for position: %A" el.Type
-            | SDXVertexDeclUsage.TextureCoordinate ->
-                match el.Type with
-                | SDXVertexDeclType.Float2 ->
-                    fns.TexCoord (Extractors.xTexFromFloat2 reader)
-                | SDXVertexDeclType.HalfTwo ->
-                    fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
-                | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
-            | SDXVertexDeclUsage.Normal -> handleVector "normal" fns.Normal
-            | SDXVertexDeclUsage.Binormal -> handleVector "binormal" fns.Binormal
-            | SDXVertexDeclUsage.Tangent -> handleVector "tangent" fns.Tangent
-            | SDXVertexDeclUsage.BlendIndices ->
-                match el.Type with
-                | SDXVertexDeclType.Color ->
-                    // TODO: not sure if its valid to use the ubyte4 extractor; byte size is same but format may be different
-                    fns.BlendIndex (Extractors.xBlendIndexFromUbyte4 reader)
-                | SDXVertexDeclType.Ubyte4 ->
-                    fns.BlendIndex (Extractors.xBlendIndexFromUbyte4 reader)
-                | _ -> failwithf "Unsupported type for blend index: %A" el.Type
-            | SDXVertexDeclUsage.BlendWeight ->
-                match el.Type with
+                    outputFn (Extractors.xNrmFromFloat3 reader)
                 | SDXVertexDeclType.Color
-                | SDXVertexDeclType.UByte4N ->
-                    fns.BlendWeight (Extractors.xBlendWeightFromUbyte4 reader)
-                | SDXVertexDeclType.Float4 ->
-                    fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
-                | _ -> failwithf "Unsupported type for blend weight: %A" el.Type
-            | SDXVertexDeclUsage.Color ->
+                | SDXVertexDeclType.UByte4N
+                | SDXVertexDeclType.Ubyte4 ->
+                    outputFn (Extractors.xNrmFromUbyte4 reader)
+                | _ -> failwithf "Unsupported type for %s: %A" name dt
+            | MMET.Format(f) ->
+                match f with
+                | SDXF.R32G32B32_Float ->
+                    outputFn (Extractors.xNrmFromFloat3 reader)
+                | SDXF.R8G8B8A8_UInt
+                | SDXF.R8G8B8A8_UNorm ->
+                    outputFn (Extractors.xNrmFromUbyte4 reader)
+                | _ -> failwithf "Unsupported format for %s: %A" name f
+
+        match el.Semantic with
+            | MMVES.Position ->
+                match el.Type with
+                | MMET.DeclType(dt) ->
+                    match dt with
+                    | SDXVertexDeclType.Unused -> ()
+                    | SDXVertexDeclType.Float3 ->
+                        fns.Pos (Extractors.xPosFromFloat3 reader)
+                    | _ -> failwithf "Unsupported type for position: %A" dt
+                | MMET.Format(f) ->
+                    match f with
+                    | SDXF.R32G32B32_Float ->
+                        fns.Pos (Extractors.xPosFromFloat3 reader)
+                    | _ -> failwithf "Unsupported format for position: %A" f
+            | MMVES.TextureCoordinate ->
+                match el.Type with
+                | MMET.DeclType(dt) ->
+                    match dt with
+                    | SDXVertexDeclType.Float2 ->
+                        fns.TexCoord (Extractors.xTexFromFloat2 reader)
+                    | SDXVertexDeclType.HalfTwo ->
+                        fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
+                    | _ -> failwithf "Unsupported type for texture coordinate: %A" dt
+                | MMET.Format(f) ->
+                    match f with
+                    | SDXF.R32G32_Float ->
+                        fns.TexCoord (Extractors.xTexFromFloat2 reader)
+                    | SDXF.R16G16_Float ->
+                        fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
+                    | _ -> failwithf "Unsupported format for texture coordinate: %A" f
+            | MMVES.Normal -> handleVector "normal" fns.Normal
+            | MMVES.Binormal -> handleVector "binormal" fns.Binormal
+            | MMVES.Tangent -> handleVector "tangent" fns.Tangent
+            | MMVES.BlendIndices ->
+                match el.Type with
+                | MMET.DeclType(dt) ->
+                    match dt with
+                    | SDXVertexDeclType.Color ->
+                        // TODO: not sure if its valid to use the ubyte4 extractor; byte size is same but format may be different
+                        fns.BlendIndex (Extractors.xBlendIndexFromUbyte4 reader)
+                    | SDXVertexDeclType.Ubyte4 ->
+                        fns.BlendIndex (Extractors.xBlendIndexFromUbyte4 reader)
+                    | _ -> failwithf "Unsupported type for blend index: %A" dt
+                | MMET.Format(f) ->
+                    match f with
+                    | SDXF.R8G8B8A8_UNorm
+                    | SDXF.R8G8B8A8_UInt ->
+                        fns.BlendIndex (Extractors.xBlendIndexFromUbyte4 reader)
+                    | _ -> failwithf "Unsupported format for blend index: %A" f
+            | MMVES.BlendWeight ->
+                match el.Type with
+                | MMET.DeclType(dt) ->
+                    match dt with
+                    | SDXVertexDeclType.Color
+                    | SDXVertexDeclType.UByte4N ->
+                        fns.BlendWeight (Extractors.xBlendWeightFromUbyte4 reader)
+                    | SDXVertexDeclType.Float4 ->
+                        fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
+                    | _ -> failwithf "Unsupported type for blend weight: %A" dt
+                | MMET.Format(f) ->
+                    match f with
+                    | SDXF.R8G8B8A8_UNorm ->
+                        fns.BlendWeight (Extractors.xBlendWeightFromUbyte4 reader)
+                    | SDXF.R32G32B32A32_Float ->
+                        fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
+                    | _ -> failwithf "Unsupported format for blend weight: %A" f
+            | MMVES.Color ->
                 // TODO: currently ignored, but should probably keep this as baggage.
                 match el.Type with
-                | SDXVertexDeclType.Color ->
-                    reader.ReadBytes(4) |> ignore
-                | SDXVertexDeclType.Float4 ->
-                    reader.ReadSingle() |> ignore
-                    reader.ReadSingle() |> ignore
-                    reader.ReadSingle() |> ignore
-                    reader.ReadSingle() |> ignore
-                | _ -> failwithf "Unsupported type for color: %A" el.Type
-                ()
-            | _ -> failwithf "Unsupported usage: %A" el.Usage
+                | MMET.DeclType(dt) ->
+                    match dt with
+                    | SDXVertexDeclType.Color ->
+                        reader.ReadBytes(4) |> ignore
+                    | SDXVertexDeclType.Float4 ->
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                    | _ -> failwithf "Unsupported type for color: %A" dt
+                | MMET.Format(f) ->
+                    match f with
+                    | SDXF.R8G8B8A8_UNorm ->
+                        reader.ReadBytes(4) |> ignore
+                    | SDXF.R32G32B32A32_Float ->
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                        reader.ReadSingle() |> ignore
+                    | _ -> failwithf "Unsupported format for color: %A" f
+            | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
     let private makeLoggedDisposable (disp:System.IDisposable) (message:string) =
         { new System.IDisposable with
@@ -183,7 +241,7 @@ module Snapshot =
         abstract member OffsetBytes: int
         abstract member IBReader: BinaryReader
         abstract member VBReader: BinaryReader
-        abstract member VertElements: SharpDX.Direct3D9.VertexElement []
+        abstract member VertElements: VertexTypes.MMVertexElement []
         abstract member VBDS: SharpDX.DataStream
         abstract member IBDS: SharpDX.DataStream
 
@@ -274,6 +332,8 @@ module Snapshot =
             elements |> Array.iter (fun el -> ModDB.writeVertexElement el declWriter)
             declWriter.Close()
             declBytes <- declMS.ToArray()
+            // convert elements to MM elements
+            let elements = elements |> Array.map (VertexTypes.sdxDeclElementToMMDeclElement)
 
             // lock vb and ib
             let vbDS = vb.Lock(0, vb.Description.SizeInBytes, LockFlags9.ReadOnly)
@@ -442,8 +502,8 @@ module Snapshot =
             }
             // log if any usages over 0 are found
             declElements |> List.iter (fun el ->
-                if el.UsageIndex > byte 0 then
-                    log.Warn "usage index %A not supported for semantic %A, this data will be ignored" el.UsageIndex el.Usage
+                if el.SemanticIndex > 0 then
+                    log.Warn "semantic index %A not supported for semantic %A, this data will be ignored" el.SemanticIndex el.Semantic
             )
 
             // create per-element read function bound to the reader
