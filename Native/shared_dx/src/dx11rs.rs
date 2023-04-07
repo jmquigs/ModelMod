@@ -69,6 +69,9 @@ pub struct DX11RenderState {
     /// So probably you shouldn't clear it, unless you can clear those as well or this entire
     /// structure and you know there aren't any clones.
     pub device_semantic_string_table: FnvHashMap<String, Vec<u8>>,
+    /// When snapshotting this stores all index buffer data, because we can't read it on the fly.
+    pub device_index_buffer_data: FnvHashMap<usize, Vec<u8>>,
+    pub device_index_buffer_totalsize: usize,
 }
 
 impl DX11RenderState {
@@ -81,6 +84,8 @@ impl DX11RenderState {
             current_input_layout: std::ptr::null_mut(),
             prim_topology: D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
             device_semantic_string_table: FnvHashMap::with_capacity_and_hasher(64, Default::default()),
+            device_index_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
+            device_index_buffer_totalsize: 0,
         }
     }
 

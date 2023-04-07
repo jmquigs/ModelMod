@@ -68,7 +68,12 @@ pub struct ClrState {
     pub runtime_pointer: Option<u64>,
     pub run_context: String,
 }
+
+pub struct RunConf {
+    pub precopy_data: bool,
+}
 pub struct HookState {
+    pub run_conf: RunConf,
     pub clr: ClrState,
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
@@ -128,6 +133,7 @@ lazy_static! {
 // of the option types that are only there due to Rust limitations on what can be used to
 // init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
+    run_conf: RunConf { precopy_data: false },
     clr: { ClrState { runtime_pointer: None, run_context: String::new() } },
     interop_state: None,
     //is_global: true,

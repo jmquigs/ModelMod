@@ -1,17 +1,25 @@
 use device_state::dev_state_d3d11_nolock;
+use device_state::dev_state_d3d11_read;
 use global_state::HookState;
 use shared_dx::types::DevicePointer;
 use types::interop::D3D11SnapshotRendData;
 use types::interop::D3D9SnapshotRendData;
 use winapi::shared::d3d9::*;
 use winapi::shared::d3d9types::*;
+use winapi::shared::dxgiformat::DXGI_FORMAT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R16_UINT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R32_UINT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
 use winapi::shared::minwindef::{DWORD, UINT, BOOL};
 
 use constant_tracking;
 use d3dx;
 use global_state::{GLOBAL_STATE};
+use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::ID3D11Buffer;
 use winapi::um::d3d11::ID3D11Device;
+use winapi::um::d3d11::ID3D11DeviceContext;
 
 use std;
 use std::collections::BTreeMap;
@@ -123,7 +131,7 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
     let pre_rc;
     // snap in a block so that drops within activate and we can check ref count after
     unsafe {
-        write_log_file("Snap started");
+        write_log_file(&format!("Snap started: prims: {}, verts: {}, basevert: {}, startindex: {}", sd.prim_count, sd.num_vertices, sd.base_vertex_index, sd.start_index));
 
         pre_rc = devptr.get_ref_count();
 
@@ -145,64 +153,67 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
 
         let save_rs = save_render_state(devptr);
 
-        let bufs = set_buffers(devptr, sd);
+        match set_buffers(devptr, sd) {
+            Ok(_bufs) => {
+                write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
+                GLOBAL_STATE.interop_state.as_mut().map(|is| {
 
-        if let Ok(_bufs) = bufs {
-            write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
-            GLOBAL_STATE.interop_state.as_mut().map(|is| {
+                    // call into managed code to do the a lot of the data writing
+                    let cb = is.callbacks;
+                    let res = (cb.TakeSnapshot)(devptr.as_c_void(), sd);
 
-                // call into managed code to do the a lot of the data writing
-                let cb = is.callbacks;
-                let res = (cb.TakeSnapshot)(devptr.as_c_void(), sd);
+                    if res == 0 && snapshot_extra() {
+                        let sresult = *(cb.GetSnapshotResult)();
+                        let dir = &sresult.directory[0..(sresult.directory_len as usize)];
+                        let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
 
-                if res == 0 && snapshot_extra() {
-                    let sresult = *(cb.GetSnapshotResult)();
-                    let dir = &sresult.directory[0..(sresult.directory_len as usize)];
-                    let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
+                        let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
 
-                    let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
-
-                    gs.anim_snap_state.as_mut().map(|ass| {
-                        if ass.snap_dir == "" {
-                            ass.snap_dir = dir.to_owned();
-                        }
-                    });
-                    let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
-                    // write_log_file(&format!("snap save dir: {}", dir));
-                    // write_log_file(&format!("snap prefix: {}", sprefix));
-                    let (gotpix,gotvert) = shader_capture::take_snapshot(devptr, &dir, &sprefix);
-                    let vc = if gotvert { &gs.vertex_constants } else { &None };
-                    let pc = if gotpix { &gs.pixel_constants } else { &None };
-                    constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
-
-                    if save_rs.has_state() {
-                        let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
-                        let _r = save_rs.save(&file).map_err(|e| {
-                            write_log_file(&format!("failed to snap blend states: {:?}", e));
-                        });
-                    }
-
-                    // for animations, validate that shader is GPU animated
-                    if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
-                        use std::path::Path;
-                        let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
-                        if Path::new(&file).exists() {
-                            use std::fs;
-
-                            fs::read_to_string(&file).map_err(|e| {
-                                write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
-                            }).map(|contents| {
-                                if contents.contains("m4x4 oPos, v0, c0") {
-                                    write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
-                                    write_log_file(&format!("file: {}", &file));
-                                    gs.is_snapping = false;
-                                    gs.anim_snap_state = None;
+                        gs.anim_snap_state.as_mut().map(|ass| {
+                            if ass.snap_dir == "" {
+                                ass.snap_dir = dir.to_owned();
                             }
-                            }).unwrap_or_default();
+                        });
+                        let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
+                        // write_log_file(&format!("snap save dir: {}", dir));
+                        // write_log_file(&format!("snap prefix: {}", sprefix));
+                        let (gotpix,gotvert) = shader_capture::take_snapshot(devptr, &dir, &sprefix);
+                        let vc = if gotvert { &gs.vertex_constants } else { &None };
+                        let pc = if gotpix { &gs.pixel_constants } else { &None };
+                        constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
+
+                        if save_rs.has_state() {
+                            let file = format!("{}/{}_rstate.yaml", &dir, &sprefix);
+                            let _r = save_rs.save(&file).map_err(|e| {
+                                write_log_file(&format!("failed to snap blend states: {:?}", e));
+                            });
+                        }
+
+                        // for animations, validate that shader is GPU animated
+                        if snap_conf.snap_anim || snap_conf.require_gpu == Some(true) {
+                            use std::path::Path;
+                            let file = format!("{}/{}_vshader.asm", &dir, &sprefix);
+                            if Path::new(&file).exists() {
+                                use std::fs;
+
+                                fs::read_to_string(&file).map_err(|e| {
+                                    write_log_file(&format!("failed to read shader asm after snap: {:?}", e));
+                                }).map(|contents| {
+                                    if contents.contains("m4x4 oPos, v0, c0") {
+                                        write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
+                                        write_log_file(&format!("file: {}", &file));
+                                        gs.is_snapping = false;
+                                        gs.anim_snap_state = None;
+                                }
+                                }).unwrap_or_default();
+                            }
                         }
                     }
-                }
-            });
+                });
+            },
+            Err(e) => {
+                write_log_file(&format!("snapshot::take: failed to set buffers: {:?}", e));
+            }
         }
         gs.device = None;
     }
@@ -473,10 +484,12 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
 
 struct D3D11SnapDeviceBuffers {
     pub _ld:Vec<D3D11_INPUT_ELEMENT_DESC>,
+    pub _context_rod:ReleaseOnDrop<*mut ID3D11DeviceContext>,
+    //pub _ib_rod:ReleaseOnDrop<*mut ID3D11Buffer>,
 }
 impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{}
 
-unsafe fn set_buffers_d3d11(_device:*mut ID3D11Device, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
+unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
     if let Some(state) = dev_state_d3d11_nolock() {
         let vf = state.rs.get_current_vertex_format().ok_or_else(|| {
             HookError::SnapshotFailed("no current input layout, cannot snap".to_string())
@@ -486,12 +499,60 @@ unsafe fn set_buffers_d3d11(_device:*mut ID3D11Device, sd:&mut types::interop::S
         let layout_data_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * ld.len();
         let decl_data = ld.as_mut_ptr();
 
+        let mut context:*mut ID3D11DeviceContext = null_mut();
+        (*device).GetImmediateContext(&mut context);
+        if context.is_null() {
+            return Err(HookError::SnapshotFailed("failed to get immediate context".to_string()));
+        }
+        let context_rod = ReleaseOnDrop::new(context);
+
+        // and we'll need the index buffer
+        let mut curr_ibuffer: *mut ID3D11Buffer = null_mut();
+        let mut curr_ibuffer_offset: UINT = 0;
+        let mut curr_ibuffer_format: DXGI_FORMAT = DXGI_FORMAT_UNKNOWN;
+        (*context).IAGetIndexBuffer(&mut curr_ibuffer, &
+            mut curr_ibuffer_format, &mut curr_ibuffer_offset);
+        if curr_ibuffer.is_null() {
+            return Err(HookError::SnapshotFailed("failed to get index buffer".to_string()));
+        }
+        // create the ib_rod but actually we don't need to save it outside of this func
+        let _ib_rod = ReleaseOnDrop::new(curr_ibuffer);
+
+        // determine if we have the data for the buffer since at this time we can't read it
+        // directly via Map
+        let ib_copy = dev_state_d3d11_read()
+            .map(|(_lock,ds)| {
+                ds.rs.device_index_buffer_data.get(&(curr_ibuffer as usize)).map(|v| v.clone())
+            }).flatten()
+            .ok_or_else(|| {
+                HookError::SnapshotFailed("failed to get index buffer data, was not previously saved".to_string())
+            })?;
+
+        // determine if 16 or 32 bit indices
+        let mut ib_desc:D3D11_BUFFER_DESC = std::mem::zeroed();
+        (*curr_ibuffer).GetDesc(&mut ib_desc);
+        let index_size = match curr_ibuffer_format {
+            DXGI_FORMAT_R16_UINT => 2,
+            DXGI_FORMAT_R32_UINT => 4,
+            _ => return Err(HookError::SnapshotFailed(format!("unknown index buffer format: {:x}", curr_ibuffer_format))),
+        };
+
+        // should match expected size
+        let ex_size = (sd.prim_count * 3 * index_size) as usize;
+        if ib_copy.len() != ex_size {
+            return Err(HookError::SnapshotFailed(format!("index buffer data size mismatch, expected: {}, got: {}", ex_size, ib_copy.len())));
+        }
+
+        write_log_file(&format!("index buffer size: {}, format: {}", ib_copy.len(), curr_ibuffer_format));
+
         sd.rend_data.d3d11 = D3D11SnapshotRendData {
             layout_elems: decl_data,
             layout_size_bytes: layout_data_size as u64,
         };
 
         return Ok(Box::new(D3D11SnapDeviceBuffers{
+            _context_rod: context_rod,
+            //_ib_rod: ib_rod,
             _ld: ld
         }))
     }

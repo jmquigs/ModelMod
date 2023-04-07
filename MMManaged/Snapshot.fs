@@ -33,6 +33,8 @@ type LockFlags9 = SharpDX.Direct3D9.LockFlags
 type TextureStage9 = SharpDX.Direct3D9.TextureStage
 type TransformState9 = SharpDX.Direct3D9.TransformState
 
+type Device11 = SharpDX.Direct3D11.Device
+
 open CoreTypes
 
 open FSharp.Core
@@ -433,6 +435,110 @@ module Snapshot =
                         let fname = Path.Combine(basedir, (sprintf "%s_Transforms.txt" basename))
                         File.WriteAllText(fname, s.ToString())
 
+    type SnapStateD3D11(device:nativeint,sd:InteropTypes.SnapshotData) =
+        //let mutable vb:VertexBuffer9 = null
+        //let mutable ib:IndexBuffer9 = null
+        //let mutable vbLocked = false
+        //let mutable ibLocked = false
+
+        let unlock() =
+            log.Info ("unlocking snapshot buffers")
+            //if ibLocked then
+            //    ib.Unlock()
+            //if vbLocked then
+            //    vb.Unlock()
+
+        let mutable offsetBytes = 0
+        let mutable strideBytes = 0
+        let mutable deviceopt = None
+        let mutable vbDisposable = None
+        let mutable declBytes = [||]
+
+        let ibReader,vbReader,elements,vbDS,ibDS =
+            if sd.BaseVertexIndex <> 0 || sd.MinVertexIndex <> 0u then
+                // need a test case for these
+                log.Warn "One or more of baseVertexIndex, minVertexIndex is not zero.  Snapshot may not handle this case"
+
+            // check primitive type
+            let primType = sd.PrimType
+            if primType <> 4 then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
+
+            // check layout
+            let layoutptr = sd.RendData.d3d11.LayoutElems
+            if (FSharp.NativeInterop.NativePtr.toNativeInt layoutptr) = 0n then 
+                failwithf "Layout pointer is null: %A %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
+            if int sd.RendData.d3d11.LayoutElemsSizeBytes = 0 then 
+                failwithf "Layout size bytes is zero: %A %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
+
+            //log.Info "DX11 sd: layoutptr: %A, sizebytes: %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
+            let (elements,elStr) = ModDBInterop.d3d11ElementsFromPtr layoutptr (int sd.RendData.d3d11.LayoutElemsSizeBytes)
+            log.Info "DX11 elements: vert code %A, elements:\n%s" (elStr.GetHashCode()) elStr
+            
+            //let context = device.ImmediateContext
+            //deviceopt <- Some(device) // make a reference to prevent GC from doing anything funky with it
+
+            let ibReader = new BinaryReader(new MemoryStream())
+            let vbReader = new BinaryReader(new MemoryStream())
+            let vbDS = new SharpDX.DataStream(0, true, false)
+            let ibDS = new SharpDX.DataStream(0, true, false)
+
+            (ibReader,vbReader,elements,vbDS,ibDS)
+
+        let mutable disposed = false
+
+        interface System.IDisposable with
+            member x.Dispose() =
+                if not disposed then
+                    disposed <- true
+                    //ibReader.Dispose()
+                    //vbReader.Dispose()
+                    //unlock()
+                    //vbDisposable |> Option.iter (fun vb -> vb.Dispose())
+
+        interface IDeviceSnapState with
+            member x.StrideBytes = strideBytes
+            member x.OffsetBytes = offsetBytes
+            member x.IBReader = ibReader
+            member x.VBReader = vbReader
+            member x.VertElements = elements
+            member x.VBDS = vbDS
+            member x.IBDS = ibDS
+
+            member x.GetEnabledTextureStages() =
+                []
+                // write textures for enabled stages only
+                // Note: Sometimes we can't read textures from the device.
+                // The flags need to be set properly in CreateTexture to make this
+                // possible, and some games don't do that.  I'm fuzzy on the specifics, but I think its
+                // D3DUSAGE_DYNAMIC that prevents capture, because the
+                // driver might decide to put the texture in video memory and then we can't read it.
+                // We could override that universally but it could harm
+                // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be
+                // useful.
+                //let maxStage = 7 // 8 textures ought to be enough for anybody.
+
+                //match deviceopt with
+                //| Some(device) ->
+                //    [0..maxStage]
+                //    |> List.filter (fun i ->
+                //        let state = device.GetTextureStageState(i, TextureStage9.ColorOperation)
+                //        if state <> 1 then // 1 = D3DTOP_DISABLE
+                //            true
+                //        else
+                //            // some games disable the stage but put textures on it anyway.
+                //            let stageTex = device.GetTexture(i)
+                //            use disp = makeLoggedDisposable stageTex (sprintf "disposing snapshot texture %d" i)
+                //            stageTex <> null)
+                //| None -> []
+
+            member x.WriteDecl(basedir,basename) =
+                ()
+                //let declfile = Path.Combine(basedir, (sprintf "%s_VBLayout.dat" basename))
+                //File.WriteAllBytes(declfile, declBytes)
+
+            member x.WriteTransforms(basedir,basename) =
+                ()
+
     /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
     /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
     /// Returns 0 on success.
@@ -470,10 +576,7 @@ module Snapshot =
                 | "d3d9" ->
                     new SnapStateD3D9(device, sd) :> IDeviceSnapState
                 | "d3d11" ->
-                    log.Info "DX11 sd: layoutptr: %A, sizebytes: %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
-                    let (elems,elStr) = ModDBInterop.d3d11ElementsFromPtr sd.RendData.d3d11.LayoutElems (int sd.RendData.d3d11.LayoutElemsSizeBytes)
-                    log.Info "DX11 elements: vert code %A, elements:\n%s" (elStr.GetHashCode()) elStr
-                    //log.Info "DX11 vert type id: %A" (elStr.GetHashCode())
+                    let _ = new SnapStateD3D11(device, sd) :> IDeviceSnapState
                     failwith "Snapshot.take not yet implemented for d3d11"
                 | s ->
                     failwithf "unrecognized context: %s" s

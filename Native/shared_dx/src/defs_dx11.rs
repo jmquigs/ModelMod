@@ -3,7 +3,7 @@ use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
 
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_BUFFER_DESC, D3D11_SUBRESOURCE_DATA};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
@@ -24,6 +24,13 @@ pub type CreateInputLayoutFn = unsafe extern "system" fn(
     pShaderBytecodeWithInputSignature: *const c_void,
     BytecodeLength: SIZE_T,
     ppInputLayout: *mut *mut ID3D11InputLayout,
+) -> HRESULT;
+
+pub type CreateBufferFn = unsafe extern "system" fn(
+    THIS: *mut ID3D11Device,
+    pDesc: *const D3D11_BUFFER_DESC,
+    pInitialData: *const D3D11_SUBRESOURCE_DATA,
+    ppBuffer: *mut *mut ID3D11Buffer,
 ) -> HRESULT;
 
 pub type IASetVertexBuffersFn = unsafe extern "system" fn(
@@ -97,3 +104,4 @@ pub type DrawInstancedIndirectFn = unsafe extern "system" fn (
 
 impl_release_drop!(ID3D11ShaderResourceView);
 impl_release_drop!(ID3D11Buffer);
+impl_release_drop!(ID3D11DeviceContext);

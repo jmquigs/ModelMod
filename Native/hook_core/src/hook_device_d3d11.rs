@@ -63,7 +63,11 @@ use winapi::shared::dxgiformat::DXGI_FORMAT;
 use winapi::shared::guiddef::GUID;
 use winapi::shared::winerror::E_NOINTERFACE;
 use winapi::um::d3d11::D3D11_APPEND_ALIGNED_ELEMENT;
+use winapi::um::d3d11::D3D11_BIND_INDEX_BUFFER;
+use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
+use winapi::um::d3d11::ID3D11Buffer;
 use winapi::um::d3d11::ID3D11DeviceVtbl;
 use winapi::um::d3d11::ID3D11InputLayout;
 use winapi::um::d3dcommon::D3D_DRIVER_TYPE;
@@ -557,12 +561,14 @@ unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
         // we may need it to find the original function pointers if we
         // hook another device.
 
-        let real_create_input_layout = {
-            (*vtbl).CreateInputLayout
-        };
-        let real_query_interface = {
-            (*vtbl).parent.QueryInterface
-        };
+        let real_create_buffer = (*vtbl).CreateBuffer;
+        let real_create_input_layout = (*vtbl).CreateInputLayout;
+        let real_query_interface = (*vtbl).parent.QueryInterface;
+
+        if real_create_buffer as usize == hook_CreateBuffer as usize {
+            return Err(HookError::D3D11DeviceHookFailed(
+                format!("unable to hook CreateBuffer due to missing real function")));
+        }
         if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook CreateInputLayout due to missing real function")));
@@ -573,6 +579,7 @@ unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
         }
 
         *lock = Some(HookDirect3D11Device {
+            real_create_buffer,
             real_query_interface,
             real_create_input_layout,
         });
@@ -585,6 +592,10 @@ unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
     // we don't copy the vtable.
     let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
     (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
+    // don't need to hook create buffer if we aren't precoping data
+    if GLOBAL_STATE.run_conf.precopy_data {
+        (*vtbl).CreateBuffer = hook_CreateBuffer;
+    }
     (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
     util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
     if copy_dev_vtable {
@@ -685,6 +696,17 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
         let _lock = GLOBAL_STATE_LOCK
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
+
+        // need to know if we will be precopying data for snapshots before we hook, since that affects
+        // what is hooked.
+        // this is a root reg query because at this time I don't know the game profile (although,
+        // I could just implement the code managed code uses to figure it out here, since it
+        // is based on the module name.)
+        let precopy = util::reg_query_root_dword("SnapPreCopyData");
+        if let Ok(precopy) = precopy {
+            GLOBAL_STATE.run_conf.precopy_data = precopy > 0;
+        }
+        write_log_file(&format!("snapshot precopy data: {}", GLOBAL_STATE.run_conf.precopy_data));
 
         let hooks = hook_d3d11(device, swapchain, context)?;
 
@@ -902,6 +924,72 @@ unsafe extern "system" fn hook_CreateInputLayoutFn(
     res
 }
 
+unsafe extern "system" fn hook_CreateBuffer(
+    THIS: *mut ID3D11Device,
+    pDesc: *const D3D11_BUFFER_DESC,
+    pInitialData: *const D3D11_SUBRESOURCE_DATA,
+    ppBuffer: *mut *mut ID3D11Buffer,
+) -> HRESULT {
+    let dev_realfn = match get_device_realfn() {
+        Ok(dev) => dev,
+        Err(e) => {
+            write_log_file(&format!("Error: hook_CreateBuffer returning E_FAIL due to bad state: {:?}", e));
+            return E_FAIL;
+        }
+    };
+    let dev_realfn = match dev_realfn.as_ref() {
+        Some(dev) => dev,
+        None => {
+            write_log_file(&format!("Error: hook_CreateBuffer returning E_FAIL due to missing realfn"));
+            return E_FAIL;
+        }
+    };
+
+    // for snapshotting, it would be nice to be able to create the buffers in D3D11_USAGE_STAGING
+    // with D3D11_CPU_ACCESS_READ, so that later when we snapshot we can just read it back out.
+    // But that doesn't work, at least for index buffers.  And since no other usage allows reading the
+    // buffer from the CPU, unlike in DX9, this appears to be a one-way memory chute.
+    // So we need to make a copy of the data in case we need it later.
+    // Note at this time we don't hook Map so if the code uses that to write to it again we'll
+    // miss that (in theory not possible with D3D11_USAGE_IMMUTABLE though)
+
+    let res = (dev_realfn.real_create_buffer)(
+        THIS,
+        pDesc,
+        pInitialData,
+        ppBuffer
+    );
+
+    if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() {
+        // if its an index buffer with data, we need to copy it out
+        if !pDesc.is_null() && (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0
+            && !pInitialData.is_null() && !(*pInitialData).pSysMem.is_null() {
+            if (*pInitialData).SysMemPitch != 0 || (*pInitialData).SysMemSlicePitch != 0 {
+                write_log_file(&format!("WARNING: hook_CreateBuffer: index buffer created with pitch or slice pitch, copy unimplemented"));
+            } else {
+                let vlen = (*pDesc).ByteWidth as usize;
+                let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
+                std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
+                dest_v.set_len(vlen);
+                dev_state_d3d11_write()
+                .map(|(_lock,ds)| {
+                    ds.rs.device_index_buffer_totalsize += dest_v.capacity();
+                    // log every every 10mb or so
+                    let _10mb = 1024 * 1024 * 10;
+                    let ts = ds.rs.device_index_buffer_totalsize;
+                    if ts % _10mb <= 10000 {
+                        write_log_file(&format!("WARNING: hook_CreateBuffer: index buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
+                    }
+
+                    ds.rs.device_index_buffer_data.insert(*ppBuffer as usize, dest_v);
+                });
+            }
+        }
+    }
+
+    res
+}
+
 thread_local! {
     static DEVICE_IN_QI: RefCell<bool>  = RefCell::new(false);
 }
@@ -1008,6 +1096,15 @@ pub mod tests {
         E_NOINTERFACE
     }
 
+    pub unsafe extern "system" fn dummy_create_buffer(
+        _ik: *mut ID3D11Device,
+        _pDesc: *const D3D11_BUFFER_DESC,
+        _pInitialData: *const D3D11_SUBRESOURCE_DATA,
+        _ppBuffer: *mut *mut ID3D11Buffer,
+    ) -> winapi::shared::winerror::HRESULT {
+        E_FAIL
+    }
+
     pub unsafe extern "system" fn dummy_create_input_layout(
         _ik: *mut ID3D11Device,
         _pInputElementDescs: *const D3D11_INPUT_ELEMENT_DESC,
@@ -1085,6 +1182,7 @@ pub mod tests {
         unsafe {
             let mut hooks = DEVICE_REALFN.write().expect("no hooks lock");
             *hooks = Some(HookDirect3D11Device {
+                real_create_buffer: dummy_create_buffer,
                 real_create_input_layout: dummy_create_input_layout,
                 real_query_interface: dummy_query_interface,
             });

@@ -149,6 +149,14 @@ pub unsafe fn reg_query_string(path:&str, key:&str) -> Result<String> {
     Ok(wpath)
 }
 
+pub unsafe fn reg_query_root_dword(key:&str) -> Result<DWORD> {
+    let reg_root = get_mm_reg_key();
+    // find the MM install directory, this must be set in the registry by the launcher.
+    // the launcher will also set whether MM is active.
+    let res = reg_query_dword(reg_root, key)?;
+    Ok(res)
+}
+
 pub unsafe fn reg_query_dword(path:&str, key:&str) -> Result<DWORD> {
     use winapi::ctypes::c_void;
     use winapi::shared::winerror::ERROR_SUCCESS;
