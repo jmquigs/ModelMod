@@ -244,8 +244,9 @@ module Snapshot =
         abstract member IBReader: BinaryReader
         abstract member VBReader: BinaryReader
         abstract member VertElements: VertexTypes.MMVertexElement []
-        abstract member VBDS: SharpDX.DataStream
-        abstract member IBDS: SharpDX.DataStream
+        abstract member VBDS: Stream
+        abstract member IBDS: Stream
+        abstract member IndexSizeBytes: int
 
         abstract member GetEnabledTextureStages: unit -> int list
         abstract member WriteDecl: string * string -> unit
@@ -282,10 +283,10 @@ module Snapshot =
             // check for null pointers in sd
             let indexBuffer = sd.RendData.d3d9.IndexBuffer
             let vertDecl = sd.RendData.d3d9.VertDecl
-            
-            //log.Info "DX9 sd: vertDecl: %A, indexBuffer: %A" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
-            if indexBuffer = 0n then failwithf "Index buffer is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
-            if vertDecl = 0n then failwithf "Vertex declaration is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer 
+
+            //log.Info "DX9 sd: vertDecl: %A, indexBuffer: %A" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer
+            if indexBuffer = 0n then failwithf "Index buffer is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer
+            if vertDecl = 0n then failwithf "Vertex declaration is null (DX9 sd: vertDecl: %A, indexBuffer: %A)" sd.RendData.d3d9.VertDecl sd.RendData.d3d9.IndexBuffer
 
             // create the device from the native pointer.
             // note: creating a new sharpdx wrapper object from a native pointer does not increase the com ref count.
@@ -371,8 +372,9 @@ module Snapshot =
             member x.IBReader = ibReader
             member x.VBReader = vbReader
             member x.VertElements = elements
-            member x.VBDS = vbDS
-            member x.IBDS = ibDS
+            member x.VBDS = vbDS :> Stream
+            member x.IBDS = ibDS :> Stream
+            member x.IndexSizeBytes = 2
 
             member x.GetEnabledTextureStages() =
                 // write textures for enabled stages only
@@ -435,21 +437,12 @@ module Snapshot =
                         let fname = Path.Combine(basedir, (sprintf "%s_Transforms.txt" basename))
                         File.WriteAllText(fname, s.ToString())
 
-    type SnapStateD3D11(device:nativeint,sd:InteropTypes.SnapshotData) =
-        //let mutable vb:VertexBuffer9 = null
-        //let mutable ib:IndexBuffer9 = null
-        //let mutable vbLocked = false
-        //let mutable ibLocked = false
-
-        let unlock() =
-            log.Info ("unlocking snapshot buffers")
-            //if ibLocked then
-            //    ib.Unlock()
-            //if vbLocked then
-            //    vb.Unlock()
+    type SnapStateD3D11(_device:nativeint,sd:InteropTypes.SnapshotData) =
+        let vertSize = sd.RendData.d3d11.VertSizeBytes
+        let indexSize = sd.RendData.d3d11.IndexSizeBytes
 
         let mutable offsetBytes = 0
-        let mutable strideBytes = 0
+        let mutable strideBytes = vertSize
         let mutable deviceopt = None
         let mutable vbDisposable = None
         let mutable declBytes = [||]
@@ -463,24 +456,35 @@ module Snapshot =
             let primType = sd.PrimType
             if primType <> 4 then failwithf "Cannot snap primitives of type: %A; only triangle lists are supported" primType
 
+            // check for null pointers
+            let (vbData,vbSize) = sd.RendData.d3d11.VertexData,sd.RendData.d3d11.VertexDataSizeBytes
+            let (ibData,ibSize) = sd.RendData.d3d11.IndexData, sd.RendData.d3d11.IndexDataSizeBytes
+
+            if (FSharp.NativeInterop.NativePtr.toNativeInt vbData) = 0n then
+                failwithf "VBData is null: size: %A, vert size: %A" vbSize vertSize
+            if (FSharp.NativeInterop.NativePtr.toNativeInt ibData) = 0n then
+                failwithf "IBData is null: size: %A, index size: %A" ibSize indexSize
+            if vertSize = uint32 0 then
+                failwithf "Vertex size is zero: %A" vertSize
+            if indexSize = uint32 0 then
+                failwithf "Index size is zero: %A" indexSize
+
             // check layout
             let layoutptr = sd.RendData.d3d11.LayoutElems
-            if (FSharp.NativeInterop.NativePtr.toNativeInt layoutptr) = 0n then 
+            if (FSharp.NativeInterop.NativePtr.toNativeInt layoutptr) = 0n then
                 failwithf "Layout pointer is null: %A %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
-            if int sd.RendData.d3d11.LayoutElemsSizeBytes = 0 then 
+            if int sd.RendData.d3d11.LayoutElemsSizeBytes = 0 then
                 failwithf "Layout size bytes is zero: %A %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
 
             //log.Info "DX11 sd: layoutptr: %A, sizebytes: %A" sd.RendData.d3d11.LayoutElems sd.RendData.d3d11.LayoutElemsSizeBytes
             let (elements,elStr) = ModDBInterop.d3d11ElementsFromPtr layoutptr (int sd.RendData.d3d11.LayoutElemsSizeBytes)
-            log.Info "DX11 elements: vert code %A, elements:\n%s" (elStr.GetHashCode()) elStr
-            
-            //let context = device.ImmediateContext
-            //deviceopt <- Some(device) // make a reference to prevent GC from doing anything funky with it
+            log.Info "Elements: vert code %A, semantics:\n  %s" (elStr.GetHashCode()) (elStr.Trim())
+            log.Info "VB size: %A, vert size: %A; IB size: %A, index size: %A" vbSize vertSize ibSize indexSize
 
-            let ibReader = new BinaryReader(new MemoryStream())
-            let vbReader = new BinaryReader(new MemoryStream())
-            let vbDS = new SharpDX.DataStream(0, true, false)
-            let ibDS = new SharpDX.DataStream(0, true, false)
+            let vbDS = new UnmanagedMemoryStream(vbData, int64 vbSize, int64 vbSize, FileAccess.Read)
+            let vbReader = new BinaryReader(vbDS)
+            let ibDS = new UnmanagedMemoryStream(ibData, int64 ibSize, int64 ibSize, FileAccess.Read)
+            let ibReader = new BinaryReader(ibDS)
 
             (ibReader,vbReader,elements,vbDS,ibDS)
 
@@ -490,19 +494,20 @@ module Snapshot =
             member x.Dispose() =
                 if not disposed then
                     disposed <- true
-                    //ibReader.Dispose()
-                    //vbReader.Dispose()
-                    //unlock()
-                    //vbDisposable |> Option.iter (fun vb -> vb.Dispose())
+                    ibDS.Dispose()
+                    vbDS.Dispose()
+                    ibReader.Dispose()
+                    vbReader.Dispose()
 
         interface IDeviceSnapState with
-            member x.StrideBytes = strideBytes
+            member x.StrideBytes = int strideBytes
             member x.OffsetBytes = offsetBytes
             member x.IBReader = ibReader
             member x.VBReader = vbReader
             member x.VertElements = elements
-            member x.VBDS = vbDS
-            member x.IBDS = ibDS
+            member x.VBDS = vbDS :> Stream
+            member x.IBDS = ibDS :> Stream
+            member x.IndexSizeBytes = int indexSize
 
             member x.GetEnabledTextureStages() =
                 []
@@ -576,8 +581,7 @@ module Snapshot =
                 | "d3d9" ->
                     new SnapStateD3D9(device, sd) :> IDeviceSnapState
                 | "d3d11" ->
-                    let _ = new SnapStateD3D11(device, sd) :> IDeviceSnapState
-                    failwith "Snapshot.take not yet implemented for d3d11"
+                    new SnapStateD3D11(device, sd) :> IDeviceSnapState
                 | s ->
                     failwithf "unrecognized context: %s" s
 
@@ -638,7 +642,12 @@ module Snapshot =
             // MinVertexIndex, since that is the lowest possible index that we can use
             // TODO: I think I've seen this work with minVertexIndex <> 0, but I'm not sure since that is an uncommon case;
             // needs definitive test.
-            let indexElemSize = 2 // 2 = sizeof short (Format.Index16)
+            let indexElemSize = dss.IndexSizeBytes
+            let readIndex =
+                match indexElemSize with
+                | 2 -> fun () -> dss.IBReader.ReadInt16() |> int
+                | 4 -> fun () -> dss.IBReader.ReadInt32() |> int
+                | _ -> failwithf "unsupported index size: %d" indexElemSize
             // TODO: check for dx11
             let ibStartOffset = int64 sd.MinVertexIndex * (int64 indexElemSize) + int64 (sd.StartIndex * uint32 indexElemSize)
             ignore (dss.IBDS.Seek(ibStartOffset, SeekOrigin.Begin))
@@ -646,9 +655,9 @@ module Snapshot =
             let triangles = new ResizeArray<IndexedTri>()
 
             let processTriangle _ =
-                let a = int (dss.IBReader.ReadInt16())
-                let b = int (dss.IBReader.ReadInt16())
-                let c = int (dss.IBReader.ReadInt16())
+                let a = readIndex()
+                let b = readIndex()
+                let c = readIndex()
 
                 // since vert,normal,texture arrays are all the same size, use the same index for each.
                 let verts:PTNIndex[] = Array.zeroCreate 3
@@ -734,7 +743,7 @@ module Snapshot =
 
             // write raw ib and vb; just write the portion that was used by the DIP call
             // Note: these are generally for debug only; create mod tool doesn't even use them.
-            let getStreamBytes (startoffset) (datastream:SharpDX.DataStream) size =
+            let getStreamBytes (startoffset) (datastream:Stream) size =
                 datastream.Seek(startoffset, SeekOrigin.Begin) |> ignore
                 let data:byte[] = Array.zeroCreate size
                 let ibBytes = datastream.Read(data,0,data.Length)

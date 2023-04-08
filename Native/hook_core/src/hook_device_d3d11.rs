@@ -64,6 +64,7 @@ use winapi::shared::guiddef::GUID;
 use winapi::shared::winerror::E_NOINTERFACE;
 use winapi::um::d3d11::D3D11_APPEND_ALIGNED_ELEMENT;
 use winapi::um::d3d11::D3D11_BIND_INDEX_BUFFER;
+use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
@@ -962,10 +963,12 @@ unsafe extern "system" fn hook_CreateBuffer(
 
     if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() {
         // if its an index buffer with data, we need to copy it out
-        if !pDesc.is_null() && (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0
+        let is_ib = (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0;
+        let is_vb = (*pDesc).BindFlags & D3D11_BIND_VERTEX_BUFFER != 0;
+        if !pDesc.is_null() && (is_ib || is_vb)
             && !pInitialData.is_null() && !(*pInitialData).pSysMem.is_null() {
             if (*pInitialData).SysMemPitch != 0 || (*pInitialData).SysMemSlicePitch != 0 {
-                write_log_file(&format!("WARNING: hook_CreateBuffer: index buffer created with pitch or slice pitch, copy unimplemented"));
+                write_log_file(&format!("WARNING: hook_CreateBuffer: index or vertex buffer created with pitch or slice pitch, copy unimplemented"));
             } else {
                 let vlen = (*pDesc).ByteWidth as usize;
                 let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
@@ -973,15 +976,26 @@ unsafe extern "system" fn hook_CreateBuffer(
                 dest_v.set_len(vlen);
                 dev_state_d3d11_write()
                 .map(|(_lock,ds)| {
-                    ds.rs.device_index_buffer_totalsize += dest_v.capacity();
                     // log every every 10mb or so
                     let _10mb = 1024 * 1024 * 10;
-                    let ts = ds.rs.device_index_buffer_totalsize;
-                    if ts % _10mb <= 10000 {
-                        write_log_file(&format!("WARNING: hook_CreateBuffer: index buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
-                    }
+                    if is_ib {
+                        ds.rs.device_index_buffer_totalsize += dest_v.capacity();
 
-                    ds.rs.device_index_buffer_data.insert(*ppBuffer as usize, dest_v);
+                        let ts = ds.rs.device_index_buffer_totalsize;
+                        if ts % _10mb <= 10000 {
+                            write_log_file(&format!("hook_CreateBuffer: index buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
+                        }
+                        ds.rs.device_index_buffer_data.insert(*ppBuffer as usize, dest_v);
+                    }
+                    else if is_vb {
+                        ds.rs.device_vertex_buffer_totalsize += dest_v.capacity();
+
+                        let ts = ds.rs.device_vertex_buffer_totalsize;
+                        if ts % _10mb <= 10000 {
+                            write_log_file(&format!("hook_CreateBuffer: vertex buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
+                        }
+                        ds.rs.device_vertex_buffer_data.insert(*ppBuffer as usize, dest_v);
+                    }
                 });
             }
         }

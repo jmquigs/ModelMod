@@ -55,6 +55,11 @@ impl ModData {
     }
 }
 
+#[cfg(target_pointer_width = "32")]
+const DX9_PAD_SIZE:usize = 9;
+#[cfg(target_pointer_width = "64")]
+const DX9_PAD_SIZE:usize = 10;
+
 #[repr(C, packed(4))]
 #[derive(Copy,Clone,Debug)]
 pub struct D3D9SnapshotRendData {
@@ -64,24 +69,21 @@ pub struct D3D9SnapshotRendData {
     pub index_buffer: *mut IDirect3DIndexBuffer9,
     /// Increases size of this struct to match D3D11 size.
     /// See comment for `SnapshotRendData` for why this is necessary.
-    #[cfg(target_pointer_width = "32")]
-    pub _pad:u32,
+    pub _padx: [u32; DX9_PAD_SIZE],
 }
 impl D3D9SnapshotRendData {
     pub fn new() -> Self {
         Self {
             vert_decl: std::ptr::null_mut(),
             index_buffer: std::ptr::null_mut(),
-            #[cfg(target_pointer_width = "32")]
-            _pad: 0xDEADBEEF,
+            _padx: [0xDEADBEEF; DX9_PAD_SIZE],
         }
     }
     pub fn from(vert_decl: *mut IDirect3DVertexDeclaration9, index_buffer: *mut IDirect3DIndexBuffer9) -> Self {
         Self {
             vert_decl,
             index_buffer,
-            #[cfg(target_pointer_width = "32")]
-            _pad: 0xDEADBEEF,
+            _padx: [0xDEADBEEF; DX9_PAD_SIZE],
         }
     }
 }
@@ -89,14 +91,27 @@ impl D3D9SnapshotRendData {
 #[repr(C, packed(4))]
 #[derive(Copy,Clone)]
 pub struct D3D11SnapshotRendData {
+    // put pointers first to keep them aligned, especially for ib and vb
     pub layout_elems: *const D3D11_INPUT_ELEMENT_DESC,
+    pub ib_data: *const u8,
+    pub vb_data: *const u8,
     pub layout_size_bytes: u64,
+    pub ib_size_bytes: u64,
+    pub vb_size_bytes: u64,
+    pub ib_index_size_bytes: u32,
+    pub vb_vert_size_bytes: u32,
 }
 impl D3D11SnapshotRendData {
     pub fn new() -> Self {
         Self {
             layout_elems: std::ptr::null(),
             layout_size_bytes: 0,
+            ib_data: std::ptr::null(),
+            ib_size_bytes: 0,
+            ib_index_size_bytes: 0,
+            vb_data: std::ptr::null(),
+            vb_size_bytes: 0,
+            vb_vert_size_bytes: 0,
         }
     }
 }

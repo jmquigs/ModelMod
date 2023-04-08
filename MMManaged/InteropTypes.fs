@@ -114,8 +114,20 @@ module InteropTypes =
     type D3D11SnapshotRendData = {
           /// Vertex declaration pointer
           LayoutElems:nativeptr<byte>
-          /// Index buffer pointer
+          /// Index buffer data pointer 
+          IndexData:nativeptr<byte>
+          /// Vertex buffer data pointer 
+          VertexData:nativeptr<byte>
+          /// Size of the layout elements in bytes
           LayoutElemsSizeBytes:uint64
+          /// Size of the index data in bytes
+          IndexDataSizeBytes:uint64
+          /// Size of the vertex data in bytes 
+          VertexDataSizeBytes:uint64 
+          /// Size of the indices in the index buffer
+          IndexSizeBytes:uint32 
+          /// Size of the verts in the vertex buffer
+          VertSizeBytes:uint32
       }
 
     [<StructLayout(LayoutKind.Explicit, Pack=4)>]

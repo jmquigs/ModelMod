@@ -23,6 +23,7 @@ use winapi::um::d3d11::ID3D11DeviceContext;
 
 use std;
 use std::collections::BTreeMap;
+use std::ffi::CStr;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -131,7 +132,7 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
     let pre_rc;
     // snap in a block so that drops within activate and we can check ref count after
     unsafe {
-        write_log_file(&format!("Snap started: prims: {}, verts: {}, basevert: {}, startindex: {}", sd.prim_count, sd.num_vertices, sd.base_vertex_index, sd.start_index));
+        write_log_file(&format!("==> New snap started: prims: {}, verts: {}, basevert: {}, startindex: {}", sd.prim_count, sd.num_vertices, sd.base_vertex_index, sd.start_index));
 
         pre_rc = devptr.get_ref_count();
 
@@ -485,7 +486,8 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
 struct D3D11SnapDeviceBuffers {
     pub _ld:Vec<D3D11_INPUT_ELEMENT_DESC>,
     pub _context_rod:ReleaseOnDrop<*mut ID3D11DeviceContext>,
-    //pub _ib_rod:ReleaseOnDrop<*mut ID3D11Buffer>,
+    pub _ib_data:Vec<u8>,
+    pub _vb_data:Vec<u8>,
 }
 impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{}
 
@@ -494,6 +496,20 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         let vf = state.rs.get_current_vertex_format().ok_or_else(|| {
             HookError::SnapshotFailed("no current input layout, cannot snap".to_string())
         })?;
+        let vert_size = vf.size as usize;
+        if vert_size == 0 {
+            return Err(HookError::SnapshotFailed("vertex size is 0".to_string()));
+        }
+        // abort if it lacks a texture coordinate semantic, this won't snap properly ATM (might
+        // be a python importer error in mmobj, not sure)
+        let ptr_to_str = |ptr:*const i8| -> String {
+            let cstr = unsafe { CStr::from_ptr(ptr) };
+            let s = cstr.to_string_lossy().to_ascii_lowercase().to_string();
+            s
+        };
+        vf.layout.iter()
+            .find(|l| ptr_to_str(l.SemanticName).starts_with("texcoord"))
+            .ok_or(HookError::SnapshotFailed("snap aborted, vertex layout lacks texcoord so this will not capture properly".to_owned()))?;
 
         let mut ld = vf.layout.clone();
         let layout_data_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * ld.len();
@@ -545,15 +561,58 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
 
         write_log_file(&format!("index buffer size: {}, format: {}", ib_copy.len(), curr_ibuffer_format));
 
+        // now same for vertex buffers
+        const MAX_VBUFFERS: usize = 16;
+        let mut curr_vbuffers: [*mut ID3D11Buffer; MAX_VBUFFERS] = [null_mut(); MAX_VBUFFERS];
+        let mut curr_vbuffer_strides: [UINT; MAX_VBUFFERS] = [0; MAX_VBUFFERS];
+        let mut curr_vbuffer_offsets: [UINT; MAX_VBUFFERS] = [0; MAX_VBUFFERS];
+        (*context).IAGetVertexBuffers(0, MAX_VBUFFERS as u32,
+            curr_vbuffers.as_mut_ptr(),
+            curr_vbuffer_strides.as_mut_ptr(),
+            curr_vbuffer_offsets.as_mut_ptr());
+        let _vb_rods =
+            curr_vbuffers.iter().filter(|vb| !vb.is_null())
+             .map(|vb| ReleaseOnDrop::new(*vb)).collect::<Vec<_>>();
+        // filter active
+        let curr_vbuffers = curr_vbuffers.iter().filter(|vb| !vb.is_null()).collect::<Vec<_>>();
+        if curr_vbuffers.is_empty() {
+            return Err(HookError::SnapshotFailed("no vertex buffers".to_string()));
+        }
+        if curr_vbuffers.len() > 1 {
+            return Err(HookError::SnapshotFailed(format!("more than 1 vertex buffer not supported (got {})", curr_vbuffers.len())));
+        }
+        // copy the data
+        let vb_copy = dev_state_d3d11_read()
+            .map(|(_lock,ds)| {
+                let vb_usize = *curr_vbuffers[0] as usize;
+                ds.rs.device_vertex_buffer_data.get(&vb_usize).map(|v| v.clone())
+            }).flatten()
+            .ok_or_else(|| {
+                HookError::SnapshotFailed("failed to get vertex buffer data, was not previously saved".to_string())
+            })?;
+        // number of vertices should be = size / vert size
+        let num_verts = vb_copy.len() / vert_size;
+        if sd.num_vertices != num_verts as u32 {
+            return Err(HookError::SnapshotFailed(format!("vertex buffer data size mismatch, expected: {}, got: {}", sd.num_vertices, num_verts)));
+        }
+        write_log_file(&format!("vertex buffer size: {}, num verts: {}, vertsize: {}", vb_copy.len(), num_verts, vert_size));
+
         sd.rend_data.d3d11 = D3D11SnapshotRendData {
             layout_elems: decl_data,
             layout_size_bytes: layout_data_size as u64,
+            ib_data: ib_copy.as_ptr(),
+            vb_data: vb_copy.as_ptr(),
+            ib_size_bytes: ib_copy.len() as u64,
+            vb_size_bytes: vb_copy.len() as u64,
+            ib_index_size_bytes: index_size as u32,
+            vb_vert_size_bytes: vert_size as u32,
         };
 
         return Ok(Box::new(D3D11SnapDeviceBuffers{
             _context_rod: context_rod,
-            //_ib_rod: ib_rod,
-            _ld: ld
+            _ld: ld,
+            _ib_data: ib_copy,
+            _vb_data: vb_copy,
         }))
     }
     Err(HookError::SnapshotFailed("set_buffers_d3d11: failed snapshot".to_string()))
