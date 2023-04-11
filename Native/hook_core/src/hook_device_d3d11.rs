@@ -719,6 +719,8 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             app_hwnds: Vec::new(),
             last_timebased_update: SystemTime::now(),
             app_foreground: false,
+            last_data_expire: SystemTime::now(),
+            last_data_expire_type_flip: false,
         }));
 
         // TODO11: d3d9 also has: d3d_resource_count: 0,
@@ -976,25 +978,13 @@ unsafe extern "system" fn hook_CreateBuffer(
                 dest_v.set_len(vlen);
                 dev_state_d3d11_write()
                 .map(|(_lock,ds)| {
-                    // log every every 10mb or so
-                    let _10mb = 1024 * 1024 * 10;
                     if is_ib {
-                        ds.rs.device_index_buffer_totalsize += dest_v.capacity();
-
-                        let ts = ds.rs.device_index_buffer_totalsize;
-                        if ts % _10mb <= 10000 {
-                            write_log_file(&format!("hook_CreateBuffer: index buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
-                        }
                         ds.rs.device_index_buffer_data.insert(*ppBuffer as usize, dest_v);
+                        ds.rs.device_index_buffer_createtime.push((*ppBuffer as usize, SystemTime::now()));
                     }
                     else if is_vb {
-                        ds.rs.device_vertex_buffer_totalsize += dest_v.capacity();
-
-                        let ts = ds.rs.device_vertex_buffer_totalsize;
-                        if ts % _10mb <= 10000 {
-                            write_log_file(&format!("hook_CreateBuffer: vertex buffer data size now {:3.1}mb", ts as f64 / (1024.0 * 1024.0)));
-                        }
                         ds.rs.device_vertex_buffer_data.insert(*ppBuffer as usize, dest_v);
+                        ds.rs.device_vertex_buffer_createtime.push((*ppBuffer as usize, SystemTime::now()));
                     }
                 });
             }

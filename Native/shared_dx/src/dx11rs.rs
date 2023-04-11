@@ -1,4 +1,4 @@
-use std::{fmt::{Display, Formatter, Error}, ffi::CStr};
+use std::{fmt::{Display, Formatter, Error}, ffi::CStr, time::SystemTime};
 
 use fnv::FnvHashMap;
 use winapi::um::{d3d11::{ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, D3D11_PRIMITIVE_TOPOLOGY}, d3dcommon::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED};
@@ -71,10 +71,14 @@ pub struct DX11RenderState {
     pub device_semantic_string_table: FnvHashMap<String, Vec<u8>>,
     /// When snapshotting this stores all index buffer data, because we can't read it on the fly.
     pub device_index_buffer_data: FnvHashMap<usize, Vec<u8>>,
-    pub device_index_buffer_totalsize: usize,
+    /// Controls when index data is removed
+    pub device_index_buffer_createtime: Vec<(usize,SystemTime)>,
+    pub device_index_buffer_totalsize_nextlog: (usize,usize),
     /// When snapshotting this stores all vertex buffer data, because we can't read it on the fly.
     pub device_vertex_buffer_data: FnvHashMap<usize, Vec<u8>>,
-    pub device_vertex_buffer_totalsize: usize,
+    /// Controls when vertex data is removed
+    pub device_vertex_buffer_createtime: Vec<(usize,SystemTime)>,
+    pub device_vertex_buffer_totalsize_nextlog: (usize,usize),
 }
 
 impl DX11RenderState {
@@ -88,9 +92,11 @@ impl DX11RenderState {
             prim_topology: D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
             device_semantic_string_table: FnvHashMap::with_capacity_and_hasher(64, Default::default()),
             device_index_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
-            device_index_buffer_totalsize: 0,
+            device_index_buffer_createtime: Vec::new(),
+            device_index_buffer_totalsize_nextlog: (0,0),
             device_vertex_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
-            device_vertex_buffer_totalsize: 0,
+            device_vertex_buffer_createtime: Vec::new(),
+            device_vertex_buffer_totalsize_nextlog: (0,0),
         }
     }
 

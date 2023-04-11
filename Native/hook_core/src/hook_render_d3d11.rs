@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
-use std::time::{SystemTime};
+use std::time::{SystemTime, Duration};
 
 use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
@@ -718,10 +718,107 @@ unsafe fn find_app_windows() {
     EnumWindows(Some(enum_windows_proc), my_pid as isize);
 }
 
+const DEF_EXPIRE_CHECK_SECS:u64 = 60;
+const DEF_EXPIRE_DUR_SECS:u64 = 600;
+const DEF_EXPIRE_MAX_PCT:u32 = 40;
+
+/// This a essential a garbage collector for data we might have made a copy of for snapshots.
+/// It makes a reasonable effort to balance wasted memory with cpu usage.
+fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) {
+    let min = Duration::from_secs(DEF_EXPIRE_CHECK_SECS);
+    let elapsed = now.duration_since(*last_data_expire).unwrap_or_else(|_x| min);
+    if elapsed > min {
+        let start = SystemTime::now();
+        let mut cleartype = "";
+        unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
+            state.last_data_expire = *now;
+            let expire_dur = Duration::from_secs(DEF_EXPIRE_DUR_SECS);
+            let cutoff = *now - expire_dur;
+            let expire_data =
+                |ct_list:&mut Vec<(usize,SystemTime)>, data_map:&mut FnvHashMap<usize, Vec<u8>>,
+                _size_and_nl:&mut (usize,usize)| {
+                if ct_list.len() == 0 { return (0,0); }
+                // cap how many of these we do at a time
+                let max_el = ((DEF_EXPIRE_MAX_PCT as f32 / 100.0) * ct_list.len() as f32) as usize;
+                // don't need to sort, since newer stuff is pushed, oldest will always be near front.
+                // enumerate and walk elements, removing until we find one that is newer than cutoff
+                let mut totalfreed = 0;
+                let newpos =
+                    ct_list.iter_mut()
+                    .enumerate()
+                    .take(max_el)
+                    .find(|(_pos,(ptr,created))| {
+                        let old = created < &cutoff;
+                        if old {
+                            let dat = data_map.remove(&ptr);
+                            if let Some(dat) = dat {
+                                 totalfreed += dat.capacity();
+                            }
+                        }
+                        !old
+                    }).map(|(pos,_)| pos);
+                let clear_to = match newpos {
+                    Some(newpos) => newpos,
+                    None => max_el, // all in range are old
+                };
+                if clear_to > 0 {
+                    ct_list.drain(..clear_to);
+                    //let mb = |sizebytes:usize| (sizebytes as f32 / 1024.0 / 1024.0);
+                    //write_log_file(&format!("expired {} data objects", clear_to));
+                    // let rem_size:usize = ct_list.iter().map(|(ptr,_created)| {
+                    //     data_map.get(&ptr).map(|dat| dat.capacity()).unwrap_or(0)
+                    // }).sum();
+                    //write_log_file(&format!("  remaining size {:3.2}MB", mb(rem_size)));
+                }
+                (clear_to,totalfreed)
+            };
+
+            // do vertex or index data but not both to reduce cpu time a bit
+            state.last_data_expire_type_flip = !state.last_data_expire_type_flip;
+            //let which_map;
+            let expired;
+            let totalfreed;
+            match state.last_data_expire_type_flip {
+                true => {
+                    // expire vertex data
+                    write_log_file(&format!("expiring vertex data, size: {}", state.rs.device_vertex_buffer_createtime.len()));
+                    (expired,totalfreed) = expire_data(&mut state.rs.device_vertex_buffer_createtime,
+                        &mut state.rs.device_vertex_buffer_data,
+                        &mut state.rs.device_vertex_buffer_totalsize_nextlog);
+                    //which_map = &state.rs.device_vertex_buffer_data;
+                    cleartype = "vertex";
+                }
+                false => {
+                    // expire index data
+                    write_log_file(&format!("expiring index data, size: {}", state.rs.device_index_buffer_createtime.len()));
+                    (expired,totalfreed) = expire_data(&mut state.rs.device_index_buffer_createtime,
+                        &mut state.rs.device_index_buffer_data,
+                        &mut state.rs.device_index_buffer_totalsize_nextlog);
+                    //which_map = &state.rs.device_index_buffer_data;
+                    cleartype = "index";
+                },
+            };
+            let clear_elapsed = SystemTime::now().duration_since(start).unwrap_or_else(|_x| Duration::from_secs(0));
+            // let calc_rem_size = |data_map:&FnvHashMap<usize, Vec<u8>>| {
+            //     data_map.iter().fold(0, |acc, (_k,v)| acc + v.capacity())
+            // };
+            //let rem_size = calc_rem_size(which_map);
+            let rem_size = 0;
+            let mut msg = format!("expired {} {} objects totalling {:3.2} MB in {} microseconds", expired, cleartype, totalfreed as f32 / 1024.0 / 1024.0, clear_elapsed.as_micros());
+            if rem_size > 0 {
+                msg.push_str(&format!(", remaining size: {:3.2} MB", rem_size as f32 / 1024.0 / 1024.0));
+            }
+            write_log_file(&msg);
+        });
+    }
+}
+
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
+        let mut last_data_expire = now;
         if let Some(state) = dev_state_d3d11_nolock() {
             state.last_timebased_update = now;
+            last_data_expire = state.last_data_expire; // grab this while we have state
         }
         // keep the frame counter rolling even though we don't know when the frames end.  some
         // mod loading selection features rely on this to see if a mod has been rendered recently.
@@ -765,6 +862,8 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                     state.rs.context_input_layouts_by_ptr.len()));
                 }
             });
+        } else {
+            expire_data(&now,&last_data_expire);
         }
 
         with_dev_ptr(|deviceptr| {

@@ -96,6 +96,8 @@ pub struct HookD3D11State {
     pub rs: DX11RenderState,
     pub app_hwnds: Vec<HWND>,
     pub last_timebased_update: SystemTime,
+    pub last_data_expire: SystemTime,
+    pub last_data_expire_type_flip: bool,
     pub app_foreground: bool,
 }
 
@@ -108,6 +110,8 @@ impl HookD3D11State {
             rs: DX11RenderState::new(),
             app_hwnds: Vec::new(),
             last_timebased_update: SystemTime::now(),
+            last_data_expire: SystemTime::now(),
+            last_data_expire_type_flip: false,
             app_foreground: false,
         }
     }
