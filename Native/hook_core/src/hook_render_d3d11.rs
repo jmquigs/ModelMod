@@ -722,9 +722,56 @@ const DEF_EXPIRE_CHECK_SECS:u64 = 60;
 const DEF_EXPIRE_DUR_SECS:u64 = 600;
 const DEF_EXPIRE_MAX_PCT:u32 = 40;
 
-/// This a essential a garbage collector for data we might have made a copy of for snapshots.
-/// It makes a reasonable effort to balance wasted memory with cpu usage.
-fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) {
+struct ExpireThread {
+    thread: std::thread::JoinHandle<()>,
+}
+
+thread_local! {
+    static EXPIRE_THREAD: RefCell<Option<ExpireThread>> = RefCell::new(None);
+    static LAST_EXPIRE_THREAD_START: RefCell<SystemTime> = RefCell::new(SystemTime::now());
+}
+
+fn check_expire_thread(now:&SystemTime) {
+    let started = EXPIRE_THREAD.with(|et| {
+        if let Some(t) = et.borrow().as_ref() {
+            return !t.thread.is_finished()
+        }
+        return false;
+    });
+    if started {
+        return
+    }
+    let dur = now.duration_since(LAST_EXPIRE_THREAD_START.with(|x| *x.borrow())).unwrap_or_else(|_x| Duration::from_secs(0));
+    if dur < Duration::from_secs(10) {
+        return
+    }
+    write_log_file("starting data expire thread");
+    let thread = std::thread::spawn(|| {
+        let mut last_check = SystemTime::now();
+        loop {
+            let now = SystemTime::now();
+            let checked = expire_data(&now,&last_check);
+            let mut sleep_secs = 10;
+            if checked {
+                last_check = now;
+                sleep_secs = DEF_EXPIRE_CHECK_SECS+1;
+            }
+            std::thread::sleep(Duration::from_secs(sleep_secs));
+        }
+    });
+    EXPIRE_THREAD.with(|et| {
+        *et.borrow_mut() = Some(ExpireThread {
+            thread,
+        });
+    });
+}
+
+/// This essentially a garbage collector for data we might have copied for snapshots.
+/// It makes a reasonable effort to balance wasted memory with cpu usage.  Runs in a separate thread
+/// though it can still slow down the device thread a bit because it has to write lock on the
+/// shared data structures used to store the data.
+fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) -> bool {
+    let mut checked = false;
     let min = Duration::from_secs(DEF_EXPIRE_CHECK_SECS);
     let elapsed = now.duration_since(*last_data_expire).unwrap_or_else(|_x| min);
     if elapsed > min {
@@ -732,6 +779,7 @@ fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) {
         let mut cleartype = "";
         unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
             state.last_data_expire = *now;
+            checked = true;
             let expire_dur = Duration::from_secs(DEF_EXPIRE_DUR_SECS);
             let cutoff = *now - expire_dur;
             let expire_data =
@@ -773,7 +821,7 @@ fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) {
                 (clear_to,totalfreed)
             };
 
-            // do vertex or index data but not both to reduce cpu time a bit
+            // do vertex or index data but not both to reduce cpu/lock time a bit
             state.last_data_expire_type_flip = !state.last_data_expire_type_flip;
             //let which_map;
             let expired;
@@ -811,14 +859,13 @@ fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) {
             write_log_file(&msg);
         });
     }
+    checked
 }
 
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
-        let mut last_data_expire = now;
         if let Some(state) = dev_state_d3d11_nolock() {
             state.last_timebased_update = now;
-            last_data_expire = state.last_data_expire; // grab this while we have state
         }
         // keep the frame counter rolling even though we don't know when the frames end.  some
         // mod loading selection features rely on this to see if a mod has been rendered recently.
@@ -863,7 +910,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 }
             });
         } else {
-            expire_data(&now,&last_data_expire);
+            check_expire_thread(&now);
         }
 
         with_dev_ptr(|deviceptr| {
