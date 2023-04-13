@@ -748,9 +748,10 @@ fn check_expire_thread(now:&SystemTime) {
     write_log_file("starting data expire thread");
     let thread = std::thread::spawn(|| {
         let mut last_check = SystemTime::now();
+        let mut clear_list:Vec<Vec<u8>> = Vec::new();
         loop {
             let now = SystemTime::now();
-            let checked = expire_data(&now,&last_check);
+            let checked = expire_data(&now,&last_check, &mut clear_list);
             let mut sleep_secs = 10;
             if checked {
                 last_check = now;
@@ -770,27 +771,29 @@ fn check_expire_thread(now:&SystemTime) {
 /// It makes a reasonable effort to balance wasted memory with cpu usage.  Runs in a separate thread
 /// though it can still slow down the device thread a bit because it has to write lock on the
 /// shared data structures used to store the data.
-fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) -> bool {
+fn expire_data(now:&SystemTime, last_data_expire:&SystemTime, clear_list:&mut Vec<Vec<u8>>) -> bool {
     let mut checked = false;
     let min = Duration::from_secs(DEF_EXPIRE_CHECK_SECS);
     let elapsed = now.duration_since(*last_data_expire).unwrap_or_else(|_x| min);
     if elapsed > min {
         let start = SystemTime::now();
         let mut cleartype = "";
-        unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
+        let (expired_els,total_els) = unsafe {
+            dev_state_d3d11_write()}.map(|(_lock,state)| {
             state.last_data_expire = *now;
             checked = true;
             let expire_dur = Duration::from_secs(DEF_EXPIRE_DUR_SECS);
             let cutoff = *now - expire_dur;
-            let expire_data =
+            let mut expire_data =
                 |ct_list:&mut Vec<(usize,SystemTime)>, data_map:&mut FnvHashMap<usize, Vec<u8>>,
                 _size_and_nl:&mut (usize,usize)| {
-                if ct_list.len() == 0 { return (0,0); }
+                if ct_list.len() == 0 {
+                    return 0;
+                }
                 // cap how many of these we do at a time
                 let max_el = ((DEF_EXPIRE_MAX_PCT as f32 / 100.0) * ct_list.len() as f32) as usize;
-                // don't need to sort, since newer stuff is pushed, oldest will always be near front.
                 // enumerate and walk elements, removing until we find one that is newer than cutoff
-                let mut totalfreed = 0;
+                // don't need to sort, since newer stuff is pushed, oldest will always be near front.
                 let newpos =
                     ct_list.iter_mut()
                     .enumerate()
@@ -800,7 +803,7 @@ fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) -> bool {
                         if old {
                             let dat = data_map.remove(&ptr);
                             if let Some(dat) = dat {
-                                 totalfreed += dat.capacity();
+                                clear_list.push(dat)
                             }
                         }
                         !old
@@ -811,53 +814,54 @@ fn expire_data(now:&SystemTime,last_data_expire:&SystemTime) -> bool {
                 };
                 if clear_to > 0 {
                     ct_list.drain(..clear_to);
-                    //let mb = |sizebytes:usize| (sizebytes as f32 / 1024.0 / 1024.0);
-                    //write_log_file(&format!("expired {} data objects", clear_to));
-                    // let rem_size:usize = ct_list.iter().map(|(ptr,_created)| {
-                    //     data_map.get(&ptr).map(|dat| dat.capacity()).unwrap_or(0)
-                    // }).sum();
-                    //write_log_file(&format!("  remaining size {:3.2}MB", mb(rem_size)));
                 }
-                (clear_to,totalfreed)
+                clear_to
             };
-
             // do vertex or index data but not both to reduce cpu/lock time a bit
             state.last_data_expire_type_flip = !state.last_data_expire_type_flip;
+            let expired_els;
+            let total_els;
             //let which_map;
-            let expired;
-            let totalfreed;
             match state.last_data_expire_type_flip {
                 true => {
                     // expire vertex data
-                    write_log_file(&format!("expiring vertex data, size: {}", state.rs.device_vertex_buffer_createtime.len()));
-                    (expired,totalfreed) = expire_data(&mut state.rs.device_vertex_buffer_createtime,
+                    cleartype = "vertex";
+                    total_els = state.rs.device_vertex_buffer_createtime.len();
+                    expired_els = expire_data(&mut state.rs.device_vertex_buffer_createtime,
                         &mut state.rs.device_vertex_buffer_data,
                         &mut state.rs.device_vertex_buffer_totalsize_nextlog);
                     //which_map = &state.rs.device_vertex_buffer_data;
-                    cleartype = "vertex";
                 }
                 false => {
                     // expire index data
-                    write_log_file(&format!("expiring index data, size: {}", state.rs.device_index_buffer_createtime.len()));
-                    (expired,totalfreed) = expire_data(&mut state.rs.device_index_buffer_createtime,
+                    cleartype = "index";
+                    total_els = state.rs.device_index_buffer_createtime.len();
+                    expired_els = expire_data(&mut state.rs.device_index_buffer_createtime,
                         &mut state.rs.device_index_buffer_data,
                         &mut state.rs.device_index_buffer_totalsize_nextlog);
                     //which_map = &state.rs.device_index_buffer_data;
-                    cleartype = "index";
                 },
             };
-            let clear_elapsed = SystemTime::now().duration_since(start).unwrap_or_else(|_x| Duration::from_secs(0));
             // let calc_rem_size = |data_map:&FnvHashMap<usize, Vec<u8>>| {
             //     data_map.iter().fold(0, |acc, (_k,v)| acc + v.capacity())
             // };
-            //let rem_size = calc_rem_size(which_map);
-            let rem_size = 0;
-            let mut msg = format!("expired {} {} objects totalling {:3.2} MB in {} microseconds", expired, cleartype, totalfreed as f32 / 1024.0 / 1024.0, clear_elapsed.as_micros());
-            if rem_size > 0 {
-                msg.push_str(&format!(", remaining size: {:3.2} MB", rem_size as f32 / 1024.0 / 1024.0));
-            }
-            write_log_file(&msg);
-        });
+            // let rem_size = calc_rem_size(which_map);
+            (expired_els,total_els)
+        }).unwrap_or_else(|| (0,0));
+        let expire_elapsed = SystemTime::now().duration_since(start).unwrap_or_else(|_x| Duration::from_secs(0));
+        let start = SystemTime::now();
+        let totalfreed = clear_list.iter().fold(0, |acc, v| acc + v.capacity());
+        // this actually releases the memory so kinda important, it can take some time but we're
+        // outside the lock so the render thread should no longer be blocked.
+        clear_list.clear();
+        let clear_elapsed = SystemTime::now().duration_since(start).unwrap_or_else(|_x| Duration::from_secs(0));
+        let rem_size = 0;
+        let mut msg = format!("expired {}/{} {} objects total {:3.3} MB in {} (expire) + {} (clear) microseconds",
+            expired_els, total_els, cleartype, totalfreed as f32 / 1024.0 / 1024.0, expire_elapsed.as_micros(), clear_elapsed.as_micros());
+        if rem_size > 0 {
+            msg.push_str(&format!(", remaining size: {:3.2} MB", rem_size as f32 / 1024.0 / 1024.0));
+        }
+        write_log_file(&msg);
     }
     checked
 }
