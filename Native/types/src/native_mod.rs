@@ -43,7 +43,7 @@ pub struct NativeModData {
 }
 
 pub const MAX_RECENT_RENDER_USAGE_THRESH:u64 = 500;
-pub const MAX_RECENT_RENDER_PARENT_THRESH:u64 = 90;
+pub const MAX_RECENT_RENDER_PARENT_THRESH:u64 = 150;
 
 impl NativeModData {
     pub fn new() -> Self {
