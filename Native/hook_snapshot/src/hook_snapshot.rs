@@ -60,7 +60,7 @@ lazy_static! {
     // some objects may still be missed.  Some investigation to make this more reliable would be useful.
 
     pub static ref SNAP_CONFIG: Arc<RwLock<SnapConfig>> = Arc::new(RwLock::new(SnapConfig {
-        snap_ms: 250,
+        snap_ms: 250, // TODO11: dx11 needs longer, 5 seconds?
         snap_anim: false,
         snap_anim_on_count: 2,
         // TODO: should read these limits from device, it might support fewer!
@@ -112,6 +112,9 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
     if devptr.is_null() {
         return;
     }
+    if sd.prim_count == 0 || sd.num_vertices == 0 {
+        return;
+    }
 
     let snap_conf =
         match SNAP_CONFIG.read() {
@@ -161,7 +164,7 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
         let save_rs = save_render_state(devptr);
 
         match set_buffers(devptr, sd) {
-            Ok(_bufs) => {
+            Ok(bufs) => {
                 write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
                 GLOBAL_STATE.interop_state.as_mut().map(|is| {
 
@@ -186,7 +189,7 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                         // write_log_file(&format!("snap save dir: {}", dir));
                         // write_log_file(&format!("snap prefix: {}", sprefix));
 
-                        let _ = save_textures(devptr, &dir, &sprefix).map_err(|e| {
+                        let _ = save_textures(devptr, &bufs, &dir, &sprefix).map_err(|e| {
                             write_log_file(&format!("failed to save textures: {:?}", e));
                         });
 
@@ -244,61 +247,57 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
     }
 }
 
-unsafe fn save_textures(devtr:&mut DevicePointer, snap_dir:&str, snap_prefix:&str) -> Result<()> {
+unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuffers>, snap_dir:&str, snap_prefix:&str) -> Result<()> {
     // in d3d9 the managed code already did this
     let device = match devtr {
         DevicePointer::D3D11(d) => *d,
         _ => return Ok(()),
     };
     let d3dx_fn = GLOBAL_STATE
-    .d3dx_fn
-    .as_ref()
-    .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
-    let d3dx_fn = match d3dx_fn {
-        D3DXFn::DX11(d) => d,
-        _ => return Err(HookError::SnapshotFailed("wrong d3dx??".to_owned())),
-    };
-
+        .d3dx_fn
+        .as_ref()
+        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
+        let d3dx_fn = match d3dx_fn {
+            D3DXFn::DX11(d) => d,
+            _ => return Err(HookError::SnapshotFailed("wrong d3dx??".to_owned())),
+        };
     let mut context:*mut ID3D11DeviceContext = null_mut();
     (*device).GetImmediateContext(&mut context);
     if context.is_null() {
         return Err(HookError::SnapshotFailed("failed to get immediate context".to_string()));
     }
     let _context_rod = ReleaseOnDrop::new(context);
-
-    // get the active srvs
-    let _srv_rods;
-    let mut orig_srvs: [*mut ID3D11ShaderResourceView; 16] = [null_mut(); 16];
-    (*context).PSGetShaderResources(0, 16, orig_srvs.as_mut_ptr());
-    _srv_rods = orig_srvs.iter().filter(|srv| !srv.is_null())
-        .map(|srv| ReleaseOnDrop::new(*srv)).collect::<Vec<_>>();
-
+    // downcast the buffers to D3D11SnapDeviceBuffers
+    let d3d11bufs = buffers.as_any().downcast_ref::<D3D11SnapDeviceBuffers>()
+        .ok_or_else(|| HookError::SnapshotFailed("failed to downcast buffers".to_owned()))?;
+    if d3d11bufs.srvs.len() == 0 {
+        return Err(HookError::SnapshotFailed(format!("no 2D textures found for snapshot: {}", snap_prefix)));
+    }
+    let num_2d = d3d11bufs.srv_2d_tex.len();
     // find the srvs that are 2d textures, try to save them
-    let mut num_2d = 0;
     let mut num_saved = 0;
-    for (idx,srv) in orig_srvs.iter_mut().enumerate() {
+    for idx in d3d11bufs.srv_2d_tex.iter() {
+        if *idx as usize >= d3d11bufs.srvs.len() {
+            return Err(HookError::SnapshotFailed(format!("invalid srv index {} of {}", idx, d3d11bufs.srvs.len())));
+        }
+        let srv = d3d11bufs.srvs[*idx as usize];
         if !srv.is_null() {
-            let mut desc: D3D11_SHADER_RESOURCE_VIEW_DESC = std::mem::zeroed();
-            (**srv).GetDesc(&mut desc);
-            if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
-                num_2d += 1;
-                let viewptr:*mut ID3D11View = *srv as *mut _;
-                let mut resptr:*mut ID3D11Resource = null_mut();
-                (*viewptr).GetResource(&mut resptr);
-                if resptr.is_null() {
-                    return Err(HookError::SnapshotFailed("failed to get resource from srv".to_string()));
-                }
-                let _res_rod = ReleaseOnDrop::new(resptr);
-                let out = format!("{}/{}_texture{}.dds", snap_dir, snap_prefix, idx);
-                let out = util::to_wide_str(&out);
-                const D3DX11_IFF_DDS: u32 = 4;
-                let hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_DDS, out.as_ptr());
-                if hr != 0 {
-                    // write out an error but keep going to see if we can get others
-                    write_log_file(&format!("failed to save texture from srv {}: {}", idx, hr));
-                } else {
-                    num_saved += 1;
-                }
+            let viewptr:*mut ID3D11View = srv as *mut _;
+            let mut resptr:*mut ID3D11Resource = null_mut();
+            (*viewptr).GetResource(&mut resptr);
+            if resptr.is_null() {
+                return Err(HookError::SnapshotFailed("failed to get resource from srv".to_string()));
+            }
+            let _res_rod = ReleaseOnDrop::new(resptr);
+            let out = format!("{}/{}_texture{}.dds", snap_dir, snap_prefix, idx);
+            let out = util::to_wide_str(&out);
+            const D3DX11_IFF_DDS: u32 = 4;
+            let hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_DDS, out.as_ptr());
+            if hr != 0 {
+                // write out an error but keep going to see if we can get others
+                write_log_file(&format!("failed to save texture from srv {}: {}", idx, hr));
+            } else {
+                num_saved += 1;
             }
         }
     }
@@ -512,7 +511,11 @@ fn save_render_state(devptr:&mut DevicePointer) -> Box<dyn SnapRendState> {
     }
 }
 
-trait SnapDeviceBuffers {}
+use std::any::Any;
+
+trait SnapDeviceBuffers {
+    fn as_any(&self) -> &dyn Any;
+}
 
 struct D3D9SnapDeviceBuffers {
     _index_buffer: *mut IDirect3DIndexBuffer9,
@@ -521,7 +524,11 @@ struct D3D9SnapDeviceBuffers {
     _vert_decl_rod: ReleaseOnDrop<*mut IDirect3DVertexDeclaration9>,
 }
 
-impl SnapDeviceBuffers for D3D9SnapDeviceBuffers{}
+impl SnapDeviceBuffers for D3D9SnapDeviceBuffers{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
     let mut vert_decl: *mut IDirect3DVertexDeclaration9 = null_mut();
@@ -561,13 +568,23 @@ unsafe fn set_buffers_d3d9(device:*mut IDirect3DDevice9, sd:&mut types::interop:
     }))
 }
 
+const MAX_SRV: u32 = 32;
+
 struct D3D11SnapDeviceBuffers {
     pub _ld:Vec<D3D11_INPUT_ELEMENT_DESC>,
     pub _context_rod:ReleaseOnDrop<*mut ID3D11DeviceContext>,
     pub _ib_data:Vec<u8>,
     pub _vb_data:Vec<u8>,
+    pub srvs:[*mut ID3D11ShaderResourceView; MAX_SRV as usize],
+    pub _srv_rods:Vec<ReleaseOnDrop<*mut ID3D11ShaderResourceView>>,
+    pub srv_2d_tex:Vec<u32>,
 }
-impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{}
+
+impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
     if let Some(state) = dev_state_d3d11_nolock() {
@@ -675,6 +692,26 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         }
         write_log_file(&format!("vertex buffer size: {}, num verts: {}, vertsize: {}", vb_copy.len(), num_verts, vert_size));
 
+        // now save all the srvs that might contain textures, note any that are 2D and save the
+        // indexes of those so that managed code has them
+        let _srv_rods;
+
+        let mut orig_srvs: [*mut ID3D11ShaderResourceView; MAX_SRV as usize] = [null_mut(); MAX_SRV as usize];
+        (*context).PSGetShaderResources(0, MAX_SRV, orig_srvs.as_mut_ptr());
+        _srv_rods = orig_srvs.iter().filter(|srv| !srv.is_null())
+            .map(|srv| ReleaseOnDrop::new(*srv)).collect::<Vec<_>>();
+
+        let mut tex_indices: Vec<u32> = Vec::new();
+        for (idx,srv) in orig_srvs.iter_mut().enumerate() {
+            if !srv.is_null() {
+                let mut desc: D3D11_SHADER_RESOURCE_VIEW_DESC = std::mem::zeroed();
+                (**srv).GetDesc(&mut desc);
+                if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
+                    tex_indices.push(idx.try_into()?);
+                }
+            }
+        }
+
         sd.rend_data.d3d11 = D3D11SnapshotRendData {
             layout_elems: decl_data,
             layout_size_bytes: layout_data_size as u64,
@@ -684,6 +721,8 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
             vb_size_bytes: vb_copy.len() as u64,
             ib_index_size_bytes: index_size as u32,
             vb_vert_size_bytes: vert_size as u32,
+            act_tex_indices: tex_indices.as_ptr(),
+            num_act_tex_indices: tex_indices.len().try_into()?,
         };
 
         return Ok(Box::new(D3D11SnapDeviceBuffers{
@@ -691,6 +730,9 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
             _ld: ld,
             _ib_data: ib_copy,
             _vb_data: vb_copy,
+            srvs: orig_srvs,
+            srv_2d_tex: tex_indices,
+            _srv_rods,
         }))
     }
     Err(HookError::SnapshotFailed("set_buffers_d3d11: failed snapshot".to_string()))

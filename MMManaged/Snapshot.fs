@@ -443,9 +443,7 @@ module Snapshot =
 
         let mutable offsetBytes = 0
         let mutable strideBytes = vertSize
-        let mutable deviceopt = None
-        let mutable vbDisposable = None
-        let mutable declBytes = [||]
+        let mutable texIdx = []
 
         let ibReader,vbReader,elements,vbDS,ibDS =
             if sd.BaseVertexIndex <> 0 || sd.MinVertexIndex <> 0u then
@@ -486,6 +484,14 @@ module Snapshot =
             let ibDS = new UnmanagedMemoryStream(ibData, int64 ibSize, int64 ibSize, FileAccess.Read)
             let ibReader = new BinaryReader(ibDS)
 
+            let nTexBase = sd.RendData.d3d11.ActiveTexIndices
+            let indices = ResizeArray<int>()
+            for idx in [0..int sd.RendData.d3d11.NumActiveTexIndices-1] do
+                let ival = NativeInterop.NativePtr.get nTexBase idx
+                indices.Add(int ival)
+
+            texIdx <- indices |> List.ofSeq
+
             (ibReader,vbReader,elements,vbDS,ibDS)
 
         let mutable disposed = false
@@ -509,40 +515,9 @@ module Snapshot =
             member x.IBDS = ibDS :> Stream
             member x.IndexSizeBytes = int indexSize
 
-            member x.GetEnabledTextureStages() =
-                []
-                // write textures for enabled stages only
-                // Note: Sometimes we can't read textures from the device.
-                // The flags need to be set properly in CreateTexture to make this
-                // possible, and some games don't do that.  I'm fuzzy on the specifics, but I think its
-                // D3DUSAGE_DYNAMIC that prevents capture, because the
-                // driver might decide to put the texture in video memory and then we can't read it.
-                // We could override that universally but it could harm
-                // game performance and/or bloat memory.  This is a place where separate snapshot/playback modes could be
-                // useful.
-                //let maxStage = 7 // 8 textures ought to be enough for anybody.
-
-                //match deviceopt with
-                //| Some(device) ->
-                //    [0..maxStage]
-                //    |> List.filter (fun i ->
-                //        let state = device.GetTextureStageState(i, TextureStage9.ColorOperation)
-                //        if state <> 1 then // 1 = D3DTOP_DISABLE
-                //            true
-                //        else
-                //            // some games disable the stage but put textures on it anyway.
-                //            let stageTex = device.GetTexture(i)
-                //            use disp = makeLoggedDisposable stageTex (sprintf "disposing snapshot texture %d" i)
-                //            stageTex <> null)
-                //| None -> []
-
-            member x.WriteDecl(basedir,basename) =
-                ()
-                //let declfile = Path.Combine(basedir, (sprintf "%s_VBLayout.dat" basename))
-                //File.WriteAllBytes(declfile, declBytes)
-
-            member x.WriteTransforms(basedir,basename) =
-                ()
+            member x.GetEnabledTextureStages() = texIdx
+            member x.WriteDecl(basedir,basename) = ()
+            member x.WriteTransforms(basedir,basename) = ()
 
     /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
     /// Can fail for many reasons; always logs an exception and returns GenericFailureCode on error.
@@ -552,12 +527,9 @@ module Snapshot =
             // check context and grab the saveTexture funcptr while we're at it
             let saveTexture =
                 match State.Context with
-                | "mm_native" ->
-                    (NativeImportsAsMMNative.SaveTexture)
-                | "d3d9" ->
-                    (NativeImportsAsD3D9.SaveTexture)
-                | "d3d11" ->
-                    (NativeImportsAsD3D11.SaveTexture)
+                | "mm_native" -> None
+                | "d3d9" -> Some(NativeImportsAsD3D9.SaveTexture)
+                | "d3d11" -> None // native code saves these after snapshot
                 | s ->
                     failwithf "unrecognized context: %s" s
 
@@ -685,11 +657,15 @@ module Snapshot =
                     let texName = sprintf "%s_texture%d.dds" sbasename i
                     let texPath = Path.Combine(baseDir, texName)
                     // log.Info "Saving texture %d to %s" i texPath
-                    if saveTexture(i, texPath) then
-                        i,(texName,texPath)
-                    else
-                        // failed save; native code should have logged it
-                        i,("","") )
+                    match saveTexture with
+                    | Some(fn) ->
+                        if fn(i, texPath) then
+                            i,(texName,texPath)
+                        else
+                            // failed save; native code should have logged it
+                            i,("","")
+                    | None -> i,(texName,texPath) // assume native is saving it with this name somehow
+                )
                 |> List.filter (fun (i,(tName,tPath)) -> tName <> "")
                 |> Map.ofList
 

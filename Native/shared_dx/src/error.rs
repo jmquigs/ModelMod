@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, num::TryFromIntError};
 
 #[derive(Debug)]
 pub enum HookError {
@@ -25,6 +25,7 @@ pub enum HookError {
     DInputError(String),
     TimeConversionError(std::time::SystemTimeError),
     CStrConvertFailed(std::str::Utf8Error),
+    ConversionFailed(String),
     SnapshotFailed(String),
     CaptureFailed(String),
     SnapshotPluginError(String),
@@ -63,6 +64,12 @@ impl std::convert::From<std::time::SystemTimeError> for HookError {
 impl std::convert::From<std::str::Utf8Error> for HookError {
     fn from(error: std::str::Utf8Error) -> Self {
         HookError::CStrConvertFailed(error)
+    }
+}
+
+impl From<TryFromIntError> for HookError {
+    fn from(error: TryFromIntError) -> Self {
+        HookError::ConversionFailed(format!("Failed to convert int: {}", error))
     }
 }
 

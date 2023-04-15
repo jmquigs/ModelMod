@@ -77,7 +77,7 @@ impl fmt::Display for SnapConfig {
 impl SnapConfig {
     pub fn new() -> Self {
         Self {
-            snap_ms: 250,
+            snap_ms: 250, // TODO11: dx11 needs longer, 5 seconds?
             snap_anim: false,
             require_gpu: None,
             snap_anim_on_count: 1,

@@ -118,6 +118,8 @@ module InteropTypes =
           IndexData:nativeptr<byte>
           /// Vertex buffer data pointer 
           VertexData:nativeptr<byte>
+          /// Pointer to array of 2D texture element indices
+          ActiveTexIndices:nativeptr<uint32>
           /// Size of the layout elements in bytes
           LayoutElemsSizeBytes:uint64
           /// Size of the index data in bytes
@@ -128,6 +130,8 @@ module InteropTypes =
           IndexSizeBytes:uint32 
           /// Size of the verts in the vertex buffer
           VertSizeBytes:uint32
+          /// Number of indices in `ActiveTexIndices`
+          NumActiveTexIndices:uint32
       }
 
     [<StructLayout(LayoutKind.Explicit, Pack=4)>]

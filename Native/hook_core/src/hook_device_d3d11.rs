@@ -518,8 +518,16 @@ pub unsafe fn unapply_device_hook(device:*mut ID3D11Device) -> Result<()> {
             let vsize = std::mem::size_of::<ID3D11DeviceVtbl>();
             let vtbl:*mut ID3D11DeviceVtbl = std::mem::transmute((*device).lpVtbl);
             let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
-            (*vtbl).CreateInputLayout = (hooks).real_create_input_layout;
-            (*vtbl).parent.QueryInterface = (hooks).real_query_interface;
+            // this is here so that if I add a new function I don't forgot to unhook it.
+            // (compile error due to missing struct field assignment)
+            let unhook = HookDirect3D11Device  {
+                real_create_buffer: hooks.real_create_buffer,
+                real_create_input_layout: hooks.real_create_input_layout,
+                real_query_interface: hooks.real_query_interface,
+            };
+            (*vtbl).CreateInputLayout = unhook.real_create_input_layout;
+            (*vtbl).CreateBuffer = unhook.real_create_buffer;
+            (*vtbl).parent.QueryInterface = unhook.real_query_interface;
             util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
         }
     }

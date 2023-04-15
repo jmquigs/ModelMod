@@ -56,9 +56,9 @@ impl ModData {
 }
 
 #[cfg(target_pointer_width = "32")]
-const DX9_PAD_SIZE:usize = 9;
+const DX9_PAD_SIZE:usize = 11;
 #[cfg(target_pointer_width = "64")]
-const DX9_PAD_SIZE:usize = 10;
+const DX9_PAD_SIZE:usize = 13;
 
 #[repr(C, packed(4))]
 #[derive(Copy,Clone,Debug)]
@@ -95,11 +95,13 @@ pub struct D3D11SnapshotRendData {
     pub layout_elems: *const D3D11_INPUT_ELEMENT_DESC,
     pub ib_data: *const u8,
     pub vb_data: *const u8,
+    pub act_tex_indices: *const u32,
     pub layout_size_bytes: u64,
     pub ib_size_bytes: u64,
     pub vb_size_bytes: u64,
     pub ib_index_size_bytes: u32,
     pub vb_vert_size_bytes: u32,
+    pub num_act_tex_indices: u32,
 }
 impl D3D11SnapshotRendData {
     pub fn new() -> Self {
@@ -112,6 +114,8 @@ impl D3D11SnapshotRendData {
             vb_data: std::ptr::null(),
             vb_size_bytes: 0,
             vb_vert_size_bytes: 0,
+            act_tex_indices: std::ptr::null(),
+            num_act_tex_indices: 0,
         }
     }
 }
