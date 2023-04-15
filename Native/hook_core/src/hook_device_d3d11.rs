@@ -700,9 +700,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 
         // need to know if we will be precopying data for snapshots before we hook, since that affects
         // what is hooked.
-        // this is a root reg query because at this time I don't know the game profile (although,
-        // I could just implement the code managed code uses to figure it out here, since it
-        // is based on the module name.)
+        // this is a root reg query because at this time I don't know the game profile
         let precopy = util::reg_query_root_dword("SnapPreCopyData");
         if let Ok(precopy) = precopy {
             GLOBAL_STATE.run_conf.precopy_data = precopy > 0;

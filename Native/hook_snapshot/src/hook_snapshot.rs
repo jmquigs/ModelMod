@@ -2,6 +2,7 @@ use device_state::dev_state_d3d11_nolock;
 use device_state::dev_state_d3d11_read;
 use global_state::HookState;
 use shared_dx::types::DevicePointer;
+use types::d3dx::D3DXFn;
 use types::interop::D3D11SnapshotRendData;
 use types::interop::D3D9SnapshotRendData;
 use winapi::shared::d3d9::*;
@@ -17,9 +18,14 @@ use d3dx;
 use global_state::{GLOBAL_STATE};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
+use winapi::um::d3d11::D3D11_SHADER_RESOURCE_VIEW_DESC;
 use winapi::um::d3d11::ID3D11Buffer;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11DeviceContext;
+use winapi::um::d3d11::ID3D11Resource;
+use winapi::um::d3d11::ID3D11ShaderResourceView;
+use winapi::um::d3d11::ID3D11View;
+use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
 
 use std;
 use std::collections::BTreeMap;
@@ -176,8 +182,14 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                             }
                         });
                         let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
+
                         // write_log_file(&format!("snap save dir: {}", dir));
                         // write_log_file(&format!("snap prefix: {}", sprefix));
+
+                        let _ = save_textures(devptr, &dir, &sprefix).map_err(|e| {
+                            write_log_file(&format!("failed to save textures: {:?}", e));
+                        });
+
                         let (gotpix,gotvert) = shader_capture::take_snapshot(devptr, &dir, &sprefix);
                         let vc = if gotvert { &gs.vertex_constants } else { &None };
                         let pc = if gotpix { &gs.pixel_constants } else { &None };
@@ -232,6 +244,72 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
     }
 }
 
+unsafe fn save_textures(devtr:&mut DevicePointer, snap_dir:&str, snap_prefix:&str) -> Result<()> {
+    // in d3d9 the managed code already did this
+    let device = match devtr {
+        DevicePointer::D3D11(d) => *d,
+        _ => return Ok(()),
+    };
+    let d3dx_fn = GLOBAL_STATE
+    .d3dx_fn
+    .as_ref()
+    .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
+    let d3dx_fn = match d3dx_fn {
+        D3DXFn::DX11(d) => d,
+        _ => return Err(HookError::SnapshotFailed("wrong d3dx??".to_owned())),
+    };
+
+    let mut context:*mut ID3D11DeviceContext = null_mut();
+    (*device).GetImmediateContext(&mut context);
+    if context.is_null() {
+        return Err(HookError::SnapshotFailed("failed to get immediate context".to_string()));
+    }
+    let _context_rod = ReleaseOnDrop::new(context);
+
+    // get the active srvs
+    let _srv_rods;
+    let mut orig_srvs: [*mut ID3D11ShaderResourceView; 16] = [null_mut(); 16];
+    (*context).PSGetShaderResources(0, 16, orig_srvs.as_mut_ptr());
+    _srv_rods = orig_srvs.iter().filter(|srv| !srv.is_null())
+        .map(|srv| ReleaseOnDrop::new(*srv)).collect::<Vec<_>>();
+
+    // find the srvs that are 2d textures, try to save them
+    let mut num_2d = 0;
+    let mut num_saved = 0;
+    for (idx,srv) in orig_srvs.iter_mut().enumerate() {
+        if !srv.is_null() {
+            let mut desc: D3D11_SHADER_RESOURCE_VIEW_DESC = std::mem::zeroed();
+            (**srv).GetDesc(&mut desc);
+            if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
+                num_2d += 1;
+                let viewptr:*mut ID3D11View = *srv as *mut _;
+                let mut resptr:*mut ID3D11Resource = null_mut();
+                (*viewptr).GetResource(&mut resptr);
+                if resptr.is_null() {
+                    return Err(HookError::SnapshotFailed("failed to get resource from srv".to_string()));
+                }
+                let _res_rod = ReleaseOnDrop::new(resptr);
+                let out = format!("{}/{}_texture{}.dds", snap_dir, snap_prefix, idx);
+                let out = util::to_wide_str(&out);
+                const D3DX11_IFF_DDS: u32 = 4;
+                let hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_DDS, out.as_ptr());
+                if hr != 0 {
+                    // write out an error but keep going to see if we can get others
+                    write_log_file(&format!("failed to save texture from srv {}: {}", idx, hr));
+                } else {
+                    num_saved += 1;
+                }
+            }
+        }
+    }
+    if num_2d > 0 && num_2d == num_saved {
+        write_log_file(&format!("wrote {} textures for snapshot {}", num_saved, &snap_prefix));
+        Ok(())
+    } else {
+        Err(HookError::SnapshotFailed(
+            format!("failed to save some textures for snapshot: {}; {} of {} successfully saved", &snap_prefix, num_saved, num_2d)))
+    }
+}
 
 fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, gs:&mut HookState, snap_conf:&SnapConfig) -> bool {
     let device = match devptr {
