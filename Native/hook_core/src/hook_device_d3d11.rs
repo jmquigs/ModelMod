@@ -538,7 +538,7 @@ pub unsafe fn unapply_device_hook(device:*mut ID3D11Device) -> Result<()> {
 /// DEVICE_REALFN global static will
 /// be populated with the original "real" device functions.  This is used
 /// for later hooks of other devices.
-unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
+pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
     write_log_file(&format!("hooking new d3d11 device: {:x}", device as usize));
 
     // ideally we'd make a copy of the vtable like we do with context and hook that.

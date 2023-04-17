@@ -914,7 +914,9 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 }
             });
         } else {
-            check_expire_thread(&now);
+            if GLOBAL_STATE.run_conf.precopy_data {
+                check_expire_thread(&now);
+            }
         }
 
         with_dev_ptr(|deviceptr| {

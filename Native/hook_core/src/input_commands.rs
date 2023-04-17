@@ -13,6 +13,7 @@ use std::ptr::null_mut;
 use shared_dx::util::*;
 use global_state::GLOBAL_STATE;
 use device_state::dev_state;
+use crate::hook_device_d3d11::apply_device_hook;
 use crate::hook_render::hook_set_texture;
 use crate::hook_render::MAX_STAGE;
 use crate::hook_render::CLR_OK;
@@ -181,7 +182,7 @@ pub fn cmd_select_prev_texture(device: DevicePointer) {
         hookstate.curr_texture_index = len - 1;
     }
 }
-fn cmd_clear_texture_lists(_device: DevicePointer) {
+fn cmd_clear_texture_lists(device: DevicePointer) {
     tryload_snap_config().map_err(|e| {
         write_log_file(&format!("failed to load snap config: {:?}", e))
     }).unwrap_or_default();
@@ -189,6 +190,17 @@ fn cmd_clear_texture_lists(_device: DevicePointer) {
     hook_snapshot::reset();
 
     unsafe {
+        if !GLOBAL_STATE.run_conf.precopy_data {
+            // set this bool first because apply_device_hook only does createbuffer if it is true
+            GLOBAL_STATE.run_conf.precopy_data = true;
+            if let Some(true) = device.with_d3d11(|d3d11| {
+                apply_device_hook(d3d11).map(|_| true).map_err(|e| {
+                    write_log_file(&format!("failed to reapply device hook: {:?}", e))
+                }).unwrap_or(false)
+            }) {
+                write_log_file(&format!("==> precopy data now enabled; it was disabled, so you will need to reload game data for snapshots"));
+            }
+        }
         if let Some(list) = GLOBAL_STATE
             .active_texture_list
             .as_mut() { list.clear() }
@@ -437,7 +449,7 @@ pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> 
                 ));
                 setup_fkey_input(device, inp);
             }
-            
+
         })
 }
 

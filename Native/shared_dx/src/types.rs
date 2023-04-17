@@ -139,6 +139,16 @@ pub enum DevicePointer {
 }
 
 impl DevicePointer {
+    /// Run a function with the device pointer if the pointer is non null and a d3d11 device.
+    /// If either of these is false, does nothing.
+    pub fn with_d3d11<F,R>(&self, f:F) -> Option<R>
+        where F: FnOnce(*mut ID3D11Device) -> R
+    {
+        match self {
+            DevicePointer::D3D11(d3d11) if !d3d11.is_null() => Some(f(*d3d11)),
+            _ => None,
+        }
+    }
     /// Return the current reference count of the device pointer.  If the pointer is null,
     /// returns zero.
     pub fn get_ref_count(&self) -> u32 {
