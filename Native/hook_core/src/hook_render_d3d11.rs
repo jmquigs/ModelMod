@@ -433,12 +433,37 @@ decl_profile_globals!(hdi);
 
 pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 20000;
 
+#[cfg(feature = "mmdisable")]
+const MM_DISABLE:bool = true;
+#[cfg(not(feature = "mmdisable"))]
+/// When enabled (at compile time) this causes a hardcoded pass through and then exit from
+/// `hook_draw_indexed`.  Since that function triggers all MM code in this rendering API,
+/// that means MM essentially does nothing, not even initting the CLR or processing input.  This is useful
+/// for benchmarking the best case possible performance for MM without considering any draw
+/// overhead.  Note that other MM hook functions aren't affected by this and will still run
+/// their logic.
+const MM_DISABLE:bool = false;
+
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
     IndexCount: UINT,
     StartIndexLocation: UINT,
     BaseVertexLocation: INT,
 ) {
+    if MM_DISABLE {
+        match get_hook_context() {
+            Ok(ctx) => {
+                (ctx.real_draw_indexed)(
+                    THIS,
+                    IndexCount,
+                    StartIndexLocation,
+                    BaseVertexLocation,
+                );
+                return
+            },
+            Err(_) => return,
+        }
+    }
     // Helper local function for periodic operations, since I don't have any idea of when the frame
     // ends in this API right now
     let periodic = || {

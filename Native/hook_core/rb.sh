@@ -3,8 +3,12 @@ SPATH=$(dirname $0)
 REQ=x86_64
 check_tc $REQ
 
-if [ "$1" == "profile" ]; then
-    BCMD="cargo build --release --features=profile"
+# possible features:
+#   profile
+#   mmdisable
+if [ "$1" != "" ]; then
+    echo "Building with features: $1"
+    BCMD="cargo build --release --features=$1"
 else
     BCMD="cargo build --release"
 fi

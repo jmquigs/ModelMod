@@ -48,3 +48,4 @@ ProductVersion = "1.2.0.0"
 [features]
 default = []
 profile = []
+mmdisable = []
