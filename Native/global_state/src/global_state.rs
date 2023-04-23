@@ -71,6 +71,7 @@ pub struct ClrState {
 
 pub struct RunConf {
     pub precopy_data: bool,
+    pub force_tex_cpu_read: bool,
 }
 pub struct HookState {
     pub run_conf: RunConf,
@@ -133,7 +134,10 @@ lazy_static! {
 // of the option types that are only there due to Rust limitations on what can be used to
 // init constants.
 pub static mut GLOBAL_STATE: HookState = HookState {
-    run_conf: RunConf { precopy_data: false },
+    run_conf: RunConf {
+        precopy_data: false,
+        force_tex_cpu_read: false,
+    },
     clr: { ClrState { runtime_pointer: None, run_context: String::new() } },
     interop_state: None,
     //is_global: true,

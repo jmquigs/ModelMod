@@ -2,6 +2,7 @@ use crate::defs_dx11::*;
 
 pub struct HookDirect3D11Device {
     pub real_create_buffer: CreateBufferFn,
+    pub real_create_texture_2d: CreateTexture2DFn,
     pub real_query_interface: QueryInterfaceFn,
     pub real_create_input_layout: CreateInputLayoutFn
 }

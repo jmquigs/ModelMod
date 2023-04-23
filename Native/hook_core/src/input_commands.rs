@@ -14,6 +14,7 @@ use shared_dx::util::*;
 use global_state::GLOBAL_STATE;
 use device_state::dev_state;
 use crate::hook_device_d3d11::apply_device_hook;
+use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
 use crate::hook_render::hook_set_texture;
 use crate::hook_render::MAX_STAGE;
 use crate::hook_render::CLR_OK;
@@ -190,9 +191,14 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
     hook_snapshot::reset();
 
     unsafe {
-        if !GLOBAL_STATE.run_conf.precopy_data {
-            // set this bool first because apply_device_hook only does createbuffer if it is true
+        if !GLOBAL_STATE.run_conf.precopy_data || !GLOBAL_STATE.run_conf.force_tex_cpu_read {
+            // Since they pressed the clear texture key that signals they intend to snapshot, so
+            // enable precopy regardless of whatever is in the registry.
+            // need to set it because apply_device_hook only does createbuffer if it is true
             GLOBAL_STATE.run_conf.precopy_data = true;
+            // query registry to get any additional changes in runconf
+            query_and_set_runconf_in_globalstate(false);
+
             if let Some(true) = device.with_d3d11(|d3d11| {
                 apply_device_hook(d3d11).map(|_| true).map_err(|e| {
                     write_log_file(&format!("failed to reapply device hook: {:?}", e))

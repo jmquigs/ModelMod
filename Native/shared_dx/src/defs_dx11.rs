@@ -35,6 +35,13 @@ pub type CreateBufferFn = unsafe extern "system" fn(
     ppBuffer: *mut *mut ID3D11Buffer,
 ) -> HRESULT;
 
+pub type CreateTexture2DFn = unsafe extern "system" fn(
+    THIS: *mut ID3D11Device,
+    pDesc: *const D3D11_TEXTURE2D_DESC,
+    pInitialData: *const D3D11_SUBRESOURCE_DATA,
+    ppTexture2D: *mut *mut ID3D11Texture2D,
+) -> HRESULT;
+
 pub type IASetVertexBuffersFn = unsafe extern "system" fn(
     THIS: *mut ID3D11DeviceContext,
     StartSlot: UINT,

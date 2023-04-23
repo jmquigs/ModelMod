@@ -49,54 +49,31 @@ use std::sync::RwLockReadGuard;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use device_state::dev_state_d3d11_nolock;
-use device_state::dev_state_d3d11_write;
-use shared_dx::dx11rs::DX11RenderState;
-use shared_dx::dx11rs::VertexFormat;
-use shared_dx::types::DX11Metrics;
-use shared_dx::types::DevicePointer;
-use util::mm_verify_load;
 use winapi::Interface;
 use winapi::ctypes::c_void;
-use winapi::shared::basetsd::SIZE_T;
-use winapi::shared::dxgiformat::DXGI_FORMAT;
-use winapi::shared::guiddef::GUID;
-use winapi::shared::winerror::E_NOINTERFACE;
-use winapi::um::d3d11::D3D11_APPEND_ALIGNED_ELEMENT;
-use winapi::um::d3d11::D3D11_BIND_INDEX_BUFFER;
-use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
-use winapi::um::d3d11::D3D11_BUFFER_DESC;
-use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
-use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
-use winapi::um::d3d11::ID3D11Buffer;
-use winapi::um::d3d11::ID3D11DeviceVtbl;
-use winapi::um::d3d11::ID3D11InputLayout;
-use winapi::um::d3dcommon::D3D_DRIVER_TYPE;
-use winapi::um::d3dcommon::D3D_FEATURE_LEVEL;
-use winapi::um::d3d11::ID3D11Device;
-use winapi::shared::dxgi::IDXGIAdapter;
-use winapi::um::d3d11::ID3D11DeviceContext;
-use winapi::um::d3d11::ID3D11DeviceContextVtbl;
-use winapi::shared::dxgi::DXGI_SWAP_CHAIN_DESC;
-use winapi::shared::dxgi::IDXGISwapChain;
-use winapi::shared::winerror::HRESULT;
-use winapi::shared::minwindef::{FARPROC, HMODULE, UINT};
-use winapi::shared::winerror::E_FAIL;
-
-use shared_dx::types_dx11::HookDirect3D11Context;
-use shared_dx::types_dx11::HookDirect3D11Device;
-use shared_dx::error::*;
+use winapi::shared::{basetsd::SIZE_T, dxgiformat::DXGI_FORMAT, guiddef::GUID,
+    winerror::{E_NOINTERFACE, HRESULT, E_FAIL},
+    dxgi::{IDXGIAdapter, DXGI_SWAP_CHAIN_DESC, IDXGISwapChain}, minwindef::{FARPROC, HMODULE, UINT}};
+use winapi::um::d3d11::D3D11_CPU_ACCESS_READ;
+use winapi::um::d3d11::D3D11_TEXTURE2D_DESC;
+use winapi::um::d3d11::ID3D11Texture2D;
+use winapi::um::d3d11::{D3D11_APPEND_ALIGNED_ELEMENT, D3D11_BIND_INDEX_BUFFER,
+    D3D11_BIND_VERTEX_BUFFER, D3D11_BUFFER_DESC, D3D11_INPUT_ELEMENT_DESC,
+    D3D11_SUBRESOURCE_DATA, ID3D11Buffer, ID3D11DeviceVtbl, ID3D11InputLayout};
+use winapi::um::{d3dcommon::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL},
+    d3d11::{ID3D11Device, ID3D11DeviceContext, ID3D11DeviceContextVtbl}};
 use winapi::um::unknwnbase::IUnknown;
 
 use crate::debugmode;
-use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log};
-use shared_dx::util::write_log_file;
-use shared_dx::types_dx11::HookDirect3D11;
-use shared_dx::types::HookDeviceState;
-use shared_dx::types::HookD3D11State;
-use device_state::DEVICE_STATE;
-use crate::hook_render_d3d11::*;
 use crate::debugmode::DebugModeCalledFns;
+use crate::hook_device::{load_d3d_lib, init_device_state_once, init_log};
+use shared_dx::{util::write_log_file,
+    types_dx11::{HookDirect3D11, HookDirect3D11Context, HookDirect3D11Device},
+    types::{HookDeviceState, HookD3D11State, DX11Metrics, DevicePointer},
+    error::*, dx11rs::{DX11RenderState, VertexFormat}};
+use util::mm_verify_load;
+use device_state::{DEVICE_STATE, dev_state_d3d11_nolock, dev_state_d3d11_write};
+use crate::hook_render_d3d11::*;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
@@ -522,11 +499,13 @@ pub unsafe fn unapply_device_hook(device:*mut ID3D11Device) -> Result<()> {
             // (compile error due to missing struct field assignment)
             let unhook = HookDirect3D11Device  {
                 real_create_buffer: hooks.real_create_buffer,
+                real_create_texture_2d: (hooks).real_create_texture_2d,
                 real_create_input_layout: hooks.real_create_input_layout,
                 real_query_interface: hooks.real_query_interface,
             };
             (*vtbl).CreateInputLayout = unhook.real_create_input_layout;
             (*vtbl).CreateBuffer = unhook.real_create_buffer;
+            (*vtbl).CreateTexture2D = unhook.real_create_texture_2d;
             (*vtbl).parent.QueryInterface = unhook.real_query_interface;
             util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
         }
@@ -571,12 +550,17 @@ pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
         // hook another device.
 
         let real_create_buffer = (*vtbl).CreateBuffer;
+        let real_create_texture_2d = (*vtbl).CreateTexture2D;
         let real_create_input_layout = (*vtbl).CreateInputLayout;
         let real_query_interface = (*vtbl).parent.QueryInterface;
 
         if real_create_buffer as usize == hook_CreateBuffer as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook CreateBuffer due to missing real function")));
+        }
+        if (real_create_texture_2d as usize) == hook_CreateTexture2D as usize {
+            return Err(HookError::D3D11DeviceHookFailed(
+                format!("unable to hook CreateTexture2D due to missing real function")));
         }
         if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
             return Err(HookError::D3D11DeviceHookFailed(
@@ -589,6 +573,7 @@ pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
 
         *lock = Some(HookDirect3D11Device {
             real_create_buffer,
+            real_create_texture_2d,
             real_query_interface,
             real_create_input_layout,
         });
@@ -604,6 +589,9 @@ pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
     // don't need to hook create buffer if we aren't precoping data
     if GLOBAL_STATE.run_conf.precopy_data {
         (*vtbl).CreateBuffer = hook_CreateBuffer;
+    }
+    if GLOBAL_STATE.run_conf.force_tex_cpu_read {
+        (*vtbl).CreateTexture2D = hook_CreateTexture2D;
     }
     (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
     util::protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
@@ -686,6 +674,50 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     Ok(HookDirect3D11 { context: hook_context })
 }
 
+/// Query settings which define the run configuration, which determines which functions we hook.
+/// Stores the result of those queries in `GLOBAL_STATE.run_conf`.  Returns a bool indicating whether
+/// any settings were changed.  If the settings changed, the caller is responsible for rehooking
+/// if needed.
+///
+/// The input bool `check_precopy` indicates whether we should check the precopy setting, this
+/// can be set to false if the caller already dealt with that case.
+///
+/// The runconf is used, for instance, in DX11 snapshots, since we need that to copy some of the
+/// game data as its loaded to be able to snapshot it.
+pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
+    let mut changed = false;
+
+    // this is a root reg query because at this time I don't know the game profile
+    // TODO: potentially merge this with snapconf
+    if check_precopy {
+        let precopy = util::reg_query_root_dword("SnapPreCopyData");
+
+        let old_precopy = GLOBAL_STATE.run_conf.precopy_data;
+        if let Ok(precopy) = precopy {
+            GLOBAL_STATE.run_conf.precopy_data = precopy > 0;
+        } else {
+            GLOBAL_STATE.run_conf.precopy_data = false;
+        }
+        if old_precopy != GLOBAL_STATE.run_conf.precopy_data {
+            changed = true;
+        }
+    }
+
+    let force_tex_cpu_read = util::reg_query_root_dword("SnapForceTexCpuRead");
+    let old_force_tex_cpu_read = GLOBAL_STATE.run_conf.force_tex_cpu_read;
+    if let Ok(force_tex_cpu_read) = force_tex_cpu_read {
+        GLOBAL_STATE.run_conf.force_tex_cpu_read = force_tex_cpu_read > 0;
+    } else {
+        GLOBAL_STATE.run_conf.force_tex_cpu_read = false;
+    }
+    if old_force_tex_cpu_read != GLOBAL_STATE.run_conf.force_tex_cpu_read {
+        changed = true;
+    }
+    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
+        GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read, changed));
+    changed
+}
+
 fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
     let was_init = init_device_state_once();
     let mm_root = match mm_verify_load() {
@@ -706,14 +738,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
 
-        // need to know if we will be precopying data for snapshots before we hook, since that affects
-        // what is hooked.
-        // this is a root reg query because at this time I don't know the game profile
-        let precopy = util::reg_query_root_dword("SnapPreCopyData");
-        if let Ok(precopy) = precopy {
-            GLOBAL_STATE.run_conf.precopy_data = precopy > 0;
-        }
-        write_log_file(&format!("snapshot precopy data: {}", GLOBAL_STATE.run_conf.precopy_data));
+        query_and_set_runconf_in_globalstate(true);
 
         let hooks = hook_d3d11(device, swapchain, context)?;
 
@@ -1000,6 +1025,95 @@ unsafe extern "system" fn hook_CreateBuffer(
     res
 }
 
+unsafe extern "system" fn hook_CreateTexture2D(
+    THIS: *mut ID3D11Device,
+    pDesc: *const D3D11_TEXTURE2D_DESC,
+    pInitialData: *const D3D11_SUBRESOURCE_DATA,
+    ppTexture2D: *mut *mut ID3D11Texture2D,
+) -> HRESULT {
+    let dev_realfn = match get_device_realfn() {
+        Ok(dev) => dev,
+        Err(e) => {
+            write_log_file(&format!("Error: hook_CreateTexture2D returning E_FAIL due to bad state: {:?}", e));
+            return E_FAIL;
+        }
+    };
+    let dev_realfn = match dev_realfn.as_ref() {
+        Some(dev) => dev,
+        None => {
+            write_log_file(&format!("Error: hook_CreateTexture2D returning E_FAIL due to missing realfn"));
+            return E_FAIL;
+        }
+    };
+
+    let mut ov_desc: D3D11_TEXTURE2D_DESC = std::mem::zeroed();
+    let mut changed_desc = false;
+    let p_ov_desc = if pDesc.is_null() {
+        null_mut() as *const _
+    } else {
+        // here we may change something in the description to make the texture be
+        // possibly snapshottable later.
+        // there is only one override which has any real effect other than outright failure.
+        // that override is setting the cpu read access flag, and the effect is that it can slow down
+        // the game dramatically.  as of this writing I haven't actually
+        // seen this allow a texture to be saved that wasn't savable without it, but in case I do see
+        // that some day I have made it configurable.  in other words in most cases this shouldn't be
+        // needed but maybe that will change for some game some day.
+        // You might think putting the texture in some other usage pool such as STAGING might make it
+        // readable and maybe it does but it also makes it unusable by the game for rendering.
+        // the other usages simply fail when you try to create the texture or make other kinds
+        // hideous rendering bugs.
+        // Its also (I believe) not valid to just change the format because I think that would
+        // usually require re-encoding the texture data.
+
+        // whether changing it or not copy the base into the override struct
+        std::ptr::copy_nonoverlapping::<u8>(pDesc as *const u8, &mut ov_desc as *mut _ as *mut u8,
+            std::mem::size_of::<D3D11_TEXTURE2D_DESC>());
+
+        if GLOBAL_STATE.run_conf.force_tex_cpu_read {
+            ov_desc.CPUAccessFlags |= D3D11_CPU_ACCESS_READ;
+            changed_desc = true;
+        }
+
+        &ov_desc
+    };
+
+    let mut res = (dev_realfn.real_create_texture_2d)(
+        THIS,
+        p_ov_desc,
+        pInitialData,
+        ppTexture2D
+    );
+
+    if res != 0 {
+        if p_ov_desc.is_null() {
+            write_log_file(&format!("hook_CreateTexture2D failed: res {:x} for tex {:?}, NULL desc: {:?}, pInitialData: {:?}, ppTexture2D: {:?}",
+                res, (0,0), p_ov_desc, pInitialData, ppTexture2D));
+        } else {
+            let height_width = ((*p_ov_desc).Height, (*p_ov_desc).Width);
+            write_log_file(&format!("hook_CreateTexture2D failed: res {:x} for tex {:?}, desc: {:?}, pInitialData: {:?}, ppTexture2D: {:?},
+                usage: {:?}, access flags: {:?}",
+            res, height_width, p_ov_desc, pInitialData, ppTexture2D, (*p_ov_desc).Usage, (*p_ov_desc).CPUAccessFlags));
+        }
+    }
+    if res != 0 && changed_desc {
+        // retry with original desc
+        res = (dev_realfn.real_create_texture_2d)(
+            THIS,
+            pDesc,
+            pInitialData,
+            ppTexture2D
+        );
+        if res == 0 {
+            write_log_file(&format!("hook_CreateTexture2D: retry with unmodified desc succeeded"));
+        } else {
+            write_log_file(&format!("hook_CreateTexture2D: retry failed"));
+        }
+    }
+
+    res
+}
+
 thread_local! {
     static DEVICE_IN_QI: RefCell<bool>  = RefCell::new(false);
 }
@@ -1089,7 +1203,7 @@ pub mod tests {
     use util::{prep_log_file, prep_log_file_nolock};
     use winapi::{um::{unknwnbase::{IUnknown, IUnknownVtbl},
         d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
-        d3d11::{D3D11_SDK_VERSION, D3D11_INPUT_PER_VERTEX_DATA}}, shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT};
+        d3d11::{D3D11_SDK_VERSION, D3D11_INPUT_PER_VERTEX_DATA, D3D11_TEXTURE2D_DESC, ID3D11Texture2D}}, shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT};
     use super::*;
 
     pub unsafe extern "system" fn dummy_addref(_ik: *mut IUnknown) -> u32 {
@@ -1111,6 +1225,15 @@ pub mod tests {
         _pDesc: *const D3D11_BUFFER_DESC,
         _pInitialData: *const D3D11_SUBRESOURCE_DATA,
         _ppBuffer: *mut *mut ID3D11Buffer,
+    ) -> winapi::shared::winerror::HRESULT {
+        E_FAIL
+    }
+
+    pub unsafe extern "system" fn dummy_create_texture_2d(
+        _ik: *mut ID3D11Device,
+        _pDesc: *const D3D11_TEXTURE2D_DESC,
+        _pInitialData: *const D3D11_SUBRESOURCE_DATA,
+        _ppTexture2D: *mut *mut ID3D11Texture2D,
     ) -> winapi::shared::winerror::HRESULT {
         E_FAIL
     }
@@ -1193,6 +1316,7 @@ pub mod tests {
             let mut hooks = DEVICE_REALFN.write().expect("no hooks lock");
             *hooks = Some(HookDirect3D11Device {
                 real_create_buffer: dummy_create_buffer,
+                real_create_texture_2d: dummy_create_texture_2d,
                 real_create_input_layout: dummy_create_input_layout,
                 real_query_interface: dummy_query_interface,
             });
