@@ -5,6 +5,7 @@ use shared_dx::types::DevicePointer;
 use types::d3dx::D3DXFn;
 use types::interop::D3D11SnapshotRendData;
 use types::interop::D3D9SnapshotRendData;
+use winapi::Interface;
 use winapi::shared::d3d9::*;
 use winapi::shared::d3d9types::*;
 use winapi::shared::dxgiformat::DXGI_FORMAT;
@@ -16,20 +17,15 @@ use winapi::shared::minwindef::{DWORD, UINT, BOOL};
 use constant_tracking;
 use d3dx;
 use global_state::{GLOBAL_STATE};
-use winapi::um::d3d11::D3D11_BUFFER_DESC;
-use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
-use winapi::um::d3d11::D3D11_SHADER_RESOURCE_VIEW_DESC;
-use winapi::um::d3d11::ID3D11Buffer;
-use winapi::um::d3d11::ID3D11Device;
-use winapi::um::d3d11::ID3D11DeviceContext;
-use winapi::um::d3d11::ID3D11Resource;
-use winapi::um::d3d11::ID3D11ShaderResourceView;
-use winapi::um::d3d11::ID3D11View;
-use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
+use winapi::um::{d3d11::{D3D11_BIND_RENDER_TARGET, D3D11_BUFFER_DESC, D3D11_INPUT_ELEMENT_DESC,
+    D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC, ID3D11Buffer, ID3D11Device,
+    ID3D11DeviceContext, ID3D11Resource, ID3D11ShaderResourceView,
+    ID3D11Texture2D, ID3D11View}, d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D};
 
 use std;
 use std::collections::BTreeMap;
 use std::ffi::CStr;
+use std::ffi::c_void;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -276,6 +272,7 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
     let num_2d = d3d11bufs.srv_2d_tex.len();
     // find the srvs that are 2d textures, try to save them
     let mut num_saved = 0;
+    let mut num_skipped = 0;
     for idx in d3d11bufs.srv_2d_tex.iter() {
         if *idx as usize >= d3d11bufs.srvs.len() {
             return Err(HookError::SnapshotFailed(format!("invalid srv index {} of {}", idx, d3d11bufs.srvs.len())));
@@ -289,6 +286,29 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
                 return Err(HookError::SnapshotFailed("failed to get resource from srv".to_string()));
             }
             let _res_rod = ReleaseOnDrop::new(resptr);
+
+            // query interface to get ID3D11Texture2D for more info about it
+            let mut texptr:*mut ID3D11Texture2D = null_mut();
+            let riid = &ID3D11Texture2D::uuidof();
+            let hr = (*resptr).QueryInterface(riid, &mut texptr as *mut *mut _ as *mut *mut c_void);
+            if hr != 0 {
+                return Err(HookError::SnapshotFailed(format!("failed to query interface for texture: {:x}", hr)));
+            }
+            let _tex_rod = ReleaseOnDrop::new(texptr);
+            // now get description
+            let mut desc:D3D11_TEXTURE2D_DESC = std::mem::zeroed();
+            (*texptr).GetDesc(&mut desc);
+            let heightwidth_format = (desc.Height, desc.Width, desc.Format);
+            // skip render targets, these won't snap
+            if desc.BindFlags & D3D11_BIND_RENDER_TARGET > 0 {
+                num_skipped += 1;
+                write_log_file(&format!("Warning: skipping texture {} [{:?}] due to render target binding (bindflags is {})",
+                    idx, heightwidth_format, desc.BindFlags));
+                continue;
+            }
+            write_log_file(&format!("tex {} [{:?}] has usage {}, cpu access flags {}, bindflags {}, miscflags {}, format {}",
+                idx, heightwidth_format, desc.Usage, desc.CPUAccessFlags, desc.BindFlags, desc.MiscFlags, desc.Format));
+
             let out = format!("{}/{}_texture{}.dds", snap_dir, snap_prefix, idx);
             let out = util::to_wide_str(&out);
             const D3DX11_IFF_DDS: u32 = 4;
@@ -301,12 +321,12 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
             }
         }
     }
-    if num_2d > 0 && num_2d == num_saved {
+    if num_2d > 0 && num_2d == (num_saved + num_skipped) {
         write_log_file(&format!("wrote {} textures for snapshot {}", num_saved, &snap_prefix));
         Ok(())
     } else {
         Err(HookError::SnapshotFailed(
-            format!("failed to save some textures for snapshot: {}; {} of {} successfully saved", &snap_prefix, num_saved, num_2d)))
+            format!("failed to save some textures for snapshot: {}; {} of {} successfully saved, {} skipped", &snap_prefix, num_saved, num_2d, num_skipped)))
     }
 }
 

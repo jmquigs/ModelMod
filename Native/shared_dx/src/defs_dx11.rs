@@ -3,7 +3,9 @@ use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{UINT, INT, ULONG};
 
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC, ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_BUFFER_DESC, D3D11_SUBRESOURCE_DATA, ID3D11Resource};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC,
+    ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_BUFFER_DESC,
+    D3D11_SUBRESOURCE_DATA, ID3D11Resource, D3D11_TEXTURE2D_DESC, ID3D11Texture2D};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
@@ -106,3 +108,4 @@ impl_release_drop!(ID3D11ShaderResourceView);
 impl_release_drop!(ID3D11Buffer);
 impl_release_drop!(ID3D11Resource);
 impl_release_drop!(ID3D11DeviceContext);
+impl_release_drop!(ID3D11Texture2D);
