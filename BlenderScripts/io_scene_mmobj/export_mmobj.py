@@ -713,10 +713,6 @@ def write_file(filepath, objects, depsgraph, scene,
 
                 subprogress1.leave_substeps("Finished writing geometry of '%s'." % ob_main.name)
                 
-            # ModelMod write named vertex groups last (just once)
-            # for gname in indexedGroupList:
-                # fw('#vgn ' + gname + '\n')
-                
             # Fros comment: retrieve transform data from custom properties
             posTransformPrefix = 'ModelMod_Pos_'
             uvTransformPrefix = 'ModelMod_UV_'
@@ -735,6 +731,11 @@ def write_file(filepath, objects, depsgraph, scene,
                     if key.startswith(uvTransformPrefix):
                         fw(ob.data[key] + ' ')
                 fw('\n')
+                
+            # ModelMod write index vertex groups last (just once)
+            for gname in indexedGroupList:
+                if gname.startswith(blendGroupPrefix):
+                    fw('#vgn ' + gname + '\n')
                 
             subprogress1.leave_substeps()
             
