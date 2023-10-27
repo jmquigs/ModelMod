@@ -247,7 +247,7 @@ def write_file(filepath, objects, depsgraph, scene,
         EXPORT_GLOBAL_MATRIX = Matrix()
 
     def veckey3d(v):
-        return round(v.x, 4), round(v.y, 4), round(v.z, 4)
+        return round(v.x, 6), round(v.y, 6), round(v.z, 6) # Fros: Match rounding precision with reference mmobj
 
     def veckey2d(v):
         return round(v[0], 4), round(v[1], 4)
@@ -476,21 +476,24 @@ def write_file(filepath, objects, depsgraph, scene,
                         subprogress2.step()
 
                         # NORMAL, Smooth/Non smoothed.
-                        if EXPORT_NORMALS:
-                            no_key = no_val = None
-                            normals_to_idx = {}
-                            no_get = normals_to_idx.get
+                        if EXPORT_NORMALS: # Fros comment: Simplify this, we can call the normals directly from the mesh vertices, guaranteeing index parity
+                            # no_key = no_val = None
+                            # normals_to_idx = {}
+                            # no_get = normals_to_idx.get
                             loops_to_normals = [0] * len(loops)
-                            for f, f_index in face_index_pairs:
-                                for l_idx in f.loop_indices:
-                                    no_key = veckey3d(loops[l_idx].normal)
-                                    no_val = no_get(no_key)
-                                    if no_val is None:
-                                        no_val = normals_to_idx[no_key] = no_unique_count
-                                        fw('vn %.4f %.4f %.4f\n' % no_key)
-                                        no_unique_count += 1
-                                    loops_to_normals[l_idx] = no_val
-                            del normals_to_idx, no_get, no_key, no_val
+                            
+                            for vert in me.vertices:
+                                fw('vn %.6f %.6f %.6f\n' % veckey3d(vert.normal))
+                            # for f, f_index in face_index_pairs:
+                                # for l_idx in f.loop_indices:
+                                    # no_key = veckey3d(loops[l_idx].normal)
+                                    # no_val = no_get(no_key)
+                                    # if no_val is None:
+                                        # no_val = normals_to_idx[no_key] = no_unique_count
+                                        # fw('vn %.4f %.4f %.4f\n' % no_key)
+                                        # no_unique_count += 1
+                                    # loops_to_normals[l_idx] = no_val
+                            # del normals_to_idx, no_get, no_key, no_val
                         else:
                             loops_to_normals = []
 
