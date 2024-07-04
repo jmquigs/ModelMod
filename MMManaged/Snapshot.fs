@@ -20,6 +20,7 @@
 
 namespace ModelMod
 
+open System
 open System.IO
 open System.Runtime.InteropServices
 
@@ -645,6 +646,11 @@ module Snapshot =
 
             if not (Directory.Exists baseDir) then
                 Directory.CreateDirectory(baseDir) |> ignore
+
+            if sd.ClearSnapDirOnReset && sd.WasReset then 
+                log.Info "Clearing %A due to reset snap" baseDir
+                let files = Directory.GetFiles(baseDir)
+                files |> Array.iter (fun f -> File.Delete(f))
 
             let sbasename = sprintf "snap_%d_%dp_%dv" snapshotNum.Value sd.PrimCount sd.NumVertices
 

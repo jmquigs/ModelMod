@@ -159,6 +159,10 @@ module InteropTypes =
     /// from the SharpDX device.
     type SnapshotData = {
         SDSize: uint32
+        [<MarshalAs(UnmanagedType.U1)>]
+        WasReset: bool
+        [<MarshalAs(UnmanagedType.U1)>]
+        ClearSnapDirOnReset: bool
         PrimType: int32
         BaseVertexIndex: int32
         MinVertexIndex: uint32

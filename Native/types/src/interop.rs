@@ -148,6 +148,8 @@ pub union SnapshotRendData {
 #[repr(C, packed(4))]
 pub struct SnapshotData {
     pub sd_size: u32,
+    pub was_reset: bool, 
+    pub clear_sd_on_reset: bool, 
     pub prim_type: i32,
     pub base_vertex_index: i32,
     pub min_vertex_index: u32,

@@ -849,6 +849,8 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     if GLOBAL_STATE.is_snapping {
         let mut sd = types::interop::SnapshotData {
             sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
+            was_reset: false,
+            clear_sd_on_reset: false,
             prim_type: PrimitiveType as i32,
             base_vertex_index: BaseVertexIndex,
             min_vertex_index: MinVertexIndex,

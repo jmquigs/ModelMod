@@ -550,6 +550,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
             let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
             let mut sd = types::interop::SnapshotData {
                 sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
+                was_reset: false,
+                clear_sd_on_reset: false,
                 prim_type: state.rs.prim_topology as i32,
                 base_vertex_index: BaseVertexLocation,
                 min_vertex_index: 0,

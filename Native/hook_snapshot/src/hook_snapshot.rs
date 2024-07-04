@@ -27,6 +27,8 @@ use std::collections::BTreeMap;
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::ptr::null_mut;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use shared_dx::util::*;
@@ -65,7 +67,10 @@ lazy_static! {
         autosnap: None,
         require_gpu: None,
         plugins: None,
+        clear_sd_on_reset: false,
     }));
+
+    pub static ref WAS_RESET: AtomicBool = AtomicBool::new(false);
 }
 
 fn snapshot_extra() -> bool {
@@ -163,6 +168,13 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
             Ok(bufs) => {
                 write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
                 GLOBAL_STATE.interop_state.as_mut().map(|is| {
+                    // If the snapshot state was reset set that flag in sd and clear WAS_RESET
+                    sd.clear_sd_on_reset = snap_conf.clear_sd_on_reset;
+                    sd.was_reset = WAS_RESET.load(Ordering::Relaxed);
+                    if sd.was_reset {
+                        WAS_RESET.store(false, Ordering::Relaxed);
+                    }
+                    
 
                     // call into managed code to do the a lot of the data writing
                     let cb = is.callbacks;
@@ -876,4 +888,5 @@ pub fn present_process() {
 /// Called when the clear texture key is pressed, and when a new snapshot is started.
 pub fn reset() {
     // this used to load/init the snapshot toolbox (removed)
+    WAS_RESET.store(true, std::sync::atomic::Ordering::Relaxed);
 }

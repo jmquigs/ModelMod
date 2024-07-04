@@ -41,12 +41,15 @@ pub struct SnapConfig {
     pub pconsts_to_capture: usize,
     pub autosnap:Option<HashSet<AutoSnapMesh>>,
     pub plugins:Option<Vec<String>>,
+    #[serde(default)]
+    pub clear_sd_on_reset: bool,
 }
 impl fmt::Display for SnapConfig {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "SnapConfig {{")?;
         writeln!(f, "  snap_ms: {}", self.snap_ms)?;
+        writeln!(f, "  clear_sd_on_reset: {}", self.clear_sd_on_reset)?;
         writeln!(f, "  snap_anim: {}", self.snap_anim)?;
         if self.snap_anim {
             writeln!(f, "  require gpu: true (due to snap anim)")?;
@@ -85,6 +88,7 @@ impl SnapConfig {
             pconsts_to_capture: 224,
             autosnap: None,
             plugins: None,
+            clear_sd_on_reset: false,
         }
     }
     pub fn max_const_sequences(&self) -> usize {
