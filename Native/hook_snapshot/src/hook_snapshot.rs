@@ -180,19 +180,39 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                     let cb = is.callbacks;
                     let res = (cb.TakeSnapshot)(devptr.as_c_void(), sd);
 
-                    if res == 0 && snapshot_extra() {
-                        let sresult = *(cb.GetSnapshotResult)();
+                    let sresult = if res == 0 { 
+                        Some(*(cb.GetSnapshotResult)())
+                    } else {
+                        None
+                    };
+
+                    let (dir,sprefix) = if let Some(sresult) = sresult {
                         let dir = &sresult.directory[0..(sresult.directory_len as usize)];
                         let sprefix = &sresult.snap_file_prefix[0..(sresult.snap_file_prefix_len as usize)];
 
                         let dir = String::from_utf16(&dir).unwrap_or_else(|_| "".to_owned());
+                        let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
+                        (dir,sprefix)
+                    } else {
+                        ("".to_owned(),"".to_owned())
+                    };
 
+                    let new_dir = match &gs.last_snapshot_dir {
+                        None => true,
+                        Some(d) if d != &dir => true,
+                        Some(_) => false
+                    };
+                    if new_dir {
+                        write_log_file(&format!("snapshot dir updated: {}", new_dir));
+                        gs.last_snapshot_dir = Some(dir.clone())
+                    }                    
+
+                    if res == 0 && snapshot_extra() {
                         gs.anim_snap_state.as_mut().map(|ass| {
                             if ass.snap_dir == "" {
                                 ass.snap_dir = dir.to_owned();
                             }
                         });
-                        let sprefix = String::from_utf16(&sprefix).unwrap_or_else(|_| "".to_owned());
 
                         // write_log_file(&format!("snap save dir: {}", dir));
                         // write_log_file(&format!("snap prefix: {}", sprefix));
@@ -867,12 +887,22 @@ pub fn present_process() {
     if gs.is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(snap_ms as u64);
-        if now
+        let elapsed = now
             .duration_since(gs.snap_start)
-            .unwrap_or(max_dur)
-            >= max_dur
-        {
+            .unwrap_or(max_dur);
+        if elapsed >= max_dur {
             write_log_file("ending snapshot");
+            if let Some(dir) = &gs.last_snapshot_dir {
+                let out_file = format!("{}/MMSnapshotComplete.txt", dir);
+                let out_file = &out_file;
+                let write_ss_complete = || -> std::io::Result<()> {
+                    use std::io::Write;
+                    let mut file = std::fs::File::create(out_file)?;
+                    file.write_all(format!("Snap duration: {:?}. This file is updated at the end of each snapshot.", elapsed).as_bytes())
+                };
+                write_ss_complete().unwrap_or_else(|e| 
+                    write_log_file(&format!("failed to write {}: {:?}", out_file, e)));
+            }
             gs.is_snapping = false;
             gs.anim_snap_state.as_ref().map(|ass| {
                 let duration = now.duration_since(ass.sequence_start_time).unwrap_or_default();

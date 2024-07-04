@@ -105,6 +105,7 @@ pub struct HookState {
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
     pub anim_snap_state: Option<AnimSnapState>,
+    pub last_snapshot_dir: Option<String>,
 }
 
 impl HookState {
@@ -160,6 +161,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     vertex_constants: None,
     pixel_constants: None,
     anim_snap_state: None,
+    last_snapshot_dir: None,
     d3dx_fn: None,
     device: None,
     metrics: FrameMetrics {
