@@ -489,7 +489,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
             });
         }
 
-        process_metrics(&mut GLOBAL_STATE.metrics, true, 250000);
+        process_metrics(true, 250000);
 
         profile_end!(hdi, periodic);
     };

@@ -30,6 +30,7 @@ use hook_snapshot;
 use types::native_mod;
 
 use std;
+use std::ptr::addr_of_mut;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -104,7 +105,8 @@ const METRICS_MIN_INTERVAL_SECS:f64 = 10.0;
 /// d3d11 draw_indexed, and avoids clearing the list too soon in that case.
 /// If global_state::METRICS_TRACK_PRIMS
 /// is false there shouldn't be any primitives in the list anyway.
-pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:u32) {
+pub fn process_metrics(preserve_prims:bool, interval:u32) {
+    let metrics = unsafe { &mut (*(addr_of_mut!(GLOBAL_STATE))).metrics };
     if metrics.dip_calls > interval {
         let mut report_dips_fps = true;
 
@@ -223,13 +225,13 @@ pub fn process_metrics(metrics:&mut FrameMetrics, preserve_prims:bool, interval:
         }
         // always clear prims after an update, whether we wrote them or not (prevents them
         // from accumulating)
-        unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+        metrics.rendered_prims.clear();
 
 
     } else {
         // not time for update, but clear the prim list unless caller said not to
         if !preserve_prims {
-            unsafe {&mut GLOBAL_STATE}.metrics.rendered_prims.clear();
+            metrics.rendered_prims.clear();
         }
     }
 }
@@ -329,10 +331,8 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     frame_init_clr(dnclr::RUN_CONTEXT_D3D9)?;
     frame_load_mods(DevicePointer::D3D9(device));
 
-    let metrics = &mut unsafe {&mut GLOBAL_STATE}.metrics;
-
     const METRICS_DIPS_INTERVAL:u32 = 1_000_000;
-    process_metrics(metrics, false, METRICS_DIPS_INTERVAL);
+    process_metrics(false, METRICS_DIPS_INTERVAL);
 
     mod_stats::update(&SystemTime::now());
 
