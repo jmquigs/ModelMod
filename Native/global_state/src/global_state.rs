@@ -1,5 +1,6 @@
 
 use shared_dx::types::DevicePointer;
+use shared_dx::util::write_log_file;
 use types::TexPtr;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
@@ -7,6 +8,8 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+use std::ptr::addr_of_mut;
+use std::sync::atomic::AtomicI64;
 use std::time::SystemTime;
 use std::fmt;
 use fnv::FnvHashMap;
@@ -127,6 +130,8 @@ impl fmt::Display for HookState {
 
 lazy_static! {
     pub static ref GLOBAL_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    pub static ref GS_PTR_REFS:AtomicI64 = AtomicI64::new(0);
 }
 
 // TODO: maybe create read/write accessors for this
@@ -177,7 +182,45 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     }
 };
 
-pub fn get_global_state_ptr() -> *mut HookState {
-    let pstate: *mut HookState = unsafe { &mut GLOBAL_STATE };
-    pstate
+const TRACK_GS_PTR:bool = true;
+
+/// Container structure providing access to the global state pointer.
+/// The intention is to let me log if there is ever more than once access at a time.
+/// Obviously this can be defeated by copying the pointer but at least if I inadvertently 
+/// try to do this I'll get some warning in the log.
+/// This is possibly more important now because I may have UB in the code where I was 
+/// creating &mut's to this and created more than one at a time, which the compiler now 
+/// reports is UB and will be an error in the future.
+pub struct GSPointerRef {
+    pub gsp: *mut HookState,
+}
+
+impl GSPointerRef {
+    pub fn new() -> GSPointerRef {
+        if TRACK_GS_PTR {
+            let cnt = GS_PTR_REFS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if cnt > 0 {
+                // let the log throttler deal with this if it gets spammed
+                write_log_file(&format!("Warning: GSPointerRef exceeded zero, possible concurrent reference to global state: (old value: {})", cnt));
+            }
+        }
+        GSPointerRef {
+            gsp: unsafe { addr_of_mut!(GLOBAL_STATE) },
+        }
+    }
+}
+
+impl Drop for GSPointerRef {
+    fn drop(&mut self) {
+        if TRACK_GS_PTR {
+            let cnt = GS_PTR_REFS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            if cnt <= 0 {
+                write_log_file(&format!("Warning: GSPointerRef is now negative (old value: {})", cnt));
+            }
+        }
+    }
+}
+
+pub fn get_global_state_ptr() -> GSPointerRef {
+    GSPointerRef::new()
 }

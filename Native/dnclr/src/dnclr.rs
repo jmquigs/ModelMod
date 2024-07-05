@@ -249,17 +249,22 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
         let method = util::to_wide_str("Main");
 
         write_log_file(&format!("Loading managed dll {} into CLR", managed_dll));
-
-        let global_state_ptr = global_state::get_global_state_ptr();
-        // can only pass one argument (a string), so delimit the arguments with pipe
+        
         write_log_file(&format!(
             "using '{}' load context for CLR",
             run_context
         ));
 
+        // can only pass one argument (a string), so delimit the arguments with pipe
+        // note: intentially defeating the purpose of GSPointerRef here since we need to 
+        // pass the pointer to managed code so that it can pass it back to us in 
+        // OnInitialized
+        let global_state_ptr = global_state::get_global_state_ptr();
+        let ptr = global_state_ptr.gsp as usize;
+        drop(global_state_ptr); // to avoid the gs tracking code logging when the managed code calls OnInitialized
         let argument = util::to_wide_str(&format!(
             "{}|{}|{}",
-            global_state_ptr as usize,
+            ptr,
             run_context,
             NATIVE_CODE_VERSION
         ));
