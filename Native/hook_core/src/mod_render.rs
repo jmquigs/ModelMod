@@ -148,8 +148,6 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
     // so we have to refetch as mutable, set the frame value and then (for safety)
     // refetch as immutable again so that we can pass that value on.  that's three
     // hash lookups guaranteed but fortunately we're only doing this for active mods.
-    drop(r);
-    drop(r2);
     mstate.mods.get_mut(&mod_key).map(|nmods| {
         if target_mod_index >= nmods.len() {
             // error, spam the log i guess

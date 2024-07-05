@@ -818,7 +818,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, state_begin);
 
-    let mut metrics = &mut GLOBAL_STATE.metrics;
+    let metrics = &mut GLOBAL_STATE.metrics;
 
     if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
         return (hookdevice.real_draw_indexed_primitive)(
