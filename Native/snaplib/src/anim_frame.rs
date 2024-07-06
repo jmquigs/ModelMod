@@ -50,9 +50,12 @@ pub struct AnimFrame {
     pub snapped_at: std::time::SystemTime,
     pub floats: std::collections::BTreeMap<UINT, Vec4<f32>>,
     pub transform1: Option<Vec4<f32>>,
-    pub transform2: Option<Vec4<f32>>,
-    pub transform3: Option<Vec4<f32>>,
-    pub transform4: Option<Vec4<f32>>,
+    // Note, if these are re-enabled at some point, that will break compatibility on deserialization with any old animation snapshot files.
+    // (will need to use a time stamp or some other means to determine what version a file is, or maybe just read the first few bytes
+    // to determine if its has a version, which I suppose should be checked in animframefile below since that represents a whole file)
+    // pub transform2: Option<Vec4<f32>>,
+    // pub transform3: Option<Vec4<f32>>,
+    // pub transform4: Option<Vec4<f32>>,
 }
 
 #[derive(Serialize)]

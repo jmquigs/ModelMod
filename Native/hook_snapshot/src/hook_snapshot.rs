@@ -869,9 +869,9 @@ fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
             snapped_at: aseq.snapped_at,
             floats: aseq.constants.floats.get_as_btree(),
             transform1: Some(pxform),
-            transform2: None,
-            transform3: None,
-            transform4: None,
+            // transform2: None,
+            // transform3: None,
+            // transform4: None,
         };
         frame_file.frames.push(framedata);
     }
