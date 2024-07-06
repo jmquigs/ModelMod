@@ -14,4 +14,4 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
 [dependencies]
 shared_dx = { path = "../shared_dx" }
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.8"
+serde_yaml = "0.9"
