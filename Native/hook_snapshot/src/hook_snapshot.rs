@@ -1,5 +1,6 @@
 use device_state::dev_state_d3d11_nolock;
 use device_state::dev_state_d3d11_read;
+use global_state::get_global_state_ptr;
 use global_state::HookState;
 use shared_dx::types::DevicePointer;
 use types::d3dx::D3DXFn;
@@ -16,7 +17,7 @@ use winapi::shared::minwindef::{DWORD, UINT, BOOL};
 
 use constant_tracking;
 use d3dx;
-use global_state::{GLOBAL_STATE};
+use global_state::GLOBAL_STATE;
 use winapi::um::{d3d11::{D3D11_BIND_RENDER_TARGET, D3D11_BUFFER_DESC, D3D11_INPUT_ELEMENT_DESC,
     D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC, ID3D11Buffer, ID3D11Device,
     ID3D11DeviceContext, ID3D11Resource, ID3D11ShaderResourceView,
@@ -126,7 +127,8 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
             Ok(c) => c.clone()
         };
 
-    let gs = unsafe {&mut GLOBAL_STATE };
+    let mut gs_ptr = get_global_state_ptr();
+    let gs = gs_ptr.as_mut();
     let autosnap = if let Some(_) = &gs.anim_snap_state {
         auto_snap_anim(devptr, sd, gs, &snap_conf)
     } else {
@@ -882,7 +884,8 @@ pub fn present_process() {
         Ok(c) => c.snap_ms
     };
 
-    let gs = unsafe { &mut GLOBAL_STATE };
+    let mut gs_ptr = get_global_state_ptr();
+    let gs = gs_ptr.as_mut();
 
     if gs.is_snapping {
         let now = SystemTime::now();

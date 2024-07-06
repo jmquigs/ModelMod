@@ -8,6 +8,7 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::AtomicI64;
 use std::time::SystemTime;
@@ -191,12 +192,13 @@ const TRACK_GS_PTR:bool = true;
 /// This is possibly more important now because I may have UB in the code where I was 
 /// creating &mut's to this and created more than one at a time, which the compiler now 
 /// reports is UB and will be an error in the future.
-pub struct GSPointerRef {
+pub struct GSPointerRef<'a> {
     pub gsp: *mut HookState,
+    marker: PhantomData<&'a i32>,
 }
 
-impl GSPointerRef {
-    pub fn new() -> GSPointerRef {
+impl<'a> GSPointerRef<'a> {
+    pub fn new() -> GSPointerRef<'a> {
         if TRACK_GS_PTR {
             let cnt = GS_PTR_REFS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if cnt > 0 {
@@ -206,11 +208,19 @@ impl GSPointerRef {
         }
         GSPointerRef {
             gsp: unsafe { addr_of_mut!(GLOBAL_STATE) },
+            marker: PhantomData,
         }
+    }
+
+    // If I was smarter I could figure out how to make these lifetimes work so that after the GSPointerRef is dropped, the 
+    // &mut returned by this can no longer be used, but i'm not smarter so it doesn't do that. (putting &'a on the self here causes a 
+    // bc error due to some strange interaction with drop below)
+    pub fn as_mut(&mut self) -> &'a mut HookState {
+        unsafe { &mut (*self.gsp) }
     }
 }
 
-impl Drop for GSPointerRef {
+impl<'a> Drop for GSPointerRef<'a> {
     fn drop(&mut self) {
         if TRACK_GS_PTR {
             let cnt = GS_PTR_REFS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -221,6 +231,6 @@ impl Drop for GSPointerRef {
     }
 }
 
-pub fn get_global_state_ptr() -> GSPointerRef {
+pub fn get_global_state_ptr<'a>() -> GSPointerRef<'a> {
     GSPointerRef::new()
 }
