@@ -2,6 +2,7 @@ use device_state::dev_state_d3d11_nolock;
 use device_state::dev_state_d3d11_read;
 use global_state::get_global_state_ptr;
 use global_state::HookState;
+use global_state::ANIM_SNAP_STATE;
 use shared_dx::types::DevicePointer;
 use types::d3dx::D3DXFn;
 use types::interop::D3D11SnapshotRendData;
@@ -110,7 +111,7 @@ fn set_pconsts(device: *mut IDirect3DDevice9, num_to_read:usize, pconsts: &mut c
     pconsts.bools.set(0, dest.as_ptr(), num_to_read as u32);
 }
 
-pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, this_is_selected:bool) {
+pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, this_is_selected:bool) {
     if devptr.is_null() {
         return;
     }
@@ -127,15 +128,15 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
             Ok(c) => c.clone()
         };
 
-    let mut gs_ptr = get_global_state_ptr();
-    let gs = gs_ptr.as_mut();
-    let autosnap = if let Some(_) = &gs.anim_snap_state {
+    let gs_ptr = get_global_state_ptr();
+    let gs = gs_ptr.gsp;
+    let autosnap = if let Some(_) = unsafe {ANIM_SNAP_STATE.get().as_ref()} {
         auto_snap_anim(devptr, sd, gs, &snap_conf)
     } else {
         false
     };
 
-    let do_snap = (this_is_selected || autosnap) && gs.is_snapping;
+    let do_snap = (this_is_selected || autosnap) && (*gs).is_snapping;
 
     if !do_snap {
         return;
@@ -148,10 +149,10 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
 
         pre_rc = devptr.get_ref_count();
 
-        gs.device = Some(*devptr);
+        (*gs).device = Some(*devptr);
 
-        if gs.d3dx_fn.is_none() {
-            d3dx::load_and_set_in_gs(&gs.mm_root, &devptr)
+        if (*gs).d3dx_fn.is_none() {
+            d3dx::load_and_set_in_gs(&(*gs).mm_root, &devptr)
                 .map_err(|e| {
                     write_log_file(&format!(
                         "failed to load d3dx: texture snapping not available: {:?}",
@@ -199,18 +200,18 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                         ("".to_owned(),"".to_owned())
                     };
 
-                    let new_dir = match &gs.last_snapshot_dir {
+                    let new_dir = match &(*gs).last_snapshot_dir {
                         None => true,
                         Some(d) if d != &dir => true,
                         Some(_) => false
                     };
                     if new_dir {
                         write_log_file(&format!("snapshot dir updated: {}", new_dir));
-                        gs.last_snapshot_dir = Some(dir.clone())
+                        (*gs).last_snapshot_dir = Some(dir.clone())
                     }                    
 
                     if res == 0 && snapshot_extra() {
-                        gs.anim_snap_state.as_mut().map(|ass| {
+                        ANIM_SNAP_STATE.get_mut().as_mut().map(|ass| {
                             if ass.snap_dir == "" {
                                 ass.snap_dir = dir.to_owned();
                             }
@@ -224,8 +225,8 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                         });
 
                         let (gotpix,gotvert) = shader_capture::take_snapshot(devptr, &dir, &sprefix);
-                        let vc = if gotvert { &gs.vertex_constants } else { &None };
-                        let pc = if gotpix { &gs.pixel_constants } else { &None };
+                        let vc = if gotvert { &(*gs).vertex_constants } else { &None };
+                        let pc = if gotpix { &(*gs).pixel_constants } else { &None };
                         constant_tracking::take_snapshot(&dir, &sprefix, vc, pc);
 
                         if save_rs.has_state() {
@@ -248,8 +249,8 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                                     if contents.contains("m4x4 oPos, v0, c0") {
                                         write_log_file("=======> error: shader contains simple position multiply, likely not gpu animated, aborting snap.  you must not snap an animation or set require_cpu to false in the conf to snap this mesh");
                                         write_log_file(&format!("file: {}", &file));
-                                        gs.is_snapping = false;
-                                        gs.anim_snap_state = None;
+                                        (*gs).is_snapping = false;
+                                        *ANIM_SNAP_STATE.get_mut() = None; 
                                 }
                                 }).unwrap_or_default();
                             }
@@ -261,7 +262,7 @@ pub fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, thi
                 write_log_file(&format!("snapshot::take: failed to set buffers: {:?}", e));
             }
         }
-        gs.device = None;
+        (*gs).device = None;
     }
     // check for resource leak, we do this in another block so that all the release on
     // drops activated.
@@ -364,7 +365,7 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
     }
 }
 
-fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, gs:&mut HookState, snap_conf:&SnapConfig) -> bool {
+fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotData, gs:*mut HookState, snap_conf:&SnapConfig) -> bool {
     let device = match devptr {
         DevicePointer::D3D9(d) => *d as *mut _,
         | _ => {
@@ -374,14 +375,22 @@ fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDat
     };
     let mut autosnap = false;
 
+    let ass = unsafe { 
+        match ANIM_SNAP_STATE.get_mut() {
+            None => { return false },
+            Some(ref mut ass) => ass
+        }
+    };
+
     // experimental animation snapping. not normally used and no modding support at this time.
     // VERY game and even model specific, hard to generalize.
-    if gs.anim_snap_state.is_some() {
-        let ass = gs.anim_snap_state.as_mut().unwrap();
+    {
         let primvert = &(sd.prim_count,sd.num_vertices);
-        if gs.metrics.total_frames > ass.curr_frame {
-            ass.curr_frame = gs.metrics.total_frames;
-            ass.capture_count_this_frame.clear();
+        unsafe {
+            if (*gs).metrics.total_frames > ass.curr_frame {
+                ass.curr_frame = (*gs).metrics.total_frames;
+                ass.capture_count_this_frame.clear();
+            }
         }
         if ass.expected_primverts.contains(primvert) {
             let cap_count = ass.capture_count_this_frame.entry(*primvert).or_insert(0);
@@ -440,7 +449,7 @@ fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDat
 
 }
 
-fn save_constants(devptr:&mut DevicePointer, gs:&mut HookState, snap_conf:&SnapConfig) {
+unsafe fn save_constants(devptr:&mut DevicePointer, gs:*mut HookState, snap_conf:&SnapConfig) {
     let device = match devptr {
         &mut DevicePointer::D3D9(device) => device,
         &mut DevicePointer::D3D11(_) => {
@@ -449,10 +458,10 @@ fn save_constants(devptr:&mut DevicePointer, gs:&mut HookState, snap_conf:&SnapC
     };
     // constant tracking workaround: read back all the constants
     if constant_tracking::is_enabled() {
-        gs.vertex_constants.as_mut().map(|vconsts| {
+        (*gs).vertex_constants.as_mut().map(|vconsts| {
             set_vconsts(device, snap_conf.vconsts_to_capture, vconsts, true);
         });
-        gs.pixel_constants.as_mut().map(|pconsts| {
+        (*gs).pixel_constants.as_mut().map(|pconsts| {
             set_pconsts(device, snap_conf.pconsts_to_capture, pconsts);
         });
     }
@@ -832,8 +841,11 @@ fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
         let frame_file = frames_by_mesh.entry((aseq.prim_count, aseq.vert_count))
             .or_insert_with(AnimFrameFile::new);
 
+        // for testing when I don't have this
+        //let hack_pxform = "0.0 0.0 0.0 0.0".to_owned();
         let pxform = match aseq.player_transform.as_ref() {
             Err(e) => {
+                //&hack_pxform
                 return Err(HookError::SnapshotFailed(
                     format!("player transform not available at frame {}, aborting constant write (error: {:?})", frame, e)
                 ));
@@ -875,7 +887,7 @@ fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
     Ok(())
 }
 
-pub fn present_process() {
+pub unsafe fn present_process() {
     let snap_ms = match SNAP_CONFIG.read() {
         Err(e) => {
             write_log_file(&format!("failed to lock snap config: {}", e));
@@ -884,18 +896,18 @@ pub fn present_process() {
         Ok(c) => c.snap_ms
     };
 
-    let mut gs_ptr = get_global_state_ptr();
-    let gs = gs_ptr.as_mut();
+    let gs_ptr = get_global_state_ptr();
+    let gs = gs_ptr.gsp;
 
-    if gs.is_snapping {
+    if (*gs).is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(snap_ms as u64);
         let elapsed = now
-            .duration_since(gs.snap_start)
+            .duration_since((*gs).snap_start)
             .unwrap_or(max_dur);
         if elapsed >= max_dur {
             write_log_file("ending snapshot");
-            if let Some(dir) = &gs.last_snapshot_dir {
+            if let Some(dir) = &(*gs).last_snapshot_dir {
                 let out_file = format!("{}/MMSnapshotComplete.txt", dir);
                 let out_file = &out_file;
                 let write_ss_complete = || -> std::io::Result<()> {
@@ -906,14 +918,16 @@ pub fn present_process() {
                 write_ss_complete().unwrap_or_else(|e| 
                     write_log_file(&format!("failed to write {}: {:?}", out_file, e)));
             }
-            gs.is_snapping = false;
-            gs.anim_snap_state.as_ref().map(|ass| {
+            (*gs).is_snapping = false;
+            
+            let o = ANIM_SNAP_STATE.get();
+            (*o).as_ref().map(|ass| {
                 let duration = now.duration_since(ass.sequence_start_time).unwrap_or_default();
                 write_log_file(&format!("captured {} anim constant sequences in {}ms", ass.next_vconst_idx, duration.as_millis()));
-                write_anim_snap_state(ass)
+                write_anim_snap_state(&ass)
                 .unwrap_or_else(|e| write_log_file(&format!("failed to write anim state: {:?}", e)));
             });
-            gs.anim_snap_state = None;
+            (*o) = None;
         }
     }
 }

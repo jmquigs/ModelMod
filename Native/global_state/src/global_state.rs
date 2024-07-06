@@ -8,6 +8,7 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::AtomicI64;
@@ -108,7 +109,6 @@ pub struct HookState {
     pub metrics: FrameMetrics,
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
-    pub anim_snap_state: Option<AnimSnapState>,
     pub last_snapshot_dir: Option<String>,
 }
 
@@ -166,7 +166,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     snap_start: std::time::UNIX_EPOCH,
     vertex_constants: None,
     pixel_constants: None,
-    anim_snap_state: None,
     last_snapshot_dir: None,
     d3dx_fn: None,
     device: None,
@@ -182,6 +181,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         rendered_prims: vec![],
     }
 };
+pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
 
 const TRACK_GS_PTR:bool = true;
 
@@ -212,12 +212,6 @@ impl<'a> GSPointerRef<'a> {
         }
     }
 
-    // If I was smarter I could figure out how to make these lifetimes work so that after the GSPointerRef is dropped, the 
-    // &mut returned by this can no longer be used, but i'm not smarter so it doesn't do that. (putting &'a on the self here causes a 
-    // bc error due to some strange interaction with drop below)
-    pub fn as_mut(&mut self) -> &'a mut HookState {
-        unsafe { &mut (*self.gsp) }
-    }
 }
 
 impl<'a> Drop for GSPointerRef<'a> {

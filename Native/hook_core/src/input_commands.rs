@@ -1,4 +1,5 @@
 
+use global_state::ANIM_SNAP_STATE;
 use shared_dx::types::DevicePointer;
 use types::TexPtr;
 pub use winapi::shared::d3d9::*;
@@ -131,7 +132,7 @@ pub fn init_snapshot_mode() {
             });
 
             // TODO(perf): should prealloc the scratch arrays used to read from the device in set_vconsts()
-            GLOBAL_STATE.anim_snap_state = Some(anim_state);
+            *ANIM_SNAP_STATE.get_mut() = Some(anim_state);
         }
 
         GLOBAL_STATE.is_snapping = true;
