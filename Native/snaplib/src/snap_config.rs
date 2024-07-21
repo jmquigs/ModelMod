@@ -43,6 +43,8 @@ pub struct SnapConfig {
     pub plugins:Option<Vec<String>>,
     #[serde(default)]
     pub clear_sd_on_reset: bool,
+    #[serde(default)]
+    pub extdll_path: String,
 }
 impl fmt::Display for SnapConfig {
     // This trait requires `fmt` with this exact signature.
@@ -72,6 +74,7 @@ impl fmt::Display for SnapConfig {
             }
         }
         writeln!(f, "  plugins: {:?}", self.plugins)?;
+        writeln!(f, "  snap_extdll_path: {}", self.extdll_path)?;
 
         writeln!(f, "}}")
     }
@@ -89,6 +92,7 @@ impl SnapConfig {
             autosnap: None,
             plugins: None,
             clear_sd_on_reset: false,
+            extdll_path: String::new(),
         }
     }
     pub fn max_const_sequences(&self) -> usize {

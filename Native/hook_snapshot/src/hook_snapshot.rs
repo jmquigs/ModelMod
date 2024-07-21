@@ -70,6 +70,7 @@ lazy_static! {
         require_gpu: None,
         plugins: None,
         clear_sd_on_reset: false,
+        extdll_path: String::new(),
     }));
 
     pub static ref WAS_RESET: AtomicBool = AtomicBool::new(false);
@@ -424,14 +425,14 @@ fn auto_snap_anim(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDat
                     next.frame = ass.curr_frame;
                     next.capture_count = *cap_count;
                     ass.next_vconst_idx += 1;
-                    //unsafe {
-                        //this was where I would call into the external toolbox app to get the
-                        //player transform.  I removed this module because it was game-specific
-                        //and not generalized, but the code still exists in the gamesnap branch.
-                        // TBSTATE.as_mut().map(|tbstate| {
-                        //     next.player_transform = tbstate.get_player_transform();
-                        // });
-                    //}
+                    unsafe {
+                        // the reference game I used for testing requires an external dll to obtain the player transform
+                        // because the animation bones fed to the shader are in world space; this transform lets me 
+                        // map them back into object space.
+                        XDLLSTATE.as_mut().map(|tbstate| {
+                            next.player_transform = tbstate.get_player_transform();
+                        });
+                    }
                 }
             }
             else if !ass.seen_primverts.contains(primvert) {
@@ -575,6 +576,9 @@ fn save_render_state(devptr:&mut DevicePointer) -> Box<dyn SnapRendState> {
 }
 
 use std::any::Any;
+
+use crate::snap_extdll::init_xdll;
+use crate::snap_extdll::XDLLSTATE;
 
 trait SnapDeviceBuffers {
     fn as_any(&self) -> &dyn Any;
@@ -854,16 +858,17 @@ fn write_anim_snap_state(ass:&AnimSnapState) -> Result<()> {
                 xfrm
             }
         };
+        let origxf = pxform;
         let mut pxform = pxform.split(" ");
         // meh https://stackoverflow.com/questions/31046763/does-rust-have-anything-like-scanf
-        let parse_next = |split: &mut std::str::Split<&str>| -> Result<f32> {
-            let res = split.next().ok_or(HookError::SnapshotFailed("Failed transform parse".to_owned()))?;
-            Ok(res.parse().map_err(|_| HookError::SnapshotFailed("failed to parse float".to_owned()))?)
+        let parse_next = |split: &mut std::str::Split<&str>, comp:&str, orig:&str| -> Result<f32> {
+            let res = split.next().ok_or_else(|| HookError::SnapshotFailed("Failed transform parse".to_owned()))?;
+            Ok(res.parse().map_err(|_| HookError::SnapshotFailed(format!("failed to parse float, source str: '{}', comp: {}, orig: '{}'", res, comp, orig)))?)
         };
-        let x = parse_next(&mut pxform)?;
-        let y = parse_next(&mut pxform)?;
-        let z = parse_next(&mut pxform)?;
-        let rot = parse_next(&mut pxform)?;
+        let x = parse_next(&mut pxform, "x", &origxf)?;
+        let y = parse_next(&mut pxform, "y", &origxf)?;
+        let z = parse_next(&mut pxform, "z", &origxf)?;
+        let rot = parse_next(&mut pxform, "rot", &origxf)?;
         let pxform = constant_tracking::vecToVec4(&vec![x,y,z,rot], 0);
         let framedata = AnimFrame {
             snapped_at: aseq.snapped_at,
@@ -934,6 +939,11 @@ pub unsafe fn present_process() {
 
 /// Called when the clear texture key is pressed, and when a new snapshot is started.
 pub fn reset() {
-    // this used to load/init the snapshot toolbox (removed)
     WAS_RESET.store(true, std::sync::atomic::Ordering::Relaxed);
+
+    unsafe {
+        init_xdll().map_err(|e| {
+            write_log_file(&format!("failed to load snap ext dll, snapshot transforms will be incorrect: {:?}", e))
+        }).unwrap_or_default();
+     };
 }

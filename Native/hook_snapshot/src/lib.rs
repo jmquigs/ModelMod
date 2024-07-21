@@ -4,6 +4,7 @@
 
 #![allow(non_snake_case)]
 mod hook_snapshot;
+mod snap_extdll;
 pub use crate::hook_snapshot::*;
 
 #[macro_use]
