@@ -17,7 +17,7 @@ use device_state::dev_state;
 use crate::hook_device_d3d11::apply_device_hook;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
 use crate::hook_render::hook_set_texture;
-use crate::hook_render::MAX_STAGE;
+use crate::global_state::MAX_STAGE;
 use crate::hook_render::CLR_OK;
 use crate::input;
 use mod_load::AsyncLoadState;

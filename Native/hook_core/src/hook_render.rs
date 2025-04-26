@@ -1,5 +1,6 @@
 use device_state::dev_state_d3d11_nolock;
 use global_state::HookState;
+use global_state::MAX_STAGE;
 use types::d3ddata::ModD3DData9;
 use types::interop::D3D9SnapshotRendData;
 use types::interop::SnapshotRendData;
@@ -40,7 +41,6 @@ use shared_dx::types::*;
 
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
-pub (crate) const MAX_STAGE: usize = 16;
 
 fn get_current_texture() -> usize {
     unsafe {
