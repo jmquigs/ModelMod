@@ -131,7 +131,7 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
 
     let gs_ptr = get_global_state_ptr();
     let gs = gs_ptr.gsp;
-    let autosnap = if let Some(_) = unsafe {ANIM_SNAP_STATE.get().as_ref()} {
+    let autosnap = if let Some(Some(_)) = unsafe {ANIM_SNAP_STATE.get().as_ref()} {
         auto_snap_anim(devptr, sd, gs, &snap_conf)
     } else {
         false
