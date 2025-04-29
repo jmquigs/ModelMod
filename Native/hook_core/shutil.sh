@@ -13,3 +13,23 @@ function check_tc {
 
     echo "==> USING TOOLCHAIN: $ATC"
 }
+
+# set MMPATH to source script dir before calling this
+function find_mm {
+    MMPATH=$(realpath "$MMPATH")
+    # Walk upward until we find "ModelMod"
+    while [ "$MMPATH" != "/" ]; do
+        if [ -d "$MMPATH/ModelMod" ]; then
+            # Found it: set MMPATH to the ModelMod directory
+            MMPATH="$MMPATH/ModelMod"
+            echo "Found ModelMod at: $MMPATH"
+            return
+        fi
+        # Move one directory up
+        MMPATH=$(dirname "$MMPATH")
+    done
+
+    # If we exit the loop, we didn't find it
+    echo "Error: ModelMod directory not found."
+    exit 1
+}
