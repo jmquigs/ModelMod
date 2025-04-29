@@ -127,11 +127,12 @@ mods:"""
                 let declExt = ".dat"
                 let declSuffix = "_VBDecl"
                 let declSrc = Path.Combine(snapSrcDir, srcBasename + declSuffix + declExt)
-                if not (File.Exists(declSrc)) then failwithf "No decl source file found; it is required: %s" declSrc
-                else
+                if File.Exists(declSrc) then
                     let newDeclFile = Path.Combine(modOutDir, refBasename + declSuffix + declExt)
                     File.Copy(declSrc,newDeclFile)
                     newDeclFile
+                else 
+                    ""
 
             // copy mtl file, texture file, and rename texture; note, this only supports one texture right now
             let kdMarker = "map_Kd "
@@ -189,7 +190,7 @@ mods:"""
                 let refObj = {
                     YamlRef.Type = "Reference"
                     YamlRef.MeshPath = Path.GetFileName(refMMObjFile)
-                    YamlRef.VertDeclPath = Path.GetFileName(vbDeclFile)
+                    YamlRef.VertDeclPath = if vbDeclFile <> "" then Path.GetFileName(vbDeclFile) else ""
                     YamlRef.ExpectedPrimCount = pCount
                     YamlRef.ExpectedVertCount = vCount
                 }
