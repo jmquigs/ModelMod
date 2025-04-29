@@ -336,10 +336,16 @@ module ModDB =
         let declData =
             match binVertDeclPath with
             | None -> None
-            | Some path ->
+            | Some path when path.Trim() <> "" ->
                 let bytes,elements = loadBinVertDeclData (Path.Combine(basePath, path))
                 log().Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
                 Some (bytes,elements)
+            | Some path ->
+                match CoreState.Context with 
+                | "d3d9" -> log().Warn "no vertex declaration found for reference and d3d9 is in use, this mod will probably not load: %A" filename
+                | "d3d11" -> ()
+                | x -> log().Warn "Unknown run context %A and no vertex declaration found, mod may not load: %A"  CoreState.Context filename
+                None
 
         // load vertex data (binary)
         let binVertDataPath = node |> Yaml.getOptionalValue "rawMeshVBPath" |> Yaml.toOptionalString

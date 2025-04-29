@@ -196,7 +196,7 @@ type Main() =
                     failwithf "Bad native code version"
                 versionChecked <- true
 
-            State.Context <- context
+            CoreState.Context <- context
 
             Main.InitNativeInterface(context)
 

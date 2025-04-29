@@ -24,6 +24,10 @@ type SDXVertexElement = SharpDX.Direct3D9.VertexElement // TODO11
 type SDXVertexDeclUsage = SharpDX.Direct3D9.DeclarationUsage // TODO11
 type SDXVertexDeclType = SharpDX.Direct3D9.DeclarationType // TODO11
 
+module CoreState = 
+    // Run time DLL context, set by Interop.Main
+    let mutable Context = ""
+
 /// Contains the name of all available input profiles.  An input profile is just a set of keybindings for
 /// controlling ModelMod in games.  Different games and systems require different input layouts, so that
 /// ModelMod doesn't interfere too much with the game.  Some games make heavy use of the F keys, for instance,
@@ -41,7 +45,7 @@ module InputProfiles =
     let DefaultProfile = FItUp
 
     let isValid (profile:string) =
-        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())
+        ValidProfiles |> List.exists (fun p -> p.ToLowerInvariant() = profile.ToLowerInvariant())    
 
 module CoreTypes =
     // ------------------------------------------------------------------------

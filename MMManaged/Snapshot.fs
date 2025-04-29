@@ -527,7 +527,7 @@ module Snapshot =
         try
             // check context and grab the saveTexture funcptr while we're at it
             let saveTexture =
-                match State.Context with
+                match CoreState.Context with
                 | "mm_native" -> None
                 | "d3d9" -> Some(NativeImportsAsD3D9.SaveTexture)
                 | "d3d11" -> None // native code saves these after snapshot
@@ -550,7 +550,7 @@ module Snapshot =
             log.Info "  MinVertexIndex: %d, BaseVertexIndex: %d, StartIndex: %d" sd.MinVertexIndex sd.BaseVertexIndex sd.StartIndex
 
             let dss =
-                match State.Context with
+                match CoreState.Context with
                 | "d3d9" ->
                     new SnapStateD3D9(device, sd) :> IDeviceSnapState
                 | "d3d11" ->

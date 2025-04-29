@@ -29,9 +29,6 @@ module State =
     // TODO: Might need to do this with other modules...
     let private log() = Logging.getLogger("State")
 
-    // DLL context, set by Interop.Main
-    let mutable Context = ""
-
     /// The data directory contains all data for all games, as well as the selection texture.
     let private defaultDataDir = "Data"
 

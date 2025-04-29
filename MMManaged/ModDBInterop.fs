@@ -216,13 +216,18 @@ module ModDBInterop =
         let refm = meshrel.RefMesh
         let modm = meshrel.ModMesh
 
-        let declElements,declSize =
+        let declSize,vertSize =
+            // This is used by DX9, but DX11 computes its own vert size based on the current layout.
             match meshrel.GetVertDeclaration() with
-            | None -> failwith "A vertex declaration must be set here, native code requires it."
-            | Some (data,elements) -> elements,data.Length
-
-        // This is used by DX9, but DX11 computes its own vert size based on the current layout.
-        let vertSize = MeshUtil.getVertSizeFromDecl declElements
+            | None -> 
+                match CoreState.Context with 
+                | "d3d9" -> failwith "A vertex declaration must be set here, native code requires it."
+                | "d3d11" -> 
+                    (0, 0)
+                | x -> failwithf "Unknown context: %A" x
+            | Some (data,elements) -> 
+                let vertSize = MeshUtil.getVertSizeFromDecl elements
+                data.Length,vertSize
 
         let modType = modTypeToInt modm.Type
 
@@ -905,7 +910,7 @@ module ModDBInterop =
         (destDeclData:nativeptr<byte>) (destDeclSize:int)
         (destVbData:nativeptr<byte>) (destVbSize:int)
         (destIbData:nativeptr<byte>) (destIbSize:int) =
-            match State.Context with
+            match CoreState.Context with
             | "d3d9" ->
                 let declArg = WriteD3D9Decl((getBinaryWriter destDeclData destDeclSize), destDeclSize)
                 let vertSize = None // detect from mod
@@ -929,7 +934,7 @@ module ModDBInterop =
                     log.Error "Exception while filling data: %A" e
                     InteropTypes.GenericFailureCode
             | _ ->
-                log.Error "Fill not implemented for context: %A" State.Context
+                log.Error "Fill not implemented for context: %A" CoreState.Context
                 InteropTypes.GenericFailureCode
 
     // For FSI testing...
