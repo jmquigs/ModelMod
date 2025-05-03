@@ -31,7 +31,7 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "dxgi",
     "dinput", "sysinfoapi"] }
 
 [lib]
-crate_type = ["cdylib"]
+crate-type = ["cdylib"]
 
 [build-dependencies]
 winres = "0.1"

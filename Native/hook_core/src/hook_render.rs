@@ -14,7 +14,7 @@ pub use winapi::shared::minwindef::*;
 pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::wingdi::RGNDATA;
-pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+pub use winapi::um::winnt::HRESULT;
 
 use dnclr::{init_clr, reload_managed_dll};
 
@@ -25,7 +25,6 @@ use crate::input_commands;
 use crate::mod_render;
 use mod_stats::mod_stats;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
-use global_state::FrameMetrics;
 use device_state::dev_state;
 use hook_snapshot;
 use types::native_mod;

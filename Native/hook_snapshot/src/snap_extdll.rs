@@ -65,6 +65,7 @@ pub unsafe fn init_xdll() -> Result<()> {
 }
 
 // We don't unload currently
+#[allow(dead_code)]
 unsafe fn unload_xdll() -> Result<()> {
     if !XDLLSTATE.is_some() {
         return Ok(())

@@ -45,6 +45,7 @@ impl ModStats {
     }
 }
 enum ModMsg {
+    #[allow(dead_code)]
     NewModActive(String, SystemTime),
     ModActive(String, SystemTime, Duration),
 }

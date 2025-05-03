@@ -49,7 +49,10 @@
 			"path": "hook_snapshot"
 		},
 		{
-			"path": "snap_plugin"
+			"path": "mod_stats"
+		},
+		{
+			"path": "shader_capture"
 		}
 	],
 	"settings": {}
