@@ -1,3 +1,4 @@
+#![allow(static_mut_refs)]
 extern crate util;
 
 mod d3dx;

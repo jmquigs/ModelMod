@@ -2,6 +2,8 @@
 // taking up python?"
 #![allow(clippy::all)]
 
+#![allow(static_mut_refs)]
+
 #![allow(non_snake_case)]
 mod hook_snapshot;
 mod snap_extdll;
