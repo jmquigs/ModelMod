@@ -822,6 +822,8 @@ pub fn get_format_size_bytes(format:&DXGI_FORMAT) -> Option<u32> {
             &DXGI_FORMAT_R16G16_SINT => 4,
             &DXGI_FORMAT_R16G16B16A16_SINT => 8,
 
+            &DXGI_FORMAT_B8G8R8A8_UNORM  => 4,
+
             _ => {
                 return None;
             },
@@ -852,7 +854,7 @@ fn vertex_format_from_layout(layout: Vec<D3D11_INPUT_ELEMENT_DESC>) -> VertexFor
                 Some(el) => {
                     let fmtsize = get_format_size_bytes(&el.Format)
                         .unwrap_or_else(|| {
-                            write_log_file(&format!("ERROR: no size for format: {:?}", el.Format));
+                            write_log_file(&format!("ERROR: d3d11 hook device has no byte size for format: {:?}", el.Format));
                             0
                         });
                     el.AlignedByteOffset + fmtsize
