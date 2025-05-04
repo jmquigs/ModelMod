@@ -83,6 +83,7 @@ pub fn init_snapshot_mode() {
             Ok(c) => c
         };
 
+        write_log_file(&format!("init snapshot mode: {}", snap_conf));
         if snap_conf.snap_anim {
             hook_snapshot::reset();
 
