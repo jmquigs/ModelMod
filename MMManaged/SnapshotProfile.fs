@@ -12,15 +12,17 @@ open System.IO
 /// in the correct space for the game.
 /// SnapshotProfiles are loaded from yaml files in the "SnapshotProfiles" subdirectory of the modelmod installation folder.
 module SnapshotProfile =
-    type Profile(name,posX,uvX) =
+    type Profile(name,posX,uvX,flipTangent,vecEncoding) =
         member x.Name() = name
         member x.PosXForm() = posX
         member x.UVXForm() = uvX
+        member x.FlipTang() = flipTangent
+        member x.VecEncoding() = vecEncoding
 
         override x.ToString() =
-            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A]" name posX uvX
+            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A]" name posX uvX flipTangent vecEncoding
 
-    let EmptyProfile = Profile("",[],[])
+    let EmptyProfile = Profile("",[],[],false,"")
 
     /// This profile should always exist in SnapshotProfiles.yaml.
     /// If it does not, new game profiles will be created with an empty snapshot profile (not an error, but not desirable either)
@@ -52,10 +54,29 @@ module SnapshotProfile =
                                 | None -> def
                                 | Some s -> s |> Seq.map Yaml.toString |> List.ofSeq
 
+                        let getBool def key = 
+                            pvals 
+                            |> Yaml.getOptionalValue key 
+                            |> Yaml.toOptionalBool 
+                            |> function 
+                                | None -> def
+                                | Some b -> b
+
+                        let getString def key = 
+                            pvals 
+                            |> Yaml.getOptionalValue key
+                            |> Yaml.toOptionalString
+                            |> function 
+                                | None -> def
+                                | Some s -> s
+                            
+
                         let posX = getStrList [] "pos"
                         let uvX = getStrList [] "uv"
+                        let flipTang = getBool false "flipTangent"
+                        let vecEncoding = getString "" "vecEncoding"
 
-                        profiles.Add(pname,Profile(pname,posX,uvX))
+                        profiles.Add(pname,Profile(pname,posX,uvX,flipTang,vecEncoding))
             )
         profiles.ToArray() |> Map.ofArray
 

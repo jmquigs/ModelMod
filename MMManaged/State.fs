@@ -119,11 +119,15 @@ module State =
 
         _rootDir <- rootDir
 
+        let mutable snapProfileVal = None;
+
         let snapProfile =
             try
                 let sprofiles = SnapshotProfile.GetAll(_rootDir)
                 _snapProfiles <- sprofiles
-                if not (sprofiles |> Map.containsKey conf.SnapshotProfile) then
+                snapProfileVal <- sprofiles |> Map.tryFind conf.SnapshotProfile
+
+                if snapProfileVal.IsNone then
                     log().Error "Unrecognized snapshot profile: %A; no snapshot transforms will be applied" conf.SnapshotProfile
                     log().Info "The following snapshot profiles are available: %A" _snapProfiles
                     ""
@@ -140,6 +144,7 @@ module State =
             }
         log().Info "Root dir: %A" (Path.GetFullPath(_rootDir))
         log().Info "Conf: %A" conf
+        log().Info "SnapProfile: %A" snapProfileVal
 
         _conf <- conf
         _locator <- DirLocator(_rootDir,_conf)

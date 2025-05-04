@@ -76,4 +76,6 @@ Native/mod_stats/__test_mod_stats.txt
 Native/mod_stats/__test_process_messages_1.txt
 Native/mod_stats/__test_process_messages_2.txt
 Native/mod_stats/__test_process_messages_3.txt
-g2005g1_pre.sh
+g2025g1_pre.sh
+G2025g1
+SnapshotProfiles/TestProfile1.yaml
