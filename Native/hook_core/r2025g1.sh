@@ -47,9 +47,9 @@ echo "press enter to run game now or ctrl-c to abort..."
 
 read $discard
 
-if [ -f "$MMPATH/g2005g1_pre.sh" ]; then 
+if [ -f "$MMPATH/g2025g1_pre.sh" ]; then 
     set +e 
-    source "$MMPATH/g2005g1_pre.sh"
+    source "$MMPATH/g2025g1_pre.sh"
     if [ "$?" -ne 0 ]; then 
         echo "pre script had error, aborting"
         exit 1 
