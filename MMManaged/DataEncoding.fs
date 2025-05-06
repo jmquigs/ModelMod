@@ -17,8 +17,8 @@ module DataEncoding =
             let fcomponent = frac * 2.0f - 1.0f
             fcomponent, signBit
 
-        /// Given two 16-bit words (as in R16G16B16A16_SINT) recover the normal
-        let decodeNormal (a:int16) (b:int16) : (float32 * float32 * float32) =
+        /// Given two 16-bit words (as in R16G16B16A16_SINT) recover the vector
+        let decode (a:int16) (b:int16) : (float32 * float32 * float32) =
             // first normal uses X = word0, Y = word1, sign(Z) also from word0
             let x, signZbit = decodeComponent a
             let y, _        = decodeComponent b   // sign bit in Y is unused
@@ -43,7 +43,7 @@ module DataEncoding =
             int (System.Math.Round( float ( (clamped * OneOverTwo + OneOverTwo) * FracScale ) ))
 
         /// Pack one Vector3 into two int16s: returns (word0, word1)
-        let encodeNormal (v:Vec3F) : int16 * int16 =
+        let encode (v:Vec3F) : int16 * int16 =
             // sign bit for Z lives in the *integer* part of word0
             let signBit = if v.Z >= 0.0f then 1 else 0       // 0 => negative Z
             let fracX   = toFrac15 v.X
@@ -70,7 +70,7 @@ module DataEncoding =
             int (System.Math.Round (float ((c * 0.5f + 0.5f) * FracScale)))
 
         /// Octahedral encode : Vec3 → int16 × int16          (works for N, T, B)
-        let encodeNormal (v: Vec3F) : int16 * int16 =
+        let encode (v: Vec3F) : int16 * int16 =
 
             // 1) normalise (defensive)
             let lenInv = 1.0f / sqrt (v.X*v.X + v.Y*v.Y + v.Z*v.Z)

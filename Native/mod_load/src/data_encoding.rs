@@ -12,7 +12,7 @@ fn to_frac15(x: f32) -> i32 {
 }
 
 /// LLM-generated (o3) normal encoding fn
-pub fn encode_packed_normal(v: &Float3) -> (i16, i16) {
+pub fn encode_packed_vector(v: &Float3) -> (i16, i16) {
     const SHIFT: i32 = 32768;
 
     let sign_bit = if v.z >= 0.0 { 1 } else { 0 };
@@ -37,7 +37,7 @@ fn decode_component(raw: i16) -> (f32, i32) {
     (fcomponent, sign_bit)
 }
 
-pub fn decode_packed_normal(a: i16, b: i16) -> (f32, f32, f32) {
+pub fn decode_packed_vector(a: i16, b: i16) -> (f32, f32, f32) {
     let (x, sign_z_bit) = decode_component(a);
     let (y, _) = decode_component(b); // sign bit of Y is unused
 
@@ -53,7 +53,7 @@ pub fn decode_packed_normal(a: i16, b: i16) -> (f32, f32, f32) {
 /// more closely matches the sample shader I gave them, but when I try to use it
 /// the results are much worse (in particular it seems to flip the handedness
 /// of the coordinate system on a per-vert basis as shown by the debug )
-pub fn encode_octa_normal(v: &Float3) -> (i16, i16) {
+pub fn encode_octa_vector(v: &Float3) -> (i16, i16) {
     //--- 1. normalise (defensive) ------------------------------------------
     let len = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
     // Note this z was mut in the original code the LLM generated, but compiler says it doesn't need to be; evidence of a problem?
@@ -83,7 +83,7 @@ pub fn encode_octa_normal(v: &Float3) -> (i16, i16) {
 }
 
 /// See encode_octa for more info about this
-pub fn decode_octa_normal(a: i16, b: i16) -> (f32, f32, f32) {
+pub fn decode_octa_vector(a: i16, b: i16) -> (f32, f32, f32) {
     // 1) pull integer sign bit and fractional part (your original code)
     let u0 = (a as f32 + 32768.0) * (1.0 / 32768.0);   // 0‥<2
     let u1 = (b as f32 + 32768.0) * (1.0 / 32768.0);
