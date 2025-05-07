@@ -522,6 +522,7 @@ module Snapshot =
         let mutable offsetBytes = 0
         let mutable strideBytes = vertSize
         let mutable texIdx = []
+        let mutable elemBytes = [||]
 
         let ibReader,vbReader,elements,vbDS,ibDS =
             if sd.BaseVertexIndex <> 0 || sd.MinVertexIndex <> 0u then
@@ -556,6 +557,18 @@ module Snapshot =
             let (elements,elStr) = ModDBInterop.d3d11ElementsFromPtr layoutptr (int sd.RendData.d3d11.LayoutElemsSizeBytes)
             log.Info "Elements: vert code %A, semantics:\n  %s" (elStr.GetHashCode()) (elStr.Trim())
             log.Info "VB size: %A, vert size: %A; IB size: %A, index size: %A" vbSize vertSize ibSize indexSize
+
+            // store raw vertex elements in byte array
+            let _  = 
+                use declMS = new MemoryStream()
+                use declWriter = new BinaryWriter(declMS)
+                use stream = new UnmanagedMemoryStream(layoutptr, int64 sd.RendData.d3d11.LayoutElemsSizeBytes, int64 sd.RendData.d3d11.LayoutElemsSizeBytes, FileAccess.Read)
+                use br = new BinaryReader(stream)
+                let bytes = br.ReadBytes(int sd.RendData.d3d11.LayoutElemsSizeBytes)
+                declWriter.Write(bytes)
+                declWriter.Flush();
+                declWriter.Close();
+                elemBytes <- declMS.ToArray()
 
             let vbDS = new UnmanagedMemoryStream(vbData, int64 vbSize, int64 vbSize, FileAccess.Read)
             let vbReader = new BinaryReader(vbDS)
@@ -594,7 +607,9 @@ module Snapshot =
             member x.IndexSizeBytes = int indexSize
 
             member x.GetEnabledTextureStages() = texIdx
-            member x.WriteDecl(basedir,basename) = ()
+            member x.WriteDecl(basedir,basename) =
+                let declfile = Path.Combine(basedir, (sprintf "%s_VBElems.dat" basename))
+                File.WriteAllBytes(declfile, elemBytes)
             member x.WriteTransforms(basedir,basename) = ()
 
     /// Take a snapshot using the specified snapshot data.  Additional data will be read directly from the device.
