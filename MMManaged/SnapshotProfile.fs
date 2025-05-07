@@ -17,28 +17,35 @@ open System.IO
 module SnapshotProfile =
     let private log = Logging.getLogger("SnapshotProfile")
 
-    type Profile(name,posX,uvX,flipTangent,vecEncoding:string) =
-        let vecEncoding = vecEncoding.Trim()
-        let isPacked = vecEncoding.ToLowerInvariant() = "packed"
-        let isOcta = vecEncoding.ToLowerInvariant() = "octa"
+    type Profile() =
+        let mutable name:string = "";
+        let mutable posX:ResizeArray<String> = new ResizeArray<string>();
+        let mutable uvX:ResizeArray<String> = new ResizeArray<string>();
+        let mutable flipTangent:bool = false;
+        let mutable vecEncoding:string = "";
 
-        do 
-            if vecEncoding = "" && not isPacked && not isOcta then 
-                log.Warn "Illegal vector encoding for specified profile %A: %A" name vecEncoding
+        static member Create(name,posX,uvX,flipTangent,vecEncoding:string):Profile = 
+            let p = new Profile()
+            p.Name <- name
+            p.PosXForm <- posX 
+            p.UVXForm <- uvX
+            p.FlipTang <- flipTangent
+            p.VecEncoding <- vecEncoding
+            p
 
-        member x.Name with get() = name
-        member x.PosXForm with get() = posX
-        member x.UVXForm with get() = uvX
-        member x.FlipTang with get() = flipTangent
-        member x.VecEncoding with get() = vecEncoding
+        member x.Name with get() = name and set v = name <- v
+        member x.PosXForm with get() = posX and set v = posX <- v 
+        member x.UVXForm with get() = uvX and set v = uvX <- v
+        member x.FlipTang with get() = flipTangent and set v = flipTangent <- v
+        member x.VecEncoding with get() = vecEncoding and set v = vecEncoding <- v
 
-        member x.IsPackedVec() = isPacked
-        member x.IsOctaVec() = isOcta
+        member x.IsPackedVec() = vecEncoding.Trim().ToLowerInvariant() = "packed"
+        member x.IsOctaVec() = vecEncoding.Trim().ToLowerInvariant() = "octa"
 
         override x.ToString() =
             sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A]" name posX uvX flipTangent vecEncoding
 
-    let EmptyProfile = Profile("",[],[],false,"")
+    let EmptyProfile = Profile.Create("",new ResizeArray<string>(),new ResizeArray<string>(),false,"")
 
     /// This profile should always exist in SnapshotProfiles.yaml.
     /// If it does not, new game profiles will be created with an empty snapshot profile (not an error, but not desirable either)
@@ -62,13 +69,13 @@ module SnapshotProfile =
                         let pname = p.Key |> Yaml.toString
                         let pvals = p.Value |> Yaml.toMapping "expected a mapping"
 
-                        let getStrList def key =
+                        let getStrArray def key =
                             pvals
                             |> Yaml.getOptionalValue key
                             |> Yaml.toOptionalSequence
                             |> function
                                 | None -> def
-                                | Some s -> s |> Seq.map Yaml.toString |> List.ofSeq
+                                | Some s -> s |> Seq.map Yaml.toString |> Array.ofSeq |> fun a -> new ResizeArray<string>(a)
 
                         let getBool def key = 
                             pvals 
@@ -87,12 +94,12 @@ module SnapshotProfile =
                                 | Some s -> s
                             
 
-                        let posX = getStrList [] "pos"
-                        let uvX = getStrList [] "uv"
+                        let posX = getStrArray (new ResizeArray<string>()) "pos"
+                        let uvX = getStrArray (new ResizeArray<string>()) "uv"
                         let flipTang = getBool false "flipTangent"
                         let vecEncoding = getString "" "vecEncoding"
 
-                        profiles.Add(pname,Profile(pname,posX,uvX,flipTang,vecEncoding))
+                        profiles.Add(pname,Profile.Create(pname,posX,uvX,flipTang,vecEncoding))
             )
         profiles.ToArray() |> Map.ofArray
 

@@ -96,7 +96,7 @@ module ModDB =
         let mesh = MeshUtil.readFrom(path, modType, flags)
         if flags.ReverseTransform &&
             (mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0) then
-            let mesh = MeshTransform.reverseMeshTransforms (List.ofArray mesh.AppliedPositionTransforms) (List.ofArray mesh.AppliedUVTransforms) mesh
+            let mesh = MeshTransform.reverseMeshTransforms (mesh.AppliedPositionTransforms) (mesh.AppliedUVTransforms) mesh
             // clear out applied transforms, since they have been reversed.
             { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
         else

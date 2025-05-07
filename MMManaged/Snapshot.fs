@@ -118,9 +118,18 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
-    type SnapMeta(profile:SnapshotProfile.Profile) = 
-        member x.Profile with get() = profile
-        member x.Context with get() = CoreState.Context
+    type SnapMeta() = 
+        let mutable profile:SnapshotProfile.Profile = SnapshotProfile.EmptyProfile
+        let mutable context:string = ""
+
+        static member Create(profile):SnapMeta = 
+            let p = SnapMeta()
+            p.Profile <- profile
+            p.Context <- CoreState.Context
+            p
+
+        member x.Profile with get() = profile and set v = profile <- v
+        member x.Context with get() = context and set v = context <- v
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
@@ -795,8 +804,8 @@ module Snapshot =
                 BlendWeights = blendWeights.ToArray()
                 Declaration = None
                 BinaryVertexData = None
-                AppliedPositionTransforms = Array.ofList appliedPosTransforms
-                AppliedUVTransforms = Array.ofList appliedUVTransforms
+                AppliedPositionTransforms = appliedPosTransforms.ToArray()
+                AppliedUVTransforms = appliedUVTransforms.ToArray()
                 Tex0Path = texName 0
                 Tex1Path = texName 1
                 Tex2Path = texName 2
@@ -806,7 +815,7 @@ module Snapshot =
             }
 
             // apply tranforms
-            let mesh = MeshTransform.applyMeshTransforms appliedPosTransforms appliedUVTransforms mesh
+            let mesh = MeshTransform.applyMeshTransforms (appliedPosTransforms.ToArray()) (appliedUVTransforms.ToArray()) mesh
 
             // write mesh
             let meshfile = sprintf "%s.mmobj" sbasename
@@ -858,7 +867,7 @@ module Snapshot =
             let metaFile = Path.Combine(baseDir, (sprintf "%s_Meta.yaml" sbasename))
             let serializer = Serializer()
             let sw = new StringWriter();
-            serializer.Serialize(sw, SnapMeta(snapProfile))
+            serializer.Serialize(sw, SnapMeta.Create(snapProfile))
             File.WriteAllText(metaFile, (sw.ToString()))
 
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir

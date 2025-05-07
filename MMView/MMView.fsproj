@@ -10,7 +10,7 @@
     <RootNamespace>MeshView</RootNamespace>
     <AssemblyName>MeshView</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFSharpCoreVersion>4.6.0.0</TargetFSharpCoreVersion>
     <Name>MMView</Name>
   </PropertyGroup>

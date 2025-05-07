@@ -39,6 +39,7 @@ module ModUtil =
         Ref: string
         ModType: string // subtype of the mod (gpureplacement, etc)
         MeshPath: string
+        Profile: ModelMod.SnapshotProfile.Profile
     }
 
     let getOutputPath modRoot modName = Path.GetFullPath(Path.Combine(modRoot, modName))
@@ -199,6 +200,17 @@ mods:"""
                 sr.Serialize(sw, refObj) 
                 refYamlFile
 
+            // look for a snapshot meta file which may contain information about what profile was used
+            let metaFile = Path.Combine(snapSrcDir, srcBasename + "_Meta.yaml")
+            let snapProfile = 
+                if File.Exists(metaFile) then 
+                    let sd = new Deserializer()
+                    use f = File.OpenText(metaFile);
+                    let p = sd.Deserialize<ModelMod.Snapshot.SnapMeta>(f)
+                    p.Profile
+                else 
+                    ModelMod.SnapshotProfile.EmptyProfile
+
             // generate mod yaml 
             let modYamlFile = 
                 let modYamlFile = Path.Combine(modOutDir, modBasename + ".yaml")
@@ -207,6 +219,7 @@ mods:"""
                     ModType = "GPUReplacement"
                     Ref = refBasename
                     MeshPath = Path.GetFileName(modMMObjFile)
+                    Profile = snapProfile
                 }
                 let sr = new Serializer()
                 use sw = new StreamWriter(modYamlFile)

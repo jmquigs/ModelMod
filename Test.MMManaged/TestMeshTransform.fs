@@ -23,7 +23,7 @@ let ``MeshTransform: basic rotation``() =
 [<Test>]
 let ``MeshTransform: go ape with the monolith``() =
     // this test is too big, but it does exercise the majority of the transforming code, at least
-    let nm = monolith |> MeshTransform.applyMeshTransforms ["rot x 90"; "rot z 45"; "scale 0.5"] []
+    let nm = monolith |> MeshTransform.applyMeshTransforms [|"rot x 90"; "rot z 45"; "scale 0.5"|] [||]
 
     // for visual debugging:
     //MeshUtil.WriteObj nm (Path.Combine(Util.TestDataDir, "monolith.OUT.mmobj"))
