@@ -2,9 +2,18 @@
 
 open CoreTypes
 
+open System 
+
 /// Contains various game specific helper utilities for reading/writing mesh data
 /// Some of these were originally LLM-generated (openai o3)
 module DataEncoding =
+    /// Bitwise pack two int16s into a f32
+    let packIntoFloat (a:int16) (b:int16):float32 = 
+        // Combine the first pair of 16-bit integers (a and b) into a 32-bit integer.
+        let combined1 = (uint32 a &&& 0xFFFFu) ||| ((uint32 b &&& 0xFFFFu) <<< 16)
+        let packedFloat1 = BitConverter.ToSingle(BitConverter.GetBytes(combined1), 0)
+        packedFloat1
+
     module PackedVectorV1 = 
         /// Decode a single packed component and return (component, signBit)
         let private decodeComponent (raw:int16) : float32 * int =
@@ -68,6 +77,49 @@ module DataEncoding =
         let inline toFrac15 (c: float32) =
             let c = max -1.0f (min 1.0f c)
             int (System.Math.Round (float ((c * 0.5f + 0.5f) * FracScale)))
+
+        /// Inverse of `encode`  :  (int16 * int16) → Vec3F
+        let decode (w0: int16) (w1: int16) : (float32 * float32 * float32) =
+            //--------------------------------------------------------------------
+            // 1) pull the “which hemisphere?” flag back out of word‑0
+            //--------------------------------------------------------------------
+            let signBit   = if   w0 >= 0s then 1 else 0          // 1 ⇒ +Z hemi
+            let xQuantInt = if signBit = 1
+                            then int w0                          // already 0‥32767
+                            else int w0 + Shift                  // bring back to 0‥32767
+            let yQuantInt = int w1 + Shift                       // always 0‥32767
+
+            //--------------------------------------------------------------------
+            // 2) de‑quantise the two stored components to the (‑1 … +1) range
+            //--------------------------------------------------------------------
+            let xEnc = ((float32 xQuantInt) / FracScale - 0.5f) * 2.0f
+            let yEnc = ((float32 yQuantInt) / FracScale - 0.5f) * 2.0f
+
+            //--------------------------------------------------------------------
+            // 3) unfold the lower hemisphere if necessary
+            //--------------------------------------------------------------------
+            let mutable x, y =
+                if signBit = 1 then
+                    // original vector was already on +Z side
+                    xEnc, yEnc
+                else
+                    // we had folded it across the XY diagonal in `encode`
+                    let sx, sy = sgn xEnc, sgn yEnc
+                    sx * (1.0f - abs yEnc),        //  |yOrig| = 1 − |xEnc|
+                    sy * (1.0f - abs xEnc)         //  |xOrig| = 1 − |yEnc|
+
+            //--------------------------------------------------------------------
+            // 4) recover Z and put the sign back
+            //--------------------------------------------------------------------
+            let z =
+                let zAbs = sqrt (max 0.0f (1.0f - x*x - y*y))   // always ≥ 0
+                if signBit = 1 then  zAbs else -zAbs
+
+            //--------------------------------------------------------------------
+            // 5) normalise (quantisation & rounding can knock length off slightly)
+            //--------------------------------------------------------------------
+            let lenInv = 1.0f / sqrt (x*x + y*y + z*z)
+            (x*lenInv, y*lenInv, z*lenInv)
 
         /// Octahedral encode : Vec3 → int16 × int16          (works for N, T, B)
         let encode (v: Vec3F) : int16 * int16 =

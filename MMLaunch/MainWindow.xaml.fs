@@ -63,8 +63,8 @@ module LocStrings =
         let DoSnapshot = "Take snapshot of current selection"
 
     module Snapshot =
-        let Header = "Snapshot Transforms:"
-        let Desc1 = "The following transforms will be applied"
+        let Header = "Snapshot Profile:"
+        let Desc1 = "The following profile settings will be applied"
         let PosLabel = "Position: "
         let UVLabel = "UV: "
 
@@ -566,9 +566,7 @@ type MainViewModel() as self =
                         |> Map.tryFind profile.SnapshotProfile
                         |> function
                             | None -> LocStrings.Errors.NoSnapshotDescription
-                            | Some profile ->
-                                LocStrings.Snapshot.Desc1 + "\n" + LocStrings.Snapshot.PosLabel + (makeStringList <| profile.PosXForm()) + "\n"
-                                + LocStrings.Snapshot.UVLabel + (makeStringList <| profile.UVXForm())
+                            | Some profile -> profile.ToString()
 
                     LocStrings.Snapshot.Header + "\n" + stext
 

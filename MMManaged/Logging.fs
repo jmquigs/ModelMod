@@ -62,3 +62,26 @@ module Logging =
                 loggers.Add(category,logger)
                 logger
         logger
+
+    type logOnceFn = (string -> unit)
+
+    let logOnce(infoWarnOrError:int): logOnceFn = 
+        let log = getLogger("LogOnce")
+        let mutable logged = false
+        fun msg -> 
+            if not logged then 
+                match infoWarnOrError with 
+                | 0 -> log.Info "%s" msg
+                | 1 -> log.Warn "%s" msg
+                | _ -> log.Error "%s" msg
+                logged <- true
+
+    let mutable logOnceFns = new Dictionary<string, logOnceFn>()
+    let getLogOnceFn(onceFnId:string,infoWarnOrError:int) = 
+        let ok, ofn = logOnceFns.TryGetValue onceFnId
+        if ok then 
+            ofn 
+        else 
+            let ofn = logOnce(infoWarnOrError)
+            logOnceFns.Add(onceFnId, ofn)
+            ofn

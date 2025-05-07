@@ -10,14 +10,30 @@ open System.IO
 /// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may
 /// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is
 /// in the correct space for the game.
+/// More recently the profile has been extended to specify how certain parts of the mesh data (e.g tangent space vectors)
+/// should be interpreted, both during snapshot and mod load.
+
 /// SnapshotProfiles are loaded from yaml files in the "SnapshotProfiles" subdirectory of the modelmod installation folder.
 module SnapshotProfile =
-    type Profile(name,posX,uvX,flipTangent,vecEncoding) =
-        member x.Name() = name
-        member x.PosXForm() = posX
-        member x.UVXForm() = uvX
-        member x.FlipTang() = flipTangent
-        member x.VecEncoding() = vecEncoding
+    let private log = Logging.getLogger("SnapshotProfile")
+
+    type Profile(name,posX,uvX,flipTangent,vecEncoding:string) =
+        let vecEncoding = vecEncoding.Trim()
+        let isPacked = vecEncoding.ToLowerInvariant() = "packed"
+        let isOcta = vecEncoding.ToLowerInvariant() = "octa"
+
+        do 
+            if vecEncoding = "" && not isPacked && not isOcta then 
+                log.Warn "Illegal vector encoding for specified profile %A: %A" name vecEncoding
+
+        member x.Name with get() = name
+        member x.PosXForm with get() = posX
+        member x.UVXForm with get() = uvX
+        member x.FlipTang with get() = flipTangent
+        member x.VecEncoding with get() = vecEncoding
+
+        member x.IsPackedVec() = isPacked
+        member x.IsOctaVec() = isOcta
 
         override x.ToString() =
             sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A]" name posX uvX flipTangent vecEncoding

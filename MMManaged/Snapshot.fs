@@ -36,6 +36,9 @@ type TransformState9 = SharpDX.Direct3D9.TransformState
 
 type Device11 = SharpDX.Direct3D11.Device
 
+open YamlDotNet.Serialization
+open YamlDotNet.Serialization.NamingConventions
+
 open CoreTypes
 
 open FSharp.Core
@@ -49,7 +52,29 @@ module Extractors =
     let xPosFromFloat3 (br:SourceReader) = br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
     let xTexFromFloat2 (br:SourceReader) = br.ReadSingle(), br.ReadSingle()
     let xTexFromHalfFloat2 (br:SourceReader) = MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+    let xTexFrom2S16_x2S16 (br:SourceReader) = 
+        let x1 = br.ReadInt16()
+        let x2 = br.ReadInt16()
+        let _ = br.ReadBytes(4) // second 2 s16s ignored        
+        let x1 = max -1.0f (single(x1) / 32767.f)
+        let x2 = max -1.0f (single(x2) / 32767.f)
+        // May need to do more here (reversing and such), or remap to 0..1
+        (x1,x2)
+
+    let xTexFrom2S16 (br:SourceReader) = 
+        let x1 = br.ReadInt16()
+        let x2 = br.ReadInt16()
+        let x1 = max -1.0f (single(x1) / 32767.f)
+        let x2 = max -1.0f (single(x2) / 32767.f)            
+        // May need to do more here (reversing and such), or remap to 0..1
+        (x1,x2)
     let xNrmFromFloat3 (br:SourceReader) = br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
+    let xNrmFromHalfFloat4 (br:SourceReader) = 
+        MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), 
+        MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+    let xNrmFromHalfFloat2 (br:SourceReader) = 
+        MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+
     let xNrmFromUbyte4 (br:SourceReader) =
         // not sure if all 4 byte normals will be encoded the same way...will warn about these
         let x,y,z,_ = byteToFloat (br.ReadByte()), byteToFloat (br.ReadByte()), byteToFloat (br.ReadByte()), br.ReadByte()
@@ -93,9 +118,13 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
+    type SnapMeta(profile:SnapshotProfile.Profile) = 
+        member x.Profile with get() = profile
+        member x.Context with get() = CoreState.Context
+
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
-    let private readElement (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
+    let private readElement (snapProfile:SnapshotProfile.Profile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
         let fns =
             if el.SemanticIndex = 0 then
                 fns
@@ -115,13 +144,53 @@ module Snapshot =
                 | _ -> failwithf "Unsupported type for %s: %A" name dt
             | MMET.Format(f) ->
                 match f with
+                | SDXF.R16G16B16A16_SNorm
+                | SDXF.R16G16B16A16_SInt -> 
+                    // if the profile indicates these are packed or octa, we can read them, otherwise we probably 
+                    // won't interpret them correctly
+                    
+                    let a = reader.ReadInt16()
+                    let b = reader.ReadInt16()
+                    // most likely these are the tangent which currently isn't included as part of snapshot
+                    let c = reader.ReadInt16()
+                    let d = reader.ReadInt16()
+
+                    if snapProfile.IsPackedVec() then 
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using packed decode for %A" name)
+                        let res = DataEncoding.PackedVectorV1.decode a b
+                        outputFn res
+                    else if snapProfile.IsOctaVec() then 
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using octa decode for %A" name)
+                        let res = DataEncoding.OctaV1.decode a b
+                        outputFn res
+                    else
+                        // Unknown format, just pack the bits in to the floats.  
+                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (sprintf "No encoding specified, using bits for %A" name)
+                        outputFn (DataEncoding.packIntoFloat a b , DataEncoding.packIntoFloat c d, 0.0f)
+
+                | SDXF.R16G16_SInt -> 
+                    let a = reader.ReadInt16()
+                    let b = reader.ReadInt16()
+                    if snapProfile.IsPackedVec() then 
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using packed decode for %A" name)
+                        let res = DataEncoding.PackedVectorV1.decode a b
+                        outputFn res
+                    else if snapProfile.IsOctaVec() then 
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using octa decode for %A" name)
+                        let res = DataEncoding.OctaV1.decode a b
+                        outputFn res
+                    else
+                        // Unknown format, just pack the bits in to the floats.  
+                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (sprintf "No encoding specified, using bits for %A" name)
+                        outputFn (DataEncoding.packIntoFloat a b , 0.0f, 0.0f)
+
                 | SDXF.R32G32B32_Float ->
                     outputFn (Extractors.xNrmFromFloat3 reader)
                 | SDXF.R8G8B8A8_UInt
                 | SDXF.R8G8B8A8_UNorm ->
                     outputFn (Extractors.xNrmFromUbyte4 reader)
                 | _ -> failwithf "Unsupported format for %s: %A" name f
-
+        
         match el.Semantic with
             | MMVES.Position ->
                 match el.Type with
@@ -147,10 +216,14 @@ module Snapshot =
                     | _ -> failwithf "Unsupported type for texture coordinate: %A" dt
                 | MMET.Format(f) ->
                     match f with
+                    | SDXF.R16G16B16A16_SNorm ->
+                        fns.TexCoord (Extractors.xTexFrom2S16_x2S16 reader)
                     | SDXF.R32G32_Float ->
                         fns.TexCoord (Extractors.xTexFromFloat2 reader)
                     | SDXF.R16G16_Float ->
                         fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
+                    | SDXF.R16G16_SNorm -> 
+                        fns.TexCoord (Extractors.xTexFrom2S16 reader)
                     | _ -> failwithf "Unsupported format for texture coordinate: %A" f
             | MMVES.Normal -> handleVector "normal" fns.Normal
             | MMVES.Binormal -> handleVector "binormal" fns.Binormal
@@ -210,6 +283,10 @@ module Snapshot =
                         reader.ReadSingle() |> ignore
                         reader.ReadSingle() |> ignore
                         reader.ReadSingle() |> ignore
+                    | SDXF.B8G8R8A8_UNorm -> 
+                        // no idea if this is the right ordering
+                        reader.ReadBytes(4) |> ignore
+
                     | _ -> failwithf "Unsupported format for color: %A" f
             | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
@@ -558,6 +635,18 @@ module Snapshot =
                 | s ->
                     failwithf "unrecognized context: %s" s
 
+            // set snap profile since decoding may need it
+            let snapProfile =
+                State.Data.SnapshotProfiles
+                |> Map.tryFind State.Data.Conf.SnapshotProfile
+                |> function
+                    | None ->
+                        log.Warn "No snap profile found for: '%A', using empty profile (no transforms)" State.Data.Conf.SnapshotProfile
+                        SnapshotProfile.EmptyProfile
+                    | Some s ->
+                        log.Info "Applying snap profile: %A" s
+                        s
+
             // sort elements ascending by offset to avoid seeking the reader
             let declElements = dss.VertElements |> List.ofArray |> List.sortBy (fun el -> el.Offset)
 
@@ -595,7 +684,7 @@ module Snapshot =
             )
 
             // create per-element read function bound to the reader
-            let readVertElement = readElement readOutputFns readIgnoreFns dss.VBReader
+            let readVertElement = readElement snapProfile readOutputFns readIgnoreFns dss.VBReader
 
             // start at minIndex and write out numVerts (we only write the verts used by the DIP call)
             let vbStartOffset = int64 dss.OffsetBytes + ((int64 sd.BaseVertexIndex + int64 sd.MinVertexIndex) * int64 dss.StrideBytes)
@@ -675,19 +764,8 @@ module Snapshot =
                 |> List.filter (fun (i,(tName,tPath)) -> tName <> "")
                 |> Map.ofList
 
-            let snapProfile =
-                State.Data.SnapshotProfiles
-                |> Map.tryFind State.Data.Conf.SnapshotProfile
-                |> function
-                    | None ->
-                        log.Warn "No transforms found for profile: %A" State.Data.Conf.SnapshotProfile
-                        SnapshotProfile.EmptyProfile
-                    | Some s ->
-                        log.Info "Applying transforms: %A" s
-                        s
-
-            let appliedPosTransforms = snapProfile.PosXForm()
-            let appliedUVTransforms = snapProfile.UVXForm()
+            let appliedPosTransforms = snapProfile.PosXForm
+            let appliedUVTransforms = snapProfile.UVXForm
 
             // use the first texture (if available) as the mesh material
             let texName idx = if texturePaths.ContainsKey idx then (fst <| texturePaths.Item idx) else ""
@@ -760,6 +838,13 @@ module Snapshot =
                     ())
 
             dss.WriteTransforms(baseDir, sbasename)
+
+            // write the snapshot metadata file
+            let metaFile = Path.Combine(baseDir, (sprintf "%s_Meta.yaml" sbasename))
+            let serializer = Serializer()
+            let sw = new StringWriter();
+            serializer.Serialize(sw, SnapMeta(snapProfile))
+            File.WriteAllText(metaFile, (sw.ToString()))
 
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir
 
