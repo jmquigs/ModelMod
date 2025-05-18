@@ -24,6 +24,167 @@ open YamlDotNet.Serialization
 
 open ViewModelUtil
 
+/// Helper for DDS files, mostly LLM generated
+module DdsUtil =
+    open System
+    open System.IO
+    open System.Text
+
+    type HeaderInfo = { FourCC : string; HasDX10 : bool }
+
+    let PathToTexCli = [ "TPlib"; "..\\TPLib"; "..\\..\\TPLib"; "..\\..\\..\\TPLib";  ]
+    let PathToSnapshotProfiles = [ "SnapshotProfiles"; "..\\SnapshotProfiles"; "..\\..\\SnapshotProfiles"; "..\\..\\..\\SnapshotProfiles" ]
+    let SnapTexFormatFile = "TexFormat.txt"
+    let TexConvName = "texconv.exe"
+
+    /// Returns the absolute path of the first existing directory in a list of paths, or None if none exist
+    let findFirstExistingPath paths : string option =
+        // Map each path to its full path based on the current directory
+        let fullPaths = paths |> List.map Path.GetFullPath
+        // Find the first path (if any) that exists from the mapped paths
+        fullPaths |> List.tryFind Directory.Exists
+
+    let readHeader (path : string) : HeaderInfo =
+        use br = new BinaryReader(File.OpenRead path)
+
+        if br.ReadUInt32() <> 0x20534444u then
+            invalidOp "Not a DDS file."
+
+        br.BaseStream.Seek(84L, SeekOrigin.Begin) |> ignore
+        let fourCCu = br.ReadUInt32()
+        let fourCC  = Encoding.ASCII.GetString(BitConverter.GetBytes fourCCu)
+
+        { FourCC = fourCC; HasDX10 = (fourCC = "DX10") }
+
+    /// Read the 4-byte FourCC at offset 84 (0x54) in the DDS header
+    /// Returns true if it equals "DX10"
+    let needsConversion (filePath : string) : bool =
+        (readHeader filePath).HasDX10
+
+    open System.Globalization
+    open System.Diagnostics
+
+    let readSnapTexFormatFile () : string * Map<uint32, string> =
+        // Find the first existing path for SnapTexFormatFile
+        let filePath =
+            PathToSnapshotProfiles
+            |> List.map (fun dir -> Path.Combine(dir, SnapTexFormatFile))
+            |> List.tryFind File.Exists
+
+        // If no path is found, fail with an error
+        let filePath =
+            match filePath with
+            | Some path -> path
+            | None -> failwithf "%A not found in any of the specified paths: %A (relative to: %A)" SnapTexFormatFile PathToSnapshotProfiles (Environment.CurrentDirectory)
+
+        // Read the file and process each line
+        // syntax: src dxgi input format number (from dxgiformat.h) = list of flags to be supplied to texconv
+        // example: 71 = -f BC1_UNORM -dx9
+        let lines = File.ReadAllLines(filePath)
+        let kvpList =
+            lines
+            |> Array.choose (fun line ->
+                let trimmedLine = line.Trim()
+
+                // Skip blank lines or comments
+                if String.IsNullOrWhiteSpace(trimmedLine) || trimmedLine.StartsWith("//") || trimmedLine.StartsWith("#") then
+                    None
+                else
+                    // Find the position of '='
+                    let equalIndex = trimmedLine.IndexOf('=')
+                    if equalIndex >= 0 then
+                        let keyPart = trimmedLine.Substring(0, equalIndex).Trim()
+                        let valuePart = trimmedLine.Substring(equalIndex + 1).Trim()
+
+                        // Parse the key
+                        let key =
+                            if keyPart.ToLowerInvariant().StartsWith("0x") then
+                                let hexValue = keyPart.Substring(2)
+                                UInt32.Parse(hexValue, NumberStyles.HexNumber)
+                            else
+                                UInt32.Parse(keyPart)
+
+                        // Use the trimmed value as the map value
+                        Some (key, valuePart)
+                    else
+                        None // If no '=' is found, skip the line
+            )
+
+        // Convert the list of key-value pairs to a map
+        filePath,Map.ofArray kvpList
+
+    let readFormat(path:string) = 
+        let hdr = readHeader path 
+        if not hdr.HasDX10 then failwithf "file format read only supported on dx10+ dds texture files"
+
+        use br = new BinaryReader(File.OpenRead path)
+        
+        br.BaseStream.Seek(0x80L, SeekOrigin.Begin) |> ignore
+        br.ReadUInt32()
+
+    /// Converts a DDS file based on its format.
+    /// - `filePath`: The full absolute path to the DDS texture file.
+    let convertFile (filePath: string) =
+        // Read the format of the DDS file.
+        let format = readFormat filePath
+
+        // Read the SnapTexFormatFile map.
+        let formatFile,formatMap = readSnapTexFormatFile()
+
+        // Lookup the read format in the map.
+        let convertArgs = 
+            match formatMap.TryFind(format) with
+            | Some flags -> flags // Return the found flags.
+            | None -> failwithf "DDS DXGI Format %A used by texture was not found in the format map; it needs to be added to %A" format formatFile
+
+        // Determine the path to TexConvName using PathToTexCli, fail with a formatted message if not found.
+        let texConvPath =
+            match findFirstExistingPath PathToTexCli with
+            | Some path -> Path.Combine(path, TexConvName)
+            | None -> failwithf "%s not found in any of the specified paths: %A (relative to: %A)" TexConvName PathToTexCli (Environment.CurrentDirectory)
+
+        // Validate that the executable exists at the determined path.
+        if not (File.Exists(texConvPath)) then
+            failwithf "TexConv executable not found at %s" texConvPath
+
+        // Prepare the command line arguments.
+        let arguments = sprintf "-y %s \"%s\"" convertArgs filePath
+
+        // Set up the process start info.
+        let startInfo =
+            ProcessStartInfo(
+                FileName = texConvPath,
+                Arguments = arguments,
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(filePath),
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            )
+
+        // Execute the process.
+        use proc = new Process()
+        proc.StartInfo <- startInfo
+
+        let mutable errorOut = "";
+        let mutable stdOut = "";
+
+        proc.OutputDataReceived.Add(fun args -> if not (String.IsNullOrWhiteSpace(args.Data)) then stdOut <- stdOut + args.Data)
+        proc.ErrorDataReceived.Add(fun args -> if not (String.IsNullOrWhiteSpace(args.Data)) then errorOut <- errorOut + args.Data)
+
+        // Start the process and begin reading output and error streams asynchronously.
+        proc.Start() |> ignore
+        proc.BeginOutputReadLine()
+        proc.BeginErrorReadLine()
+
+        // Wait for the process to exit.
+        proc.WaitForExit()
+
+        // Check if the process exited with a non-zero exit code.
+        if proc.ExitCode <> 0 then
+            failwithf "TexConv process failed with exit code %d (error output: %A)" proc.ExitCode errorOut
+
+
 module ModUtil =
 
     type YamlRef = {
@@ -87,8 +248,8 @@ mods:"""
                 Ok(())
         with 
             | e -> Err(e.Message)
-
-    let createMod (modRoot:string) (modName:string) (srcMMObjFile:string):Result<ModFilePath,Message> = 
+    
+    let createMod (modRoot:string) (modName:string) (convertTextures:bool) (srcMMObjFile:string) : Result<ModFilePath,Message> = 
         try
             let modName = modName.Trim()
             if modName = "" then 
@@ -156,7 +317,12 @@ mods:"""
                                     let texExt = ".dds"
                                     let texBN = refBasename + texExt
                                     let newTexFile = Path.Combine(modOutDir, texBN)
+                                    
                                     File.Copy(texSrc,newTexFile)
+
+                                    if convertTextures && DdsUtil.needsConversion texSrc then 
+                                        DdsUtil.convertFile newTexFile
+
                                     texBN
                                 else
                                     texFile

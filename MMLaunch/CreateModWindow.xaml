@@ -53,5 +53,6 @@
         <Button 
             Command="{Binding Path=RemoveSnapshots}"
             Content="Remove Snapshots" HorizontalAlignment="Left" Margin="150,195,0,0" VerticalAlignment="Top" Width="125" Height="27"/>
+        <CheckBox x:Name="convertTex" ToolTip="If needed, convert textures into d3d9 format readable by blender 2.79b" Content="Convert Textures" HorizontalAlignment="Left" Margin="200,368,0,0" VerticalAlignment="Top" Width="116" IsChecked="{Binding Path=ConvertTextures}"/>
     </Grid>
 </Window>

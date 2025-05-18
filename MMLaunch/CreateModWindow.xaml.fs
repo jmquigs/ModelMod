@@ -56,6 +56,7 @@ type CreateModViewModel() as self =
     let mutable modNameTB: TextBox option = None
     let mutable mmobjFiles = new ObservableCollection<MMObjFileModel>([])
     let mutable addToModIndex = true
+    let mutable convertTextures = true
     let mutable removeSnapshotsFn = ignore
 
     let mutable sdWriteTime = DateTime.Now
@@ -183,6 +184,10 @@ type CreateModViewModel() as self =
         with get() = addToModIndex
         and set value = addToModIndex <- value
 
+    member x.ConvertTextures 
+        with get() = convertTextures
+        and set value = convertTextures <- value
+        
     member x.CanCreate = 
         let mnvalid = 
             match validateModName(modName) with 
@@ -208,7 +213,7 @@ type CreateModViewModel() as self =
                 | Err(e),_ -> ViewModelUtil.pushDialog(e)
                 | _,None -> ()
                 | Ok(_),Some(file) ->
-                    match (ModUtil.createMod dataDir modName file.FullPath) with
+                    match (ModUtil.createMod dataDir modName convertTextures file.FullPath) with
                     | Ok(modFile) -> 
                         let createdMessage = sprintf "Import %s into blender to edit." modFile
                         let modIndexErr = 
