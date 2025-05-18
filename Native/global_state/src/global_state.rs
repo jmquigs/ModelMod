@@ -23,7 +23,7 @@ use types::d3dx;
 
 use snaplib::anim_snap_state::AnimSnapState;
 
-pub const MAX_STAGE: usize = 16;
+pub const MAX_STAGE: usize = 40;
 
 /// Enable this to dump out a file containing metrics for primitives every
 /// few seconds.  The file is `rendered_last_frame.txt` and is stored in the
@@ -207,7 +207,7 @@ impl<'a> GSPointerRef<'a> {
             }
         }
         GSPointerRef {
-            gsp: unsafe { addr_of_mut!(GLOBAL_STATE) },
+            gsp: addr_of_mut!(GLOBAL_STATE),
             marker: PhantomData,
         }
     }
