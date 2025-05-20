@@ -49,6 +49,69 @@ module InteropTypes =
         val mutable Data:System.IntPtr
         val mutable Size:int32
 
+    let MaxModSnapProfileXFormLen = 8
+
+    [<Struct; StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
+    type ModSnapProfileXFormString = {
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)>]
+        Text : string    
+    }
+
+    let makeXFormString (s:string) = 
+        let maxChars = 255
+        let trimmed =
+            if System.String.IsNullOrEmpty s then ""
+            elif s.Length > maxChars then s.Substring(0, maxChars)
+            else s
+        { Text = trimmed }
+
+    /// The profile that was used to snapshot the mod.  Manage code will typically reverse Pos and UV transforms during mod load,
+    /// but unmanaged code can handle other details such as generating tangent space or packing vectors in correct format.
+    /// Not all mods will have this, so unmanaged code should check the "Valid" field to see if it is populated.
+    [<Struct; StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
+    type ModSnapProfile = {
+        /// Whether the fields have been set on this profile, unmanaged code uses this to determine 
+        /// whether to use it or not (essentially makes it a implicit "option" type)
+        [<MarshalAs(UnmanagedType.U1)>]
+        Valid: bool
+
+        /// Name of this profile
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)>]
+        Name: string
+    
+        /// Number of position transforms
+        PosXLength: int
+        [<MarshalAs(UnmanagedType.ByValArray, SizeConst=8)>]
+        /// Position transforms
+        PosX: ModSnapProfileXFormString[]
+    
+        /// Number of UV transforms
+        UVXLength: int
+        [<MarshalAs(UnmanagedType.ByValArray, SizeConst=8)>]
+        /// UV transforms
+        UVX: ModSnapProfileXFormString[]
+
+        /// Whether to flip tangents
+        [<MarshalAs(UnmanagedType.U1)>]
+        FlipTangent: bool
+    
+        /// How vectors should be encoded in d3d data
+        [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)>]
+        VecEncoding: string
+    }
+
+    // Example empty value for InteropProfile
+    let EmptyModSnapProfile = {
+        Valid = false
+        Name = ""
+        PosXLength = 0
+        PosX = Array.create MaxModSnapProfileXFormLen (makeXFormString "")
+        UVXLength = 0
+        UVX = Array.create MaxModSnapProfileXFormLen (makeXFormString "")
+        FlipTangent = false
+        VecEncoding = ""
+    }
+
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.
     [<StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)>]
     type ModData = {
@@ -79,6 +142,7 @@ module InteropTypes =
         ParentModName: string
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         PixelShaderPath: string
+        SnapProfile: ModSnapProfile
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
@@ -101,6 +165,7 @@ module InteropTypes =
         ParentModName = ""
         PixelShaderPath = ""
         UpdateTangentSpace = -1
+        SnapProfile = EmptyModSnapProfile
     }
 
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]

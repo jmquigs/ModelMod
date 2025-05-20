@@ -252,6 +252,11 @@ module ModDBInterop =
             | None -> -1
             | Some(upd) -> if upd then 1 else 0
 
+        let profile = 
+            match meshrel.DBMod.Profile with 
+            | None -> EmptyModSnapProfile
+            | Some(p) -> SnapshotProfile.toInteropStruct p
+
         {
             InteropTypes.ModData.ModType = modType
             PrimType = primType
@@ -271,6 +276,7 @@ module ModDBInterop =
             ModName = mname
             ParentModName = parentModName
             UpdateTangentSpace = updateTS
+            SnapProfile = profile
         }
 
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.

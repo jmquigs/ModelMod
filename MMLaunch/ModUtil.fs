@@ -200,7 +200,7 @@ module ModUtil =
         Ref: string
         ModType: string // subtype of the mod (gpureplacement, etc)
         MeshPath: string
-        Profile: ModelMod.SnapshotProfile.Profile
+        Profile: ModelMod.CoreTypes.SnapProfile
     }
 
     let getOutputPath modRoot modName = Path.GetFullPath(Path.Combine(modRoot, modName))

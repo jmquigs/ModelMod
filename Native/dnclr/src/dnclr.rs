@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use types::interop::{ModData, ModSnapProfile};
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::{REFCLSID, REFIID};
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, HMODULE, LPVOID, UINT};
@@ -82,7 +83,7 @@ struct CLRGlobalState {
     runtime_host: *mut ICLRRuntimeHost
 }
 
-const NATIVE_CODE_VERSION:i32 = 3;
+const NATIVE_CODE_VERSION:i32 = 4;
 
 static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
     runtime_host: null_mut()
@@ -263,10 +264,12 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
         let ptr = global_state_ptr.gsp as usize;
         drop(global_state_ptr); // to avoid the gs tracking code logging when the managed code calls OnInitialized
         let argument = util::to_wide_str(&format!(
-            "{}|{}|{}",
+            "{}|{}|{}|mod_structsize={}|mod_snapprofile_structsize={}",
             ptr,
             run_context,
-            NATIVE_CODE_VERSION
+            NATIVE_CODE_VERSION,
+            size_of::<ModData>(),
+            size_of::<ModSnapProfile>(),
         ));
     unsafe {
         let mut ret: u32 = 0xFFFFFFFF;

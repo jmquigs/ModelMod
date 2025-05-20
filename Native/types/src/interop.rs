@@ -32,6 +32,28 @@ pub struct ModNumbers {
     pub vert_size_bytes: i32,
     pub index_elem_size_bytes: i32,
 }
+
+const MAX_SNAPPROFILE_STRING: usize = 256;
+const MAX_TRANSFORM_SIZE: usize = 8;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ModSnapProfile {
+    pub valid: bool,
+
+    pub name: [WCHAR; MAX_SNAPPROFILE_STRING],
+
+    pub pos_xfrm_length: i32,
+    pub pos_xfrm: [[WCHAR; MAX_SNAPPROFILE_STRING]; MAX_TRANSFORM_SIZE],
+
+    pub uv_xfrm_length: i32,
+    pub uv_xfrm: [[WCHAR; MAX_SNAPPROFILE_STRING]; MAX_TRANSFORM_SIZE],
+
+    pub flip_tangent: bool,
+
+    pub vec_encoding: [WCHAR; MAX_SNAPPROFILE_STRING],
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 /// Contains information and data associated with a mod, but _not_ any D3D resources.
@@ -47,6 +69,7 @@ pub struct ModData {
     pub modName: [WCHAR; MAX_MOD_NAME_LEN],
     pub parentModName: [WCHAR; MAX_MOD_NAME_LEN],
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
+    pub mod_snap_profile: ModSnapProfile,
 }
 
 impl ModData {

@@ -84,6 +84,11 @@ module Yaml =
         | None -> failwithf "Required value '%s' not found in node type '%A'" key mapNode
         | Some v -> v
 
+    let getOptionalBool (key:string) (mapNode:YamlMappingNode) = 
+        mapNode |> getOptionalValue key |> toOptionalBool
+    let getOptionalString (key:string) (mapNode:YamlMappingNode) = 
+        mapNode |> getOptionalValue key |> toOptionalString
+
     /// Walks the list of keys and returns the first value found in the mapping.
     /// Throws exception if none found.
     let getFirstValue (keys:string list) (mapNode:YamlMappingNode) =

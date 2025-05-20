@@ -31,6 +31,7 @@ open StartConf
 open CoreTypes
 open InteropTypes
 open VertexTypes
+open SnapshotProfile
 
 /// Contains the "Mod Database"; functions for reading yaml, mmobj, and other files and storing them in memory.
 module ModDB =
@@ -227,6 +228,12 @@ module ModDB =
 
         let computeTS = node |> Yaml.getOptionalValue "UpdateTangentSpace" |> Yaml.toOptionalBool
 
+        // has a profile?
+        let profile = 
+            match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with 
+            | Some(profile) -> Some(loadSingleProfile "" profile)
+            | None -> None
+
         let md = {
             DBMod.RefName = refName
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
@@ -237,6 +244,7 @@ module ModDB =
             PixelShader = pixelShader
             ParentModName = parentModName
             UpdateTangentSpace = computeTS
+            Profile = profile
         }
 
         let numOverrideTextures =
@@ -246,7 +254,7 @@ module ModDB =
                 let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
                 oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path
 
-        log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d" modName modType refName weightMode numOverrideTextures
+        log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d: profile: %A" modName modType refName weightMode numOverrideTextures profile
         Mod(md)
 
     /// Read an SDX vertex element from the specified stream.

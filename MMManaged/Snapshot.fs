@@ -119,7 +119,7 @@ module Snapshot =
     }
 
     type SnapMeta() = 
-        let mutable profile:SnapshotProfile.Profile = SnapshotProfile.EmptyProfile
+        let mutable profile:CoreTypes.SnapProfile = SnapshotProfile.EmptyProfile
         let mutable context:string = ""
 
         static member Create(profile):SnapMeta = 
@@ -133,7 +133,7 @@ module Snapshot =
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
-    let private readElement (snapProfile:SnapshotProfile.Profile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
+    let private readElement (snapProfile:CoreTypes.SnapProfile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
         let fns =
             if el.SemanticIndex = 0 then
                 fns

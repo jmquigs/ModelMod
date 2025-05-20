@@ -509,10 +509,28 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        write_log_file(&format!("==> Initializing mod: name '{}', idx: {}, parents '{:?}', type {}, prims {}, verts {} (ref prims {}, ref verts {})",
+        
+        let prof = (*mdat).mod_snap_profile;
+        let fliptangent;
+        let vecencoding;
+        let prof_info_string;
+        if prof.valid {
+            // we only care about the vec encoding and flip tangent
+            fliptangent = prof.flip_tangent;
+            vecencoding = util::from_wide_str(&prof.vec_encoding).unwrap_or_else(|_e| "".to_owned());
+            prof_info_string = format!("[profile: fliptangent: {}, vec encoding: {}]", fliptangent, vecencoding);
+        } else {
+            prof_info_string = "[profile: none or invalid]".to_string() 
+        }
+
+        write_log_file(&format!("==> Initializing mod: name '{}', idx: {}, parents '{:?}', type {}, 
+            prims {}, verts {} (ref prims {}, ref verts {}) {}",
             mod_name, midx,
             parent_mods, (*mdat).numbers.mod_type, prims, verts,
-            (*mdat).numbers.ref_prim_count, (*mdat).numbers.ref_vert_count));
+            (*mdat).numbers.ref_prim_count, (*mdat).numbers.ref_vert_count,
+            prof_info_string
+        ));
+
         let mod_type = (*mdat).numbers.mod_type;
         if mod_type != interop::ModType::GPUReplacement as i32
             && mod_type != interop::ModType::GPUAdditive as i32

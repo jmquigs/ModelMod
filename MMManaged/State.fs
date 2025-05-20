@@ -93,7 +93,7 @@ module State =
     let mutable private _conf = CoreTypes.DefaultRunConfig
     let mutable private _locator = DirLocator(_rootDir,_conf)
     let mutable private _loadState = InteropTypes.AsyncLoadState.NotStarted
-    let mutable private _snapProfiles:Map<string,SnapshotProfile.Profile> = Map.ofList []
+    let mutable private _snapProfiles:Map<string,CoreTypes.SnapProfile> = Map.ofList []
 
     // access to the muties out side of the module goes through this, via the "Data" field below.
     type StateDateAccessor() =

@@ -16,6 +16,7 @@
 
 namespace ModelMod
 
+open System
 open SharpDX.Direct3D9
 
 // Shorthand type defs
@@ -218,6 +219,41 @@ module CoreTypes =
         ReverseTransform = true
     }
 
+    /// A snapshot profile controls what types of data transformations
+    /// (typically vertex position and uv coordinates) that are applied by the snapshotter.  These are typically used to
+    /// position the snapshotted mesh in a location that is convenient for use in a 3D tool (therefore, different tools may
+    /// need different profiles for the same game).  The transforms are automatically reversed on load so that the data is
+    /// in the correct space for the game.
+    /// More recently the profile has been extended to specify how certain parts of the mesh data (e.g tangent space vectors)
+    /// should be interpreted, both during snapshot and mod load.
+    type SnapProfile() =
+        let mutable name:string = "";
+        let mutable posX:ResizeArray<String> = new ResizeArray<string>();
+        let mutable uvX:ResizeArray<String> = new ResizeArray<string>();
+        let mutable flipTangent:bool = false;
+        let mutable vecEncoding:string = "";
+
+        static member Create(name,posX,uvX,flipTangent,vecEncoding:string):SnapProfile = 
+            let p = new SnapProfile()
+            p.Name <- name
+            p.PosXForm <- posX 
+            p.UVXForm <- uvX
+            p.FlipTang <- flipTangent
+            p.VecEncoding <- vecEncoding
+            p
+
+        member x.Name with get() = name and set v = name <- v
+        member x.PosXForm with get() = posX and set v = posX <- v 
+        member x.UVXForm with get() = uvX and set v = uvX <- v
+        member x.FlipTang with get() = flipTangent and set v = flipTangent <- v
+        member x.VecEncoding with get() = vecEncoding and set v = vecEncoding <- v
+
+        member x.IsPackedVec() = vecEncoding.Trim().ToLowerInvariant() = "packed"
+        member x.IsOctaVec() = vecEncoding.Trim().ToLowerInvariant() = "octa"
+
+        override x.ToString() =
+            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A]" name posX uvX flipTangent vecEncoding
+
     /// Basic storage for everything that we consider to be "mesh data".  This is intentionally pretty close to the
     /// renderer level; i.e. we don't have fields like "NormalMap" because the texture stage used for will vary
     /// across games or even within the same game.  Generally if you want to customize a texture its up to you to make
@@ -303,6 +339,8 @@ module CoreTypes =
         /// Setting this to false disables the update (and thus the fixed coordinate axis will be used).  Setting this to true always
         /// regenerates even if tangent space is globally disabled in the game profile.  When left unspecified the global default is used.
         UpdateTangentSpace: bool option
+        /// Snapshot profile; optional since many older mods will not have this.
+        Profile: SnapProfile option
     }
 
     /// Union Parent type for the yaml objects.

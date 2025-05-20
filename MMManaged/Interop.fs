@@ -56,8 +56,8 @@ type InteropInitStruct =
 /// loading the assembly.
 type Main() =
     /// The native code version that this managed code is compatible with.  This should be bumped each
-    /// time the interop interface (e.g struct layouts) change.
-    static let NativeCodeVersion = 3
+    /// time the interop interface (e.g struct layouts) change.  (also see NATIVE_CODE_VERSION in rust code)
+    static let NativeCodeVersion = 4
 
     static let mutable oninitialized: ((MMNative.ManagedCallbacks * uint64) -> int) option = None
     static let mutable log:Logging.ILog option = None
@@ -179,6 +179,8 @@ type Main() =
 
     static member Main(args:string) =
         let mutable ret = InteropTypes.Assplosion
+        let mutable loginit = false
+
         try
             // args are | delimited, first arg is nativeGlobalState handle (opaque to managed code)
             // second is load context (i.e is the native code in d3d9.dll or mm_native.dll)
@@ -203,17 +205,40 @@ type Main() =
             ret <- Main.IdentifyInLog()
             if ret <> 0 then
                 failwithf "Log init failed: %A" ret
+            loginit <- true
+
+            let checkSizeMatch (argstr:string) (paramstr:string) (mtype:System.Type) = 
+                if argstr.StartsWith(paramstr) then 
+
+                    let arg = argstr.Split([|paramstr|], StringSplitOptions.RemoveEmptyEntries)
+                    let size = arg.[0] |> int 
+                    let esize = Marshal.SizeOf(mtype)
+                    if size <> esize then 
+                        failwithf "Managed struct size of %A does not match matches native code expected: %A, got: %A" argstr esize size
+                    else 
+                        Main.Log.Info "  Native/Managed: struct size ok: %A" argstr
+
+            if args.Length > 2 then 
+                let args = args |> Array.skip 3
+                for arg in args do 
+                    let arg = arg.ToLowerInvariant()
+                    checkSizeMatch arg ("mod_structsize=") (typeof<InteropTypes.ModData>)
+                    checkSizeMatch arg ("mod_snapprofile_structsize=") (typeof<InteropTypes.ModSnapProfile>)
 
             if not versionChecked then
-                Main.Log.Warn "Native code did not pass a version, a crash is possible."
+                Main.Log.Warn "Native code did not provide its version, a crash is possible."
 
             ret <- Main.InitCallbacks(nativeGlobalState,context)
             ret
         with
             | e ->
-                // print it, but it will likely go nowhere
-                printfn "An exception occured."
-                printfn "Exception: %A" e
+                if loginit then 
+                    Main.Log.Error "%A" e
+                else 
+                    // print it, but it will likely go nowhere
+                    printfn "An exception occured."
+                    printfn "Exception: %A" e
+
                 if ret = 0 then
                     InteropTypes.Assplosion
                 else
