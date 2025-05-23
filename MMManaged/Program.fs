@@ -10,15 +10,23 @@ open ModelMod
 // To use it, change the project type
 // to a "console application", then uncomment the entry point below.  You can then run it under
 // the visual studio profiler or standlone.
+// Also set targetDataDir below.
+// While this program is somewhat useful for testing managed code only, for 
+// the full experience its better to use Test.NativeLaunch so that the
+// managed-native interop can be tested.
 
-let targetDataDir = @"\E2ETestData"
-let searchPaths = ["."; ".."; @"..\.."; ]
+let targetDataDir = @"E2ETestData" // set this to your MM data root if this isn't what you want
+let searchPaths = [@".\"; @"..\"; @"..\..\"; ]
+
 let testPath =
-    searchPaths
-    |> List.tryPick
-        (fun p ->
-            let p = Path.GetFullPath(p) + targetDataDir
-            if Directory.Exists(p) then Some(p) else None)
+    if Path.IsPathRooted(targetDataDir) then 
+        Some(targetDataDir)
+    else
+        searchPaths
+        |> List.tryPick
+            (fun p ->
+                let p = Path.GetFullPath(p) + targetDataDir
+                if Directory.Exists(p) then Some(p) else None)
 
 let load() =
     let testPath =
@@ -70,6 +78,6 @@ let testFill() =
 
 //[<EntryPoint>]
 let main argv =
-    //load()
+    let db = load() 
     //timeLoads(true)
     0
