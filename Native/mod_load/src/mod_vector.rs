@@ -3,11 +3,15 @@
 use shared_dx::dx11rs::VertexFormat;
 use shared_dx::error;
 use shared_dx::error::HookError;
+use types::interop::ModSnapProfile;
 use winapi::shared::dxgiformat::DXGI_FORMAT_R16G16_FLOAT;
 use winapi::shared::dxgiformat::DXGI_FORMAT_R32G32B32A32_FLOAT;
 use winapi::shared::dxgiformat::DXGI_FORMAT_R32G32B32_FLOAT;
 use winapi::shared::dxgiformat::DXGI_FORMAT_R32G32_FLOAT;
 use winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R16G16B16A16_SNORM;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R16G16B16A16_SINT;
+use winapi::shared::dxgiformat::DXGI_FORMAT_R16G16_SINT;
 pub use winapi::shared::winerror::S_OK;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
 pub use winapi::um::winnt::HRESULT;
@@ -15,24 +19,31 @@ pub use winapi::um::winnt::HRESULT;
 use util;
 use std;
 use std::ffi::CStr;
+use std::ptr;
 
 use shared_dx::util::*;
 
 use global_state::GLOBAL_STATE;
 
+use crate::data_encoding::decode_packed_vector;
+use crate::data_encoding::decode_octa_vector;
+use crate::data_encoding::encode_packed_vector;
+use crate::data_encoding::encode_octa_vector;
+
+
 #[repr(C)]
-#[derive(Debug)]
-struct Float3 {
-    x:f32,
-    y:f32,
-    z:f32
+#[derive(Debug,Clone)]
+pub struct Float3 {
+    pub x:f32,
+    pub y:f32,
+    pub z:f32
 }
 
 #[repr(C)]
 #[derive(Debug)]
-struct Float2 {
-    x:f32,
-    y:f32,
+pub struct Float2 {
+    pub x:f32,
+    pub y:f32,
 }
 
 
@@ -71,13 +82,31 @@ const DXMESH_DLL:&'static str = r#"TPLib\DirectXMesh_x64.dll"#;
 /// Tangent/bitangent update is enabled by default since its generates vectors that are much more
 /// accurate for most models than what the managed code generates (which is basically just wrong).
 ///
-pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
+pub fn update_normals(data:*mut u8, name:&str, profile:ModSnapProfile, mod_ts_update:i32, vert_count:u32, layout:&VertexFormat) -> error::Result<()> {
 
     let mut update_normals = false;
     let mut update_tangents = true;
     let mut flags = CNormFlags::Default;
     let mut reverse = false;
 
+    let mut enc_vec_octa = false;
+    let mut update_tangent_flip = false;
+    if profile.valid {
+        update_tangent_flip = profile.flip_tangent;
+        // Note this only applies to some formats, see below for usage
+        let encoding = util::from_wide_str(&profile.vec_encoding).unwrap_or_else(|_e| "".to_owned());
+        let encoding = encoding.to_lowercase();
+        enc_vec_octa = match encoding.trim() {
+            "packed" => false,
+            "octa" => true,
+            _ => {
+                write_log_file(&format!("error: unknown vector encoding from profile: {}", encoding));
+                false
+            }
+        }
+    }    
+
+    let mut reg_profile_root = String::new();
     // determine config and whether we should even do this
     let res = unsafe { &GLOBAL_STATE.interop_state }
         .as_ref()
@@ -92,6 +121,7 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
         })
         .and_then(|profile_root| {
             unsafe {
+                reg_profile_root = profile_root.to_string();
                 let do_update_nrm = util::reg_query_dword(profile_root, "GameProfileUpdateNormals")
                 .map_err(|_e| {
                     //write_log_file(&format!("normal update disabled: {:?}", e));
@@ -161,6 +191,7 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
         format!("tangents and bitangents")
     };
     write_log_file(&format!("mod '{}': updating {}; reverse: {}", name, what, reverse));
+    write_log_file(&format!("enc_vec_octa: {}", enc_vec_octa));
 
     let mut dllpath = unsafe { &GLOBAL_STATE.mm_root.as_ref() }.ok_or_else (||
         HookError::MeshUpdateFailed(String::from("no mmroot")))?.to_owned();
@@ -207,8 +238,10 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
     // to compute tangents need the texcoord offset
     let tex_elem = if update_tangents {
         Some(layout.layout.iter()
-        .find(|l| ptr_to_str(l.SemanticName).starts_with("texcoord"))
-        .ok_or(HookError::MeshUpdateFailed("missing texcoord in input layout".to_owned()))?)
+        .find(|l| 
+            l.SemanticIndex == 0 && 
+            ptr_to_str(l.SemanticName).starts_with("texcoord"))
+        .ok_or(HookError::MeshUpdateFailed("missing texcoord index 0 in input layout".to_owned()))?)
     } else {
         None
     };
@@ -222,6 +255,18 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
     let mut texcoords:Vec<Float2> = Vec::with_capacity(vert_count as usize);
     let mut tangents:Vec<Float3> = Vec::with_capacity(vert_count as usize);
     let mut bitangents:Vec<Float3> = Vec::with_capacity(vert_count as usize);
+
+    let decode_normal = if enc_vec_octa {
+        decode_octa_vector 
+    } else {
+        decode_packed_vector
+    };
+    let encode_normal = if enc_vec_octa {
+        encode_octa_vector
+    } else {
+        encode_packed_vector
+    };
+
     for i in 0..vert_count {
         // compute the offset to the vert and then the offset to the position in the vert using
         // pos_offset
@@ -241,6 +286,14 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
             unsafe {
                 let vertpos = data.offset((i * layout.size) as isize + norm_offset as isize);
                 match norm_elem.Format {
+                    DXGI_FORMAT_R16G16B16A16_SINT => {
+                        // packed format of 2 16bit ints per normal
+                        let vertpos = vertpos as *const i16;
+                        let a = ptr::read_unaligned(vertpos);
+                        let b = ptr::read_unaligned(vertpos.offset(1));
+                        let (x,y,z) = decode_normal(a, b);
+                        normals.push(Float3 { x, y, z });
+                    }
                     DXGI_FORMAT_R32G32B32_FLOAT => {
                         // skip until I have test data for this
                         return Err(HookError::MeshUpdateFailed("unsupported normal format".to_owned()).into());
@@ -262,7 +315,8 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
                         // (don't ask me why games use this format, I just "work here", though it could be a bug in mm)
                         let fval = |f| f / 255.0 * 2.0 - 1.0;
                         if reverse {
-                            let x = fval(*(vertpos.offset(2)) as f32);
+                            // these offsets are correct becase vertpos is a byte pointer and the format is bytes
+                            let x = fval(*(vertpos.offset(2)) as f32); 
                             let y = fval(*(vertpos.offset(1)) as f32);
                             let z = fval(*(vertpos.offset(0)) as f32);
                             normals.push(Float3 { x, y, z });
@@ -273,8 +327,8 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
                             normals.push(Float3 { x, y, z });
                         }
                     },
-                    _ => {
-                        return Err(HookError::MeshUpdateFailed("unsupported normal format".to_owned()).into());
+                    x => {
+                        return Err(HookError::MeshUpdateFailed(format!("unsupported normal format: {}", x)).into());
                     }
                 }
             }
@@ -291,15 +345,23 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
                 let vertpos = data.offset((i * layout.size) as isize + tex_elem.AlignedByteOffset as isize);
                 // support these formats
                 match tex_elem.Format {
+                    DXGI_FORMAT_R16G16B16A16_SNORM => {
+                        let vertpos = vertpos as *const i16;
+                        let u = ptr::read_unaligned(vertpos);
+                        let v = ptr::read_unaligned(vertpos.offset(1));
+                        let x = f32::max(-1.0, u as f32 * 32767_f32);
+                        let y = f32::max(-1.0, v as f32 * 32767_f32);
+                        texcoords.push(Float2 { x, y });
+                    }
                     DXGI_FORMAT_R32G32_FLOAT => {
                         texcoords.push(Float2 {
-                            x:*(vertpos as *const f32),
+                            x:*(vertpos as *const f32), // TODO should use read_unaligned??
                             y:*(vertpos.offset(4) as *const f32) });
                     },
                     DXGI_FORMAT_R16G16_FLOAT => {
                         // convert to f32
                         // TODO: not sure this is right
-                        let x = *(vertpos as *const u16) as f32;
+                        let x = *(vertpos as *const u16) as f32; // TODO should use read_unaligned??
                         let y = *(vertpos.offset(2) as *const u16) as f32;
                         texcoords.push(Float2 { x, y });
                     },
@@ -336,9 +398,19 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
 
     let (tan_elem, bitan_elem) = if update_tangents {
         // make sure we have the tangent and bitangent elements
-        let tan_elem = Some(layout.layout.iter()
-        .find(|l| ptr_to_str(l.SemanticName).starts_with("tangent"))
-        .ok_or(HookError::MeshUpdateFailed("missing tangent in input layout".to_owned()))?);
+        let tan_elem = layout.layout.iter()
+            .find(|l| ptr_to_str(l.SemanticName).starts_with("tangent"));
+
+        let tan_elem = Some(match tan_elem {
+            Some(elem) => elem,
+            None if norm_elem.Format == DXGI_FORMAT_R16G16B16A16_SINT => {
+                // the tangent is packed into the second two s16s of the normal
+                norm_elem
+            },
+            None => {
+                return Err(HookError::MeshUpdateFailed("missing tangent in input layout".to_owned()))
+            }
+        });
         let mut bitan_elem = layout.layout.iter()
             .find(|l| ptr_to_str(l.SemanticName).starts_with("bitangent"));
         // check for other name on bitan
@@ -359,16 +431,44 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
         (None, None)
     };
 
-    // now we need to write the normals back to the original data using the normal offset
+    // float to byte conversion function
     let f_to_u8 = |f:f32| -> u8 {
         //((f + 1.0) * 127.5 + 0.5) as u8
         ((f + 1.0) * 127.5).round() as u8
         //round((floating_point_value + 1) * 127.5)
     };
-    let write_vector = |i:u32,elem:&D3D11_INPUT_ELEMENT_DESC, vec:&Float3| unsafe {
+
+    // Helper fn to write the vectors back to the original data using the various offsets and formats
+    let write_vector = |i:u32,what:(&str, &D3D11_INPUT_ELEMENT_DESC), vec:&Float3| unsafe {
+        let (name,elem) = what;
         let vertpos = data.offset((i * layout.size) as isize + elem.AlignedByteOffset as isize);
         // handle various formats
         match elem.Format {
+            DXGI_FORMAT_R16G16B16A16_SINT if name == "norm" => {
+                // norm packed into first two s16s
+                let (a,b) = encode_normal(vec);
+                let vertpos = vertpos as *mut i16;
+                ptr::write_unaligned(vertpos, a);
+                ptr::write_unaligned(vertpos.offset(1), b);
+            }
+            DXGI_FORMAT_R16G16B16A16_SINT if name == "tan" => {
+                // tang packed into last two s16s
+                let (a,b) = encode_normal(vec);
+                let vertpos = vertpos as *mut i16;
+                ptr::write_unaligned(vertpos.offset(2), a);
+                ptr::write_unaligned(vertpos.offset(3), b);
+            }
+            DXGI_FORMAT_R16G16_SINT if name == "bit" => {
+                // bitangent/binormal packed into two s16s
+                let mut b = vec.clone();
+                b.x = -b.x;  b.y = -b.y;  b.z = -b.z;   // <── flip handedness
+                let vec = b;
+
+                let (a,b) = encode_normal(&vec);
+                let vertpos = vertpos as *mut i16;
+                ptr::write_unaligned(vertpos, a);
+                ptr::write_unaligned(vertpos.offset(1), b);                
+            }
             DXGI_FORMAT_R8G8B8A8_UNORM => {
                 if reverse {
                     *(vertpos) = f_to_u8(vec.z);
@@ -393,20 +493,122 @@ pub fn update_normals(data:*mut u8, name:&str, mod_ts_update:i32, vert_count:u32
         Ok(())
     };
 
-    for i in 0..vert_count {
-        if update_normals {
-            write_vector(i, norm_elem, &normals[i as usize])?;
-        }
-
-        if update_tangents {
-            let tan_elem = tan_elem.ok_or(HookError::MeshUpdateFailed("missing tangent in input layout".to_owned()))?;
-            write_vector(i, tan_elem, &tangents[i as usize])?;
-            let bitan_elem = bitan_elem.ok_or(HookError::MeshUpdateFailed("missing bitangent in input layout".to_owned()))?;
-            write_vector(i, bitan_elem, &bitangents[i as usize])?;
+    // some cases require the tangent to get flipped to match the game's coordinate system
+    write_log_file(&format!("update tangent flip: {}", update_tangent_flip));
+    if update_tangents && update_tangent_flip {
+        for i in 0..vert_count {
+            let t = &mut tangents[i as usize];
+            t.x = -t.x;
+            t.y = -t.y;
+            t.z = -t.z;
         }
     }
 
-    //write_log_file(&format!("finished updating {}", what));
+    for i in 0..vert_count {
+        if update_normals {
+            let writing = ("norm", norm_elem);
+            write_vector(i, writing, &normals[i as usize])?;
+        }
+    
+        if update_tangents {            
+            let tan_elem = tan_elem.ok_or(HookError::MeshUpdateFailed("missing tangent in input layout".to_owned()))?;
+            let writing = ("tan", tan_elem);
+            write_vector(i, writing, &tangents[i as usize])?;
+            let bitan_elem = bitan_elem.ok_or(HookError::MeshUpdateFailed("missing bitangent in input layout".to_owned()))?;
+            let writing = ("bit", bitan_elem);
+            write_vector(i, writing, &bitangents[i as usize])?;
+        }
+    }
+
+    if update_tangents {
+        #[cfg(feature = "tangent_debug")]
+        print_debug_info(data, layout.size as usize, norm_offset, vert_count as usize, enc_vec_octa);
+    }
+
+
+    write_log_file(&format!("finished updating {}", what));
 
     Ok(())
-}    
+}
+
+
+// If the vertex contained packed vectors, (6 16 bit values, 2 each representing normal, tangent, binormal),
+// this prints out some debug information about them.  If the vert format is something else however this 
+// will most likely print out crap or even crash.  
+// Note that this requires the glam dependency which I don't normally use.
+// Note also this fn is LLM-generated.
+#[cfg(feature = "tangent_debug")]
+fn print_debug_info(data:*const u8, vert_size:usize, norm_offset:usize, max_verts:usize, enc_vec_octa:bool) {
+    const SELFTEST_COUNT: usize = 8;   // how many vertices to print / check
+    let mut selftest_left = SELFTEST_COUNT;
+
+    let mut i = 0;
+    while selftest_left > 0 {
+        
+
+        unsafe {
+            let vertpos_base = data.offset((i * vert_size) as isize + norm_offset as isize);
+            i = i + 1;
+            selftest_left -= 1;
+
+            // read back the six shorts we just wrote -----------------------------
+            let vp  = vertpos_base as *const i16;          // slot 2 + slot 3 start
+            let n0  = ptr::read_unaligned(vp);             // NORMAL .x
+            let n1  = ptr::read_unaligned(vp.add(1));      // NORMAL .y
+            let t0  = ptr::read_unaligned(vp.add(2));      // TAN 1
+            let t1  = ptr::read_unaligned(vp.add(3));      // TAN 2
+            let b0  = ptr::read_unaligned(vp.add(4));      // BINORMAL .x
+            let b1  = ptr::read_unaligned(vp.add(5));      // BINORMAL .y
+
+            let decodevec = if enc_vec_octa {
+                decode_octa
+            } else {
+                decode_normal_base
+            };
+
+            // decode back to float vectors ---------------------------------------
+            let  n = decodevec(n0, n1);
+            let  t = decodevec(t0, t1);
+            let b = decodevec(b0, b1);
+
+            // Convert the normal (n) and tangent (t) from tuples to glam::Vec3
+            let n = glam::Vec3::new(n.0, n.1, n.2);
+            let t = glam::Vec3::new(t.0, t.1, t.2);
+            let mut b = glam::Vec3::new(b.0, b.1, b.2);
+            // the engine is left-handed → we flipped B earlier
+            b = -b;
+
+            // basic checks --------------------------------------------------------
+            let len_ok   = |v: glam::Vec3| (v.length_squared() - 1.0).abs() < 1e-3;
+            let ortho_ok = (n.dot(t).abs() < 1e-3)
+                        && (n.dot(b).abs() < 1e-3)
+                        && (t.dot(b).abs() < 1e-3);
+
+            let sign     = n.cross(t).dot(b);               // +1 or –1
+            let handed_ok= sign > 0.0;                    // expect RH space
+
+            if !len_ok(n) || !len_ok(t) || !len_ok(b)
+                || !ortho_ok || !handed_ok
+            {
+                write_log_file(&format!(
+                    "VERT {:>4}: \
+                    N({:+.3},{:+.3},{:+.3})  \
+                    T({:+.3},{:+.3},{:+.3})  \
+                    B({:+.3},{:+.3},{:+.3})  len/ortho/hand = {} {} {}",
+                    i,
+                    n.x, n.y, n.z, t.x, t.y, t.z, b.x, b.y, b.z,
+                    if len_ok(n)&&len_ok(t)&&len_ok(b) { "√" } else { "✗" },
+                    if ortho_ok { "√" } else { "✗" },
+                    if handed_ok{ "RH" } else { "LH!" }));
+            }
+            else {
+                write_log_file(&format!(
+                    "vert {:>4}: shorts [{:>6},{:>6} | {:>6},{:>6} | {:>6},{:>6}]  OK",
+                    i, n0, n1, t0, t1, b0, b1));
+            }
+
+            
+        }// unsafe
+    }
+
+}

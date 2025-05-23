@@ -350,7 +350,8 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     }
 
     let mod_ts_update = (*mdat).update_tangent_space;
-    let _ = mod_vector::update_normals(vb_data.as_mut_ptr(), &nmd.name, mod_ts_update, vert_count, &vlayout)
+    let profile = nmd.mod_data.mod_snap_profile; // copy this out, since nmd mutably borrowed, can't pass it as readonly
+    let _ = mod_vector::update_normals(vb_data.as_mut_ptr(), &nmd.name, profile, mod_ts_update, vert_count, &vlayout)
         .map_err(|e| {
             write_log_file(&format!("Warning: failed to update normals: {:?}", e));
         });

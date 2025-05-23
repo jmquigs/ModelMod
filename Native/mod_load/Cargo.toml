@@ -11,6 +11,10 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput"] }
 
+[features]
+default = []             
+tangent_debug = ["glam"]
+
 [dependencies]
 fnv = "1.0.6"
 shared_dx = { path = "../shared_dx" }
@@ -19,3 +23,4 @@ global_state = { path = "../global_state" }
 types = { path = "../types" }
 d3dx = { path = "../d3dx" }
 device_state = { path = "../device_state" }
+glam = { version = "*", optional = true }
