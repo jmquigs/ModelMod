@@ -427,7 +427,7 @@ module ModDBInterop =
                 match f with
                 | SDXF.R8G8B8A8_UNorm -> writeBT()
                 | _ -> failwithf "Unsupported format for raw binormal/tangent: %A" el.Type
-
+        
     /// Helper functions for writing data.
     module DataWriters =
         let private round (x:float32) = System.Math.Round (float x)
@@ -531,6 +531,11 @@ module ModDBInterop =
                 | SDXF.R8G8B8A8_UNorm -> writeBW()
                 | SDXF.R32G32B32A32_Float -> writeBWF4()
                 | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
+
+        let logBinWriteWithNorm = Logging.logOnce(0)
+
+        let mutable encVec = DataEncoding.PackedVectorV1.encode
+
         /// Write a normal from the mod mesh.
         let modmNormal (modm:Mesh) (modNrmIndex: int) (_modVertIndex: int) (el:MMVertexElement) (bw:BinaryWriter) =
             match el.Type with
@@ -554,6 +559,18 @@ module ModDBInterop =
                 | SDXF.R8G8B8A8_UNorm ->
                     let srcNrm = modm.Normals.[modNrmIndex]
                     write4ByteVector srcNrm bw
+                | SDXF.R16G16B16A16_SInt -> 
+                    let srcNrm = modm.Normals.[modNrmIndex]
+                    let nrmx,nrmy = encVec srcNrm
+                    bw.Write(nrmx)
+                    bw.Write(nrmy)
+                    // in this format, by default the second two shorts are the tangent; (and there is no way to specify a 
+                    // change to that default) however typically native 
+                    // code will overwrite this anyway since this vec is obviously bogus
+                    let bx, by = encVec (Vec3F(0.0f, 0.0f, 1.0f))
+                    bw.Write(bx)
+                    bw.Write(by)
+                    ()
                 | _ -> failwithf "Unsupported type for mod normal: %A" el.Type
 
         /// Write a binormal or tangent vector, computed using the normal from the mod mesh.
@@ -587,6 +604,13 @@ module ModDBInterop =
                 match f with
                 | SDXF.R8G8B8A8_UNorm -> write4ByteVector vec bw
                 | SDXF.R32G32B32_Float -> writeF3Vector vec bw
+                | SDXF.R16G16_SInt -> 
+                    // as per comment in R16G16B16A16_SInt, hardcode a binormal vector for this and expect native 
+                    // code will overwrite it.
+                    let bx, by = encVec (Vec3F(0.0f, 1.0f, 0.0f))
+                    bw.Write(bx)
+                    bw.Write(by)
+
                 | _ -> failwithf "Unsupported format for mod binormal/tangent: %A" el.Type
 
     /// Unmarshal a native array of d3d11 InputElements into an array of MMVertexElement
@@ -666,6 +690,20 @@ module ModDBInterop =
             let refm = meshrel.RefMesh
             let modm = meshrel.ModMesh
             let vertRels = meshrel.VertRelations
+
+            match meshrel.DBMod.Profile with 
+            | Some(profile) when profile.IsOctaVec() -> 
+                log.Info "encoding vectors with octa format (some formats only)"
+                DataWriters.encVec <- DataEncoding.OctaV1.encode
+            | Some(profile) when profile.IsPackedVec() -> 
+                log.Info "encoding vectors with packed format (some formats only)"
+                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
+            | Some (profile) -> 
+                log.Warn "possible unknown vector encoding %A, using packed (some formats only)" profile.VecEncoding
+                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
+            | None -> 
+                log.Info "encoding vectors with packed format (some formats only)"
+                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
 
             let declElements =
                 match destDeclBx with
@@ -816,6 +854,7 @@ module ModDBInterop =
                             | Some bvd -> bvd
                         RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
+                let tex1SemUnused = Logging.logOnce(0)
                 // Write part of a vertex.  The input element controls which
                 // part is written.
                 let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
@@ -838,27 +877,39 @@ module ModDBInterop =
                             | MMET.DeclType(dt) when dt = SDXVT.Unused -> ()
                             | _ -> failwithf "Unsupported type for position: %A" el.Type
                         | MMVertexElemSemantic.TextureCoordinate ->
-                            match el.Type with
-                            | MMET.DeclType(dt) when dt = SDXVT.Float2 ->
-                                let srcTC = srcTex.[v.Tex]
-                                bw.Write(srcTC.X)
-                                bw.Write(srcTC.Y)
-                            | MMET.DeclType(dt) when dt = SDXVT.HalfTwo ->
-                                let srcTC = srcTex.[v.Tex]
-                                bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
-                                bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
-                            | MMET.Format(f) when f = SDXF.R32G32_Float ->
-                                let srcTC = srcTex.[v.Tex]
-                                bw.Write(srcTC.X)
-                                bw.Write(srcTC.Y)
-                            | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
+                            if el.SemanticIndex = 0 then
+                                match el.Type with
+                                | MMET.DeclType(dt) when dt = SDXVT.Float2 ->
+                                    let srcTC = srcTex.[v.Tex]
+                                    bw.Write(srcTC.X)
+                                    bw.Write(srcTC.Y)
+                                | MMET.DeclType(dt) when dt = SDXVT.HalfTwo ->
+                                    let srcTC = srcTex.[v.Tex]
+                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
+                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                                | MMET.Format(f) when f = SDXF.R32G32_Float ->
+                                    let srcTC = srcTex.[v.Tex]
+                                    bw.Write(srcTC.X)
+                                    bw.Write(srcTC.Y)
+                                | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
+                                    let srcTC = srcTex.[v.Tex]
+                                    bw.Write(int16(srcTC.X * 32767.f))
+                                    bw.Write(int16(srcTC.Y * 32767.f))
+                                    bw.Write(int16(0.0))
+                                    bw.Write(int16(0.0))
+                                    // remaining two shorts unused for now but maybe not in general case
+                                    ()
+                                | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
+                            else 
+                                tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: %A" el.SemanticIndex)
+                            
                         | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
                         | MMVertexElemSemantic.Binormal
                         | MMVertexElemSemantic.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
                         | MMVertexElemSemantic.BlendIndices -> blendIndexWriter modVertIndex el bw
                         | MMVertexElemSemantic.BlendWeight -> blendWeightWriter modVertIndex el bw
                         | MMVertexElemSemantic.Color ->
-                            // TODO: if/when snapshot & import/export write this out, will need to populate it here
+                            // TODO: if/when snapshot & import/export write color out, will need to populate it here
                             match el.Type with
                             | MMET.DeclType(dt) when dt = SDXVT.Color ->
                                 let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
@@ -873,6 +924,9 @@ module ModDBInterop =
                                 bw.Write(1.f)
                                 bw.Write(1.f)
                                 bw.Write(1.f)
+                            | MMET.Format(f) when f = SDXF.B8G8R8A8_UNorm -> 
+                                let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                bw.Write(bytes);
                             | _ -> failwithf "Unsupported type for Color: %A" el.Type
                         | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
