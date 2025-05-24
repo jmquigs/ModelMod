@@ -111,6 +111,7 @@ module RegConfig =
     let initForTest() = regLoc <- RegLocTypes.TestRegLoc
 
     let private regget(key,value,def) =
+        //log.Info "reg query: k=%A v=%A def=%A" key value def
         let res = Registry.GetValue(key, value, def)
         match res with
         | null -> def
