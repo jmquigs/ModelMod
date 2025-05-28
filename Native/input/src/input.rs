@@ -108,6 +108,7 @@ pub const DIK_LSHIFT: u8 = 0x2A;
 pub const DIK_RSHIFT: u8 = 0x36;
 pub const DIK_LCONTROL: u8 = 0x1D;
 pub const DIK_RCONTROL: u8 = 0x9D;
+pub const DIK_MENU: u8 = 0xDD;
 pub const DIK_F1: u8 = 0x3B;
 pub const DIK_F2: u8 = 0x3C;
 pub const DIK_F3: u8 = 0x3D;
@@ -277,6 +278,7 @@ impl Input {
         self.last_update = now;
 
         // TODO: need to clear before GetDeviceState?
+        let menu_pressed;
         unsafe {
             {
                 let mut gds = |acquire| {
@@ -313,6 +315,8 @@ impl Input {
                 || (self.keyboard_state[DIK_RSHIFT as usize] & 0x80) > 0;
             self.ctrl_pressed = (self.keyboard_state[DIK_LCONTROL as usize] & 0x80) > 0
                 || (self.keyboard_state[DIK_RCONTROL as usize] & 0x80) > 0;
+            menu_pressed = (self.keyboard_state[DIK_MENU as usize] & 0x80) > 0
+                || (self.keyboard_state[DIK_MENU as usize] & 0x80) > 0;
 
             let zero_ms = Duration::from_millis(0);
 
@@ -355,12 +359,18 @@ impl Input {
             }
         };
 
-        for evt in self.events.iter() {
-            //write_log_file(&format!("event: {:x} pressed: {}", ke.key, ke.pressed));
-            if evt.pressed && self.ctrl_pressed {
-                if let Some(fun) = self.press_event_fns.get_mut(&evt.key) { fun(); }
+        
+        let process_key_events = self.ctrl_pressed || menu_pressed;
+
+        if process_key_events {
+            for evt in self.events.iter() {
+                //write_log_file(&format!("event: {:x} pressed: {}", ke.key, ke.pressed));
+                if evt.pressed {
+                    if let Some(fun) = self.press_event_fns.get_mut(&evt.key) { fun(); }
+                }
             }
         }
+        
         // if self.events.len() > 0 {
         //     write_log_file("");
         // }
