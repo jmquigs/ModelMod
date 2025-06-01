@@ -22,40 +22,40 @@ typically doesn't produce much useful output.  But the output of MM can be obser
 the log file, typically `$mmlogdir\Logs\ModelMod.test_native_launch.log`.  It may also be possible
 to attach to this process via the managed code debugger, but I haven't tried that.
 
-A fair portion of this code was written by github copilot.  So, it's not very good.  But it's
-good enough to test the mod loading process.  It's also a good example of how to use the
-d3d11 api, which is not well documented. I've tried to add comments to explain what's going on.
-In this paragraph everything was written by copilot except for the first sentence and this one.
+A fair portion of this code was written by github copilot and other LLMs.  So, it's not very good.  But it's
+good enough to test the mod loading process.  This won't ever render a mod, and usually the program
+gets a "device hung" - MM will report that in the log - when attempting to create a mod vertex buffer.
+However by that time the mod load  is almost complete which has been sufficient for my testing so far.
 
 Vertex Layout notes:
 `simple_vertex_shader.dat` was snapped binary-only from a game.  It is required to create input
 layouts (the api validates the shader bytecode against the input layout description).
 
-If you want to use other vertex formats you'll need to snap shaders for those as well,
+If you want to use other vertex formats you have two options:
+1) (preferred) create a new description like basic_format.txt and shader like basic_shader.hlsl 
+and define the format you to use there or 
+2) (much more involved) snap a shader from something,
 and modify this code to create structs for the that format.  And define a new structure
 like SimpleVertex.  In modelmod you can add some code to `hook_CreateInputLayoutFn`
 and dump out shaders there, along with the pointer values of the input layout that is created.
 Later when the mod is rendered, you can dump out the pointer value in the log so that you know
 which shader is used by the mod.
 
-You can also just write and compile a vertex shader that matches the format you want.  I tried
-to do that with `fxc` but it didn't like my shader and I didn't bother trying to figure it out.
-
 When creating a new format, pay careful attention to the vertex size and the byte alignment
 values and format types in the input layout description.  These should match what the
-game is reporting for the mod you are interested in.  You may need to pad your vertex structure
+game is reporting for the mod you are interested in.  If you are manually defining a vertex format 
+in code like SimpleVertex (option 2 above) You may need to pad your vertex structure
 to meet the alignment requirements.  See `SimpleVertex` and `get_simple_layout_description`
 below for examples.
 
 Note, layout description arrays cannot be simply captured from the game like the shaders can,
 because they contain a raw ascii pointer to the semantic name, which will crash here if you
-tro to use it.
+try to use it.
 
 */
 
-use std::time::SystemTime;
+use std::{path::PathBuf, time::SystemTime};
 
-use anyhow::Ok;
 use winapi::{um::{winuser::{CreateWindowExW, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, ShowWindow,
     WM_QUIT, TranslateMessage, DispatchMessageW,
     PeekMessageW, PM_REMOVE, WNDCLASSEXW, CS_VREDRAW, CS_HREDRAW,
@@ -88,6 +88,7 @@ extern crate anyhow;
 
 mod load_mmobj;
 mod interop_mmobj;
+mod shadercomp;
 
 #[repr(C, align(8))]
 struct SimpleVertex {
@@ -288,6 +289,8 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
 
 // generate a vector of the specified number of simple vertices, using random positions, blend indices and weights.
 // Constrain the positions to be within the range -100 to 100.
+// The purpose of this is to just trigger a mod load and not actually render, we don't care what the data looks like;
+// with the exception that until the mod is loaded this will be actually submitted to d3d via drawindexed.
 fn get_random_vertices(num_vertices: usize) -> Vec<SimpleVertex> {
     let mut vertices = Vec::new();
     for _ in 0..num_vertices {
@@ -317,6 +320,18 @@ fn get_random_vertices(num_vertices: usize) -> Vec<SimpleVertex> {
         });
     }
     vertices
+}
+
+// return a zeroed buffer of data for the specified number of verts and size; this is used when not using 
+// the "simple vertex" hardcoded format - note since the data is zero and this will be submitted to d3d11 until the 
+// mod loads, it could potentially cause issues on the device (degenerate triangles with coordinates all at zero, etc)
+// probably it would be better to at least put some actual triangles in there.
+fn get_empty_vertices(vert_size: usize, num_verts: usize) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Calculate the total size needed for the vertices
+    let total_size = vert_size * num_verts;
+    
+    // Create and return a vector of the requested size, filled with zeros
+    Ok(vec![0u8; total_size])
 }
 
 // generate a index buffer of up to N indicies, using random indicies.
@@ -366,10 +381,8 @@ fn create_index_buffer(device: *mut ID3D11Device, nindex:u32) -> anyhow::Result<
 
 // Create a vertex buffer from the specified vector of vertices.  Return the buffer and
 // the size of each vertex.
-unsafe fn create_vertex_buffer(device: *mut ID3D11Device, vertices:&Vec<SimpleVertex>) -> anyhow::Result<(*mut ID3D11Buffer,usize)> {
-    let vertex_size = std::mem::size_of::<SimpleVertex>();
-    let vertex_count = vertices.len();
-    let vertex_buffer_size = vertex_size * vertex_count;
+unsafe fn create_vertex_buffer(device: *mut ID3D11Device, vertices:&[u8], vertex_size: usize) -> anyhow::Result<(*mut ID3D11Buffer,usize)> {
+    let vertex_buffer_size = vertices.len();
 
     let mut vertex_buffer = std::ptr::null_mut();
     //let mut vertex_data = std::ptr::null_mut();
@@ -397,52 +410,163 @@ unsafe fn create_vertex_buffer(device: *mut ID3D11Device, vertices:&Vec<SimpleVe
 }
 
 // create a input layout
-unsafe fn create_vertex_layout(device: *mut ID3D11Device) -> anyhow::Result<*mut ID3D11InputLayout> {
-    // create the input layout using semantics position, normal, texcoord, tangent, binormal, blendweight,
-    // and blendindices
-    let layout_desc = get_simple_layout_description();
+unsafe fn create_vertex_layout(device: *mut ID3D11Device, opts: &RunOpts) -> 
+    anyhow::Result<(*mut ID3D11InputLayout, Vec<D3D11_INPUT_ELEMENT_DESC>)> {
+    let (layout_desc, vshader) = 
+        if let (Some(shader_out_file), Some(vert_elems)) = 
+            (&opts.shader_out_file, &opts.vert_elems) {
+            println!("using layout args from cli: {} elems; shader out file: {:?}", vert_elems.len(), shader_out_file);
+            // Use the vertex elements and shader output file from the options
+            let vshader = std::fs::read(shader_out_file)?;
+            (vert_elems.clone(), vshader)
+        } else {
+            println!("using simple layout");
+            // Default to using the simple layout description and simple vertex shader
+            let layout_desc = get_simple_layout_description();
+            print_input_element_desc(&layout_desc);
+            let vshader = std::fs::read("simple_vertex_shader.dat")?;
+                (layout_desc, vshader)
+        };
 
     let num_elements = layout_desc.len();
-    let layout_desc = layout_desc.as_ptr();
+    let layout_desc_vec = layout_desc;
+    let layout_desc = layout_desc_vec.as_ptr();
 
-    // load the shader bytecode from the file "simple_vertex_shader.dat"
-    let vshader = std::fs::read("simple_vertex_shader.dat")?;
     let pVShaderBytecode = vshader.as_ptr() as *const c_void;
-    let BytecodeLength = vshader.len() as usize;
+    let BytecodeLength = vshader.len();
+
     println!("read {} bytes of vertex shader bytecode", BytecodeLength);
 
     let mut ppInputLayout: *mut ID3D11InputLayout = std::ptr::null_mut();
-    let res = (*device).CreateInputLayout(layout_desc,
-        num_elements as u32, pVShaderBytecode,
-        BytecodeLength, &mut ppInputLayout);
+    let res = (*device).CreateInputLayout(
+        layout_desc,
+        num_elements as u32,
+        pVShaderBytecode,
+        BytecodeLength,
+        &mut ppInputLayout,
+    );
     if res != 0 {
-        return Err(anyhow!("failed to create input layout: {:X}", res))
-    }
+        return Err(anyhow!("failed to create input layout: {:X}", res));
+}
     println!("created layout");
-    Ok(ppInputLayout)
-
+    Ok((ppInputLayout,layout_desc_vec))
 }
 
-// parse the first argument of the command line which should be a string of the form
-// 100,200 representing a prim and vertex count to use, if this argument is not found return
-// an error
-fn parse_command_line() -> anyhow::Result<(usize, usize)> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        return Err(anyhow!("usage: {} <prim count>,<vertex count>", args[0]))
+pub fn print_input_element_desc(elements: &[D3D11_INPUT_ELEMENT_DESC]) {
+    let (_, value_to_name) = shadercomp::read_formats().expect("doh");
+    for element in elements {
+        let semantic_name = unsafe { 
+            std::ffi::CStr::from_ptr(element.SemanticName).to_str().unwrap_or("Invalid UTF-8") };
+
+        println!(
+            "Semantic: {}, SemanticIndex: {}, Format: {}, AlignedByteOffset: {}",
+            semantic_name,
+            element.SemanticIndex,
+            value_to_name.get(&element.Format).expect("doh").to_uppercase(),
+            element.AlignedByteOffset,
+        );
     }
-    let mut split = args[1].split(',');
-    let prim_count = split.next()
+}
+
+pub fn read_elem_file(elemfile: &str) -> Result<Vec<D3D11_INPUT_ELEMENT_DESC>, Box<dyn std::error::Error>> {
+    let elements = shadercomp::read_vertex_format(elemfile)?;
+
+    println!("read {} elements from {}", elements.len(), elemfile);
+    print_input_element_desc(&elements);
+
+    Ok(elements)
+}
+
+struct RunOpts {
+    pub prim_count:usize,
+    pub vert_count:usize,
+    pub shader_out_file:Option<PathBuf>,
+    pub vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>>,
+}
+
+impl RunOpts {
+    pub fn has_custom_vert(&self) -> bool {
+        self.shader_out_file.is_some() && 
+        self.vert_elems.as_ref().map(|elems| !elems.is_empty()).unwrap_or(false)
+    }
+}
+
+// parse any options and the first non-argument option on the command line line which should be a string of the form
+// 100,200 representing a prim and vertex count to use, if this argument is not found return an error
+fn parse_command_line() -> anyhow::Result<RunOpts> {
+    let args: Vec<String> = std::env::args().collect();
+    //eprintln!("{:?}", args);
+
+
+    let mut prim_and_vertex_arg: Option<String> = None;
+
+    let mut i = 1;  // start from 1 to skip the program name
+    let mut shader_out_file:Option<PathBuf> = None;
+    let mut vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>> = None;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-cs" => {
+                if let Some(filename) = args.get(i + 1) {
+                    match shadercomp::compile_shader(filename) {
+                        Ok(sout) => shader_out_file = Some(sout),
+                        Err(e) => panic!("Failed to compile shader: {:?}", e),
+                    }
+                            i += 2; // Skip the filename in the next iteration
+                } else {
+                    println!("Error: No filename provided after '-cs'.");
+                            return Err(anyhow!("Error: No filename provided after '-cs'."));
+                }
+            }
+            // if there is an -ef argument, read the filename after it and store the output in the "elems" local var
+            "-ef" => {
+                if let Some(filename) = args.get(i + 1) {
+                    vert_elems = Some(read_elem_file(filename).expect("failed to read elem file"));
+                    
+                    i += 2; // Skip the filename in the next iteration
+                } else {
+                    println!("Error: No filename provided after '-ef'.");
+                    return Err(anyhow!("Error: No filename provided after '-ef'."));
+                }
+            }
+
+            arg if !arg.starts_with('-') && prim_and_vertex_arg.is_none() => {
+                prim_and_vertex_arg = Some(arg.to_string());
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    let arg_with_counts = prim_and_vertex_arg.ok_or_else(|| {
+        anyhow!("Usage: primcount,vertcount")
+    })?;
+    let mut split = arg_with_counts.split(',');
+
+    let prim_count = split
+        .next()
         .ok_or_else(|| anyhow!("failed to parse prim count (expected prim,vert)"))?
         .parse::<usize>()?;
-    let vertex_count = split.next()
+
+    let vert_count = split
+        .next()
         .ok_or_else(|| anyhow!("failed to parse vert count (expected prim,vert)"))?
         .parse::<usize>()?;
-    Ok((prim_count, vertex_count))
+
+    let opts = RunOpts {
+        prim_count,
+        vert_count,
+        shader_out_file,
+        vert_elems,
+    };
+    Ok(opts)
 }
 
 unsafe fn runapp() -> anyhow::Result<()> {
-    let (primCount, vertCount) = parse_command_line()?;
+    let opts = parse_command_line()?;
+    let RunOpts { prim_count, vert_count, .. } = opts;
 
     static SZ_CLASS: &'static [u8] = b"c\0l\0a\0s\0s\0\0\0";
     static SZ_TITLE: &'static [u8] = b"t\0i\0t\0l\0e\0\0\0";
@@ -497,13 +621,34 @@ unsafe fn runapp() -> anyhow::Result<()> {
         println!("device: {:x}", device as usize);
         println!("context: {:x}", context as usize);
 
-        let layout = create_vertex_layout(device)?;
+        let (layout,layout_vec) = create_vertex_layout(device, &opts)?;
+        let vert_size = shadercomp::get_vert_size(&layout_vec).expect("failed to compute vert size");
 
-        let verts = get_random_vertices(vertCount);
+        let vert_data = if !opts.has_custom_vert() {
+            // use the "SimpleVertex"
+            let vec = get_random_vertices(vert_count);
+            let simp_vert_size = std::mem::size_of::<SimpleVertex>();
+            if simp_vert_size != vert_size {
+                panic!("simple vertex size does not match computed size");
+            }
+            // convert vec into vec<u8>
+            let len = vec.len() * simp_vert_size;
+            let mut bytes = Vec::with_capacity(len);
+            let ptr = vec.as_ptr() as *const u8;
+            bytes.extend_from_slice(std::slice::from_raw_parts(ptr, len));
+            bytes
+        } else {
+            // use the specified verts format
+            let vec = get_empty_vertices(vert_size, vert_count)
+                .expect("failed to create empty vert buf");
+            vec
+        };
+        println!("created vert data buf sized {} for {} verts of size {}", vert_data.len(), vert_count, vert_size);
 
-        let (vertex_buffer, vert_size) = create_vertex_buffer(device, &verts)?;
+        let (vertex_buffer, vert_size) = 
+            create_vertex_buffer(device, &vert_data, vert_size)?;
         let index_buffer = create_index_buffer(
-            device, (primCount * 3).try_into().expect("can't conert to u32?"))?;
+            device, (prim_count * 3).try_into().expect("can't conert to u32?"))?;
 
         let mut msg;
         let mut start = SystemTime::now();
@@ -512,7 +657,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let mut info_start = SystemTime::now();
         while !done {
             if SystemTime::now().duration_since(info_start).expect("whatever").as_secs() >= 1 {
-                println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (primCount,vertCount));
+                println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (prim_count,vert_count));
                 dip_calls = 0;
                 info_start = SystemTime::now();
             }
@@ -533,6 +678,10 @@ unsafe fn runapp() -> anyhow::Result<()> {
             }
             let now = SystemTime::now();
             let _elapsed = now.duration_since(start).expect("whatever").as_millis();
+
+            // setting this to true typically slows down the DIP rate so much (like 30/sec) that MM doesn't even 
+            // try to initialize - so its kinda useless. should probably figure that out as constantly drawing 
+            // without present possibly makes the device unhappy
             let mut do_present = false;
             // "render" some stuff
             {
@@ -560,9 +709,9 @@ unsafe fn runapp() -> anyhow::Result<()> {
                 // a small pct of the time, draw the target primCount, the rest draw a random number of
                 // prims up to primCount (simulates the high miss rate in mod rendering)
                 let primCount = if rand::random::<f32>() < 0.05 {
-                    primCount
+                    prim_count
                 } else {
-                    rand::random::<usize>() % primCount
+                    rand::random::<usize>() % prim_count
                 };
 
                 let IndexCount = primCount * 3;
@@ -596,7 +745,6 @@ unsafe fn runapp() -> anyhow::Result<()> {
     };
     Ok(())
 }
-
 
 fn main() {
     // use env to figure out mode, default is run d3d app

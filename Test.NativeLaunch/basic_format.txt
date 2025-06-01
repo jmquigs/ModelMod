@@ -1,0 +1,8 @@
+// format: semanticname semanticindex offset dxgiformat
+// for determining the size of the vert the highest offset + format size of that elem is used, 
+// so it should be ok to comment out lines here to disable things without changing offsets;
+// that should just cause unused space in the vert
+Position 0 0 R32G32B32_Float
+Normal 0 12 R16G16B16A16_SInt // normal & tangent; 2 s16 per vec packed format
+Binormal 0 20 R16G16_SInt // 2 s16 packed format
+TEXCOORD 0 24 R16G16B16A16_SNorm
