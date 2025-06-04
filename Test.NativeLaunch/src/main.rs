@@ -56,26 +56,42 @@ try to use it.
 
 use std::{path::PathBuf, time::SystemTime};
 
-use winapi::{um::{winuser::{CreateWindowExW, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, ShowWindow,
-    WM_QUIT, TranslateMessage, DispatchMessageW,
-    PeekMessageW, PM_REMOVE, WNDCLASSEXW, CS_VREDRAW, CS_HREDRAW,
-    PostQuitMessage, DefWindowProcW, COLOR_WINDOWFRAME, RegisterClassExW, SW_SHOWDEFAULT, WM_CLOSE, WM_DESTROY},
-    libloaderapi::{GetModuleHandleA, LoadLibraryA, GetProcAddress},
-    d3d11::{ID3D11Device, ID3D11DeviceContext, D3D11_SDK_VERSION,
-        D3D11_INPUT_ELEMENT_DESC, D3D11_INPUT_PER_VERTEX_DATA, ID3D11InputLayout,
-        ID3D11Buffer, D3D11_BUFFER_DESC, D3D11_USAGE_DEFAULT, D3D11_BIND_VERTEX_BUFFER,
-        D3D11_SUBRESOURCE_DATA, D3D11_BIND_INDEX_BUFFER},
-        d3dcommon::{D3D_DRIVER_TYPE_HARDWARE, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST}},
-    shared::{windef::{HWND, HMENU, HICON, HCURSOR, HBRUSH},
-    minwindef::{LPVOID, UINT, WPARAM, LPARAM, LRESULT, HMODULE},
-    ntdef::{LPCSTR, LPCWSTR, HRESULT},
-    dxgi::{IDXGIAdapter, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD,
-        IDXGISwapChain, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH},
-        dxgitype::{DXGI_MODE_DESC, DXGI_RATIONAL, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
-            DXGI_MODE_SCALING_UNSPECIFIED, DXGI_SAMPLE_DESC, DXGI_USAGE_RENDER_TARGET_OUTPUT},
-        dxgiformat::{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32G32B32_FLOAT,
-            DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R8G8B8A8_UINT,
-            DXGI_FORMAT_R16_UINT}}, ctypes::c_void};
+// If these imports get too ugly or rust analyzer sticks them all on one line, use LLM to reorg them.
+use winapi::ctypes::c_void;
+use winapi::shared::{
+    dxgi::{
+        IDXGIAdapter, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH,
+        DXGI_SWAP_EFFECT_DISCARD,
+    },
+    dxgiformat::{
+        DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
+        DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UNORM,
+    },
+    dxgitype::{
+        DXGI_MODE_DESC, DXGI_MODE_SCALING_UNSPECIFIED, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
+        DXGI_RATIONAL, DXGI_SAMPLE_DESC, DXGI_USAGE_RENDER_TARGET_OUTPUT,
+    },
+            minwindef::{HMODULE, LPARAM, LPVOID, LRESULT, UINT, WPARAM}, 
+    ntdef::{HRESULT, LPCSTR, LPCWSTR},
+    windef::{HBRUSH, HCURSOR, HICON, HMENU, HWND},
+    winerror::DXGI_ERROR_SDK_COMPONENT_MISSING,
+};
+use winapi::um::{
+    d3d11::{
+        ID3D11Buffer, ID3D11Device, ID3D11DeviceContext, ID3D11InputLayout, ID3D11VertexShader,
+                D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER, D3D11_BUFFER_DESC, 
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_INPUT_ELEMENT_DESC, 
+        D3D11_INPUT_PER_VERTEX_DATA, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_DEFAULT,
+    },
+    d3dcommon::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0},
+    libloaderapi::{GetModuleHandleA, GetProcAddress, LoadLibraryA},
+    winuser::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, PeekMessageW, PostQuitMessage,
+        RegisterClassExW, ShowWindow, TranslateMessage, COLOR_WINDOWFRAME, CS_HREDRAW, CS_VREDRAW,
+        CW_USEDEFAULT, PM_REMOVE, SW_SHOWDEFAULT, WM_CLOSE, WM_DESTROY, WM_QUIT, WNDCLASSEXW,
+        WS_OVERLAPPEDWINDOW,
+    },
+};
 
 use winapi::um::d3dcommon::{D3D_DRIVER_TYPE,D3D_FEATURE_LEVEL};
 
@@ -228,14 +244,18 @@ unsafe fn load_d3d11() -> Option<D3D11CreateDeviceAndSwapChainFN> {
     Some(std::mem::transmute(d3d11_create_device))
 }
 
+const USE_DEBUG_DEVICE:bool = false;
+
 // Use the specified create device function to create a d3d11 device
 fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChainFN)
     -> anyhow::Result<(*mut ID3D11Device,*mut ID3D11DeviceContext, *mut IDXGISwapChain)> {
     let mut device = std::ptr::null_mut();
     let mut context = std::ptr::null_mut();
     let mut swapchain: *mut IDXGISwapChain = std::ptr::null_mut();
-    let mut feature_level = 0;
+    let mut feature_level = D3D_FEATURE_LEVEL_11_0;
     let dtype = D3D_DRIVER_TYPE_HARDWARE;
+    let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT
+        | if USE_DEBUG_DEVICE { D3D11_CREATE_DEVICE_DEBUG } else { 0 };
 
     // init the swap chain DXGI_SWAP_CHAIN_DESC description
     let desc:DXGI_SWAP_CHAIN_DESC = DXGI_SWAP_CHAIN_DESC {
@@ -269,7 +289,7 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
             std::ptr::null_mut(),
             dtype,
             std::ptr::null_mut(),
-            0,
+            flags,
             std::ptr::null_mut(),
             0,
             D3D11_SDK_VERSION,
@@ -281,7 +301,11 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
         )
     };
     if hr != 0 {
+        if hr == DXGI_ERROR_SDK_COMPONENT_MISSING {
+            eprintln!("device creation failed due to missing sdk component (DXGI_ERROR_SDK_COMPONENT_MISSING)");
+        }
         return Err(anyhow!("failed to create d3d11 device: {:X}", hr))
+
     }
     println!("created d3d11 device: feature level: {:X}", feature_level);
     Ok((device,context,swapchain))
@@ -650,16 +674,57 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let index_buffer = create_index_buffer(
             device, (prim_count * 3).try_into().expect("can't conert to u32?"))?;
 
+            use std::ptr::null_mut;
+
+        // This doesn't work at the moment (some kind of problem with my shader) but its illegal 
+        // to draw in d3d11 without one, which is one reason why the device hangs after 1 draw call below.
+        // however we can still call DIP as much as we want which is enough to test the MM load.
+        let vshader = if let Some(ref sfile) = opts.shader_out_file {
+            let vshader = std::fs::read(sfile)?;
+            let pVShaderBytecode = vshader.as_ptr() as *const c_void;
+            let BytecodeLength = vshader.len();
+            let pVShader: *mut *mut ID3D11VertexShader = std::ptr::null_mut();
+            let hr = (*device).CreateVertexShader(pVShaderBytecode, BytecodeLength, null_mut(), pVShader);
+            if hr == 0 && pVShader != null_mut() {
+                Some(pVShader)
+            } else {
+                eprintln!("error: failed to create vertex shader: {:X}", hr);
+                None
+            }
+        } else {
+            None
+        };
+        
         let mut msg;
         let mut start = SystemTime::now();
         let mut done = false;
-        let mut dip_calls = 0;
+        let mut dip_calls: i32 = 0;
+        let mut total_dip_calls = 0;
         let mut info_start = SystemTime::now();
+        let mut removed_once = false;
         while !done {
             if SystemTime::now().duration_since(info_start).expect("whatever").as_secs() >= 1 {
                 println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (prim_count,vert_count));
+                total_dip_calls += dip_calls;
                 dip_calls = 0;
                 info_start = SystemTime::now();
+            }
+            let dev_removed_reason = (*device).GetDeviceRemovedReason();
+            if !removed_once && dev_removed_reason != 0 {
+                total_dip_calls += dip_calls;
+
+                removed_once = true;
+                use winapi::shared::winerror::*;
+
+                print!("warning: device removed after {} draw calls, reason: ", total_dip_calls);
+                match dev_removed_reason {
+                    DXGI_ERROR_DEVICE_HUNG => println!("{}", &format!("device hung")),
+                    DXGI_ERROR_DEVICE_REMOVED => println!("{}", &format!("device removed")),
+                    DXGI_ERROR_DEVICE_RESET => println!("{}", &format!("device reset")),
+                    DXGI_ERROR_DRIVER_INTERNAL_ERROR => println!("{}", &format!("driver internal error")),
+                    DXGI_ERROR_INVALID_CALL => println!("{}", &format!("invalid call")),
+                    _ => println!("{}", &format!("unknown device removed reason")),
+                }
             }
 
             msg = std::mem::zeroed();
@@ -679,16 +744,17 @@ unsafe fn runapp() -> anyhow::Result<()> {
             let now = SystemTime::now();
             let _elapsed = now.duration_since(start).expect("whatever").as_millis();
 
-            // setting this to true typically slows down the DIP rate so much (like 30/sec) that MM doesn't even 
-            // try to initialize - so its kinda useless. should probably figure that out as constantly drawing 
-            // without present possibly makes the device unhappy
-            let mut do_present = false;
+            // if the sync interval in present below is > than zero this will slow down the dip rate to 
+            // the something like the refresh rate of display or some safe value like 30/sec
+            let mut do_present = true;
             // "render" some stuff
             {
                 // call VSSetConstantBuffers to set the constant buffer on the context, this will
                 // trigger some MM rehook code
                 let buffer = std::ptr::null_mut();
                 (*context).VSSetConstantBuffers(0, 1, &buffer);
+
+                //(*context).VSSetShader()
 
                 //println!("setting index buffer");
                 (*context).IASetIndexBuffer(index_buffer, DXGI_FORMAT_R16_UINT, 0);
@@ -739,7 +805,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
                 // swap the buffers.  we don't care about this since we don't render anything
                 // but the device probably works more realisticaly if there is a present after X
                 // amount of drawing.
-                (*swapchain).Present(1, 0);
+                (*swapchain).Present(0, 0);
             }
         }
     };
