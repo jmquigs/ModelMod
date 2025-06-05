@@ -54,10 +54,14 @@ try to use it.
 
 */
 
+use std::ptr::null_mut;
 use std::{path::PathBuf, time::SystemTime};
 
 // If these imports get too ugly or rust analyzer sticks them all on one line, use LLM to reorg them.
 use winapi::ctypes::c_void;
+use winapi::shared::guiddef::REFIID;
+use winapi::shared::minwindef::{FALSE, TRUE};
+use winapi::shared::winerror::SUCCEEDED;
 use winapi::shared::{
     dxgi::{
         IDXGIAdapter, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH,
@@ -76,6 +80,8 @@ use winapi::shared::{
     windef::{HBRUSH, HCURSOR, HICON, HMENU, HWND},
     winerror::DXGI_ERROR_SDK_COMPONENT_MISSING,
 };
+use winapi::um::d3d11sdklayers::{ID3D11InfoQueue, IID_ID3D11InfoQueue, D3D11_MESSAGE_SEVERITY_CORRUPTION, D3D11_MESSAGE_SEVERITY_ERROR, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_WARNING};
+use winapi::um::libloaderapi::{LoadLibraryExW, LoadLibraryW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 use winapi::um::{
     d3d11::{
         ID3D11Buffer, ID3D11Device, ID3D11DeviceContext, ID3D11InputLayout, ID3D11VertexShader,
@@ -84,7 +90,7 @@ use winapi::um::{
         D3D11_INPUT_PER_VERTEX_DATA, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_DEFAULT,
     },
     d3dcommon::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0},
-    libloaderapi::{GetModuleHandleA, GetProcAddress, LoadLibraryA},
+    libloaderapi::{GetModuleHandleA, GetProcAddress},
     winuser::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, PeekMessageW, PostQuitMessage,
         RegisterClassExW, ShowWindow, TranslateMessage, COLOR_WINDOWFRAME, CS_HREDRAW, CS_VREDRAW,
@@ -229,13 +235,75 @@ type D3D11CreateDeviceAndSwapChainFN = extern "system" fn (
     ppImmediateContext: *mut *mut ID3D11DeviceContext,
 ) -> HRESULT;
 
+// enabling this will prevent MM from hooking, see load_d3d11 comment below
+const USE_DEBUG_DEVICE:bool = false;
+
 // load the d3d11 library and obtain a pointer to the D3D11CreateDevice function
 unsafe fn load_d3d11() -> Option<D3D11CreateDeviceAndSwapChainFN> {
-    let d3d11 = unsafe { LoadLibraryA(b"d3d11.dll\0".as_ptr() as *const i8) };
+    
+    let d3d11 = unsafe { 
+        let wide: Vec<u16> = "d3d11.dll\0".encode_utf16().collect();   // note trailing '\0'
+
+        // debug layers only work when we load the real d3d11.dll, but this prevents MM from hooking.
+        // tried various ways to fix this 
+        // including loading the "d3d11_3SDKLayers.dll" manually, or loading this dll first and then 
+        // MM - the problem stems I think from the fact they are named the same so either the real lib
+        // or MM gets confused - the thing which came closest to working is renaming mm's hook dll 
+        // and loading it after as in the commented out code below - but then MM get's messed up because
+        // the managed code has a bunch of imports specifically looking for the name "d3d11.dll".  so i gave 
+        // up and the debug layers only work when not using MM - still useful for making sure the device 
+        // scaffolding here isn't throwing errors.
+        // it may be that the layers lib is looking for specific imports in the d3d11.dll that my hook 
+        // variant does not provide, so that is why it fails.  o3 LLM couldn't figure it out either
+        // (had me going in circles)
+        let d3d11 = if USE_DEBUG_DEVICE {
+            eprintln!("==> Warning: Loading d3d11.dll from system path to support debug device - MM will not initialize");
+            // load the "real" from the system path
+            let d3d11 = LoadLibraryExW(
+            wide.as_ptr(), 
+            null_mut(), 
+                LOAD_LIBRARY_SEARCH_SYSTEM32);
+            if d3d11 == null_mut() {
+                panic!("failed to load real d3d 11.dll")
+            }
+
+            d3d11
+
+            // now copy the "d3d11.dll" in the executable's dir to "mm_d3d11.dll" and load it, then return 
+            // a pointer to that as d3d11
+            // let d3d11_path = std::env::current_exe()
+            //     .expect("Failed to get current exe path")
+            //     .parent()
+            //     .expect("Failed to get parent directory")
+            //     .join("d3d11.dll");
+
+            // let mm_d3d11_path = std::env::current_exe()
+            //     .expect("Failed to get current exe path")
+            //     .parent()
+            //     .expect("Failed to get parent directory")
+            //     .join("mm_d3d11.dll");
+
+            // std::fs::copy(&d3d11_path, &mm_d3d11_path)
+            //     .expect("Failed to copy d3d11.dll to mm_d3d11.dll");
+
+            // let mm_d3d11 = LoadLibraryW(mm_d3d11_path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>().as_ptr());
+            // if mm_d3d11 == null_mut() {
+            //     panic!("failed to load mm_d3d11.dll")
+            // }
+            // mm_d3d11
+
+        } else {
+            let d3d11 = LoadLibraryW(wide.as_ptr());
+            d3d11
+        };
+        d3d11
+    };    
+
     if d3d11 == std::ptr::null_mut() {
         println!("failed to load d3d11.dll");
         return None
     }
+        
     let d3d11_create_device = unsafe { GetProcAddress(d3d11, b"D3D11CreateDeviceAndSwapChain\0".as_ptr() as *const i8) };
     if d3d11_create_device == std::ptr::null_mut() {
         println!("failed to get D3D11CreateDevice");
@@ -244,18 +312,12 @@ unsafe fn load_d3d11() -> Option<D3D11CreateDeviceAndSwapChainFN> {
     Some(std::mem::transmute(d3d11_create_device))
 }
 
-const USE_DEBUG_DEVICE:bool = false;
-
 // Use the specified create device function to create a d3d11 device
 fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChainFN)
     -> anyhow::Result<(*mut ID3D11Device,*mut ID3D11DeviceContext, *mut IDXGISwapChain)> {
     let mut device = std::ptr::null_mut();
     let mut context = std::ptr::null_mut();
     let mut swapchain: *mut IDXGISwapChain = std::ptr::null_mut();
-    let mut feature_level = D3D_FEATURE_LEVEL_11_0;
-    let dtype = D3D_DRIVER_TYPE_HARDWARE;
-    let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT
-        | if USE_DEBUG_DEVICE { D3D11_CREATE_DEVICE_DEBUG } else { 0 };
 
     // init the swap chain DXGI_SWAP_CHAIN_DESC description
     let desc:DXGI_SWAP_CHAIN_DESC = DXGI_SWAP_CHAIN_DESC {
@@ -281,6 +343,11 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
         SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
         Flags: DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH
     };
+
+    let mut feature_level = D3D_FEATURE_LEVEL_11_0;
+    let dtype = D3D_DRIVER_TYPE_HARDWARE;
+    let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT
+        | if USE_DEBUG_DEVICE { D3D11_CREATE_DEVICE_DEBUG } else { 0 };
 
     let hr = {
         println!("creating device");
@@ -308,6 +375,36 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
 
     }
     println!("created d3d11 device: feature level: {:X}", feature_level);
+
+    if USE_DEBUG_DEVICE { 
+        // enable more logging which can be seen in debug view when running with this
+        unsafe {
+            let mut infoq: *mut ID3D11InfoQueue = null_mut();
+            let hr_qi = (*device).QueryInterface(
+                &IID_ID3D11InfoQueue as REFIID,
+                &mut infoq as *mut _ as *mut _,
+            );
+            if SUCCEEDED(hr_qi) && !infoq.is_null() {
+                // 1. make sure output isn’t muted
+                (*infoq).SetMuteDebugOutput(FALSE);
+
+                // 2. remove any filters that drop INFO-level messages
+                (*infoq).ClearStorageFilter();
+                (*infoq).ClearRetrievalFilter();
+
+                // 3. (optional) set breakpoints on more severe messages
+                (*infoq).SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+                (*infoq).SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR,       TRUE);
+                (*infoq).SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_WARNING,     FALSE);
+                (*infoq).SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_INFO,        FALSE);
+
+                // done with the queue
+                (*infoq).Release();
+            }
+
+        }
+    }
+
     Ok((device,context,swapchain))
 }
 

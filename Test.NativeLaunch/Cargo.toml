@@ -6,7 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "dxgi", "objidlbase",
+winapi = { version = "0.3", features = ["libloaderapi", 
+    "d3d9", 
+    "d3d11", 
+    "d3d11sdklayers",     # ID3D11InfoQueue + message enums
+    "dxgi", 
+    "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput", "sysinfoapi", "errhandlingapi"] }
 anyhow = "*"
