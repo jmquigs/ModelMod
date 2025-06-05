@@ -683,17 +683,25 @@ unsafe fn runapp() -> anyhow::Result<()> {
             let vshader = std::fs::read(sfile)?;
             let pVShaderBytecode = vshader.as_ptr() as *const c_void;
             let BytecodeLength = vshader.len();
-            let pVShader: *mut *mut ID3D11VertexShader = std::ptr::null_mut();
-            let hr = (*device).CreateVertexShader(pVShaderBytecode, BytecodeLength, null_mut(), pVShader);
+            let mut pVShader: *mut ID3D11VertexShader = std::ptr::null_mut();
+            println!("read {} bytes from {:?}", BytecodeLength, sfile);
+            let hr = (*device).CreateVertexShader(pVShaderBytecode, 
+                BytecodeLength, 
+                null_mut(), 
+                &mut pVShader as *mut _);
             if hr == 0 && pVShader != null_mut() {
                 Some(pVShader)
             } else {
-                eprintln!("error: failed to create vertex shader: {:X}", hr);
+                eprintln!("error: failed to create vertex shader, device will likely hang after first draw call: {:X}", hr);
                 None
             }
         } else {
             None
         };
+
+        if let Some(vshader) = vshader {
+            (*context).VSSetShader(vshader, std::ptr::null_mut(), 0);
+        }
         
         let mut msg;
         let mut start = SystemTime::now();
