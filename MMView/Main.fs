@@ -88,7 +88,7 @@ module Main =
             setModDB moddb
 
             for ref in moddb.References do
-                addToWorld(XnaRender.MakeMesh(graphics, ref.Mesh))
+                addToWorld(XnaRender.MakeMesh(graphics, ref.Mesh.Value))
 
         do init()
 

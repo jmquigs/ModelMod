@@ -294,7 +294,7 @@ module CoreTypes =
         /// Whether this mesh instance was loaded from disk or the cache on the last load
         Cached: bool
     }
-
+    
     // ------------------------------------------------------------------------
     // These are types loaded by the moddb from yaml files
 
@@ -302,7 +302,9 @@ module CoreTypes =
     /// The Name of a reference is its base file name (no extension).
     type DBReference = {
         Name : string
-        Mesh : Mesh
+        Mesh : Lazy<Mesh>
+        MeshPath: string
+        MeshReadFlags: MeshReadFlags
         PrimCount: int
         VertCount: int
     }
@@ -322,9 +324,12 @@ module CoreTypes =
     /// The Name of a mod is its base file name (no extension).
     type DBMod = {
         RefName: string option
+        Type: ModType
         Ref: DBReference option
         Name: string
-        Mesh: Mesh option
+        Mesh: Lazy<Mesh> option
+        MeshPath: string
+        MeshReadFlags: MeshReadFlags
         WeightMode: WeightMode
         PixelShader: string
         Attributes: ModAttributes

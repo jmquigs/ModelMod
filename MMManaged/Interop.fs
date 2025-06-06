@@ -157,6 +157,7 @@ type Main() =
                 GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.getModCount));
                 GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.getModData));
                 FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.fillModData));
+                LoadModData = phandle (new InteropTypes.LoadModDataCB(ModDBInterop.loadModData));
                 TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.take));
                 GetLoadingState = phandle (new InteropTypes.GetLoadingStateCB(ModDBInterop.getLoadingState))
                 GetSnapshotResult = phandle (new InteropTypes.GetSnapshotResultCB(Snapshot.getResult))

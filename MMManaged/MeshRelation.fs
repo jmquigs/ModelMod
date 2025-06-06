@@ -69,13 +69,13 @@ module MeshRelation =
     }
 
     type MeshRelation(md:DBMod, ref:DBReference) =
-        let verifyAndGet(name:string) (mo:Mesh option) =
+        let verifyAndGet(name:string) (mo:Lazy<Mesh> option) =
             match mo with
             | None -> failwithf "cannot build vertrel for mod/ref with no mesh: %A" name
             | Some (m) -> m
 
-        let modMesh = verifyAndGet md.Name md.Mesh
-        let refMesh = ref.Mesh
+        let mutable modMesh = None
+        let mutable refMesh = None
 
         let mutable md = md
         let mutable ref = ref
@@ -83,11 +83,11 @@ module MeshRelation =
         let updateDBElems (newMd:DBMod) (newRef:DBReference) =
             // can change the mod entries if the meshes didn't change or if the _only_ thing that changed is the cached flag
             // (and it was set to true)
-            let newModMesh = verifyAndGet newMd.Name newMd.Mesh
-            let newRefMesh = newRef.Mesh
+            let newModMesh = (verifyAndGet newMd.Name newMd.Mesh).Force()
+            let newRefMesh = (newRef.Mesh.Force())
 
-            let oldModMesh = {modMesh with Cached = true}
-            let oldRefMesh = {refMesh with Cached = true}
+            let oldModMesh = {modMesh.Value with Cached = true}
+            let oldRefMesh = {refMesh.Value with Cached = true}
 
             // perfnote: these are deep equality compares of the structs
             if newModMesh <> oldModMesh then failwithf "updateDBElems: cannot change mod mesh; make a new mesh relation"
@@ -95,12 +95,12 @@ module MeshRelation =
             md <- newMd
             ref <- newRef
 
-        let sw = new Util.StopwatchTracker("MeshRel:" + md.Name + "/" + ref.Name)
         // Note: if this calculation is modified in the future to use something
         // other than mesh data, the caching assumptions on reload may change
         // (see `loadModDB`)
 
         let buildTris (mesh:Mesh) =
+            let refMesh = refMesh.Value
             let tris = mesh.Triangles |> Array.map (fun iTri ->
                     let derefed = iTri.Verts |> Array.map (fun vtn ->
                             let pos = refMesh.Positions.[vtn.Pos]
@@ -154,6 +154,8 @@ module MeshRelation =
                             ) = None
                     )
 
+            let refMesh = refMesh.Value
+            let modMesh = modMesh.Value
             if refMesh.AnnotatedVertexGroups.Length = 0 || modMesh.AnnotatedVertexGroups.Length = 0 then
                 false
             else
@@ -177,6 +179,9 @@ module MeshRelation =
                     | _,_ -> false
 
         let buildVertRels():VertRel[] =
+            let refMesh = refMesh.Value
+            let modMesh = modMesh.Value
+
             // for CPU-skinning mods only: build triangles for ref and mod
             let modTris,refTris =
                 match modMesh.Type with
@@ -202,7 +207,7 @@ module MeshRelation =
                     // because function calls like LengthSquared() only appear to be expensive because of the sheer
                     // number of invocations. They still add up to something, so I reduced the intensity
                     // by "inlining" the vector subtraction/distance calculations.  This saved about 12% on load times.
-                    for refPos in ref.Mesh.Positions do
+                    for refPos in refMesh.Positions do
                         let vX = modPos.X - refPos.X
                         let vY = modPos.Y - refPos.Y
                         let vZ = modPos.Z - refPos.Z
@@ -242,7 +247,7 @@ module MeshRelation =
 
                 {   RefPointIdx = closestIdx;
                     ModVertPos = modPos;
-                    RefVertPos = ref.Mesh.Positions.[closestIdx]
+                    RefVertPos = refMesh.Positions.[closestIdx]
                     Distance = closestDist
                     CpuSkinningData = cpuSkinningData }
 
@@ -261,24 +266,40 @@ module MeshRelation =
                 )
 
             modVertRels
+            
+        
+        let buildIt() = 
+            modMesh <- Some ((verifyAndGet md.Name md.Mesh).Force())
+            refMesh <- Some ((ref.Mesh.Force()))
 
-        let vertRels = buildVertRels()
-
-        do
+            let sw = new Util.StopwatchTracker("MeshRel:" + md.Name + "/" + ref.Name)
+            let vertRels = buildVertRels()
             log.Info "built mesh relation from mod '%s' to ref '%s'" md.Name ref.Name
             sw.StopAndPrint()
+            vertRels
+
+        let vertRels = lazy (buildIt())
+
+        member x.IsBuilt = vertRels.IsValueCreated
+        member x.Build() = vertRels.Force()
 
         member x.DBMod = md
         member x.DBRef = ref
 
         member x.UpdateDBElems(dbMod,dbRef) = updateDBElems dbMod dbRef
 
+        /// If the MeshRelation has not been built this will be None
         member x.ModMesh = modMesh
+        /// If the MeshRelation has not been built this will be None
         member x.RefMesh = refMesh
 
         member x.VertRelations = vertRels
         member x.ModVertRels = vertRels
 
+        /// If the MeshRelation has not been built this will be None
         member x.GetVertDeclaration() =
-            // currently, vertex declaration always comes from the ref
-            refMesh.Declaration
+            if x.IsBuilt then 
+                None
+            else 
+                // currently, vertex declaration always comes from the ref
+                refMesh.Value.Declaration

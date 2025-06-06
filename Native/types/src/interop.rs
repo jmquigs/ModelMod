@@ -70,6 +70,7 @@ pub struct ModData {
     pub parentModName: [WCHAR; MAX_MOD_NAME_LEN],
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
     pub mod_snap_profile: ModSnapProfile,
+    pub data_available: bool,
 }
 
 impl ModData {
@@ -199,6 +200,7 @@ type SetPathsCB =
 type LoadModDBCB = unsafe extern "stdcall" fn() -> i32;
 type GetModCountCB = unsafe extern "stdcall" fn() -> i32;
 type GetModDataCB = unsafe extern "stdcall" fn(modIndex: i32) -> *mut ModData;
+type LoadModDataCB = unsafe extern "stdcall" fn(modIndex: i32) -> i32;
 type FillModDataCB = unsafe extern "stdcall" fn(
     modIndex: i32,
     declData: *mut u8,
@@ -225,6 +227,7 @@ pub struct ManagedCallbacks {
     pub GetModCount: GetModCountCB,
     pub GetModData: GetModDataCB,
     pub FillModData: FillModDataCB,
+    pub LoadModData: LoadModDataCB,
     pub TakeSnapshot: TakeSnapshotCB,
     pub GetLoadingState: GetLoadingStateCB,
     pub GetSnapshotResult: GetSnapshotResultCB,

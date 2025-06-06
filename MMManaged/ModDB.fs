@@ -45,7 +45,7 @@ module ModDB =
     let private (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
     /// Root type for the Mod Database; everything is stored in here.
-    type ModDB(refObjects,modObjects,meshRels) =
+    type ModDB(refObjects,modObjects,meshRels:MeshRelation list) =
         // explode deletion mods into interop representation now.
         // one new deletion mod is created for each individual piece of deleted geometry,
         // so this usually creates more mods than actually present in the data.
@@ -156,6 +156,9 @@ module ModDB =
 
         let pixelShader = node |> Yaml.getOptionalValue "pixelshader" |> unpackPath
 
+        let mutable numOverrideTextures = 0
+        let mutable fullMeshPath = ""
+        let meshReadFlags = CoreTypes.DefaultReadFlags
         let mesh,modType,weightMode,attrs =
             let sType = (node |> Yaml.getFirstValue ["modtype"; "meshtype"] |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
@@ -199,6 +202,7 @@ module ModDB =
                     ]
 
             let attrs = { EmptyModAttributes with DeletedGeometry = delGeometry }
+            
             let mesh =
                 match modType with
                 | ModType.Deletion -> None
@@ -208,19 +212,28 @@ module ModDB =
                 | ModType.GPUReplacement ->
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
-                    Some (loadMesh (Path.Combine(basePath, meshPath),modType,CoreTypes.DefaultReadFlags))
 
-            // fill in texture paths (if any) from yaml
-            let mesh =
-                match mesh with
-                | None -> None
-                | Some(m) ->
-                    Some({ m with
-                            Tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath
-                            Tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath
-                            Tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath
-                            Tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpackPath
-                    })
+                    let tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath
+                    let tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath
+                    let tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath
+                    let tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpackPath
+                    numOverrideTextures <- 
+                        let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
+                        oneIfNotEmpty tex0Path + oneIfNotEmpty tex1Path + oneIfNotEmpty tex2Path + oneIfNotEmpty tex3Path
+
+                    let meshPath = Path.Combine(basePath, meshPath)
+                    fullMeshPath <- meshPath
+                    let doMeshLoad() = 
+                        let mesh = loadMesh (meshPath,modType,meshReadFlags)
+                        // fill in texture paths (if any) from yaml
+                        {
+                            mesh with 
+                                Tex0Path = tex0Path
+                                Tex1Path = tex1Path
+                                Tex2Path = tex2Path
+                                Tex3Path = tex3Path
+                        }
+                    Some (lazy (doMeshLoad()))
 
             mesh,modType,weightMode,attrs
 
@@ -236,9 +249,12 @@ module ModDB =
 
         let md = {
             DBMod.RefName = refName
+            Type = modType
             Ref = None // defer ref resolution until all files have been loaded - avoids forward ref problems
             Name = modName
             Mesh = mesh
+            MeshPath = fullMeshPath
+            MeshReadFlags = meshReadFlags
             WeightMode = weightMode
             Attributes = attrs
             PixelShader = pixelShader
@@ -246,13 +262,6 @@ module ModDB =
             UpdateTangentSpace = computeTS
             Profile = profile
         }
-
-        let numOverrideTextures =
-            match mesh with
-            | None -> 0
-            | Some mesh ->
-                let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
-                oneIfNotEmpty mesh.Tex0Path + oneIfNotEmpty mesh.Tex1Path + oneIfNotEmpty mesh.Tex2Path + oneIfNotEmpty mesh.Tex3Path
 
         log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d: profile: %A" modName modType refName weightMode numOverrideTextures profile
         Mod(md)
@@ -331,56 +340,72 @@ module ModDB =
         let refName = Path.GetFileNameWithoutExtension filename
 
         let meshPath = node |> Yaml.getValue "meshpath" |> Yaml.toString
-        let mesh = loadMesh (Path.Combine(basePath, meshPath),ModType.Reference,CoreTypes.DefaultReadFlags)
 
-        // load vertex elements (binary)
-        let binVertDeclPath =
-            let nval = node |> Yaml.getOptionalValue "VertDeclPath"
-            match nval with
-            // try alternate name if not found
-            | None -> node |> Yaml.getOptionalValue "rawMeshVertDeclPath" |> Yaml.toOptionalString
-            | _ -> nval |> Yaml.toOptionalString
+        let meshFullPath = Path.Combine(basePath, meshPath)
+        let meshReadFlags = CoreTypes.DefaultReadFlags
+        let doMeshLoad() = 
+            let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags)
 
-        let declData =
-            match binVertDeclPath with
-            | None -> None
-            | Some path when path.Trim() <> "" ->
-                let bytes,elements = loadBinVertDeclData (Path.Combine(basePath, path))
-                log().Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
-                Some (bytes,elements)
-            | Some path ->
-                match CoreState.Context with 
-                | "d3d9" -> log().Warn "no vertex declaration found for reference and d3d9 is in use, this mod will probably not load: %A" filename
-                | "d3d11" -> ()
-                | x -> log().Warn "Unknown run context %A and no vertex declaration found, mod may not load: %A"  CoreState.Context filename
-                None
+            // load vertex elements (binary)
+            let binVertDeclPath =
+                let nval = node |> Yaml.getOptionalValue "VertDeclPath"
+                match nval with
+                // try alternate name if not found
+                | None -> node |> Yaml.getOptionalValue "rawMeshVertDeclPath" |> Yaml.toOptionalString
+                | _ -> nval |> Yaml.toOptionalString
 
-        // load vertex data (binary)
-        let binVertDataPath = node |> Yaml.getOptionalValue "rawMeshVBPath" |> Yaml.toOptionalString
-        let binVertData =
-            match binVertDataPath with
-            | None -> None
-            | Some path ->
-                let vdata = loadBinVertData (Path.Combine(basePath, path))
-                log().Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length
-                Some vdata
+            let declData =
+                match binVertDeclPath with
+                | None -> None
+                | Some path when path.Trim() <> "" ->
+                    let bytes,elements = loadBinVertDeclData (Path.Combine(basePath, path))
+                    log().Info "Found %d vertex elements in %s (%d bytes)" elements.Length path bytes.Length
+                    Some (bytes,elements)
+                | Some path ->
+                    match CoreState.Context with 
+                    | "d3d9" -> log().Warn "no vertex declaration found for reference and d3d9 is in use, this mod will probably not load: %A" filename
+                    | "d3d11" -> ()
+                    | x -> log().Warn "Unknown run context %A and no vertex declaration found, mod may not load: %A"  CoreState.Context filename
+                    None
+
+            // load vertex data (binary)
+            let binVertDataPath = node |> Yaml.getOptionalValue "rawMeshVBPath" |> Yaml.toOptionalString
+            let binVertData =
+                match binVertDataPath with
+                | None -> None
+                | Some path ->
+                    let vdata = loadBinVertData (Path.Combine(basePath, path))
+                    log().Info "Found %d verts in %s (%d bytes)" vdata.NumVerts path vdata.Data.Length
+                    Some vdata
+
+    //        let sw = new Util.StopwatchTracker("apply transforms: " + filename)
+    //        let mesh = applyMeshTransforms (getMeshTransforms node) mesh
+    //        sw.StopAndPrint()
+
+            let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
+
+            log().Info "Ref: %s: binary vertex data: %A" refName binVertData.IsSome
+            mesh
 
         // look for expected prim/vert counts.  if set, these take priority over the actual mmobj geometry
-        // for determining mod substitution
-        let pCount = defaultArg (node |> Yaml.getOptionalValue "ExpectedPrimCount" |> Yaml.toOptionalInt) mesh.Triangles.Length
-        let vCount = defaultArg (node |> Yaml.getOptionalValue "ExpectedVertCount" |> Yaml.toOptionalInt) mesh.Positions.Length
-
-//        let sw = new Util.StopwatchTracker("apply transforms: " + filename)
-//        let mesh = applyMeshTransforms (getMeshTransforms node) mesh
-//        sw.StopAndPrint()
-
-        let mesh = { mesh with BinaryVertexData = binVertData; Declaration = declData }
-
-        log().Info "Ref: %s: binary vertex data: %A" refName binVertData.IsSome
+        // for determining mod substitution.  
+        // if they are set we can lazy load the mmobj, otherwise we must load it now to get the values, since if we don't 
+        // there is no way for native code to know what is modded.
+        let (mesh, pCount,vCount) = 
+            match (node |> Yaml.getOptionalValue "ExpectedPrimCount" |> Yaml.toOptionalInt, 
+                   node |> Yaml.getOptionalValue "ExpectedVertCount" |> Yaml.toOptionalInt) with 
+                (Some(pCount), Some(vCount)) -> 
+                    lazy (doMeshLoad()), pCount, vCount
+                | _ -> 
+                    log().Warn "ref yaml for %A does not define ExpectedPrimCount and ExpectedVertCount; lazy load not possible so loading now" refName
+                    let mesh = doMeshLoad()
+                    (lazy mesh, mesh.Triangles.Length,mesh.Positions.Length)
 
         MReference(
             { DBReference.Name = refName
               Mesh = mesh
+              MeshPath = meshFullPath
+              MeshReadFlags = meshReadFlags
               PrimCount = pCount
               VertCount = vCount
             })
@@ -414,19 +439,24 @@ module ModDB =
 
             objects
         | ".mmobj" ->
+            let mutable mrFlags = CoreTypes.DefaultReadFlags
             let mesh =
                 // load it as a reference, but allow conf to control whether it should be transformed (normally it is, but if loading
                 // for UI display, we might omit the transform because we want it displayed in tool format, not game-format)
                 match conf.AppSettings with
                 | None ->
-                    loadMesh (filename,ModType.Reference, CoreTypes.DefaultReadFlags)
+                    mrFlags <- CoreTypes.DefaultReadFlags
+                    loadMesh (filename,ModType.Reference, mrFlags)
                 | Some settings ->
-                    loadMesh (filename,ModType.Reference, settings.MeshReadFlags)
+                    mrFlags <- settings.MeshReadFlags
+                    loadMesh (filename,ModType.Reference, mrFlags)
 
             let refName = Path.GetFileNameWithoutExtension filename
             [ MReference(
                 { DBReference.Name = refName
-                  Mesh = mesh
+                  Mesh = lazy mesh
+                  MeshPath = filename
+                  MeshReadFlags = mrFlags
                   // override values for these can only come from yaml, so since we don't have a yaml file, just use the mesh values
                   PrimCount = mesh.Triangles.Length
                   VertCount = mesh.Positions.Length
@@ -528,6 +558,7 @@ module ModDB =
             | None -> []
             | Some path -> loadIndexObjects path true conf
 
+        //log().Info ">> will load %A" indexObjects
         let extraObjects = [
             for file in conf.FilesToLoad do
                 yield! loadFile conf file
@@ -588,8 +619,15 @@ module ModDB =
                         nBuilt <- nBuilt + 1
                         new MeshRelation(dbmod, Option.get dbmod.Ref)
 
+                    // if both of the meshes are unchanged (or if loading them would use a cache entry, meaning they are unchanged)
+                    // we can reuse the mesh relation.  the case where the mesh relation exists but the meshes aren't loaded, yet they are cached,
+                    // happens when a mod database reload occurs (ctrl-F1).  until the mod is referenced by native code those meshes typically won't be loaded.
+                    let meshCacheFresh = MemoryCache.get
                     match (allowCached, oldModDb, dbmod.Mesh, dbmod.Ref) with
-                    | (true, Some(oldModDb), Some(modMesh), Some(dbRef) ) when modMesh.Cached = true && dbRef.Mesh.Cached = true ->
+                    | (true, Some(oldModDb), Some(modMesh), Some(dbRef) ) when 
+                        ((modMesh.IsValueCreated && modMesh.Value.Cached) || meshCacheFresh(dbmod.MeshPath, dbmod.Type, dbmod.MeshReadFlags).IsSome) && 
+                        ((dbRef.Mesh.IsValueCreated && dbRef.Mesh.Value.Cached) || meshCacheFresh(dbRef.MeshPath, ModType.Reference, dbRef.MeshReadFlags).IsSome)
+                        ->
                         // use linear search, fine when there are 10s of meshrels, may not be fine if there are a lot more
                         let oldMeshRel = oldModDb.MeshRelations |> List.tryFind (fun (meshrel:MeshRelation) ->
                             dbmod.Name.Equals(meshrel.DBMod.Name, StringComparison.InvariantCultureIgnoreCase)
@@ -611,6 +649,12 @@ module ModDB =
                 )
             log().Info "MeshRelations: %d cached, %d built" nCached nBuilt
             meshRels
+
+        // this code forces an immediate load of the data, maybe useful for debugging
+        //for meshrel in meshRels do 
+        //    if not meshrel.IsBuilt then 
+        //        log().Info "Temp hack: building meshrel for mod %A because it isn't built yet" meshrel.DBMod.Name
+        //        meshrel.Build() |> ignore
 
         new ModDB(refs,mods,meshRels)
 

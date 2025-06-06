@@ -213,27 +213,31 @@ module ModDBInterop =
     let private getMeshRelationMod i =
         let moddb = State.Data.Moddb
         let meshrel = List.item i (moddb.MeshRelations)
+
         let refm = meshrel.RefMesh
         let modm = meshrel.ModMesh
 
         let declSize,vertSize =
-            // This is used by DX9, but DX11 computes its own vert size based on the current layout.
-            match meshrel.GetVertDeclaration() with
-            | None -> 
-                match CoreState.Context with 
-                | "d3d9" -> failwith "A vertex declaration must be set here, native code requires it."
-                | "d3d11" -> 
-                    (0, 0)
-                | x -> failwithf "Unknown context: %A" x
-            | Some (data,elements) -> 
-                let vertSize = MeshUtil.getVertSizeFromDecl elements
-                data.Length,vertSize
+            if not meshrel.IsBuilt then 
+                (0,0)
+            else
+                // This is used by DX9, but DX11 computes its own vert size based on the current layout.
+                match meshrel.GetVertDeclaration() with
+                | None -> 
+                    match CoreState.Context with 
+                    | "d3d9" -> failwith "A vertex declaration must be set here, native code requires it."
+                    | "d3d11" -> 
+                        (0, 0)
+                    | x -> failwithf "Unknown context: %A" x
+                | Some (data,elements) -> 
+                    let vertSize = MeshUtil.getVertSizeFromDecl elements
+                    data.Length,vertSize
 
-        let modType = modTypeToInt modm.Type
+        let modType = modTypeToInt meshrel.DBMod.Type
 
         let primType = 4 //D3DPT_TRIANGLELIST // TODO11
-        let vertCount = modm.Positions.Length
-        let primCount = modm.Triangles.Length
+        let vertCount = if meshrel.IsBuilt then modm.Value.Positions.Length else 0
+        let primCount = if meshrel.IsBuilt then modm.Value.Triangles.Length else 0
         let indexCount = 0
         let refPrimCount = meshrel.DBRef.PrimCount
         let refVertCount = meshrel.DBRef.VertCount
@@ -268,48 +272,98 @@ module ModDBInterop =
             DeclSizeBytes = declSizeBytes
             VertSizeBytes = vertSizeBytes
             IndexElemSizeBytes = indexElemSizeBytes
-            Tex0Path = modm.Tex0Path
-            Tex1Path = modm.Tex1Path
-            Tex2Path = modm.Tex2Path
-            Tex3Path = modm.Tex3Path
+            Tex0Path = if meshrel.IsBuilt then modm.Value.Tex0Path else ""
+            Tex1Path = if meshrel.IsBuilt then modm.Value.Tex1Path else ""
+            Tex2Path = if meshrel.IsBuilt then modm.Value.Tex2Path else ""
+            Tex3Path = if meshrel.IsBuilt then modm.Value.Tex3Path else ""
             PixelShaderPath = meshrel.DBMod.PixelShader
             ModName = mname
             ParentModName = parentModName
             UpdateTangentSpace = updateTS
             SnapProfile = profile
+            DataAvailable = meshrel.IsBuilt
         }
+
+    let emptyMod = InteropTypes.EmptyModData
+
+    let getModFromIndex(i) = 
+        // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
+        // which does not allow null.  Can't use option type here because native code calls this.
+        
+
+        let moddb = State.Data.Moddb
+
+        let maxMods = getModCount()
+
+        // the index is "virtualized".  the first n mods are the meshrelation mods.  after that are
+        // the deletion mods.
+        match i with
+        | n when n >= maxMods ->
+            log.Error "Mod index out of range: %d" i
+            emptyMod
+        | n when n < 0 ->
+            log.Error "Mod index out of range: %d" i
+            emptyMod
+        | n when n < moddb.MeshRelations.Length ->
+            getMeshRelationMod n
+        | n when n >= moddb.MeshRelations.Length ->
+            let delIdx = (n - moddb.MeshRelations.Length)
+            List.item delIdx moddb.DeletionMods
+        | n -> failwithf "invalid mod index: %A" i
+
+    // technically, because I use an exclusive lock below, this doesn't need to be a concurrent dictionary
+    let modLoadThread = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.Thread>()
+
+    /// Load the mod data for mod i.  This is assumed to be an index into the mesh relation list.  
+    /// If the mesh relation is already built, this does nothing (the mod is not reloaded).  
+    /// If it is not, it will trigger a new build provided one is not already running for the same mesh relation.
+    /// The build will load both mod and ref meshes (though the mesh cache still applies) and then build 
+    /// the mesh relation data from them.  See the build function for more details of what that entails but 
+    /// it generally involves forcing evaluation of the Lazy types.
+    ///
+    /// The load is run in a separate thread, so this does not block the caller.  If the entire mod db is
+    /// reloaded while the thread is still running, the old mesh relation will finish building, but
+    /// is likely stale (and no longer referenced by the mod db, so will be garbage-collected eventually).  
+    /// Since a new load is not started for the same relation if one is already in progress,
+    /// the (new) mesh relation may still be unbuilt - which requires another call 
+    /// to this function.  The native code should observe that the (new) mesh relation's data is still 
+    /// unavailable and trigger a another call to this function on an ongoing basis until the old thread 
+    /// finishes and a new one can be started.
+    let loadModData(i) = 
+        let mutable loadState = 0 // not available
+        try     
+            let moddb = State.Data.Moddb
+            if i < moddb.MeshRelations.Length then 
+                let meshrel = List.item i (moddb.MeshRelations)
+                
+                if meshrel.IsBuilt then 
+                    loadState <- 1 // loaded
+                else  
+                    let loadKey = i.ToString() + meshrel.DBMod.Name + meshrel.DBRef.Name
+
+                    Locking.write( fun _ -> 
+                        let ok,mlt = modLoadThread.TryGetValue loadKey
+                        if not ok || (ok && not mlt.IsAlive) then 
+                            let loadit() =                             
+                                meshrel.Build() |> ignore
+                            let t = new System.Threading.Thread( new System.Threading.ThreadStart(loadit)  )
+                            t.Start()
+                            modLoadThread.AddOrUpdate(loadKey, t, (fun _ (oldT) -> t)) |> ignore
+                            loadState <- 2 // load was started
+                        else 
+                            loadState <- 3 // a started load is still pending
+                    )                    
+            loadState
+        with
+            | e ->
+                log.Error "%s" e.Message
+                log.Error "%s" e.StackTrace
+                loadState
 
     /// Get the mod data at the specified index.  If index is out of range, returns InteropTypes.EmptyModData.
     let getModData(i) =
-        // emptyMod is used for error return cases.  Doing this allows us to keep the ModData as an F# record,
-        // which does not allow null.  Can't use option type here because native code calls this.
-        let emptyMod = InteropTypes.EmptyModData
-
         try
-            let moddb = State.Data.Moddb
-
-            let maxMods = getModCount()
-
-            // the index is "virtualized".  the first n mods are the meshrelation mods.  after that are
-            // the deletion mods.
-
-            let ret =
-                match i with
-                | n when n >= maxMods ->
-                    log.Error "Mod index out of range: %d" i
-                    emptyMod
-                | n when n < 0 ->
-                    log.Error "Mod index out of range: %d" i
-                    emptyMod
-                | n when n < moddb.MeshRelations.Length ->
-                    getMeshRelationMod n
-                | n when n >= moddb.MeshRelations.Length ->
-                    let delIdx = (n - moddb.MeshRelations.Length)
-                    List.item delIdx moddb.DeletionMods
-                | n -> failwithf "invalid mod index: %A" i
-
-            //log.Info "Returning mod %A for index %A" ret i
-            ret
+            getModFromIndex i
         with
             | e ->
                 log.Error "%s" e.Message
@@ -687,9 +741,13 @@ module ModDBInterop =
 
             // grab more stuff that we'll need
             let meshrel = List.item modIndex (moddb.MeshRelations)
-            let refm = meshrel.RefMesh
-            let modm = meshrel.ModMesh
-            let vertRels = meshrel.VertRelations
+            if not meshrel.IsBuilt then 
+                log.Warn "mesh rel is not built, building now (slow!)" 
+                meshrel.Build() |> ignore
+
+            let refm = meshrel.RefMesh.Value
+            let modm = meshrel.ModMesh.Value
+            let vertRels = meshrel.VertRelations.Value
 
             match meshrel.DBMod.Profile with 
             | Some(profile) when profile.IsOctaVec() -> 

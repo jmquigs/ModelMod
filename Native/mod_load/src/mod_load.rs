@@ -750,6 +750,38 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                     write_log_file(&format!("load_deferred_mods: mod already loaded: {}", nmod.name));
                     continue;
                 }
+                if !nmod.mod_data.data_available {
+                    let mdat: *mut interop::ModData = (callbacks.GetModData)(nmod.midx);
+                    if mdat != null_mut() {
+                        let mut lres = 0;
+                        if !(*mdat).data_available {                        
+                            lres = (callbacks.LoadModData)(nmod.midx);
+                            match lres {
+                                0 => write_log_file(&format!("load_deferred_mods: mod data not yet available: {}", nmod.name)),
+                                1 => write_log_file(&format!("load_deferred_mods: mod data is now available: {}", nmod.name)),
+                                2 => write_log_file(&format!("load_deferred_mods: mod data load has started: {}", nmod.name)),
+                                3 => write_log_file(&format!("load_deferred_mods: mod data load is in progress: {}", nmod.name)),
+                                n=> write_log_file(&format!("load_deferred_mods: unexpected return code: {} for mod: {}", n, nmod.name)),
+                            }
+
+                            if lres != 1 {
+                                continue;    
+                            }
+                        }  
+                        
+                        if lres == 1 || (*mdat).data_available {
+                            write_log_file(&format!("load_deferred_mods: updating mod numbers for mod: {}", nmod.name));
+                            // data is now available but we need to update some entries in the nmod that we're not available before
+                            nmod.mod_data.data_available = true;
+                            nmod.mod_data.numbers = (*mdat).numbers;
+                            nmod.mod_data.texPath0 = (*mdat).texPath0;
+                            nmod.mod_data.texPath1 = (*mdat).texPath1;
+                            nmod.mod_data.texPath2 = (*mdat).texPath2;
+                            nmod.mod_data.texPath3 = (*mdat).texPath3;
+                        }
+                    }
+                }
+
                 match device {
                     DevicePointer::D3D9(device) => {
                         load_d3d_data9(device, callbacks, nmod.midx, nmod);

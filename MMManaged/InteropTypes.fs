@@ -143,6 +143,11 @@ module InteropTypes =
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         PixelShaderPath: string
         SnapProfile: ModSnapProfile
+        /// Whether the data has been loaded for this mod.  If this is false only some metadata will be available 
+        /// (extracted from the yaml files).  The full mod data including meshes and the meshrelation 
+        /// can be loaded with ModDBInterop.loadModData.
+        [<MarshalAs(UnmanagedType.U1)>]
+        DataAvailable: bool
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
@@ -166,6 +171,7 @@ module InteropTypes =
         PixelShaderPath = ""
         UpdateTangentSpace = -1
         SnapProfile = EmptyModSnapProfile
+        DataAvailable = false
     }
 
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]
@@ -271,6 +277,9 @@ module InteropTypes =
             ibData:nativeptr<byte> *
             ibSize:int32 -> int
 
+    type LoadModDataCB = 
+        delegate of int -> int
+
     /// Take a snapshot.  Managed code is responsible for all the work here, including writing the files to disk
     /// and performing any transformations.  Returns 0 on success or logs an exception and returns
     /// GenericFailureCode on error.
@@ -329,6 +338,7 @@ module MMNative =
         GetModCount: InteropTypes.GetModCountCB
         GetModData: InteropTypes.GetModDataCB
         FillModData: InteropTypes.FillModDataCB
+        LoadModData: InteropTypes.LoadModDataCB
         TakeSnapshot: InteropTypes.TakeSnapshotCB
         GetLoadingState: InteropTypes.GetLoadingStateCB
         GetSnapshotResult: InteropTypes.GetSnapshotResultCB

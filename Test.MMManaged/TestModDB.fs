@@ -27,7 +27,7 @@ let ``ModDB: load mod db``() =
         let mref = List.head mdb.References
         Assert.AreEqual (mref.Name, "MonolithRef", sprintf "wrong ref name: %A" mref)
         // check ref mesh, a few properties at least
-        let refMesh = mref.Mesh
+        let refMesh = mref.Mesh.Value
         Assert.AreEqual (refMesh.Positions.Length, 8, sprintf "wrong ref mesh vert count: %A" refMesh)
         Assert.AreEqual (refMesh.Triangles.Length, 12, sprintf "wrong ref mesh prim count: %A" refMesh)
 
@@ -35,7 +35,7 @@ let ``ModDB: load mod db``() =
     let () =
         let mmod = List.item 0 mdb.Mods
         let mref = List.head mdb.References
-        let refMesh = mref.Mesh
+        let refMesh = mref.Mesh.Value
 
         Assert.AreEqual (mmod.Name, "MonolithMod", sprintf "wrong mod name: %A" mmod)
         Assert.AreEqual (mmod.RefName, Some("MonolithRef"), sprintf "wrong mod ref name: %A" mmod)
@@ -48,6 +48,7 @@ let ``ModDB: load mod db``() =
 
         // check mod mesh
         let modMesh = Option.get mmod.Mesh
+        let modMesh = modMesh.Value
         Assert.AreEqual (modMesh.Positions.Length, 24, sprintf "wrong ref mesh vert count: %A" refMesh)
         Assert.AreEqual (modMesh.Triangles.Length, 36, sprintf "wrong ref mesh prim count: %A" refMesh)
 
