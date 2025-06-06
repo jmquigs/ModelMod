@@ -509,6 +509,9 @@ map_Kd $$filename
                 | SharpDX.DXGI.Format.R16G16_Float -> 4
                 | SharpDX.DXGI.Format.R16G16B16A16_Float -> 8
                 | SharpDX.DXGI.Format.R8G8B8A8_UInt -> 4
+                | SharpDX.DXGI.Format.B8G8R8A8_UNorm -> 4
+                | SharpDX.DXGI.Format.R16G16B16A16_SInt -> 8
+                | SharpDX.DXGI.Format.R16G16B16A16_SNorm -> 8
                 | _ -> failwithf "Some lazy person didn't fill in the size of type %A" f
         int hElement.Offset + sizeBytes
 
