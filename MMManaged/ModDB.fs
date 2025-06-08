@@ -647,7 +647,7 @@ module ModDB =
                         | None -> newMeshRel()
                     | _ -> newMeshRel()
                 )
-            log().Info "MeshRelations: %d cached, %d built" nCached nBuilt
+            log().Info "MeshRelations: %d cached, %d new" nCached nBuilt
             meshRels
 
         // this code forces an immediate load of the data, maybe useful for debugging

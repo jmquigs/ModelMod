@@ -267,8 +267,8 @@ module MeshRelation =
 
             modVertRels
             
-        
         let buildIt() = 
+            //log.Info "Starting build of meshrelation for mod: %A" md.Name
             modMesh <- Some ((verifyAndGet md.Name md.Mesh).Force())
             refMesh <- Some ((ref.Mesh.Force()))
 
@@ -280,7 +280,7 @@ module MeshRelation =
 
         let vertRels = lazy (buildIt())
 
-        member x.IsBuilt = vertRels.IsValueCreated
+        member x.IsBuilt = vertRels.IsValueCreated 
         member x.Build() = vertRels.Force()
 
         member x.DBMod = md

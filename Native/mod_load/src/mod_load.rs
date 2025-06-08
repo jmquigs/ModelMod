@@ -118,6 +118,7 @@ unsafe fn load_tex(dp:DevicePointer, texpath:&[u16]) -> Option<TexPtr> {
     }
 }
 
+const MAX_FILL_ATTEMPTS:u32 = 1;
 /// Create D3D resources for a mod using the data loaded by managed code. This usually consists of a
 /// vertex buffer, declaration and optionally one or more textures.  `midx` is the mod index
 /// into the current mod DB (and should be less than GetModCount()).
@@ -554,6 +555,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
             parent_mod_names: parent_mods,
             last_frame_render: 0,
             name: mod_name.to_owned(),
+            fill_attempts: 0,
         };
 
         // get mod key
@@ -746,6 +748,14 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
             let mut nmod =
                 get_mod_by_name(&nmd, &mut GLOBAL_STATE.loaded_mods);
             if let Some(ref mut nmod) = nmod {
+                if nmod.fill_attempts > MAX_FILL_ATTEMPTS {
+                    if nmod.fill_attempts == MAX_FILL_ATTEMPTS + 1 {
+                        write_log_file(&format!("load_deferred_mods warning: mod exceeded max fill attempts, no more will be done: {}", nmod.name));
+                        // increment so that we don't log about it again
+                        nmod.fill_attempts += 1;
+                    }
+                    continue;
+                }
                 if let ModD3DState::Loaded(_) = nmod.d3d_data {
                     write_log_file(&format!("load_deferred_mods: mod already loaded: {}", nmod.name));
                     continue;
@@ -754,14 +764,18 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                     let mdat: *mut interop::ModData = (callbacks.GetModData)(nmod.midx);
                     if mdat != null_mut() {
                         let mut lres = 0;
-                        if !(*mdat).data_available {                        
+                        if !(*mdat).data_available {
                             lres = (callbacks.LoadModData)(nmod.midx);
                             match lres {
                                 0 => write_log_file(&format!("load_deferred_mods: mod data not yet available: {}", nmod.name)),
                                 1 => write_log_file(&format!("load_deferred_mods: mod data is now available: {}", nmod.name)),
                                 2 => write_log_file(&format!("load_deferred_mods: mod data load has started: {}", nmod.name)),
                                 3 => write_log_file(&format!("load_deferred_mods: mod data load is in progress: {}", nmod.name)),
+                                4 => write_log_file(&format!("load_deferred_mods: mod data load had error: {}", nmod.name)),
                                 n=> write_log_file(&format!("load_deferred_mods: unexpected return code: {} for mod: {}", n, nmod.name)),
+                            }
+                            if lres == 2 || lres == 4 {
+                                nmod.fill_attempts += 1;
                             }
 
                             if lres != 1 {

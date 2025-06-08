@@ -40,6 +40,7 @@ pub struct NativeModData {
     pub parent_mod_names: Vec<String>,
     pub last_frame_render: u64,
     pub name: String,
+    pub fill_attempts: u32,
 }
 
 pub const MAX_RECENT_RENDER_USAGE_THRESH:u64 = 500;
@@ -55,6 +56,7 @@ impl NativeModData {
             parent_mod_names: vec![],
             last_frame_render: 0,
             name: "".to_owned(),
+            fill_attempts: 0,
         }
     }
     pub fn mod_key(vert_count: u32, prim_count: u32) -> u32 {

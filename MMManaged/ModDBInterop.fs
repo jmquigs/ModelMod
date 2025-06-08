@@ -311,8 +311,16 @@ module ModDBInterop =
             List.item delIdx moddb.DeletionMods
         | n -> failwithf "invalid mod index: %A" i
 
-    // technically, because I use an exclusive lock below, this doesn't need to be a concurrent dictionary
-    let modLoadThread = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.Thread>()
+    /// Used to track the loading thread for a mod (see lodModData for more details).
+    type LoadInfo = {
+        Thread: System.Threading.Thread
+        /// When the database is reloaded this will change, allowing a new set of loads.  This is useful
+        /// if some of the mods had errors that have been corrected.
+        MeshRelationId: int
+        LastLoadHadError: option<bool>
+    }
+   
+    let modLoadThread = new System.Collections.Concurrent.ConcurrentDictionary<string, LoadInfo>()
 
     /// Load the mod data for mod i.  This is assumed to be an index into the mesh relation list.  
     /// If the mesh relation is already built, this does nothing (the mod is not reloaded).  
@@ -329,30 +337,56 @@ module ModDBInterop =
     /// to this function.  The native code should observe that the (new) mesh relation's data is still 
     /// unavailable and trigger a another call to this function on an ongoing basis until the old thread 
     /// finishes and a new one can be started.
-    let loadModData(i) = 
+    let loadModData(i) =
         let mutable loadState = 0 // not available
-        try     
+        try
             let moddb = State.Data.Moddb
-            if i < moddb.MeshRelations.Length then 
+            if i < moddb.MeshRelations.Length then
                 let meshrel = List.item i (moddb.MeshRelations)
-                
-                if meshrel.IsBuilt then 
-                    loadState <- 1 // loaded
-                else  
-                    let loadKey = i.ToString() + meshrel.DBMod.Name + meshrel.DBRef.Name
 
-                    Locking.write( fun _ -> 
-                        let ok,mlt = modLoadThread.TryGetValue loadKey
-                        if not ok || (ok && not mlt.IsAlive) then 
-                            let loadit() =                             
+                if meshrel.IsBuilt then
+                    loadState <- 1 // loaded
+                else
+                    let loadKey = i.ToString() + meshrel.DBMod.Name + meshrel.DBRef.Name
+                    let currentMeshRelId = meshrel.GetHashCode()
+
+                    let loadit () =
+                        let ok,currInfo = modLoadThread.TryGetValue loadKey 
+                        if ok then 
+                            try
+                                //log.Info "beginning new load for key %A with meshrel id %A (curr load info: %A)" loadKey currentMeshRelId currInfo
                                 meshrel.Build() |> ignore
-                            let t = new System.Threading.Thread( new System.Threading.ThreadStart(loadit)  )
-                            t.Start()
-                            modLoadThread.AddOrUpdate(loadKey, t, (fun _ (oldT) -> t)) |> ignore
-                            loadState <- 2 // load was started
-                        else 
-                            loadState <- 3 // a started load is still pending
-                    )                    
+                                let newInfo = { currInfo with LastLoadHadError = Some(false) }
+                                modLoadThread.TryUpdate(loadKey, newInfo, currInfo) |> ignore
+                            with
+                            | e ->
+                                // this is in a separate thread so log explicitly to make sure it goes to output log
+                                log.Error "Mesh relation build exception: %A" e
+                                let newInfo = { currInfo with LastLoadHadError = Some(true) }
+                                modLoadThread.TryUpdate(loadKey, newInfo, currInfo) |> ignore
+                        else
+                            log.Error "load info for mod %A not found" meshrel.DBMod.Name
+
+                    let startNewLoad() = 
+                        let t = new System.Threading.Thread(new System.Threading.ThreadStart(loadit))
+                        let newLoadInfo = { Thread = t; MeshRelationId = currentMeshRelId; LastLoadHadError = None }
+                        modLoadThread.AddOrUpdate(loadKey, newLoadInfo, (fun _ _ -> newLoadInfo)) |> ignore
+                        t.Start()
+                        loadState <- 2  // load was started
+
+                    Locking.write (fun _ ->
+                        match modLoadThread.TryGetValue(loadKey) with
+                        | (true, loadInfo) ->
+                            //log.Info "Found existing load entry: %A (curr meshrel is: %A)" loadInfo currentMeshRelId
+                            if loadInfo.MeshRelationId = currentMeshRelId && loadInfo.LastLoadHadError = Some true then
+                                loadState <- 4  // error encountered previously, do not start a new load
+                            elif loadInfo.Thread.IsAlive then
+                                loadState <- 3  // a started load is still pending
+                            else
+                                startNewLoad()
+                        | (false, _) ->
+                            startNewLoad()
+                    )
             loadState
         with
             | e ->
