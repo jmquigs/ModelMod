@@ -1,6 +1,7 @@
 use crate::{interop::ModData};
 pub use crate::d3ddata::ModD3DData;
 
+#[derive(Clone)]
 pub enum ModD3DState {
     Unloaded,
     /// The mod data is partially available.  Used for DX11 before where we need a place to
@@ -32,6 +33,12 @@ impl ModD3DState {
     }
 }
 
+/// Structure representive mod data for the "native" Rust code.  
+/// 
+/// Note this is Clone, but the `d3d_data`` is entirely COM objects, so when they are cloned their 
+/// COM reference counts are incremented (and decremented on drop).  Those objects are not 
+/// deep cloned or otherwise duplicated.
+#[derive(Clone)]
 pub struct NativeModData {
     pub midx: i32,
     pub mod_data: ModData,

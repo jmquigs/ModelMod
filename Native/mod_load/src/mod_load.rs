@@ -3,6 +3,7 @@ use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
 use shared_dx::types::TexPtr;
 use types::d3ddata;
+use types::interop::ManagedCallbacks;
 use types::native_mod::ModD3DState;
 use types::native_mod::NativeModData;
 use winapi::ctypes::c_void;
@@ -35,6 +36,8 @@ use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LoadedModState};
 use types::interop;
 use types::native_mod;
 
+use crate::load_thread::maybe_start_load;
+use crate::load_thread::reinit_load_thread_table;
 use crate::mod_vector;
 
 pub enum AsyncLoadState {
@@ -60,6 +63,11 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
         write_log_file("failed to lock global state to clear mod data");
         return;
     }
+
+    match reinit_load_thread_table() {
+        Ok(_) => {},
+        Err(x) => write_log_file(&format!("error: problem reloading thread load database: {}", x)),
+    };
 
     // get device ref count prior to adding everything
     let pre_rc = device.get_ref_count();
@@ -707,6 +715,50 @@ pub fn get_mod_by_name<'a>(name:&str, loaded_mods:&'a mut Option<LoadedModState>
     None
 }
 
+pub fn get_mod_by_index<'a>(midx: i32, loaded_mods: &'a mut Option<LoadedModState>) -> Option<&'a mut NativeModData> {
+    match loaded_mods {
+        Some(ref mut gs) => {
+            for nmodvec in gs.mods.values_mut() {
+                if let Some(nmod) = nmodvec.iter_mut().find(|nmod| nmod.midx == midx) {
+                    return Some(nmod);
+                }
+            }
+            None
+        },
+        _ => None,
+    }
+}
+
+pub unsafe fn get_dev_ref_count(device:DevicePointer) -> u32 {
+    match dev_state_d3d11_write() {
+        Some((_lck, _state)) => {
+            device.get_ref_count()
+        },
+        None => {
+            0
+        }
+    }
+}
+
+pub unsafe fn update_ref_count(device:DevicePointer, pre_rc:u32) -> (u32,u32) {
+    let post_rc = get_dev_ref_count(device);
+    let diff = post_rc.saturating_sub(pre_rc);
+    if diff > 0 {
+        match dev_state_d3d11_write() {
+            Some((_lck, _state)) => {    
+                (*DEVICE_STATE).d3d_resource_count += diff;
+                (diff,(*DEVICE_STATE).d3d_resource_count)
+            },
+            None => {
+                (0,0)
+            }
+        }
+    } else {
+        (0,post_rc)
+    }
+
+}
+
 pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
         let lock = GLOBAL_STATE_LOCK.lock();
         if let Err(_e) = lock {
@@ -796,14 +848,33 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                     }
                 }
 
+                let can_load_in_thread = (*DEVICE_STATE).multithreaded();
+
                 match device {
                     DevicePointer::D3D9(device) => {
                         load_d3d_data9(device, callbacks, nmod.midx, nmod);
                         cnt += 1;
                     }
-                    DevicePointer::D3D11(device) => {
-                        if load_d3d_data11(device, callbacks, nmod.midx, nmod) {
-                            cnt += 1;
+                    DevicePointer::D3D11(dev) => {
+                        if can_load_in_thread {
+                            match maybe_start_load(device, callbacks, nmod) {
+                                Ok(queued) => {
+                                    if queued {
+                                        write_log_file(&format!("load_deferred_mods: queued new load for resource:{}", nmod.midx));
+                                    } 
+                                    // else {
+                                    //     write_log_file(&format!("load_deferred_mods: not queueing new load for resource:{}", nmod.midx));
+                                    // }
+                                    
+                                },
+                                Err(x) => {
+                                    write_log_file(&format!("error: maybe_start_load failed: {}", x));
+                                }
+                            }
+                        } else {
+                            if load_d3d_data11(dev, callbacks, nmod.midx, nmod) {
+                                cnt += 1;
+                            }
                         }
                     },
                 }
@@ -813,9 +884,7 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         to_load.clear();
 
         // get new ref count
-        let post_rc = device.get_ref_count();
-        let diff = post_rc - pre_rc;
-        (*DEVICE_STATE).d3d_resource_count += diff;
+        let (rc_diff, new_rc) = update_ref_count(device, pre_rc);
 
         let now = std::time::SystemTime::now();
         let elapsed = now.duration_since(ml_start);
@@ -823,8 +892,9 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
             if cnt > 0 {
                 write_log_file(
                     &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
-                    cnt, elapsed.as_millis(), diff, device.as_usize(), (*DEVICE_STATE).d3d_resource_count
+                    cnt, elapsed.as_millis(), rc_diff, device.as_usize(), new_rc
                 ));
             }
         };
 }
+

@@ -12,6 +12,7 @@ use winapi::shared::d3d9::IDirect3DDevice9;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Resource;
 use winapi::um::d3d11::ID3D11ShaderResourceView;
+use winapi::um::d3d11::D3D11_CREATE_DEVICE_SINGLETHREADED;
 use winapi::um::unknwnbase::IUnknown;
 use crate::types_dx9::HookDirect3D9Device;
 use crate::types_dx9::HookDirect3D9;
@@ -99,10 +100,14 @@ pub struct HookD3D11State {
     pub last_data_expire: SystemTime,
     pub last_data_expire_type_flip: bool,
     pub app_foreground: bool,
+    pub multithreaded: bool,
 }
 
 impl HookD3D11State {
     pub fn from(hooks:HookDirect3D11, devptr:*mut ID3D11Device ) -> Self {
+        let multithreaded = unsafe {
+            !devptr.is_null() && ((*devptr).GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) == 0
+        };
         HookD3D11State {
             hooks,
             devptr: DevicePointer::D3D11(devptr),
@@ -113,6 +118,7 @@ impl HookD3D11State {
             last_data_expire: SystemTime::now(),
             last_data_expire_type_flip: false,
             app_foreground: false,
+            multithreaded,
         }
     }
 }
@@ -126,6 +132,15 @@ pub struct DeviceState {
     pub hook: Option<HookDeviceState>,
     pub d3d_window: HWND,
     pub d3d_resource_count: u32, // TODO: this should be tracked per device pointer.
+}
+
+impl DeviceState {
+    pub fn multithreaded(&self) -> bool {
+        match &self.hook {
+            Some(HookDeviceState::D3D11(state)) => state.multithreaded,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -49,6 +49,7 @@ use std::sync::RwLockReadGuard;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
+use winapi::um::d3d11::D3D11_CREATE_DEVICE_SINGLETHREADED;
 use winapi::Interface;
 use winapi::ctypes::c_void;
 use winapi::shared::{basetsd::SIZE_T, dxgiformat::DXGI_FORMAT, guiddef::GUID,
@@ -742,6 +743,9 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 
         let hooks = hook_d3d11(device, swapchain, context)?;
 
+        let multithreaded = ((*device).GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) == 0;
+
+
         (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
             hooks,
             devptr: DevicePointer::D3D11(device),
@@ -752,13 +756,15 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             app_foreground: false,
             last_data_expire: SystemTime::now(),
             last_data_expire_type_flip: false,
+            multithreaded,
         }));
 
         // TODO11: d3d9 also has: d3d_resource_count: 0,
 
         write_log_file(&format!(
-            "hooked device on thread {:?}",
-            std::thread::current().id()
+            "hooked device on thread {:?}; multithreaded: {}",
+            std::thread::current().id(),
+            multithreaded,
         ));
 
         (*context).AddRef();
