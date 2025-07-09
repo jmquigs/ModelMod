@@ -715,6 +715,7 @@ mod tests {
                 d3d_data: ModD3DState::Unloaded,
                 is_parent: false,
                 parent_mod_names: vec![],
+                fill_attempts: 0,
             };
             nmd.mod_data.numbers.ref_prim_count = ref_prim;
             nmd.mod_data.numbers.ref_vert_count = ref_vert;
