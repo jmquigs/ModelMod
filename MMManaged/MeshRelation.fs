@@ -146,11 +146,17 @@ module MeshRelation =
                             false
                         else
                             let modA = modA.ToUpperInvariant()
+                            let lonce = Logging.getLogOnceFn(md.Name + ref.Name + modA, 0)
+                            lonce("using inclusion group: " + modA)
                             // search the refs for the target include
                             refAnnts |> List.tryFind (fun refA ->
                                 let refA = refA.ToUpperInvariant()
 
-                                modA = "INCLUDE." + refA
+                                let amatch = (modA = "INCLUDE." + refA)
+                                if amatch then 
+                                    let lonce = Logging.getLogOnceFn(md.Name + ref.Name + refA, 0)
+                                    lonce("found in ref: " + refA)
+                                amatch
                             ) = None
                     )
 
