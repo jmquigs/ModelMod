@@ -4,26 +4,21 @@ use std::ffi::{CString, c_void};
 use std::fs;
 use std::path::PathBuf;
 use std::ptr;
-use std::os::raw::{c_char, c_uint};
-use winapi::shared::minwindef::{FARPROC, HMODULE};
+use winapi::shared::basetsd::SIZE_T;
+use winapi::shared::minwindef::{FARPROC, HMODULE, LPCVOID, LPVOID, UINT};
+use winapi::shared::ntdef::HRESULT;
 use winapi::um::libloaderapi::{LoadLibraryA, GetProcAddress};
+use winapi::um::winnt::LPCSTR;
 
-// HRESULT and type aliases
-type HRESULT = i32;
-type LPCVOID = *const c_void;
-type SIZE_T = usize;
-type UINT = c_uint;
-type LPCSTR = *const c_char;
-type LPVOID = *mut c_void;
 
 // Minimal IUnknown for ID3DBlob
 #[repr(C)]
-struct ID3DBlobVtbl {
+pub struct ID3DBlobVtbl {
     pub QueryInterface: extern "system" fn(*mut ID3DBlob, *const c_void, *mut *mut c_void) -> HRESULT,
     pub AddRef: extern "system" fn(*mut ID3DBlob) -> u32,
     pub Release: extern "system" fn(*mut ID3DBlob) -> u32,
     pub GetBufferPointer: extern "system" fn(*mut ID3DBlob) -> LPVOID,
-    pub GetBufferSize: extern "system" fn(*mut ID3DBlob) -> SIZE_T,
+    pub GetBufferSize: extern "system" fn(*mut ID3DBlob) -> winapi::shared::basetsd::SIZE_T,
 }
 #[repr(C)]
 pub struct ID3DBlob {
@@ -56,7 +51,7 @@ type D3DCompileFn = unsafe extern "system" fn(
     ppErrorMsgs: *mut *mut ID3DBlob,
 ) -> HRESULT;
 
-pub fn compile_shader(sourcefile:&str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn compile_shader(sourcefile:&str, is_vertex:bool) -> Result<PathBuf, Box<dyn std::error::Error>> {
     // Load DLL
     let dll_path = CString::new("d3dcompiler_47.dll")?;
     let hmod: HMODULE = unsafe { LoadLibraryA(dll_path.as_ptr()) };
@@ -77,7 +72,11 @@ pub fn compile_shader(sourcefile:&str) -> Result<PathBuf, Box<dyn std::error::Er
 
     // Prepare arguments
     let entry = CString::new("main")?;
-    let target = CString::new("vs_5_0")?;
+    let target = if is_vertex {
+        CString::new("vs_5_0")? 
+    } else {
+        CString::new("ps_5_0")? 
+    };
     let mut blob: *mut ID3DBlob = ptr::null_mut();
     let mut error_blob: *mut ID3DBlob = ptr::null_mut();
 
@@ -103,7 +102,7 @@ pub fn compile_shader(sourcefile:&str) -> Result<PathBuf, Box<dyn std::error::Er
                 let msg_ptr = (*error_blob).get_buffer_pointer();
                 let msg_len = (*error_blob).get_buffer_size();
                 let msg = std::slice::from_raw_parts(msg_ptr, msg_len);
-                eprintln!("D3DCompile error: {}", String::from_utf8_lossy(msg));
+                eprintln!("D3DCompile error compiling {} with target {:?}: {}", sourcefile, target, String::from_utf8_lossy(msg));
                 (*error_blob).release();
             }
         } else {

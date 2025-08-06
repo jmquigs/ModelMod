@@ -1,11 +1,37 @@
 #![allow(non_snake_case)]
 
 /*
+TL;DR run modes:
+
+# repeatedly test geometry with the specified prim,vert count.  MM if hooked will eventually
+# render a mod it its place, if it has one.  It can take 10-15 seconds or more before this 
+# happens during which time the window will most likely be blank.
+# you'll probably need to make a MM profile for this to work, read the long text below for more info.
+sh runmm.sh 9303,6534 -ef basic_format.txt
+
+# render a spinning cube, doesn't do much out. the prim vert/count here is ignored.
+sh runmm.sh 100,200 -shape -ef basic_format.txt
+
+Long description:
+
 This standalone program allows testing of the entire code base without injecting into a
-real game exe.  This program acts like a d3d11 game, making appropriate calls to "render" geometry
-although it doesn't actually render anything.  However, MM is hooked into the process
+real game exe.  This program acts like a d3d11 game, making appropriate calls to render meshes,
+although the meshes it renders are (usually) empty/garbage; MM is hooked into the process
 (via the `runmm.sh` script), so it can intercept and perform actions on these rendering calls
 like it normally would.
+
+The program has two major run modes:
+- if no -shape option is present, the program generates a placeholder index/vertex buffer for 
+the specify primitive vertex count and repeatedly renders it, the idea being MM will observe that
+and try to look up a mod (and render it if it has one)
+- if  -shape option is present, it renders a hardcoded test shape (a spinning cube). this is mostly 
+here to test this program's ability to render with d3d11 independent of MM.  While prim/vert counts,
+can still be specified, since the program is rendering cube verts, MM most likely won't ever see a 
+matching mod and won't render or even load much of anything.
+
+If rendering a mod, usually it will render flat-shaded (albeit with some semi-broken lighting effects
+I added), not with a texture, because this program doesn't set textures and neither does MM unless the 
+mod uses override textures, which most don't (also I haven't updated the pixel shader to sample textures)
 
 The typical usage for this is:
 1) run `cargo run` to build and run the program
@@ -22,17 +48,16 @@ typically doesn't produce much useful output.  But the output of MM can be obser
 the log file, typically `$mmlogdir\Logs\ModelMod.test_native_launch.log`.  It may also be possible
 to attach to this process via the managed code debugger, but I haven't tried that.
 
-A fair portion of this code was written by github copilot and other LLMs.  So, it's not very good.  But it's
-good enough to test the mod loading process.  This won't ever render a mod, and usually the program
-gets a "device hung" - MM will report that in the log - when attempting to create a mod vertex buffer.
-However by that time the mod load  is almost complete which has been sufficient for my testing so far.
+A fair portion of this code was written by github copilot and other LLMs.  And I've changed what 
+I wanted it to do a few times without cleaning it up much.  So, it's not very good.  But it's
+good enough to test the mod loading process.  
 
 Vertex Layout notes:
 `simple_vertex_shader.dat` was snapped binary-only from a game.  It is required to create input
 layouts (the api validates the shader bytecode against the input layout description).
 
 If you want to use other vertex formats you have two options:
-1) (preferred) create a new description like basic_format.txt and shader like basic_shader.hlsl 
+1) (preferred) create a new description like basic_format.txt and shader like shape_vshader.hlsl 
 and define the format you to use there or 
 2) (much more involved) snap a shader from something,
 and modify this code to create structs for the that format.  And define a new structure
@@ -57,8 +82,10 @@ try to use it.
 use std::ptr::null_mut;
 use std::{path::PathBuf, time::SystemTime};
 
+use glam::Vec3;
 // If these imports get too ugly or rust analyzer sticks them all on one line, use LLM to reorg them.
 use winapi::ctypes::c_void;
+use winapi::shared::dxgiformat::DXGI_FORMAT_D24_UNORM_S8_UINT;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{FALSE, TRUE};
 use winapi::shared::winerror::SUCCEEDED;
@@ -80,6 +107,9 @@ use winapi::shared::{
     windef::{HBRUSH, HCURSOR, HICON, HMENU, HWND},
     winerror::DXGI_ERROR_SDK_COMPONENT_MISSING,
 };
+use winapi::um::d3d11::{ID3D11DepthStencilView, ID3D11PixelShader, ID3D11RasterizerState, ID3D11RenderTargetView, ID3D11Texture2D, 
+    D3D11_BIND_DEPTH_STENCIL, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_CULL_FRONT, 
+    D3D11_FILL_SOLID, D3D11_RASTERIZER_DESC, D3D11_TEXTURE2D_DESC};
 use winapi::um::d3d11sdklayers::{ID3D11InfoQueue, IID_ID3D11InfoQueue, D3D11_MESSAGE_SEVERITY_CORRUPTION, D3D11_MESSAGE_SEVERITY_ERROR, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_WARNING};
 use winapi::um::libloaderapi::{LoadLibraryExW, LoadLibraryW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 use winapi::um::{
@@ -102,8 +132,10 @@ use winapi::um::{
 use winapi::um::d3dcommon::{D3D_DRIVER_TYPE,D3D_FEATURE_LEVEL};
 
 use winapi::um::errhandlingapi::GetLastError;
+use winapi::Interface;
 
 use crate::load_mmobj::test_load_mmobj;
+use crate::render::prepare_shader_constants;
 
 #[macro_use]
 extern crate anyhow;
@@ -111,6 +143,9 @@ extern crate anyhow;
 mod load_mmobj;
 mod interop_mmobj;
 mod shadercomp;
+mod shape;
+mod render;
+mod d3d11_utilfn;
 
 #[repr(C, align(8))]
 struct SimpleVertex {
@@ -235,8 +270,19 @@ type D3D11CreateDeviceAndSwapChainFN = extern "system" fn (
     ppImmediateContext: *mut *mut ID3D11DeviceContext,
 ) -> HRESULT;
 
-// enabling this will prevent MM from hooking, see load_d3d11 comment below
-const USE_DEBUG_DEVICE:bool = false;
+
+/// Enabling this will prevent MM from hooking, see load_d3d11 comment below
+const USE_DEBUG_DEVICE:bool = false; 
+/// When running with MM, if this is false, it may stack overflow when creating the d3d resources, for unknown reasons
+const SINGLE_THREADED_DEVICE: bool = true; 
+/// Whether to render or not.
+const RENDER:bool = true;
+/// If true sometimes the program will not render the full geometry causing a "miss" in modelmod,
+/// in other words no matching mod which is what it does most of the time in practice.
+/// (If this is true and RENDER is true and a valid MOD exists for the prim/vert count, 
+/// this will cause the mod to flicker on screen 
+/// since nothing is drawn otherwise)
+const RENDER_SIMULATE_MISS:bool = false; 
 
 // load the d3d11 library and obtain a pointer to the D3D11CreateDevice function
 unsafe fn load_d3d11() -> Option<D3D11CreateDeviceAndSwapChainFN> {
@@ -322,8 +368,8 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
     // init the swap chain DXGI_SWAP_CHAIN_DESC description
     let desc:DXGI_SWAP_CHAIN_DESC = DXGI_SWAP_CHAIN_DESC {
         BufferDesc: DXGI_MODE_DESC {
-            Width: 640, // ought to be good enough for anybody!
-            Height: 480,
+            Width: 800, 
+            Height: 600,
             RefreshRate: DXGI_RATIONAL {
                 Numerator: 60,
                 Denominator: 1
@@ -346,8 +392,13 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
 
     let mut feature_level = D3D_FEATURE_LEVEL_11_0;
     let dtype = D3D_DRIVER_TYPE_HARDWARE;
-    let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT
+    let mut flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT
         | if USE_DEBUG_DEVICE { D3D11_CREATE_DEVICE_DEBUG } else { 0 };
+
+    // if the SINGLE_THREADED_DEVICE constant is true, change the flags to specify a single threaded device
+    if SINGLE_THREADED_DEVICE {
+        flags |= D3D11_CREATE_DEVICE_SINGLETHREADED;
+    }
 
     let hr = {
         println!("creating device");
@@ -408,10 +459,10 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
     Ok((device,context,swapchain))
 }
 
-// generate a vector of the specified number of simple vertices, using random positions, blend indices and weights.
-// Constrain the positions to be within the range -100 to 100.
-// The purpose of this is to just trigger a mod load and not actually render, we don't care what the data looks like;
-// with the exception that until the mod is loaded this will be actually submitted to d3d via drawindexed.
+/// generate a vector of the specified number of simple vertices, using random positions, blend indices and weights.
+/// Constrain the positions to be within the range -100 to 100.
+/// The purpose of this is to just trigger a mod load and not actually render, we don't care what the data looks like;
+/// with the exception that until the mod is loaded this will be actually submitted to d3d via drawindexed.
 fn get_random_vertices(num_vertices: usize) -> Vec<SimpleVertex> {
     let mut vertices = Vec::new();
     for _ in 0..num_vertices {
@@ -443,10 +494,10 @@ fn get_random_vertices(num_vertices: usize) -> Vec<SimpleVertex> {
     vertices
 }
 
-// return a zeroed buffer of data for the specified number of verts and size; this is used when not using 
-// the "simple vertex" hardcoded format - note since the data is zero and this will be submitted to d3d11 until the 
-// mod loads, it could potentially cause issues on the device (degenerate triangles with coordinates all at zero, etc)
-// probably it would be better to at least put some actual triangles in there.
+/// return a zeroed buffer of data for the specified number of verts and size; this is used when not using 
+/// the "simple vertex" hardcoded format - note since the data is zero and this will be submitted to d3d11 until the 
+/// mod loads, it could potentially cause issues on the device (degenerate triangles with coordinates all at zero, etc)
+/// probably it would be better to at least put some actual triangles in there.
 fn get_empty_vertices(vert_size: usize, num_verts: usize) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Calculate the total size needed for the vertices
     let total_size = vert_size * num_verts;
@@ -455,7 +506,7 @@ fn get_empty_vertices(vert_size: usize, num_verts: usize) -> Result<Vec<u8>, Box
     Ok(vec![0u8; total_size])
 }
 
-// generate a index buffer of up to N indicies, using random indicies.
+/// generate a index buffer of up to N indicies, using random indicies.
 fn get_indices(n:u32) -> Vec<u16> {
     let mut indices = Vec::new();
     for _ in 0..n {
@@ -464,9 +515,10 @@ fn get_indices(n:u32) -> Vec<u16> {
     indices
 }
 
-// Call `get_indices` to get the indices and create an index buffer, return the index buffer.
-fn create_index_buffer(device: *mut ID3D11Device, nindex:u32) -> anyhow::Result<*mut ID3D11Buffer> {
-    let indices = get_indices(nindex);
+/// Call `get_indices` to get the indices and create an index buffer, return the index buffer.
+fn create_index_buffer<F>(device: *mut ID3D11Device, nindex: u32, index_fn: F) -> anyhow::Result<*mut ID3D11Buffer>
+where F: FnOnce(u32) -> Vec<u16> {
+    let indices = index_fn(nindex);
     let index_size = std::mem::size_of::<u16>();
     let index_count = indices.len();
     let index_buffer_size = index_size * index_count;
@@ -500,9 +552,13 @@ fn create_index_buffer(device: *mut ID3D11Device, nindex:u32) -> anyhow::Result<
     Ok(index_buffer)
 }
 
-// Create a vertex buffer from the specified vector of vertices.  Return the buffer and
-// the size of each vertex.
-unsafe fn create_vertex_buffer(device: *mut ID3D11Device, vertices:&[u8], vertex_size: usize) -> anyhow::Result<(*mut ID3D11Buffer,usize)> {
+/// Create a vertex buffer from the specified vector of vertices.  Return the buffer and
+/// the size of each vertex.
+unsafe fn create_vertex_buffer<F>(device: *mut ID3D11Device, vert_fn:F) -> anyhow::Result<(*mut ID3D11Buffer,usize)> 
+ //vertices:&[u8], vertex_size: usize
+where F: FnOnce() -> (Vec<u8>, usize)
+{
+    let (vertices,vertex_size) = vert_fn();
     let vertex_buffer_size = vertices.len();
 
     let mut vertex_buffer = std::ptr::null_mut();
@@ -530,12 +586,12 @@ unsafe fn create_vertex_buffer(device: *mut ID3D11Device, vertices:&[u8], vertex
     Ok((vertex_buffer,vertex_size))
 }
 
-// create a input layout
+/// create a input layout
 unsafe fn create_vertex_layout(device: *mut ID3D11Device, opts: &RunOpts) -> 
     anyhow::Result<(*mut ID3D11InputLayout, Vec<D3D11_INPUT_ELEMENT_DESC>)> {
     let (layout_desc, vshader) = 
         if let (Some(shader_out_file), Some(vert_elems)) = 
-            (&opts.shader_out_file, &opts.vert_elems) {
+            (&opts.vshader_out_file, &opts.vert_elems) {
             println!("using layout args from cli: {} elems; shader out file: {:?}", vert_elems.len(), shader_out_file);
             // Use the vertex elements and shader output file from the options
             let vshader = std::fs::read(shader_out_file)?;
@@ -598,16 +654,23 @@ pub fn read_elem_file(elemfile: &str) -> Result<Vec<D3D11_INPUT_ELEMENT_DESC>, B
     Ok(elements)
 }
 
+enum Mesh {
+    BlankPriorToModLoad,
+    Shape
+}
+
 struct RunOpts {
     pub prim_count:usize,
     pub vert_count:usize,
-    pub shader_out_file:Option<PathBuf>,
+    pub vshader_out_file:Option<PathBuf>,
+    pub pshader_out_file:Option<PathBuf>,
     pub vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>>,
+    pub mesh: Mesh,
 }
 
 impl RunOpts {
     pub fn has_custom_vert(&self) -> bool {
-        self.shader_out_file.is_some() && 
+        self.vshader_out_file.is_some() && 
         self.vert_elems.as_ref().map(|elems| !elems.is_empty()).unwrap_or(false)
     }
 }
@@ -622,21 +685,43 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
     let mut prim_and_vertex_arg: Option<String> = None;
 
     let mut i = 1;  // start from 1 to skip the program name
-    let mut shader_out_file:Option<PathBuf> = None;
+    let mut vshader_out_file:Option<PathBuf> = None;
+    let mut pshader_out_file:Option<PathBuf> = None;
     let mut vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>> = None;
 
+    let mut mesh = Mesh::BlankPriorToModLoad;
+
+    fn comp_shader(path:&str, is_vertex:bool) -> anyhow::Result<PathBuf> {
+        match shadercomp::compile_shader(path, is_vertex) {
+            Ok(sout) => Ok(sout),
+            Err(e) => Err(anyhow!("Failed to compile shader {}: {:?}", path, e)),
+        }
+    }
     while i < args.len() {
         match args[i].as_str() {
+            "-shape" => {
+                mesh = Mesh::Shape;
+                i += 1;
+            }
             "-cs" => {
+                panic!("the -cs option is now -vs (for vertex shader)");
+            }
+            "-vs" => {
                 if let Some(filename) = args.get(i + 1) {
-                    match shadercomp::compile_shader(filename) {
-                        Ok(sout) => shader_out_file = Some(sout),
-                        Err(e) => panic!("Failed to compile shader: {:?}", e),
-                    }
-                            i += 2; // Skip the filename in the next iteration
+                    vshader_out_file = Some(comp_shader(filename, true)?);
+                    i += 2; // Skip the filename in the next iteration
                 } else {
-                    println!("Error: No filename provided after '-cs'.");
-                            return Err(anyhow!("Error: No filename provided after '-cs'."));
+                    println!("Error: No filename provided after '-vs'.");
+                    return Err(anyhow!("Error: No filename provided after '-vs'."));
+                }
+            }
+            "-ps" => {
+                if let Some(filename) = args.get(i + 1) {
+                    pshader_out_file = Some(comp_shader(filename, false)?);
+                    i += 2; // Skip the filename in the next iteration
+                } else {
+                    println!("Error: No filename provided after '-ps'.");
+                    return Err(anyhow!("Error: No filename provided after '-ps'."));
                 }
             }
             // if there is an -ef argument, read the filename after it and store the output in the "elems" local var
@@ -654,6 +739,9 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
             arg if !arg.starts_with('-') && prim_and_vertex_arg.is_none() => {
                 prim_and_vertex_arg = Some(arg.to_string());
                 i += 1;
+            }
+            arg if arg.starts_with('-') => {
+                panic!("unrecognized argument: {}", arg)
             }
             _ => {
                 i += 1;
@@ -676,11 +764,22 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
         .ok_or_else(|| anyhow!("failed to parse vert count (expected prim,vert)"))?
         .parse::<usize>()?;
 
+    if RENDER {
+        if vshader_out_file.is_none() {
+            vshader_out_file = Some(comp_shader("shape_vshader.hlsl", true)?)
+        }
+        if pshader_out_file.is_none() {
+            pshader_out_file = Some(comp_shader("shape_pshader.hlsl", false)?)
+        }
+    }
+
     let opts = RunOpts {
         prim_count,
         vert_count,
-        shader_out_file,
+        vshader_out_file,
+        pshader_out_file,
         vert_elems,
+        mesh,
     };
     Ok(opts)
 }
@@ -745,38 +844,57 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let (layout,layout_vec) = create_vertex_layout(device, &opts)?;
         let vert_size = shadercomp::get_vert_size(&layout_vec).expect("failed to compute vert size");
 
-        let vert_data = if !opts.has_custom_vert() {
-            // use the "SimpleVertex"
-            let vec = get_random_vertices(vert_count);
-            let simp_vert_size = std::mem::size_of::<SimpleVertex>();
-            if simp_vert_size != vert_size {
-                panic!("simple vertex size does not match computed size");
-            }
-            // convert vec into vec<u8>
-            let len = vec.len() * simp_vert_size;
-            let mut bytes = Vec::with_capacity(len);
-            let ptr = vec.as_ptr() as *const u8;
-            bytes.extend_from_slice(std::slice::from_raw_parts(ptr, len));
-            bytes
-        } else {
-            // use the specified verts format
-            let vec = get_empty_vertices(vert_size, vert_count)
-                .expect("failed to create empty vert buf");
-            vec
-        };
+        let num_indices = prim_count * 3;
+        let (vert_data,index_data) = 
+            match opts.mesh {
+                Mesh::BlankPriorToModLoad => {
+                    if !opts.has_custom_vert() {
+                        // use the "SimpleVertex"
+                        let vec = get_random_vertices(vert_count);
+                        let simp_vert_size = std::mem::size_of::<SimpleVertex>();
+                        if simp_vert_size != vert_size {
+                            panic!("simple vertex size does not match computed size");
+                        }
+                        // convert vec into vec<u8>
+                        let len = vec.len() * simp_vert_size;
+                        let mut bytes = Vec::with_capacity(len);
+                        let ptr = vec.as_ptr() as *const u8;
+                        bytes.extend_from_slice(std::slice::from_raw_parts(ptr, len));
+                        (bytes, get_indices((num_indices) as u32))
+                    } else {
+                        // use the specified verts format
+                        let vec = get_empty_vertices(vert_size, vert_count)
+                            .expect("failed to create empty vert buf");
+                        (vec, get_indices((num_indices) as u32))
+                    }
+                },
+                Mesh::Shape => {
+                    if vert_size != std::mem::size_of::<shape::Vertex>() {
+                        panic!("vert size must match shape::Vertex")
+                    }
+                    let (vert_data,index_data) = shape::generate_cube_mesh();
+                    (vert_data, index_data)
+
+                }
+            };
         println!("created vert data buf sized {} for {} verts of size {}", vert_data.len(), vert_count, vert_size);
 
+        let num_indices = index_data.len();
+
         let (vertex_buffer, vert_size) = 
-            create_vertex_buffer(device, &vert_data, vert_size)?;
+            create_vertex_buffer(device, move || (vert_data, vert_size) )?;
         let index_buffer = create_index_buffer(
-            device, (prim_count * 3).try_into().expect("can't conert to u32?"))?;
+            device, num_indices as u32, |_num_indices| index_data)?; //.try_into().expect("can't convert to u32?")?;
 
-            use std::ptr::null_mut;
+        use std::ptr::null_mut;
 
-        // This doesn't work at the moment (some kind of problem with my shader) but its illegal 
-        // to draw in d3d11 without one, which is one reason why the device hangs after 1 draw call below.
-        // however we can still call DIP as much as we want which is enough to test the MM load.
-        let vshader = if let Some(ref sfile) = opts.shader_out_file {
+        let rend_data = if RENDER {
+            Some(render::create_data(device)?)
+        } else {
+            None
+        };
+
+        let vshader = if let Some(ref sfile) = opts.vshader_out_file {
             let vshader = std::fs::read(sfile)?;
             let pVShaderBytecode = vshader.as_ptr() as *const c_void;
             let BytecodeLength = vshader.len();
@@ -799,7 +917,131 @@ unsafe fn runapp() -> anyhow::Result<()> {
         if let Some(vshader) = vshader {
             (*context).VSSetShader(vshader, std::ptr::null_mut(), 0);
         }
+
+        // As with the vertex shader, if `opts.pshader_out_file` is set, load and create it on the device and set it on the context
+        let _pshader = if let Some(ref sfile) = opts.pshader_out_file {
+            let pshader = std::fs::read(sfile)?;
+            let pPShaderBytecode = pshader.as_ptr() as *const c_void;
+            let BytecodeLength = pshader.len();
+            let mut pPShader: *mut ID3D11PixelShader = std::ptr::null_mut();
+            println!("read {} bytes from {:?}", BytecodeLength, sfile);
+            let hr = (*device).CreatePixelShader(
+                pPShaderBytecode,
+                BytecodeLength,
+                null_mut(),
+                &mut pPShader as *mut _,
+            );
+            if hr == 0 && pPShader != null_mut() {
+                (*context).PSSetShader(pPShader, std::ptr::null_mut(), 0);
+            } else {
+                eprintln!("Error: Failed to create pixel shader: {:X}", hr);
+            }
+            Some(pPShader)
+        } else {
+            None
+        };
+
+        // to actually render something need to create some target buffers
+        // 1. Get back buffer from swap chain
+        let mut back_buffer: *mut ID3D11Texture2D = std::ptr::null_mut();
+        (*swapchain).GetBuffer(
+            0,
+            &ID3D11Texture2D::uuidof(),
+            &mut back_buffer as *mut _ as *mut _,
+        );
+
+        // 2. Create Render Target View
+        let mut render_target_view: *mut ID3D11RenderTargetView = std::ptr::null_mut();
+        (*device).CreateRenderTargetView(
+            back_buffer as *mut _,
+            std::ptr::null(),
+            &mut render_target_view,
+        );
+
+        let depth_desc = D3D11_TEXTURE2D_DESC {
+            Width: 800,
+            Height: 600,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_D24_UNORM_S8_UINT, // 24-bit depth + 8-bit stencil
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_DEPTH_STENCIL,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+
+        let mut depth_texture: *mut ID3D11Texture2D = std::ptr::null_mut();
+        let hr = {
+            (*device).CreateTexture2D(&depth_desc, std::ptr::null(), &mut depth_texture)
+        };
+        if !SUCCEEDED(hr) {
+            panic!("Failed to create depth texture: HRESULT = 0x{:08x}", hr);
+        }
+        let mut depth_stencil_view: *mut ID3D11DepthStencilView = std::ptr::null_mut();
+        let hr = {
+            (*device).CreateDepthStencilView(
+                depth_texture as *mut _,
+                std::ptr::null(), // default view desc
+                &mut depth_stencil_view,
+            )
+        };
+        if !SUCCEEDED(hr) {
+            panic!("Failed to create depth stencil view: HRESULT = 0x{:08x}", hr);
+        }
+
+        // 3. Set RTV on context
+        (*context).OMSetRenderTargets(1, &render_target_view, depth_stencil_view);        
+
+        use winapi::um::d3d11::D3D11_VIEWPORT;
+
+        let viewport = D3D11_VIEWPORT {
+            TopLeftX: 0.0,
+            TopLeftY: 0.0,
+            Width: 800 as f32,
+            Height: 600 as f32,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+        };
+
+
+        (*context).RSSetViewports(1, &viewport);
+
+        // the test shape uses this winding, for game meshes we don't really know depends on the game
+        let front_cc = if let Mesh::Shape = opts.mesh {
+            1
+        } else {
+            0
+        };
+
+        let rasterizer_desc = D3D11_RASTERIZER_DESC {
+            FillMode: D3D11_FILL_SOLID,
+            CullMode: D3D11_CULL_FRONT, //D3D11_CULL_NONE, // Disable backface culling
+            FrontCounterClockwise: front_cc,  
+            DepthBias: 0,
+            DepthBiasClamp: 0.0,
+            SlopeScaledDepthBias: 0.0,
+            DepthClipEnable: 1,        // Enable clipping (typical)
+            ScissorEnable: 0,
+            MultisampleEnable: 0,
+            AntialiasedLineEnable: 0,
+        };
+
+        let mut rasterizer_state: *mut ID3D11RasterizerState = std::ptr::null_mut();
+        let hr = {
+            (*device).CreateRasterizerState(&rasterizer_desc, &mut rasterizer_state)
+        };
+
+        if !SUCCEEDED(hr) {
+            panic!("Failed to create rasterizer state: HRESULT = 0x{:08x}", hr);
+        }
+
+        (*context).RSSetState(rasterizer_state);
         
+        let the_beginning = SystemTime::now();
         let mut msg;
         let mut start = SystemTime::now();
         let mut done = false;
@@ -854,11 +1096,64 @@ unsafe fn runapp() -> anyhow::Result<()> {
             let mut do_present = true;
             // "render" some stuff
             {
+                {
+                    let color = [0.0, 0.1, 0.2, 1.0];
+
+                    (*context).ClearRenderTargetView(render_target_view, &color);
+                    (*context).ClearDepthStencilView(
+                        depth_stencil_view,
+                        D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+                        1.0,
+                        0,
+                    );
+                }
+
                 // call VSSetConstantBuffers to set the constant buffer on the context, this will
                 // trigger some MM rehook code
                 let buffer = std::ptr::null_mut();
                 (*context).VSSetConstantBuffers(0, 1, &buffer);
 
+                if let Some(ref rend_data) = rend_data {
+                    let elapsed_sec = SystemTime::now().duration_since(the_beginning).expect("time went backwards?").as_secs_f32();
+                    let time_angle = elapsed_sec as f32 * std::f32::consts::FRAC_PI_2;
+
+                    let eye = Vec3::new(0.0, 0.0, -5.0);
+
+                    //println!("{}", time_angle);
+                    let rx = 0.0; //time_angle / 2.0; //time_angle;// 
+                    let ry = time_angle / 4.0;
+
+                    let (rotation,origin) = if let Mesh::Shape = opts.mesh {
+                        let origin = Vec3::ZERO;
+                        let rz = time_angle;
+                        let rotation = Vec3::new(rx, ry, rz);
+                        (rotation,origin)
+                    } else {
+                        let origin = Vec3::new(0.0, 1.0, 0.0);
+                        let rz = 0.0;
+                        let rotation = Vec3::new(rx, ry, rz);
+                        (rotation,origin)
+                    };
+                    
+                    let aspect_ratio = 800 as f32 / 600 as f32;
+                    let fov_y = std::f32::consts::FRAC_PI_4; // 45 degrees
+                    let z_near = 0.1;
+                    let z_far = 100.0;
+                    let light_dir = Vec3::new(0.0, -1.0, -1.0); // pointing diagonally down-forward
+
+                    prepare_shader_constants(
+                        context,
+                        rend_data,
+                        origin,
+                        eye,
+                        rotation,
+                        aspect_ratio,
+                        fov_y,
+                        z_near,
+                        z_far,
+                        light_dir,
+                    )?;
+                }
                 //(*context).VSSetShader()
 
                 //println!("setting index buffer");
@@ -877,14 +1172,25 @@ unsafe fn runapp() -> anyhow::Result<()> {
                 //println!("set topology");
                 (*context).IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-                // a small pct of the time, draw the target primCount, the rest draw a random number of
-                // prims up to primCount (simulates the high miss rate in mod rendering)
-                let primCount = if rand::random::<f32>() < 0.05 {
-                    prim_count
-                } else {
-                    rand::random::<usize>() % prim_count
-                };
+                let max_prims = num_indices / 3;
 
+                if RENDER {
+                    do_present = true;
+                }
+
+                let primCount = if let Mesh::Shape = opts.mesh {
+                    max_prims
+                } else if RENDER_SIMULATE_MISS {
+                    // a small pct of the time, draw the target primCount, the rest draw a random number of
+                    // prims up to primCount (simulates the high miss rate in mod rendering)
+                    if rand::random::<f32>() < 0.05 {
+                        max_prims
+                    } else {
+                        rand::random::<usize>() % max_prims
+                    }
+                } else {
+                    max_prims
+                };
                 let IndexCount = primCount * 3;
 
                 (*context).DrawIndexed(IndexCount as u32, 0, 0);
@@ -902,14 +1208,6 @@ unsafe fn runapp() -> anyhow::Result<()> {
             if do_present {
                 start = now;
 
-                // clear the buffer using the d3d context
-                //let color = [1.0, 0.0, 0.0, 1.0];
-
-                //(*context).ClearRenderTargetView(std::ptr::null_mut(), &color);
-
-                // swap the buffers.  we don't care about this since we don't render anything
-                // but the device probably works more realisticaly if there is a present after X
-                // amount of drawing.
                 (*swapchain).Present(0, 0);
             }
         }
