@@ -7,10 +7,10 @@ TL;DR run modes:
 # render a mod it its place, if it has one.  It can take 10-15 seconds or more before this 
 # happens during which time the window will most likely be blank.
 # you'll probably need to make a MM profile for this to work, read the long text below for more info.
-sh runmm.sh 9303,6534 -ef basic_format.txt
+sh runmm.sh 9303,6534
 
-# render a spinning cube, doesn't do much out. the prim vert/count here is ignored.
-sh runmm.sh 100,200 -shape -ef basic_format.txt
+# render a spinning cube, doesn't do much else. the prim vert/count here is ignored.
+sh runmm.sh 100,200 -shape
 
 Long description:
 
@@ -53,29 +53,22 @@ I wanted it to do a few times without cleaning it up much.  So, it's not very go
 good enough to test the mod loading process.  
 
 Vertex Layout notes:
-`simple_vertex_shader.dat` was snapped binary-only from a game.  It is required to create input
-layouts (the api validates the shader bytecode against the input layout description).
-
-If you want to use other vertex formats you have two options:
-1) (preferred) create a new description like basic_format.txt and shader like shape_vshader.hlsl 
-and define the format you to use there or 
-2) (much more involved) snap a shader from something,
-and modify this code to create structs for the that format.  And define a new structure
-like SimpleVertex.  In modelmod you can add some code to `hook_CreateInputLayoutFn`
-and dump out shaders there, along with the pointer values of the input layout that is created.
-Later when the mod is rendered, you can dump out the pointer value in the log so that you know
-which shader is used by the mod.
+A vertex layout must be specified to render anything.  "basic_format.txt" contains a layout 
+that works for the test shape and for simplistic mod rendering.  If you want some other vertex 
+format you must (at least) create a new format .txt file and a new vertex shader for it,
+as the vertex shader is directly tied to the format (using a struct like VS_INPUT).  You may 
+be able to reuse the shape pixel shader.
 
 When creating a new format, pay careful attention to the vertex size and the byte alignment
 values and format types in the input layout description.  These should match what the
-game is reporting for the mod you are interested in.  If you are manually defining a vertex format 
-in code like SimpleVertex (option 2 above) You may need to pad your vertex structure
-to meet the alignment requirements.  See `SimpleVertex` and `get_simple_layout_description`
-below for examples.
+game is reporting for the mod you are interested in.  Be careful that your offsets and sizes 
+don't violate any byte alignment restrictions, and that the formats used match what the 
+shader expects.
 
 Note, layout description arrays cannot be simply captured from the game like the shaders can,
 because they contain a raw ascii pointer to the semantic name, which will crash here if you
-try to use it.
+try to use it.  This is one reason why this program uses a text file to specify the format, 
+another is that its much easier to change that than a binary file.
 
 */
 
@@ -95,8 +88,7 @@ use winapi::shared::{
         DXGI_SWAP_EFFECT_DISCARD,
     },
     dxgiformat::{
-        DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-        DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R8G8B8A8_UNORM,
     },
     dxgitype::{
         DXGI_MODE_DESC, DXGI_MODE_SCALING_UNSPECIFIED, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
@@ -117,7 +109,7 @@ use winapi::um::{
         ID3D11Buffer, ID3D11Device, ID3D11DeviceContext, ID3D11InputLayout, ID3D11VertexShader,
                 D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER, D3D11_BUFFER_DESC, 
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_INPUT_ELEMENT_DESC, 
-        D3D11_INPUT_PER_VERTEX_DATA, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_DEFAULT,
+        D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_USAGE_DEFAULT,
     },
     d3dcommon::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0},
     libloaderapi::{GetModuleHandleA, GetProcAddress},
@@ -135,7 +127,7 @@ use winapi::um::errhandlingapi::GetLastError;
 use winapi::Interface;
 
 use crate::load_mmobj::test_load_mmobj;
-use crate::render::prepare_shader_constants;
+use crate::render::{get_empty_vertices, get_indices, prepare_shader_constants};
 
 #[macro_use]
 extern crate anyhow;
@@ -146,96 +138,6 @@ mod shadercomp;
 mod shape;
 mod render;
 mod d3d11_utilfn;
-
-#[repr(C, align(8))]
-struct SimpleVertex {
-    position: [f32; 3],
-    blend_indices: [u8; 4],
-    blend_weights: [u8; 4],
-    //normal: [f32; 3],
-    unused: [u8; 12], // due to align byte offset for texcoord of 32
-    texcoord: [f32; 2],
-    //tangent: [f32; 3],
-    //binormal: [f32; 3],
-}
-
-fn get_simple_layout_description() -> Vec<D3D11_INPUT_ELEMENT_DESC> {
-    vec![
-        D3D11_INPUT_ELEMENT_DESC {
-            SemanticName: b"POSITION\0".as_ptr() as *const i8,
-            SemanticIndex: 0,
-            Format: DXGI_FORMAT_R32G32B32_FLOAT,
-            InputSlot: 0,
-            AlignedByteOffset: 0,
-            InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-            InstanceDataStepRate: 0
-        },
-        D3D11_INPUT_ELEMENT_DESC {
-            SemanticName: b"BLENDWEIGHT\0".as_ptr() as *const i8,
-            SemanticIndex: 0,
-            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-            InputSlot: 0,
-            AlignedByteOffset: 12,
-            InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-            InstanceDataStepRate: 0
-        },
-        D3D11_INPUT_ELEMENT_DESC {
-            SemanticName: b"BLENDINDICES\0".as_ptr() as *const i8,
-            SemanticIndex: 0,
-            Format: DXGI_FORMAT_R8G8B8A8_UINT,
-            InputSlot: 0,
-            AlignedByteOffset: 16,
-            InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-            InstanceDataStepRate: 0
-        },
-        // D3D11_INPUT_ELEMENT_DESC {
-        //     SemanticName: b"NORMAL\0".as_ptr() as *const i8,
-        //     SemanticIndex: 0,
-        //     Format: DXGI_FORMAT_R32G32B32_FLOAT,
-        //     InputSlot: 0,
-        //     AlignedByteOffset: 12,
-        //     InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-        //     InstanceDataStepRate: 0
-        // },
-        D3D11_INPUT_ELEMENT_DESC {
-            SemanticName: b"TEXCOORD\0".as_ptr() as *const i8,
-            SemanticIndex: 0,
-            Format: DXGI_FORMAT_R32G32_FLOAT,
-            InputSlot: 0,
-            AlignedByteOffset: 32,
-            InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-            InstanceDataStepRate: 0
-        },
-        // D3D11_INPUT_ELEMENT_DESC {
-        //     SemanticName: b"TANGENT\0".as_ptr() as *const i8,
-        //     SemanticIndex: 0,
-        //     Format: DXGI_FORMAT_R32G32B32_FLOAT,
-        //     InputSlot: 0,
-        //     AlignedByteOffset: 32,
-        //     InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-        //     InstanceDataStepRate: 0
-        // },
-        // D3D11_INPUT_ELEMENT_DESC {
-        //     SemanticName: b"BINORMAL\0".as_ptr() as *const i8,
-        //     SemanticIndex: 0,
-        //     Format: DXGI_FORMAT_R32G32B32_FLOAT,
-        //     InputSlot: 0,
-        //     AlignedByteOffset: 44,
-        //     InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-        //     InstanceDataStepRate: 0
-        // },
-        // D3D11_INPUT_ELEMENT_DESC {
-        //     SemanticName: b"BLENDWEIGHT\0".as_ptr() as *const i8,
-        //     SemanticIndex: 0,
-        //     Format: DXGI_FORMAT_R32G32B32A32_FLOAT,
-        //     InputSlot: 0,
-        //     AlignedByteOffset: 56,
-        //     InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-        //     InstanceDataStepRate: 0
-        // },
-    ]
-}
-
 
 unsafe extern "system"
 fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -459,61 +361,6 @@ fn create_d3d11_device(window:HWND, create_dev_fn: D3D11CreateDeviceAndSwapChain
     Ok((device,context,swapchain))
 }
 
-/// generate a vector of the specified number of simple vertices, using random positions, blend indices and weights.
-/// Constrain the positions to be within the range -100 to 100.
-/// The purpose of this is to just trigger a mod load and not actually render, we don't care what the data looks like;
-/// with the exception that until the mod is loaded this will be actually submitted to d3d via drawindexed.
-fn get_random_vertices(num_vertices: usize) -> Vec<SimpleVertex> {
-    let mut vertices = Vec::new();
-    for _ in 0..num_vertices {
-        vertices.push(SimpleVertex {
-            position: [
-                rand::random::<f32>() * 200.0 - 100.0,
-                rand::random::<f32>() * 200.0 - 100.0,
-                rand::random::<f32>() * 200.0 - 100.0,
-            ],
-            blend_indices: [
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-            ],
-            blend_weights: [
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-            ],
-            texcoord: [0.0, 0.0],
-            unused: [0;12],
-            //normal: [0.0, 0.0, 0.0],
-            //tangent: [0.0, 0.0, 0.0],
-            //binormal: [0.0, 0.0, 0.0],
-        });
-    }
-    vertices
-}
-
-/// return a zeroed buffer of data for the specified number of verts and size; this is used when not using 
-/// the "simple vertex" hardcoded format - note since the data is zero and this will be submitted to d3d11 until the 
-/// mod loads, it could potentially cause issues on the device (degenerate triangles with coordinates all at zero, etc)
-/// probably it would be better to at least put some actual triangles in there.
-fn get_empty_vertices(vert_size: usize, num_verts: usize) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Calculate the total size needed for the vertices
-    let total_size = vert_size * num_verts;
-    
-    // Create and return a vector of the requested size, filled with zeros
-    Ok(vec![0u8; total_size])
-}
-
-/// generate a index buffer of up to N indicies, using random indicies.
-fn get_indices(n:u32) -> Vec<u16> {
-    let mut indices = Vec::new();
-    for _ in 0..n {
-        indices.push(rand::random::<u16>());
-    }
-    indices
-}
 
 /// Call `get_indices` to get the indices and create an index buffer, return the index buffer.
 fn create_index_buffer<F>(device: *mut ID3D11Device, nindex: u32, index_fn: F) -> anyhow::Result<*mut ID3D11Buffer>
@@ -597,12 +444,7 @@ unsafe fn create_vertex_layout(device: *mut ID3D11Device, opts: &RunOpts) ->
             let vshader = std::fs::read(shader_out_file)?;
             (vert_elems.clone(), vshader)
         } else {
-            println!("using simple layout");
-            // Default to using the simple layout description and simple vertex shader
-            let layout_desc = get_simple_layout_description();
-            print_input_element_desc(&layout_desc);
-            let vshader = std::fs::read("simple_vertex_shader.dat")?;
-                (layout_desc, vshader)
+            panic!("no vertex format was specified");
         };
 
     let num_elements = layout_desc.len();
@@ -697,6 +539,7 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
             Err(e) => Err(anyhow!("Failed to compile shader {}: {:?}", path, e)),
         }
     }
+    
     while i < args.len() {
         match args[i].as_str() {
             "-shape" => {
@@ -725,7 +568,8 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
                 }
             }
             // if there is an -ef argument, read the filename after it and store the output in the "elems" local var
-            "-ef" => {
+            "-vf"
+            | "-ef" => {
                 if let Some(filename) = args.get(i + 1) {
                     vert_elems = Some(read_elem_file(filename).expect("failed to read elem file"));
                     
@@ -763,6 +607,10 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
         .next()
         .ok_or_else(|| anyhow!("failed to parse vert count (expected prim,vert)"))?
         .parse::<usize>()?;
+
+    if vert_elems.is_none() {
+        vert_elems = Some(read_elem_file("basic_format.txt").expect("failed to read default vert elem file: 'basic_format.txt'"));
+    }
 
     if RENDER {
         if vshader_out_file.is_none() {
@@ -844,23 +692,16 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let (layout,layout_vec) = create_vertex_layout(device, &opts)?;
         let vert_size = shadercomp::get_vert_size(&layout_vec).expect("failed to compute vert size");
 
+        if vert_size % 4 != 0 && vert_size % 2 != 0 {
+            println!("WARNING: unaligned vertex size found, possible alignment issue; vert size: {}", vert_size);
+        }
+
         let num_indices = prim_count * 3;
         let (vert_data,index_data) = 
             match opts.mesh {
                 Mesh::BlankPriorToModLoad => {
                     if !opts.has_custom_vert() {
-                        // use the "SimpleVertex"
-                        let vec = get_random_vertices(vert_count);
-                        let simp_vert_size = std::mem::size_of::<SimpleVertex>();
-                        if simp_vert_size != vert_size {
-                            panic!("simple vertex size does not match computed size");
-                        }
-                        // convert vec into vec<u8>
-                        let len = vec.len() * simp_vert_size;
-                        let mut bytes = Vec::with_capacity(len);
-                        let ptr = vec.as_ptr() as *const u8;
-                        bytes.extend_from_slice(std::slice::from_raw_parts(ptr, len));
-                        (bytes, get_indices((num_indices) as u32))
+                        panic!("a vertex format must be specified (-ef))")
                     } else {
                         // use the specified verts format
                         let vec = get_empty_vertices(vert_size, vert_count)
@@ -874,7 +715,6 @@ unsafe fn runapp() -> anyhow::Result<()> {
                     }
                     let (vert_data,index_data) = shape::generate_cube_mesh();
                     (vert_data, index_data)
-
                 }
             };
         println!("created vert data buf sized {} for {} verts of size {}", vert_data.len(), vert_count, vert_size);

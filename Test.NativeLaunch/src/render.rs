@@ -166,3 +166,24 @@ pub unsafe fn prepare_shader_constants(
 
     Ok(())
 }
+
+/// return a zeroed buffer of data for the specified number of verts and size; this is used when not using 
+/// the "simple vertex" hardcoded format - note since the data is zero and this will be submitted to d3d11 until the 
+/// mod loads, it could potentially cause issues on the device (degenerate triangles with coordinates all at zero, etc)
+/// probably it would be better to at least put some actual triangles in there.
+pub fn get_empty_vertices(vert_size: usize, num_verts: usize) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Calculate the total size needed for the vertices
+    let total_size = vert_size * num_verts;
+    
+    // Create and return a vector of the requested size, filled with zeros
+    Ok(vec![0u8; total_size])
+}
+
+/// generate a index buffer of up to N indicies, using random indicies.
+pub fn get_indices(n:u32) -> Vec<u16> {
+    let mut indices = Vec::new();
+    for _ in 0..n {
+        indices.push(rand::random::<u16>());
+    }
+    indices
+}
