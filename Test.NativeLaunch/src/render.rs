@@ -1,7 +1,7 @@
 use glam::{Mat3, Vec3};
 
 use glam::{Mat4, Quat};
-use winapi::um::d3d11::{ID3D11Buffer, ID3D11Device, ID3D11DeviceContext};
+use winapi::um::d3d11::{ID3D11Buffer, ID3D11Device, ID3D11DeviceContext, ID3D11SamplerState, D3D11_COMPARISON_NEVER, D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_FLOAT32_MAX, D3D11_SAMPLER_DESC, D3D11_TEXTURE_ADDRESS_WRAP};
 
 use crate::d3d11_utilfn::{create_constant_buffer, update_constant_buffer};
 
@@ -9,6 +9,7 @@ pub struct RendData {
     pub mvp_buf: *mut ID3D11Buffer,
     pub light_buf: *mut ID3D11Buffer,
     pub normal_mat_buf: *mut ID3D11Buffer,
+    pub glob_const_buf: *mut ID3D11Buffer,
 }
 
 #[repr(C, align(16))]
@@ -31,11 +32,20 @@ pub struct LightingBuffer {
     pub _padding: f32, // ensure 16-byte alignment
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct GlobalConstants {
+    use_texture: i32,          // HLSL bool = 4 bytes, use i32 here
+    _padding: [f32; 3],         // pad to 16 bytes total
+}
+
+
 pub unsafe fn create_data(device:*mut ID3D11Device) -> anyhow::Result<RendData> {
     let mvp_buf = create_constant_buffer::<MatrixBuffer>(device)?;
     let light_buf = create_constant_buffer::<LightingBuffer>(device)?;
     let normal_mat_buf = create_constant_buffer::<MatrixBufferMat3>(device)?;
-    Ok(RendData { mvp_buf, light_buf, normal_mat_buf })
+    let global_constants_buf = create_constant_buffer::<GlobalConstants>(device)?;
+    Ok(RendData { mvp_buf, light_buf, normal_mat_buf, glob_const_buf: global_constants_buf })
 }
 
 /// Generates a Model-View-Projection matrix suitable for uploading to a D3D11 constant buffer.
@@ -102,6 +112,7 @@ pub unsafe fn prepare_shader_constants(
     z_near: f32,
     z_far: f32,
     light_dir_world: Vec3,
+    has_tex0: bool,
 ) -> anyhow::Result<()> {
     // 1. Compute the MVP matrix
     let (mvp, normal_mat) = generate_mvp_matrix(origin, eye, rotation, aspect_ratio, fov_y_radians, z_near, z_far);
@@ -142,15 +153,26 @@ pub unsafe fn prepare_shader_constants(
         _padding: 0.0,
     };
 
+    let globconstbuf = GlobalConstants {
+        use_texture: if has_tex0 { 1 } else { 0 },
+        _padding: [0.0; 3],
+    };
+
     // 4. Upload data to the constant buffers
     update_constant_buffer(context, shape_data.mvp_buf, &mvp_data)?;
     update_constant_buffer(context, shape_data.light_buf, &lighting_data)?;
     update_constant_buffer(context, shape_data.normal_mat_buf, &normal_data)?;
+    update_constant_buffer(context, shape_data.glob_const_buf, &globconstbuf)?;
 
     (*context).VSSetConstantBuffers(
         0, // start slot
         1, // number of buffers
         &shape_data.mvp_buf, // pointer to buffer
+    );
+    (*context).PSSetConstantBuffers(
+        1, // slot 1 matches your shader cbuffer register(b1)
+        1,
+        &shape_data.light_buf,
     );
     (*context).VSSetConstantBuffers(
         2, // start slot
@@ -158,11 +180,7 @@ pub unsafe fn prepare_shader_constants(
         &shape_data.normal_mat_buf, // pointer to buffer
     );
 
-    (*context).PSSetConstantBuffers(
-        1, // slot 1 matches your shader cbuffer register(b1)
-        1,
-        &shape_data.light_buf,
-    );
+    (*context).PSSetConstantBuffers(3,1, &shape_data.glob_const_buf);
 
     Ok(())
 }
@@ -186,4 +204,28 @@ pub fn get_indices(n:u32) -> Vec<u16> {
         indices.push(rand::random::<u16>());
     }
     indices
+}
+
+pub fn create_texture_sampler(device:*mut ID3D11Device) -> anyhow::Result<*mut ID3D11SamplerState> {
+    let desc = D3D11_SAMPLER_DESC {
+        Filter: D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+        AddressU: D3D11_TEXTURE_ADDRESS_WRAP,
+        AddressV: D3D11_TEXTURE_ADDRESS_WRAP,
+        AddressW: D3D11_TEXTURE_ADDRESS_WRAP,
+        MipLODBias: 0.0,
+        MaxAnisotropy: 1,
+        ComparisonFunc: D3D11_COMPARISON_NEVER,
+        BorderColor: [0.0; 4],
+        MinLOD: 0.0,
+        MaxLOD: D3D11_FLOAT32_MAX,
+    };
+    let mut sampler: *mut ID3D11SamplerState = std::ptr::null_mut();
+    unsafe {
+        let hr = (*device).CreateSamplerState(&desc, &mut sampler);
+        if hr != 0 || sampler.is_null() {
+            return Err(anyhow!("create sample state failed: {:X}", hr))
+        } else {
+            Ok(sampler)
+        }
+    }
 }

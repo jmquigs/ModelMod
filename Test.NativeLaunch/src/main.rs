@@ -30,8 +30,10 @@ can still be specified, since the program is rendering cube verts, MM most likel
 matching mod and won't render or even load much of anything.
 
 If rendering a mod, usually it will render flat-shaded (albeit with some semi-broken lighting effects
-I added), not with a texture, because this program doesn't set textures and neither does MM unless the 
-mod uses override textures, which most don't (also I haven't updated the pixel shader to sample textures)
+I added), not with a texture, because this program doesn't set textures by default and neither does MM unless the 
+mod uses override textures, which most don't (also I haven't updated the pixel shader to sample textures).
+The -tex parameter can be used to specify a path to a texture that this program will load and make 
+available to the shaders.
 
 The typical usage for this is:
 1) run `cargo run` to build and run the program
@@ -99,9 +101,7 @@ use winapi::shared::{
     windef::{HBRUSH, HCURSOR, HICON, HMENU, HWND},
     winerror::DXGI_ERROR_SDK_COMPONENT_MISSING,
 };
-use winapi::um::d3d11::{ID3D11DepthStencilView, ID3D11PixelShader, ID3D11RasterizerState, ID3D11RenderTargetView, ID3D11Texture2D, 
-    D3D11_BIND_DEPTH_STENCIL, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_CULL_FRONT, 
-    D3D11_FILL_SOLID, D3D11_RASTERIZER_DESC, D3D11_TEXTURE2D_DESC};
+use winapi::um::d3d11::{ID3D11DepthStencilView, ID3D11PixelShader, ID3D11RasterizerState, ID3D11RenderTargetView, ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_DEPTH_STENCIL, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_CULL_FRONT, D3D11_FILL_SOLID, D3D11_RASTERIZER_DESC, D3D11_TEXTURE2D_DESC};
 use winapi::um::d3d11sdklayers::{ID3D11InfoQueue, IID_ID3D11InfoQueue, D3D11_MESSAGE_SEVERITY_CORRUPTION, D3D11_MESSAGE_SEVERITY_ERROR, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_WARNING};
 use winapi::um::libloaderapi::{LoadLibraryExW, LoadLibraryW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 use winapi::um::{
@@ -138,6 +138,7 @@ mod shadercomp;
 mod shape;
 mod render;
 mod d3d11_utilfn;
+mod util;
 
 unsafe extern "system"
 fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -508,6 +509,7 @@ struct RunOpts {
     pub pshader_out_file:Option<PathBuf>,
     pub vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>>,
     pub mesh: Mesh,
+    pub tex0path:Option<String>,
 }
 
 impl RunOpts {
@@ -532,6 +534,7 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
     let mut vert_elems: Option<Vec<D3D11_INPUT_ELEMENT_DESC>> = None;
 
     let mut mesh = Mesh::BlankPriorToModLoad;
+    let mut tex0path: Option<String> = None;
 
     fn comp_shader(path:&str, is_vertex:bool) -> anyhow::Result<PathBuf> {
         match shadercomp::compile_shader(path, is_vertex) {
@@ -548,6 +551,13 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
             }
             "-cs" => {
                 panic!("the -cs option is now -vs (for vertex shader)");
+            }
+            "-tex"
+            | "-tex0" => {
+                if let Some(filename) = args.get(i + 1) {
+                    tex0path = Some(filename.clone());
+                    i += 1
+                }
             }
             "-vs" => {
                 if let Some(filename) = args.get(i + 1) {
@@ -628,6 +638,7 @@ fn parse_command_line() -> anyhow::Result<RunOpts> {
         pshader_out_file,
         vert_elems,
         mesh,
+        tex0path,
     };
     Ok(opts)
 }
@@ -780,6 +791,32 @@ unsafe fn runapp() -> anyhow::Result<()> {
         } else {
             None
         };
+
+        let has_tex0 = if let Some(filename) = opts.tex0path {
+            let mm_root = util::find_mm_root()?;
+            let dp = d3dx::deviceptr_from_d3d11(device).ok_or_else(|| anyhow!("failed to get device pointer for d3dx"))?;
+
+            d3dx::load_lib_and_set_in_globalstate(&Some(mm_root), &dp)
+                .map_err(|e| anyhow!("d3dx error: {:?}", e))?;
+            println!("loaded d3dx (for texture loading)");
+            let tex = d3dx::load_texture_strpath(dp, &filename)
+                .map_err(|e| anyhow!("d3dx error: {:?}", e))?
+                .as_d3d11tex().ok_or_else(|| anyhow!("expected a d3d11 texture to be loaded"))?;
+            let tex0srv = d3dx::create_d3d11_srv_from_tex(dp, tex as *mut ID3D11Texture2D)
+                .map_err(|e| anyhow!("d3dx error: {:?}", e))?;
+
+            let sresources: [*mut ID3D11ShaderResourceView; 1] = [tex0srv];
+            (*context).PSSetShaderResources(0, 1, sresources.as_ptr());
+
+            let ts = render::create_texture_sampler(device)?;
+            let samplers: [*mut ID3D11SamplerState; 1] = [ts];
+            (*context).PSSetSamplers(0, 1, samplers.as_ptr());
+            true
+        } else {
+            false
+        };
+
+
 
         // to actually render something need to create some target buffers
         // 1. Get back buffer from swap chain
@@ -992,6 +1029,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
                         z_near,
                         z_far,
                         light_dir,
+                        has_tex0,
                     )?;
                 }
                 //(*context).VSSetShader()

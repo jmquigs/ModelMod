@@ -18,3 +18,4 @@ anyhow = "*"
 rand = "*"
 aho-corasick = "0.7.20"
 glam = "*"
+d3dx = { path = "../Native/d3dx" }
