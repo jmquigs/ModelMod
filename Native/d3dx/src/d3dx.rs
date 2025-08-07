@@ -7,6 +7,12 @@ use global_state::{ GLOBAL_STATE };
 use shared_dx::types::TexPtr;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Resource;
+use winapi::um::d3d11::ID3D11ShaderResourceView;
+use winapi::um::d3d11::ID3D11Texture2D;
+use winapi::um::d3d11::D3D11_SHADER_RESOURCE_VIEW_DESC;
+use winapi::um::d3d11::D3D11_TEXTURE2D_DESC;
+use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
+
 use std::ptr::null_mut;
 use shared_dx::util::ReleaseOnDrop;
 
@@ -135,6 +141,23 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
     }
 }
 
+pub fn load_lib_and_set_in_globalstate(mm_root: &Option<String>, device: &DevicePointer) -> Result<()> {
+    if unsafe { GLOBAL_STATE.d3dx_fn.is_none() } {
+        let d3dx_fn = load_lib(mm_root, device)?;
+        unsafe { GLOBAL_STATE.d3dx_fn = Some(d3dx_fn); }
+    }
+    Ok(())
+}
+
+pub unsafe fn load_texture_strpath(device: DevicePointer, path: &str) -> Result<TexPtr> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsStr;
+
+    let wide: Vec<u16> = OsStr::new(path).encode_wide().chain(once(0)).collect();
+    load_texture(device, wide.as_ptr())
+}
+
 pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexPtr> {
     let d3dx_fn = GLOBAL_STATE
         .d3dx_fn
@@ -163,6 +186,34 @@ pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexP
             Ok(TexPtr::D3D11(D3D11Tex::Tex(tex)))
         },
         _ => Err(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned())),
+    }
+}
+
+pub unsafe fn create_d3d11_srv_from_tex(device:DevicePointer, p_tex:*mut ID3D11Texture2D) -> Result<*mut ID3D11ShaderResourceView> {
+    let device = match device {
+        DevicePointer::D3D11(device) => device,
+        _ => return Err(HookError::SnapshotFailed("device is not d3d11".to_owned()))
+    };
+    if p_tex.is_null() {
+        return Err(HookError::SnapshotFailed("null texture, can't create srv".to_owned()))
+    }
+    let mut desc:D3D11_TEXTURE2D_DESC = unsafe { std::mem::zeroed() };
+    (*p_tex).GetDesc(&mut desc);
+
+    let mut sv_desc:D3D11_SHADER_RESOURCE_VIEW_DESC = unsafe { std::mem::zeroed() };
+    sv_desc.Format = desc.Format;
+    sv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    sv_desc.u.Texture2D_mut().MipLevels = desc.MipLevels;
+    sv_desc.u.Texture2D_mut().MostDetailedMip = 0;
+    let mut p_srview: *mut ID3D11ShaderResourceView = null_mut();
+    let pp_srview = &mut p_srview as *mut *mut ID3D11ShaderResourceView;
+
+    let resptr = p_tex as *mut ID3D11Resource;
+    let hr = (*device).CreateShaderResourceView(resptr, &sv_desc, pp_srview);
+    if hr == 0 {
+        Ok(*pp_srview)
+    } else {
+        Err(HookError::SnapshotFailed(format!("failed to create shader resource view for tex: HR {:x}", hr)))
     }
 }
 

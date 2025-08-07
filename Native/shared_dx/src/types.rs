@@ -237,6 +237,12 @@ pub enum TexPtr {
 }
 
 impl TexPtr {
+    pub fn as_d3d11tex(&self) -> Option<*mut ID3D11Resource> {
+        match self {
+            TexPtr::D3D11(D3D11Tex::Tex(tex)) => Some(*tex),
+            _ => None
+        }
+    }
     pub fn is_null(&self) -> bool {
         match self {
             TexPtr::D3D9(tex) => tex.is_null(),

@@ -434,24 +434,15 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
             let p_tex = res as *mut ID3D11Texture2D;
             d3d_data.textures[idx] = p_tex;
 
-            let mut desc:D3D11_TEXTURE2D_DESC = unsafe { std::mem::zeroed() };
-            (*p_tex).GetDesc(&mut desc);
-
-            let mut sv_desc:D3D11_SHADER_RESOURCE_VIEW_DESC = unsafe { std::mem::zeroed() };
-            sv_desc.Format = desc.Format;
-            sv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-            sv_desc.u.Texture2D_mut().MipLevels = desc.MipLevels;
-            sv_desc.u.Texture2D_mut().MostDetailedMip = 0;
-            let mut p_srview: *mut ID3D11ShaderResourceView = null_mut();
-            let pp_srview = &mut p_srview as *mut *mut ID3D11ShaderResourceView;
-
-            let hr = (*device).CreateShaderResourceView(res, &sv_desc, pp_srview);
-            if hr == 0 {
-                d3d_data.srvs[idx] = p_srview;
+            match d3dx::create_d3d11_srv_from_tex(dp, p_tex) {
+                Ok(srv) => {
+                    d3d_data.srvs[idx] = srv;
                 // since there is at least one valid texture, set the flag in the data
                 d3d_data.has_textures = true;
-            } else {
-                write_log_file(&format!("failed to create shader resource view for mod {}, tex {}: HR {:x}", nmd.name, idx, hr));
+                },
+                Err(what) => {
+                    write_log_file(&format!("Error creating mod {} tex {}: {:?}", nmd.name, idx, what));
+                }
             }
         }
     };
