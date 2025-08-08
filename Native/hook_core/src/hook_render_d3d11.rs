@@ -431,7 +431,10 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
 
 decl_profile_globals!(hdi);
 
+#[cfg(not(feature = "frequent-updates"))] 
 pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 20000;
+#[cfg(feature = "frequent-updates")] 
+pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 2000;
 
 #[cfg(feature = "mmdisable")]
 const MM_DISABLE:bool = true;

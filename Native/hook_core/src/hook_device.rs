@@ -18,6 +18,7 @@ use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
 use device_state::DEVICE_STATE;
 use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release};
+use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
 
 /*
 Would be nice to move this into a separate crate, but it needs to know about the device functions
@@ -97,6 +98,7 @@ unsafe fn hook_d3d9_device(
         // (*vtbl).SetPixelShaderConstantB = dev_constant_tracking::hook_set_pixel_sc_b;
     }
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
+    write_log_file(&format!("periodic update freq: {} draw calls", HOOK_DRAW_PERIODIC_CALLS));
 
     Ok(HookDirect3D9Device::new(
         real_draw_indexed_primitive,

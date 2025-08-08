@@ -4,13 +4,15 @@ mmdir=../Native
 
 RELEASE=0
 
-# change into mm native dir, check target symlink and build mm dll
+# change into mm native dir, check target symlink and build mm dll.
+# 'frequent-updates' tells MM to tick more frequently which reduces wait time when loading mods (since this app doesn't 
+# draw frequently enough to trigger MM's normal longer heuristic in a timely fashion)
 if [ "$RELEASE" -eq 1 ]; then
-    (cd $mmdir && rm -f $mmdir/target && sh ./setjunc.sh >/dev/null && cargo build --release)
+    (cd $mmdir && rm -f $mmdir/target && sh ./setjunc.sh >/dev/null && cargo build --release --features frequent-updates)
     cp -v $mmdir/target/release/hook_core.dll target/release/d3d11.dll
     RUST_BACKTRACE=full cargo run --release -- $@
 else
-    (cd $mmdir && rm -f $mmdir/target && sh ./setjunc.sh >/dev/null && cargo build)
+    (cd $mmdir && rm -f $mmdir/target && sh ./setjunc.sh >/dev/null && cargo build --features frequent-updates)
     cp -v $mmdir/target/debug/hook_core.dll target/debug/d3d11.dll
     RUST_BACKTRACE=full cargo run -- $@
 fi
