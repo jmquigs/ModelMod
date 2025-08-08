@@ -62,6 +62,8 @@ pub unsafe fn create_data(device:*mut ID3D11Device) -> anyhow::Result<RendData> 
 /// - A 4x4 matrix (`Mat4`) representing the MVP transformation.
 
 pub fn generate_mvp_matrix(
+    zoom: i16,
+    pan: (i16,i16),
     origin: Vec3,
     eye: Vec3,
     rotation_radians: Vec3,
@@ -79,7 +81,14 @@ pub fn generate_mvp_matrix(
     );
     
 
-    let model = Mat4::from_rotation_translation(rotation, Vec3::ZERO);
+    let zoom_normalized = 1.0 + zoom as f32 / i16::MAX as f32;
+    let scale_factor = zoom_normalized * 2.0;
+    let scale_matrix = Mat4::from_scale(Vec3::splat(scale_factor));
+
+    let pan_x = pan.0 as f32 / i16::MAX as f32 * 2.0; // Range from -2.0 to 2.0
+    let pan_y = pan.1 as f32 / i16::MAX as f32 * 2.0; // Range from -2.0 to 2.0
+    let pan_translation = Vec3::new(pan_x, pan_y, 0.0);
+    let model = Mat4::from_rotation_translation(rotation, pan_translation) * scale_matrix;
 
     let col0 = model.x_axis.truncate(); // Vec3 from first column
     let col1 = model.y_axis.truncate(); // Vec3 from second column
@@ -104,6 +113,8 @@ pub fn generate_mvp_matrix(
 pub unsafe fn prepare_shader_constants(
     context: *mut ID3D11DeviceContext,
     shape_data:&RendData,
+    zoom: i16,
+    pan: (i16,i16),
     origin: Vec3,
     eye: Vec3,    
     rotation: Vec3,
@@ -115,7 +126,7 @@ pub unsafe fn prepare_shader_constants(
     has_tex0: bool,
 ) -> anyhow::Result<()> {
     // 1. Compute the MVP matrix
-    let (mvp, normal_mat) = generate_mvp_matrix(origin, eye, rotation, aspect_ratio, fov_y_radians, z_near, z_far);
+    let (mvp, normal_mat) = generate_mvp_matrix(zoom, pan, origin, eye, rotation, aspect_ratio, fov_y_radians, z_near, z_far);
 
     // 2. No transpose needed unless your shader uses 'row_major'
     // If needed, use: let mvp = mvp.transpose();

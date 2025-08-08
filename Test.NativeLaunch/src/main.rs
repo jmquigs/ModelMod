@@ -75,6 +75,7 @@ another is that its much easier to change that than a binary file.
 */
 
 use std::ptr::null_mut;
+use std::sync::Mutex;
 use std::{path::PathBuf, time::SystemTime};
 
 use glam::Vec3;
@@ -140,9 +141,38 @@ mod render;
 mod d3d11_utilfn;
 mod util;
 
-unsafe extern "system"
-fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+
+static WINEVENTS: Mutex<Vec<WinEvent>> = Mutex::new(vec![]);
+fn add_winevent(evt:WinEvent) {
+    {
+        match WINEVENTS.lock() {
+            Ok(mut lck) => {
+                lck.push(evt);
+            },
+            Err(e) => eprintln!("failed to lock winevents: {:?}", e)
+        }
+    }
+}
+
+
+enum WinEvent {
+    MouseWheel(i16),
+    MousePan(i16, i16),
+}
+
+fn get_x_lparam(lparam: LPARAM) -> i16 {
+    (lparam & 0xFFFF) as i16 
+}
+
+fn get_y_lparam(lparam: LPARAM) -> i16 {
+    ((lparam >> 16) & 0xFFFF) as i16
+}
+
+unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // println!("wnd proc: {:x}", msg);
+
+    static mut LAST_MOUSE_POS: (i16, i16) = (0, 0);
+    static mut MOUSE_PAN_ACTIVE: bool = false;
 
     match msg {
         WM_DESTROY => {
@@ -150,10 +180,41 @@ fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             PostQuitMessage(0);
             //println!("post quit message");
             0
-        },
-        _ => {
-            DefWindowProcW(hwnd, msg, wparam, lparam)
         }
+        // Handling the mouse wheel event
+        winapi::um::winuser::WM_MOUSEWHEEL => {
+            let delta = winapi::um::winuser::GET_WHEEL_DELTA_WPARAM(wparam) as i16;
+            add_winevent(WinEvent::MouseWheel(delta));
+            0
+        }
+        winapi::um::winuser::WM_MOUSEMOVE => {
+            if MOUSE_PAN_ACTIVE {
+                let x_pos = get_x_lparam(lparam);
+                let y_pos = get_y_lparam(lparam);
+
+                let delta_x = x_pos.saturating_sub(LAST_MOUSE_POS.0 as i16);
+                let delta_y = y_pos.saturating_sub(LAST_MOUSE_POS.1 as i16);
+
+                add_winevent(WinEvent::MousePan(delta_x as i16, delta_y as i16));
+                LAST_MOUSE_POS = (x_pos as i16, y_pos as i16);
+            }
+            0
+        }
+        winapi::um::winuser::WM_MBUTTONDOWN => {
+            if winapi::um::winuser::GetKeyState(winapi::um::winuser::VK_SHIFT) < 0 {
+                MOUSE_PAN_ACTIVE = true;
+                LAST_MOUSE_POS = (
+                    get_x_lparam(lparam),
+                    get_y_lparam(lparam),
+                );
+            }
+            0
+        }
+        winapi::um::winuser::WM_MBUTTONUP => {
+            MOUSE_PAN_ACTIVE = false;
+            0
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -926,6 +987,8 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let mut total_dip_calls = 0;
         let mut info_start = SystemTime::now();
         let mut removed_once = false;
+        let mut zoom: i16 = 0;
+        let (mut pan_x, mut pan_y): (i16, i16) = (0,0);
         while !done {
             if SystemTime::now().duration_since(info_start).expect("whatever").as_secs() >= 1 {
                 println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (prim_count,vert_count));
@@ -965,8 +1028,34 @@ unsafe fn runapp() -> anyhow::Result<()> {
             if done {
                 break;
             }
+
             let now = SystemTime::now();
             let _elapsed = now.duration_since(start).expect("whatever").as_millis();
+
+            
+            {
+                match WINEVENTS.lock() {
+                    Ok(mut evts) => {
+                        for e in evts.iter() {
+                            match e {
+                                WinEvent::MouseWheel(delta) => {
+                                    zoom = zoom.saturating_add(*delta * 10);
+                                    //println!("zoom {}", zoom);
+                                },
+                                WinEvent::MousePan(x, y) => {
+                                    pan_x = pan_x.saturating_add( (- *x * 50) as i16 );
+                                    pan_y = pan_y.saturating_add( (- *y * 50) as i16 );
+                                    
+                                    //println!("pan: {pan_x},{pan_y}")
+                                }
+                            }
+                        }
+                        evts.clear();
+                    },
+                    Err(e) => eprintln!("failed to lock winevents: {:?}", e)
+                }
+            }
+            
 
             // if the sync interval in present below is > than zero this will slow down the dip rate to 
             // the something like the refresh rate of display or some safe value like 30/sec
@@ -1006,7 +1095,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
                         let rotation = Vec3::new(rx, ry, rz);
                         (rotation,origin)
                     } else {
-                        let origin = Vec3::new(0.0, 1.0, 0.0);
+                        let origin = Vec3::new(0.0, 2.0, 0.0);
                         let rz = 0.0;
                         let rotation = Vec3::new(rx, ry, rz);
                         (rotation,origin)
@@ -1021,6 +1110,8 @@ unsafe fn runapp() -> anyhow::Result<()> {
                     prepare_shader_constants(
                         context,
                         rend_data,
+                        zoom,
+                        (pan_x,pan_y),
                         origin,
                         eye,
                         rotation,
