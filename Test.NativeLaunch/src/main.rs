@@ -78,7 +78,7 @@ use std::ptr::null_mut;
 use std::sync::Mutex;
 use std::{path::PathBuf, time::SystemTime};
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 // If these imports get too ugly or rust analyzer sticks them all on one line, use LLM to reorg them.
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -128,7 +128,7 @@ use winapi::um::errhandlingapi::GetLastError;
 use winapi::Interface;
 
 use crate::load_mmobj::test_load_mmobj;
-use crate::render::{get_empty_vertices, get_indices, prepare_shader_constants};
+use crate::render::{get_empty_vertices, get_indices, prepare_shader_constants, ModelViewParams};
 
 #[macro_use]
 extern crate anyhow;
@@ -158,6 +158,7 @@ fn add_winevent(evt:WinEvent) {
 enum WinEvent {
     MouseWheel(i16),
     MousePan(i16, i16),
+    MouseRot(i16, i16),
 }
 
 fn get_x_lparam(lparam: LPARAM) -> i16 {
@@ -173,6 +174,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
 
     static mut LAST_MOUSE_POS: (i16, i16) = (0, 0);
     static mut MOUSE_PAN_ACTIVE: bool = false;
+    static mut MOUSE_MOVE_WITHOUT_SHIFT_ACTIVE: bool = false;
 
     match msg {
         WM_DESTROY => {
@@ -188,30 +190,39 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam
             0
         }
         winapi::um::winuser::WM_MOUSEMOVE => {
-            if MOUSE_PAN_ACTIVE {
                 let x_pos = get_x_lparam(lparam);
                 let y_pos = get_y_lparam(lparam);
 
+            if MOUSE_PAN_ACTIVE || MOUSE_MOVE_WITHOUT_SHIFT_ACTIVE {
                 let delta_x = x_pos.saturating_sub(LAST_MOUSE_POS.0 as i16);
                 let delta_y = y_pos.saturating_sub(LAST_MOUSE_POS.1 as i16);
 
-                add_winevent(WinEvent::MousePan(delta_x as i16, delta_y as i16));
-                LAST_MOUSE_POS = (x_pos as i16, y_pos as i16);
+                if MOUSE_PAN_ACTIVE {
+                    add_winevent(WinEvent::MousePan(delta_x as i16, delta_y as i16));
+                } else if MOUSE_MOVE_WITHOUT_SHIFT_ACTIVE {
+                    add_winevent(WinEvent::MouseRot(delta_x as i16, delta_y as i16));
+                }
             }
+
+            LAST_MOUSE_POS = (x_pos as i16, y_pos as i16);
             0
         }
         winapi::um::winuser::WM_MBUTTONDOWN => {
-            if winapi::um::winuser::GetKeyState(winapi::um::winuser::VK_SHIFT) < 0 {
-                MOUSE_PAN_ACTIVE = true;
                 LAST_MOUSE_POS = (
                     get_x_lparam(lparam),
                     get_y_lparam(lparam),
                 );
+
+                if winapi::um::winuser::GetKeyState(winapi::um::winuser::VK_SHIFT) < 0 {
+                    MOUSE_PAN_ACTIVE = true;
+                } else {
+                    MOUSE_MOVE_WITHOUT_SHIFT_ACTIVE = true;
             }
             0
         }
         winapi::um::winuser::WM_MBUTTONUP => {
             MOUSE_PAN_ACTIVE = false;
+            MOUSE_MOVE_WITHOUT_SHIFT_ACTIVE = false;
             0
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -987,8 +998,12 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let mut total_dip_calls = 0;
         let mut info_start = SystemTime::now();
         let mut removed_once = false;
-        let mut zoom: i16 = 0;
+        let mut zoom: f32 = 0.0;
         let (mut pan_x, mut pan_y): (i16, i16) = (0,0);
+        let (mut rot_x, mut rot_y): (f32, f32) = (0.0,0.0);
+
+        let orbit_cam = true;
+
         while !done {
             if SystemTime::now().duration_since(info_start).expect("whatever").as_secs() >= 1 {
                 println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (prim_count,vert_count));
@@ -1039,14 +1054,28 @@ unsafe fn runapp() -> anyhow::Result<()> {
                         for e in evts.iter() {
                             match e {
                                 WinEvent::MouseWheel(delta) => {
-                                    zoom = zoom.saturating_add(*delta * 10);
-                                    //println!("zoom {}", zoom);
+                                    if !orbit_cam {
+                                        zoom = (zoom as i32 + (*delta as i32 * 1000)) as f32;
+
+                                        // clamp zoom to range (-render::ZOOM_MAX, render::ZOOM_MAX)
+                                        zoom = zoom.clamp(-render::ZOOM_MAX as f32, render::ZOOM_MAX as f32);
+                                    } else {
+                                        const ZOOM_SENS : f32 = 0.005;
+                                        zoom = zoom + (*delta as f32 * ZOOM_SENS);
+                                    }
+                                    
+                                    println!("zoom {}", zoom);
                                 },
                                 WinEvent::MousePan(x, y) => {
                                     pan_x = pan_x.saturating_add( (- *x * 50) as i16 );
                                     pan_y = pan_y.saturating_add( (- *y * 50) as i16 );
                                     
                                     //println!("pan: {pan_x},{pan_y}")
+                                },
+                                WinEvent::MouseRot(x, y) => {
+                                    const ROT_SENS: f32 = 0.005;
+                                    rot_x += *x as f32 * ROT_SENS;
+                                    rot_y += *y as f32 * ROT_SENS;
                                 }
                             }
                         }
@@ -1102,23 +1131,45 @@ unsafe fn runapp() -> anyhow::Result<()> {
                     };
                     
                     let aspect_ratio = 800 as f32 / 600 as f32;
-                    let fov_y = std::f32::consts::FRAC_PI_4; // 45 degrees
+                    let fov_y_radians = std::f32::consts::FRAC_PI_4; // 45 degrees
                     let z_near = 0.1;
                     let z_far = 100.0;
                     let light_dir = Vec3::new(0.0, -1.0, -1.0); // pointing diagonally down-forward
 
+                    let frustum = render::FrustumParams {
+                        aspect_ratio,
+                        fov_y_radians,
+                        z_near,
+                        z_far
+                    };
+
+                    let mvp_p = if !orbit_cam {
+                        ModelViewParams::FixedCam { 
+                            zoom: zoom as i32, 
+                            pan: (pan_x,pan_y), 
+                            origin: origin, 
+                            eye: eye, 
+                            rotation_radians: rotation, 
+                            frustum,
+                        }
+                    } else {
+                        let mut radius = 5.0;
+                        radius = (radius - (zoom * 0.5)).max(0.1);
+
+                        ModelViewParams::OrbitCam { 
+                            orbit_angles: Vec2::new(rot_x,rot_y), 
+                            radius: radius, 
+                            pan: (pan_x,pan_y), 
+                            pivot: Vec3 { x: 0.0, y: 0.0, z: 0.0 }, 
+                            model_rotation: rotation, 
+                            frustum 
+                        }
+                    };
+
                     prepare_shader_constants(
                         context,
                         rend_data,
-                        zoom,
-                        (pan_x,pan_y),
-                        origin,
-                        eye,
-                        rotation,
-                        aspect_ratio,
-                        fov_y,
-                        z_near,
-                        z_far,
+                        &mvp_p,
                         light_dir,
                         has_tex0,
                     )?;
