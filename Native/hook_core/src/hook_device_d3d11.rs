@@ -766,6 +766,7 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
             std::thread::current().id(),
             multithreaded,
         ));
+        write_log_file(&format!("periodic update freq: {} draw calls", HOOK_DRAW_PERIODIC_CALLS));
 
         (*context).AddRef();
         let cref = (*context).Release();

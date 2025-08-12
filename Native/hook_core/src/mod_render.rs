@@ -1,3 +1,6 @@
+use core::num;
+use std::collections::{HashMap, HashSet};
+
 use global_state::LoadedModState;
 use types::native_mod::NativeModData;
 use shared_dx::util::*;
@@ -45,10 +48,11 @@ fn lookup_parent_mods<'a>(nmod:&NativeModData, mstate: &'a LoadedModState) -> Ve
     res
 }
 
-const ENABLE_DEBUG_SPAM:bool = false;
+#[macro_export]
 macro_rules! debug_spam {
     ($v:expr) => {
-        if (ENABLE_DEBUG_SPAM) {
+
+        if (crate::ENABLE_DEBUG_SPAM) {
             write_log_file(&$v());
         }
     };
@@ -63,6 +67,20 @@ pub fn preselect(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32) ->
     mstate.mods.get(&mod_key).is_some()
 }
 
+pub enum SelectedMod<'a> {
+    One(&'a NativeModData),
+    Many(Vec<&'a NativeModData>)
+}
+
+impl<'a> SelectedMod<'a> {
+    pub fn as_slice(&self) -> &[&'a NativeModData] {
+        match self {
+            SelectedMod::One(item)   => std::slice::from_ref(item),
+            SelectedMod::Many(list)  => list.as_slice(),
+        }
+    }
+}
+
 /// Select a mod for rendering, if any.
 ///
 /// The mod state is &mut because we may need to update the last frame rendered for any
@@ -71,7 +89,7 @@ pub fn preselect(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32) ->
 /// Perf note: since checking for a mod is needed for everything drawn by the game, it is better to
 /// call `preselect` first to determine if this function even needs to be called.  `select` does
 /// early out as soon as it knows there is no mod, but still incurs a bit of extra cost.
-pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64) -> Option<&NativeModData> {
+pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64) -> Option<SelectedMod<'a>> {
     let mod_key = NativeModData::mod_key(vert_count, prim_count);
     let r = mstate.mods.get(&mod_key);
     // just get out of here if we didn't have a match
@@ -84,15 +102,35 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
     let r2 = r.and_then(|nmods| {
         let mut num_active_parents = 0;
         let num_mods = nmods.len();
+        let mut observed_noparent_mods: HashMap<String,usize> = HashMap::new();
+
+        debug_spam!(|| format!("checking {} mods for {}p/{}v", num_mods, prim_count, vert_count));
         for (midx,nmod) in nmods.iter().enumerate() {
             if nmod.parent_mod_names.is_empty() {
+                if num_mods > 1 {
+                    observed_noparent_mods.insert(nmod.name.clone(), midx);
+                }
                 debug_spam!(|| format!("no parents for {} (num mods {})", nmod.name, num_mods));
                 continue;
             }
             debug_spam!(|| format!("check parents for {} (nummods: {}, parents: {:?})", nmod.name, num_mods, nmod.parent_mod_names));
             iter_parent_mods(nmod, mstate, &mut |parent:&NativeModData| {
                 if parent.recently_rendered(current_frame_num) {
-                    target_mod_index = midx;
+                    let mut parent_in_mod_list = false;
+                    if num_mods > 1 {
+                        if let Some(pidx) = observed_noparent_mods.get(&parent.name) {
+                            // the parent is in this mod list, set target_mod_idx to it
+                            target_mod_index = *pidx;
+                            parent_in_mod_list = true;
+                        }
+                    }
+
+                    if !parent_in_mod_list {
+                        // BUG: this is a problem if the parent is actually elsewhere is mod list, in which case we want target_mod_index
+                        // to be set to its index, not this child mod
+                        target_mod_index = midx;
+                    }
+
                     num_active_parents += 1;
                     debug_spam!(|| format!(" par {} of mod {} is active, num active: {}", parent.name, nmod.name, num_active_parents));
                 } else {
@@ -105,11 +143,12 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
         match num_mods {
             0 => None,
             // multiple mods but only one parent
-            n if n > 1 && num_active_parents == 1 => {
-                // write_log_file(&format!("rend mod {} because just one active parent named '{}'",
-                //     nmods[target_mod_index].name, active_parent_name));
-                Some(())
-            },
+            // n if n > 1 && num_active_parents == 1 => {
+            //     //debug_spam!(|| format!("multiple mods but only one active parent"));
+            //     debug_spam!(|| format!("rend mod {} because just one active parent named '{}'",
+            //         nmods[target_mod_index].name, "unknown"));
+            //     Some(())
+            // },
             // just one mod it doesn't have a parent, or if it does and there is just one parent
             n if n == 1 && (nmods[0].parent_mod_names.is_empty() || num_active_parents == 1) => {
                 // write_log_file(&format!("rend mod {} because just one mod with parname '{}' or {} parents",
@@ -148,26 +187,84 @@ pub fn select(mstate: &mut LoadedModState, prim_count:u32, vert_count:u32, curre
     // so we have to refetch as mutable, set the frame value and then (for safety)
     // refetch as immutable again so that we can pass that value on.  that's three
     // hash lookups guaranteed but fortunately we're only doing this for active mods.
-    mstate.mods.get_mut(&mod_key).map(|nmods| {
-        if target_mod_index >= nmods.len() {
-            // error, spam the log i guess
-            write_log_file(&format!("selected target mod index {} exceeds number of mods {}",
-                target_mod_index, nmods.len()));
+
+    /* ---------- second pass (mut borrow) ---------- */
+    //   * grab the variant’s name
+    //   * walk the same list and bump `last_frame_render` on
+    //     the variant **and** every mod that names it as a parent
+    let mut num_selected = 0;
+
+    let variant_name = {
+        if let Some(nmods_mut) = mstate
+            .mods
+            .get_mut(&mod_key) {
+
+            // gpt-o3 says not to worry about this allocation, anyway its a pain to do it any other way
+            // due to BC ^_^
+            let vname = nmods_mut[target_mod_index].name.clone();
+
+            for nmod in nmods_mut.iter_mut() {
+                if nmod.name == vname
+                    || nmod
+                        .parent_mod_names
+                        .iter()
+                        .any(|p| p == &vname)
+                {
+                    nmod.last_frame_render = current_frame_num;
+                    num_selected += 1;
+                }
+            }
+            vname
         } else {
-            let nmod = &mut nmods[target_mod_index];
-            // we set the last frame render on all mods (not just parents) because
-            // variant-tracking uses it.
-            nmod.last_frame_render = current_frame_num;
+            String::new()
         }
-    });
-    let r = mstate.mods.get(&mod_key).and_then(|nmods| {
-        if target_mod_index < nmods.len() {
-            Some(&nmods[target_mod_index])
+    }; // mutable borrow ends here
+
+    // now determine the final selection result, which is usually just one mod
+    let selection = if let Some(nmods) = mstate.mods.get(&mod_key) {
+        // special case the most common result to avoid another linear search and vec allocation
+        if num_selected == 1 {
+            debug_spam!(|| format!("returning one mod (variant: {})", variant_name));
+            Some(SelectedMod::One(&nmods[target_mod_index]))
         } else {
-            None
+
+            let vec:Vec<&NativeModData> = nmods
+                .iter()
+                .filter(|m| {
+                    m.name == variant_name
+                        || m.parent_mod_names
+                            .iter()
+                            .any(|p| p == &variant_name)
+                })
+                .collect();
+            debug_spam!(|| format!("returning {} mods (orig: {}) (variant: {})", vec.len(), num_selected, variant_name));
+            Some(SelectedMod::Many(vec))
         }
-    });
-    r
+    } else {
+        None
+    };
+    selection
+
+    // mstate.mods.get_mut(&mod_key).map(|nmods| {
+    //     if target_mod_index >= nmods.len() {
+    //         // error, spam the log i guess
+    //         write_log_file(&format!("selected target mod index {} exceeds number of mods {}",
+    //             target_mod_index, nmods.len()));
+    //     } else {
+    //         let nmod = &mut nmods[target_mod_index];
+    //         // we set the last frame render on all mods (not just parents) because
+    //         // variant-tracking uses it.
+    //         nmod.last_frame_render = current_frame_num;
+    //     }
+    // });
+    // let r = mstate.mods.get(&mod_key).and_then(|nmods| {
+    //     if target_mod_index < nmods.len() {
+    //         Some(&nmods[target_mod_index])
+    //     } else {
+    //         None
+    //     }
+    // });
+    //r.map(|nmd| SelectedMod::One(nmd))
 }
 
 #[cfg(test)]
@@ -242,9 +339,15 @@ mod tests {
         let r = select(&mut mstate, 100, 202, 1);
         assert!(r.is_none());
         let r = select(&mut mstate, 100, 200, 1);
-        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
+        match r.expect("no mod found") {
+            SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "mod1".to_string()),
+            _ => panic!("Expected SelectedMod::One"),
+        }
         let r = select(&mut mstate, 101, 201, 1);
-        assert_eq!(r.expect("no mod found").name, "mod2".to_string());
+        match r.expect("no mod found") {
+            SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "mod2".to_string()),
+            _ => panic!("Expected SelectedMod::One"),
+        }
     }
 
     #[test]
@@ -276,7 +379,7 @@ mod tests {
         pmod.last_frame_render = frame;
         // trying to select child when one parent has rendered recently should find it
         let r = select(&mut mstate, 101, 201, frame);
-        assert_eq!(r.expect("no mod found").name, "mod2c".to_string());
+        assert_selected_mod_name(r, "mod2c");
         // and should not when parent hasn't been rendered
         let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
         let r = select(&mut mstate, 101, 201, frame);
@@ -284,11 +387,11 @@ mod tests {
         // when a parent is rendered, its frame should update
         let r = select(&mut mstate, 100, 200, frame+60);
         match r {
-            Some(nmod) => {
+            Some(SelectedMod::One(nmod)) => {
                 assert_eq!(nmod.name, "mod1p".to_string());
                 assert_eq!(nmod.last_frame_render, frame+60);
             },
-            _ => panic!("test failed")
+            _ => panic!("unexpected result failed")
         }
     }
 
@@ -316,7 +419,10 @@ mod tests {
         let pmod = get_parent(&mut mstate, "Mod4P");
         pmod.last_frame_render = frame;
         let r = select(&mut mstate, 101, 201, frame);
-        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+        match r.expect("no mod found") {
+            SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
+            _ => panic!("Expected SelectedMod::One"),
+        }
     }
 
     #[test]
@@ -342,12 +448,27 @@ mod tests {
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
         pmod.last_frame_render = frame;
         let r = select(&mut mstate, 101, 201, frame);
-        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+        match r.expect("no mod found") {
+            SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
+            _ => panic!("Expected SelectedMod::One"),
+        }
         let pmod = get_parent(&mut mstate, "Mod1P");
         let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10;
         pmod.last_frame_render = frame;
         let r = select(&mut mstate, 101, 201, frame);
-        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+        match r.expect("no mod found") {
+            SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
+            _ => panic!("Expected SelectedMod::One"),
+        }
+    }
+
+    fn assert_selected_mod_name(selected: Option<SelectedMod>, expected_name: &str) {
+        match selected {
+            Some(SelectedMod::One(mod_data)) => {
+                assert_eq!(mod_data.name, expected_name.to_string());
+            },
+            _ => panic!("Expected SelectedMod::One with name: {}", expected_name),
+        }
     }
 
     #[test]
@@ -363,29 +484,71 @@ mod tests {
         // selecting 100/200 mod should return the ModC because its parent is active - the other
         // two have no parent and so are lower priority, so we exclude them.
         let r = select(&mut mstate, 100, 200, 0);
-        assert_eq!(r.expect("no mod found").name, "modc".to_string());
+
+
+        assert_selected_mod_name(r, "modc");
         // now select with a more recent frame to exclude the parent, this should return the first
         // mod, because we haven't selected a variant yet, so the default is the first
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
         let r = select(&mut mstate, 100, 200, frame);
         //assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
-        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
+        assert_selected_mod_name(r, "mod1");
         // now pick a variant.  the indexes will be the same as the mod insertion order.
         let mk = NativeModData::mod_key(200, 100);
         mstate.selected_variant.insert(mk, 0);
         let r = select(&mut mstate, 100, 200, frame);
-        assert_eq!(r.expect("no mod found").name, "mod1".to_string());
+        assert_selected_mod_name(r, "mod1");
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 1;
         let r = select(&mut mstate, 100, 200, frame);
-        assert_eq!(r.expect("no mod found").name, "mod2".to_string());
+        assert_selected_mod_name(r, "mod2");
         // select() should not return a selected child
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 2;
         let r = select(&mut mstate, 100, 200, frame);
-        assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
+        assert!(r.is_none(), "unexpected mod");
         // select() should not puke if selected child is out of range
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 3;
         let r = select(&mut mstate, 100, 200, frame);
-        assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
+        assert!(r.is_none(), "unexpected mod");
+    }
+
+    #[test]
+    fn test_variant_cycling() {
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+
+        // Add two variants for prim/vert count A (100,200)
+        add_mod(&mut modmap, new_mod("Variant1", 100, 200));
+        add_mod(&mut modmap, new_mod("Variant2", 100, 200));
+
+        // Add a parent mod with a different prim/vert count B (101,201)
+        add_mod(&mut modmap, new_mod("ParentB", 101, 201));
+
+        // Add a child mod for B but with prim/vert count A, making it non-variant.
+        let mut child = new_mod("Child", 100, 200);
+        child.parent_mod_names.push("ParentB".to_string());
+        add_mod(&mut modmap, child);
+
+        // Add another variant (no parent) for prim/vert count A.
+        add_mod(&mut modmap, new_mod("Variant3", 100, 200));
+
+        let mut mstate = new_state(modmap);
+        let mk = NativeModData::mod_key(200, 100);
+        let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
+
+        // Cycle through variants by updating the selected_variant index.
+        mstate.selected_variant.insert(mk, 0);
+        let r = select(&mut mstate, 100, 200, frame);
+        assert_selected_mod_name(r, "variant1");
+        *mstate.selected_variant.get_mut(&mk).expect("variant exists") = 1;
+        let r = select(&mut mstate, 100, 200, frame);
+        assert_selected_mod_name(r, "variant2");
+        // This index points to the child mod, which should be skipped (return None)
+        *mstate.selected_variant.get_mut(&mk).expect("variant exists") = 2;
+        let r = select(&mut mstate, 100, 200, frame);
+        assert!(r.is_none(), "child mod (with parent) should not be selected as a variant");
+
+        *mstate.selected_variant.get_mut(&mk).expect("variant exists") = 3;
+        let r = select(&mut mstate, 100, 200, frame);
+        assert_selected_mod_name(r, "variant3");
     }
 
     #[test]

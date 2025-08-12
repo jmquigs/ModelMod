@@ -10,6 +10,17 @@ pub enum ModD3DState {
     Loaded(ModD3DData)
 }
 
+impl std::fmt::Debug for ModD3DState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_name = match self {
+            ModD3DState::Unloaded => "Unloaded",
+            ModD3DState::Partial(_) => "Partial",
+            ModD3DState::Loaded(_) => "Loaded",
+        };
+        write!(f, "{}", state_name)
+    }
+}
+
 impl ModD3DState {
     /// Change the state from partial to loaded.  If the current state is not partial, this is a no-op.
     pub fn set_loaded(&mut self) {

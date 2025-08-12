@@ -87,6 +87,16 @@ fn log_limit(s:&str) -> LimResult {
 
 }
 
+pub fn reset_log_counts() {
+    LOG_COUNT.with(|log_once| {
+        let mut map = log_once.borrow_mut();
+        for count in map.values_mut() {
+            *count = 0;
+        }
+    });
+    write_log_file("reset log limit counts");
+}
+
 pub fn write_log_file(msg: &str) {
     use std::env::temp_dir;
     use std::fs::OpenOptions;

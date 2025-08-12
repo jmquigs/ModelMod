@@ -310,6 +310,7 @@ fn cmd_reload_managed_dll(device: DevicePointer) {
 }
 
 fn select_next_variant() {
+    write_log_file(&format!("select next variant"));
     // for any mods that have a variant, select the next one, wrapping around to first if needed.
     // this is currently pretty dumb, since it advances _all_ mods with variants.  if there
     // were a lot of variants of different sizes, it might be better to have multiple keybinds
@@ -346,7 +347,7 @@ fn select_next_variant() {
                 }
                 if nmdv[sel_index].parent_mod_names.is_empty() {
                     // found one
-                    write_log_file(&format!("selected next variant: {}", nmdv[sel_index].name));
+                    write_log_file(&format!("selected next variant: {} => {}", nmdv[sel_index].name, sel_index));
                     *sel_index_entry = sel_index;
                     break;
                 }
@@ -379,6 +380,8 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     inp.add_press_fn(input::DIK_F7, Box::new(cmd_take_snapshot));
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
     inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_F9, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_F10, Box::new(select_next_variant));
 
     // Disabling this because its ineffective: the reload will complete without error, but
     // The old managed code will still be used.  The old C++ code
