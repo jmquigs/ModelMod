@@ -434,7 +434,7 @@ decl_profile_globals!(hdi);
 #[cfg(not(feature = "frequent-updates"))] 
 pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 20000;
 #[cfg(feature = "frequent-updates")] 
-pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 2000;
+pub const HOOK_DRAW_PERIODIC_CALLS:u32 = 1000;
 
 #[cfg(feature = "mmdisable")]
 const MM_DISABLE:bool = true;
