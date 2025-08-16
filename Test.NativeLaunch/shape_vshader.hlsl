@@ -42,3 +42,17 @@ VS_OUTPUT main(VS_INPUT input)
 
     return output;
 }
+
+// debug primitives
+// VS_OUTPUT main(uint vid : SV_VertexID)
+// {
+//     // 3 vertices that cover the screen: (-1,-1), (3,-1), (-1,3)
+//     float2 p = (vid == 0) ? float2(-1.0, -1.0) :
+//                (vid == 1) ? float2( 3.0, -1.0) :
+//                             float2(-1.0,  3.0);
+//     VS_OUTPUT o; 
+//     o.position = float4(p, 0.0, 1.0);
+//     o.normal = float3(0,0,0);
+//     o.texturecoordinate0 = float2(0,0);
+//     return o;
+// }

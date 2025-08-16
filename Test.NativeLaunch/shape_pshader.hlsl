@@ -34,4 +34,8 @@ float4 main(VS_OUTPUT input) : SV_Target
         texColor = float4(1,1,1,1);
     }
     return texColor * float4(brightness, brightness, brightness, 1.0);
+
+    // OR, "debug red"
+    //return float4(1,0,0,1);
 }
+

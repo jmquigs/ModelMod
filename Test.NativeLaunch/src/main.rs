@@ -76,6 +76,7 @@ another is that its much easier to change that than a binary file.
 
 use std::ptr::null_mut;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use std::{path::PathBuf, time::SystemTime};
 
 use glam::{Vec2, Vec3};
@@ -102,7 +103,7 @@ use winapi::shared::{
     windef::{HBRUSH, HCURSOR, HICON, HMENU, HWND},
     winerror::DXGI_ERROR_SDK_COMPONENT_MISSING,
 };
-use winapi::um::d3d11::{ID3D11DepthStencilView, ID3D11PixelShader, ID3D11RasterizerState, ID3D11RenderTargetView, ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_DEPTH_STENCIL, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_CULL_FRONT, D3D11_FILL_SOLID, D3D11_RASTERIZER_DESC, D3D11_TEXTURE2D_DESC};
+use winapi::um::d3d11::{ID3D11Asynchronous, ID3D11DepthStencilView, ID3D11PixelShader, ID3D11Query, ID3D11RasterizerState, ID3D11RenderTargetView, ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, D3D11_BIND_DEPTH_STENCIL, D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_CULL_FRONT, D3D11_FILL_SOLID, D3D11_QUERY, D3D11_QUERY_DATA_PIPELINE_STATISTICS, D3D11_QUERY_DESC, D3D11_QUERY_PIPELINE_STATISTICS, D3D11_RASTERIZER_DESC, D3D11_TEXTURE2D_DESC};
 use winapi::um::d3d11sdklayers::{ID3D11InfoQueue, IID_ID3D11InfoQueue, D3D11_MESSAGE_SEVERITY_CORRUPTION, D3D11_MESSAGE_SEVERITY_ERROR, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_WARNING};
 use winapi::um::libloaderapi::{LoadLibraryExW, LoadLibraryW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 use winapi::um::{
@@ -943,19 +944,24 @@ unsafe fn runapp() -> anyhow::Result<()> {
         }
 
         // 3. Set RTV on context
-        (*context).OMSetRenderTargets(1, &render_target_view, depth_stencil_view);        
+        (*context).OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
         use winapi::um::d3d11::D3D11_VIEWPORT;
+
+        let mut swapchain_desc: DXGI_SWAP_CHAIN_DESC = std::mem::zeroed();
+        if 0 != (*swapchain).GetDesc(&mut swapchain_desc) {
+            panic!("failed to get swapchain description")
+        }
+        println!("swap buffer size: {}/{}", swapchain_desc.BufferDesc.Width, swapchain_desc.BufferDesc.Height);
 
         let viewport = D3D11_VIEWPORT {
             TopLeftX: 0.0,
             TopLeftY: 0.0,
-            Width: 800 as f32,
-            Height: 600 as f32,
+            Width: swapchain_desc.BufferDesc.Width as f32,
+            Height: swapchain_desc.BufferDesc.Height as f32,
             MinDepth: 0.0,
             MaxDepth: 1.0,
         };
-
 
         (*context).RSSetViewports(1, &viewport);
 
@@ -968,7 +974,8 @@ unsafe fn runapp() -> anyhow::Result<()> {
 
         let rasterizer_desc = D3D11_RASTERIZER_DESC {
             FillMode: D3D11_FILL_SOLID,
-            CullMode: D3D11_CULL_FRONT, //D3D11_CULL_NONE, // Disable backface culling
+            CullMode: D3D11_CULL_FRONT, // Disable backface culling
+            //CullMode: winapi::um::d3d11::D3D11_CULL_NONE,
             FrontCounterClockwise: front_cc,  
             DepthBias: 0,
             DepthBiasClamp: 0.0,
@@ -989,10 +996,18 @@ unsafe fn runapp() -> anyhow::Result<()> {
         }
 
         (*context).RSSetState(rasterizer_state);
+
+        println!("setting vertex buffers with stride size {}", vert_size);
+        // set up these slices outside the loop so they don't get dropped 
+        let pStrides = [vert_size as u32];
+        let pOffsets = [0];
+        let ppVertexBuffers = [vertex_buffer];
+        let ppVertexBuffers = ppVertexBuffers;        
         
         let the_beginning = SystemTime::now();
         let mut msg;
-        let mut start = SystemTime::now();
+        //let mut start = SystemTime::now();
+        let mut start = Instant::now();
         let mut done = false;
         let mut dip_calls: i32 = 0;
         let mut total_dip_calls = 0;
@@ -1001,15 +1016,34 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let mut zoom: f32 = 0.0;
         let (mut pan_x, mut pan_y): (i16, i16) = (0,0);
         let (mut rot_x, mut rot_y): (f32, f32) = (0.0,0.0);
-
+        // if true, once per second print out results of last draw call (primitives counts and # of shader invocations)
+        let query_draw_results = false; 
         let orbit_cam = true;
+        let autoexit_after_secs = 0;
+
+        let target = Duration::from_micros(1000); // 1000 fps cap
+        
+        
+        let mut next_tick = Instant::now();
+        
 
         while !done {
+            let mut seclog = false;
             if SystemTime::now().duration_since(info_start).expect("whatever").as_secs() >= 1 {
                 println!("dip calls: {}, prim/vert count: {:?}", dip_calls, (prim_count,vert_count));
                 total_dip_calls += dip_calls;
                 dip_calls = 0;
                 info_start = SystemTime::now();
+                seclog = true;
+
+                // let mut vp:D3D11_VIEWPORT = std::mem::zeroed();
+                // let mut numvp:u32 = 1;
+                // (*context).RSGetViewports(&mut numvp as *mut _, &mut vp as *mut _);
+                // eprintln!("{} {} {} {} {} {}", vp.Width, vp.Height, vp.TopLeftX, vp.TopLeftY, vp.MinDepth, vp.MaxDepth);
+            }
+            if autoexit_after_secs > 0 && SystemTime::now().duration_since(the_beginning).expect("oops time issue").as_secs() >= autoexit_after_secs {
+                println!("auto-exiting");
+                std::process::exit(0);
             }
             let dev_removed_reason = (*device).GetDeviceRemovedReason();
             if !removed_once && dev_removed_reason != 0 {
@@ -1044,8 +1078,6 @@ unsafe fn runapp() -> anyhow::Result<()> {
                 break;
             }
 
-            let now = SystemTime::now();
-            let _elapsed = now.duration_since(start).expect("whatever").as_millis();
 
             
             {
@@ -1084,6 +1116,13 @@ unsafe fn runapp() -> anyhow::Result<()> {
                     Err(e) => eprintln!("failed to lock winevents: {:?}", e)
                 }
             }
+
+            if Instant::now() < next_tick {
+                std::thread::sleep(next_tick - Instant::now());
+            }
+            next_tick += target;
+
+            let now = Instant::now();
             
 
             // if the sync interval in present below is > than zero this will slow down the dip rate to 
@@ -1092,7 +1131,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
             // "render" some stuff
             {
                 {
-                    let color = [0.0, 0.1, 0.2, 1.0];
+                    let color = [0.0, 0.2, 0.2, 1.0];
 
                     (*context).ClearRenderTargetView(render_target_view, &color);
                     (*context).ClearDepthStencilView(
@@ -1103,10 +1142,10 @@ unsafe fn runapp() -> anyhow::Result<()> {
                     );
                 }
 
-                // call VSSetConstantBuffers to set the constant buffer on the context, this will
-                // trigger some MM rehook code
+                // if not rendering we don't set any constants, but we need to call once to trigger MM's hook code
                 let buffer = std::ptr::null_mut();
-                (*context).VSSetConstantBuffers(0, 1, &buffer);
+                let buffers = [buffer];
+                (*context).VSSetConstantBuffers(0, 1, buffers.as_ptr());
 
                 if let Some(ref rend_data) = rend_data {
                     let elapsed_sec = SystemTime::now().duration_since(the_beginning).expect("time went backwards?").as_secs_f32();
@@ -1130,7 +1169,9 @@ unsafe fn runapp() -> anyhow::Result<()> {
                         (rotation,origin)
                     };
                     
-                    let aspect_ratio = 800 as f32 / 600 as f32;
+                    let aspect_ratio = 
+                        swapchain_desc.BufferDesc.Width as f32
+                        / swapchain_desc.BufferDesc.Height as f32;
                     let fov_y_radians = std::f32::consts::FRAC_PI_4; // 45 degrees
                     let z_near = 0.1;
                     let z_far = 100.0;
@@ -1173,24 +1214,41 @@ unsafe fn runapp() -> anyhow::Result<()> {
                         light_dir,
                         has_tex0,
                     )?;
-                }
-                //(*context).VSSetShader()
+                } 
 
                 //println!("setting index buffer");
                 (*context).IASetIndexBuffer(index_buffer, DXGI_FORMAT_R16_UINT, 0);
 
-                //println!("setting vertex buffers");
-                let pStrides = [vert_size as u32].as_ptr();
-                let pOffsets = [0].as_ptr();
-                let ppVertexBuffers = [vertex_buffer];
-                let ppVertexBuffers = ppVertexBuffers.as_ptr();
-
                 (*context).IASetVertexBuffers(0, 1,
-                    ppVertexBuffers, pStrides, pOffsets);
+                    ppVertexBuffers.as_ptr(), pStrides.as_ptr(), pOffsets.as_ptr());
+
+                // sanity check since this has bitten me in the ass before 
+                // (from using insta-dropped vertex buffer arrays due to a trailing as_ptr()
+                // on the let binding on the slices passed to IASetVertexBuffers above, 
+                // causing garbage pointers get passed and garbage stride to get set)
+                {
+                    let mut got_vb: *mut ID3D11Buffer = std::ptr::null_mut();
+                    let mut got_stride: u32 = 0;
+                    let mut got_offset: u32 = 0;
+                    {
+                        (*context).IAGetVertexBuffers(0, 1, &mut got_vb, &mut got_stride, &mut got_offset);
+                        assert_eq!(got_stride, vert_size as u32, "stride {} != vert size {}", got_stride, vert_count);
+                        assert_eq!(got_stride % 4, 0, "want stride % 4 but got {}", got_stride); // this has to be aligned
+                        
+                        if !got_vb.is_null() { (*got_vb).Release(); }
+                    }
+                }
                 //println!("setting index layout");
                 (*context).IASetInputLayout(layout);
                 //println!("set topology");
                 (*context).IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                (*context).RSSetState(rasterizer_state);
+
+                // {
+                //     (*context).OMSetDepthStencilState(std::ptr::null_mut(), 0);      // kill depth tests
+                //     let blend = [0.0f32; 4];
+                //     (*context).OMSetBlendState(std::ptr::null_mut(), &blend, 0xFFFF_FFFF);
+                // }
 
                 let max_prims = num_indices / 3;
 
@@ -1213,14 +1271,30 @@ unsafe fn runapp() -> anyhow::Result<()> {
                 };
                 let IndexCount = primCount * 3;
 
+                let q = if query_draw_results && seclog {
+                    let qd = D3D11_QUERY_DESC { Query: D3D11_QUERY_PIPELINE_STATISTICS, MiscFlags: 0 };
+                    let mut q: *mut ID3D11Query = std::ptr::null_mut();
+                    if 0 != (*device).CreateQuery(&qd, &mut q) {
+                        panic!("failed to create query")
+                    }
+                    (*context).Begin(q as *mut ID3D11Asynchronous);
+                    q
+                } else {
+                    std::ptr::null_mut()
+                };
+
                 (*context).DrawIndexed(IndexCount as u32, 0, 0);
                 dip_calls += 1;
 
-                if dip_calls > 20000 {
-                    // slow down cowboy, no need to burn cpu, 20K is enough to trigger the hook's
-                    // "periodic" processing heuristics
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                    do_present = true;
+                if query_draw_results && !q.is_null() {
+                    (*context).End(q as *mut ID3D11Asynchronous);
+                    let mut stats: D3D11_QUERY_DATA_PIPELINE_STATISTICS = std::mem::zeroed();
+                    while (*context).GetData(q as _, &mut stats as *mut _ as *mut _, std::mem::size_of_val(&stats) as u32, 0) == winapi::shared::winerror::S_FALSE {}
+                    println!(
+                        "IA prims: {}  VS invoc: {}  PS invoc: {}",
+                        stats.IAPrimitives, stats.VSInvocations, stats.PSInvocations
+                    );
+                    (*q).Release();
                 }
 
             }

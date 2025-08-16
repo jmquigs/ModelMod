@@ -2,7 +2,8 @@ set -e
 
 mmdir=../Native
 
-RELEASE=0
+# if release is not already set to something, set it to this
+: "${RELEASE:=0}"
 
 # change into mm native dir, check target symlink and build mm dll.
 # 'frequent-updates' tells MM to tick more frequently which reduces wait time when loading mods (since this app doesn't 
