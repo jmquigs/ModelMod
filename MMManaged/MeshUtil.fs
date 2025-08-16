@@ -482,7 +482,7 @@ map_Kd $$filename
         | SDXDT.Ubyte4 -> 4
         | SDXDT.Color -> 4
         | SDXDT.HalfTwo -> 4
-        | _ -> failwithf "Some lazy person didn't fill in the size of type %A" dtype
+        | _ -> failwithf "Some lazy person didn't fill in the size of vert decl type %A" dtype
 
     /// Returns the total vertex size (in bytes), using the specified declaration
     /// list.
@@ -507,12 +507,13 @@ map_Kd $$filename
                 | SharpDX.DXGI.Format.R32G32B32_Float -> 12
                 | SharpDX.DXGI.Format.R32G32B32A32_Float -> 16
                 | SharpDX.DXGI.Format.R16G16_Float -> 4
+                | SharpDX.DXGI.Format.R16G16_SNorm -> 4
                 | SharpDX.DXGI.Format.R16G16B16A16_Float -> 8
                 | SharpDX.DXGI.Format.R8G8B8A8_UInt -> 4
                 | SharpDX.DXGI.Format.B8G8R8A8_UNorm -> 4
                 | SharpDX.DXGI.Format.R16G16B16A16_SInt -> 8
                 | SharpDX.DXGI.Format.R16G16B16A16_SNorm -> 8
-                | _ -> failwithf "Some lazy person didn't fill in the size of type %A" f
+                | _ -> failwithf "Some lazy person didn't fill in the size of format type %A" f
         int hElement.Offset + sizeBytes
 
     /// Returns true if the declaration list contains blend data, false otherwise.
