@@ -17,6 +17,7 @@ use crate::hook_render::hook_set_texture;
 use crate::global_state::MAX_STAGE;
 use crate::hook_render::CLR_OK;
 use crate::input;
+use crate::mod_render;
 use mod_load::AsyncLoadState;
 
 use dnclr::reload_managed_dll;
@@ -319,41 +320,7 @@ fn select_next_variant() {
     let lastframe = hookstate.metrics.total_frames;
 
     hookstate.loaded_mods.as_mut().map(|mstate| {
-        for (mkey, nmdv) in mstate.mods.iter() {
-            if nmdv.len() <= 1 {
-                // most mods have no variants
-                continue;
-            }
-
-            // don't change the selection if none have been rendered recently
-            let foundrecent = nmdv.iter().find(|nmd| nmd.recently_rendered(lastframe));
-            if foundrecent.is_none() {
-                continue;
-            }
-
-            // get the current variant for this mod
-            let sel_index_entry = mstate.selected_variant.entry(*mkey).or_insert(0);
-            let mut sel_index = *sel_index_entry;
-            let start = sel_index;
-            // select next, skipping over child mods.  stop if we wrap to where we started
-            sel_index += 1;
-            loop {
-                if sel_index >= nmdv.len() {
-                    sel_index = 0;
-                }
-                if sel_index == start {
-                    break;
-                }
-                if nmdv[sel_index].parent_mod_names.is_empty() {
-                    // found one
-                    write_log_file(&format!("selected next variant: {}", nmdv[sel_index].name));
-                    *sel_index_entry = sel_index;
-                    break;
-                }
-                // keep looking
-                sel_index += 1;
-            }
-        }
+        mod_render::select_next_variant(mstate, lastframe);
     });
 }
 

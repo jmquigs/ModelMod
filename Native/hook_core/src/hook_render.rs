@@ -21,6 +21,7 @@ use dnclr::{init_clr, reload_managed_dll};
 use util;
 use mod_load;
 use mod_load::AsyncLoadState;
+use crate::debug_spam;
 use crate::input_commands;
 use crate::mod_render;
 use mod_stats::mod_stats;
@@ -730,9 +731,9 @@ pub enum CheckRenderModResult {
 }
 /// Check for a mod to render, and if one is found, render it using the supplied function `F`.
 /// Returns `CheckRenderModResult` to indicate to result of this check.
-pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, rfunc:F) -> CheckRenderModResult
+pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, mut rfunc:F) -> CheckRenderModResult
 where
-    F: FnOnce(&ModD3DData,&NativeModData) -> bool {
+    F: FnMut(&ModD3DData,&NativeModData) -> bool {
 
     let mut loading_mod_name = None;
     let res = GLOBAL_STATE.loaded_mods.as_mut()
@@ -745,36 +746,63 @@ where
             profile_end!(hdip, mod_select);
             r
         })
-        .and_then(|nmod| {
-            // early out if mod is a deletion mod
-            if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
-                return Some(nmod.mod_data.numbers.mod_type);
-            }
-            // if the mod d3d data isn't loaded, can't render
-            let d3dd = match nmod.d3d_data {
-                native_mod::ModD3DState::Loaded(ref d3dd) => d3dd,
-                // could observe partial if we noted it previously but the deferred load
-                // hasn't happened yet (since it happens less often)
-                native_mod::ModD3DState::Partial(_)
-                | native_mod::ModD3DState::Unloaded => {
-                    // tried to render an unloaded mod, make a note that it should be loaded
-                    let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
-                        || fnv::FnvHashSet::with_capacity_and_hasher(
-                            100,
-                            Default::default(),
-                        ));
-                    loading_mod_name = Some(nmod.name.to_owned());
-                    load_next_hs.insert(nmod.name.to_owned());
-                    return None;
-                }
-            };
+        .and_then(|nmods| {
+            
+            let modslice = nmods.as_slice();
+            let nmodlen = modslice.len();
 
-            let rendered = rfunc(d3dd,nmod);
-            if rendered {
-                Some(nmod.mod_data.numbers.mod_type)
+            debug_spam!(|| format!("select returned {} mods, first: {}", nmodlen, if nmodlen > 0 { 
+                &modslice[0].name
             } else {
-                None
+                "none"
+            }));
+            for nmod in modslice {
+                // early out if mod is a deletion mod
+                if nmod.mod_data.numbers.mod_type == types::interop::ModType::Deletion as i32 {
+                    return Some(nmod.mod_data.numbers.mod_type);
+                }
+                // if the mod d3d data isn't loaded, can't render
+                match nmod.d3d_data {
+                    native_mod::ModD3DState::Loaded(_) => (),
+                    // could observe partial if we noted it previously but the deferred load
+                    // hasn't happened yet (since it happens less often)
+                    native_mod::ModD3DState::Partial(_)
+                    | native_mod::ModD3DState::Unloaded => {
+                        debug_spam!(|| format!("starting load of requested mod: {}", nmod.name));
+                        // tried to render an unloaded mod, make a note that it should be loaded
+                        let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
+                            || fnv::FnvHashSet::with_capacity_and_hasher(
+                                100,
+                                Default::default(),
+                            ));
+                        loading_mod_name = Some(nmod.name.to_owned());
+                        load_next_hs.insert(nmod.name.to_owned());
+                        return None;
+                    }
+                };
             }
+            // If it returned multiple mods we currently assume they have the same type.  Since all these mods must share the same 
+            // ref, it doesn't make sense to have (for instance) two mods where one is a deletion, the other a replacement, 
+            // or one a replacement other an addition; the semantics are mostly exclusive.
+            let mut first_mod_type = None;
+            for nmod in modslice {
+                debug_spam!(|| format!("rend mod: {}, loadstate: {:?}, ({} total)", nmod.name, nmod.d3d_data, modslice.len()));
+                if let native_mod::ModD3DState::Loaded(ref d3dd) = nmod.d3d_data {
+                    debug_spam!(|| format!("rendering loaded mod: {}", nmod.name));
+                    let rendered = rfunc(d3dd,nmod);
+                    if rendered {
+                        debug_spam!(|| format!("{} was rendered", nmod.name));
+                        if first_mod_type.is_none() {
+                            first_mod_type = Some(nmod.mod_data.numbers.mod_type)
+                        }
+                    }
+                } else {
+                    debug_spam!(|| format!("cannot render mod {} because it isn't loaded", nmod.name));
+                }
+                debug_spam!(|| format!("finish rend: {}", nmod.name));
+            }
+            debug_spam!(|| format!("done rend loop for {} mods", modslice.len() ));
+            first_mod_type
         });
 
     match (res,loading_mod_name) {

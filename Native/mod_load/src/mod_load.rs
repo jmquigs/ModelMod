@@ -3,7 +3,6 @@ use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
 use shared_dx::types::TexPtr;
 use types::d3ddata;
-use types::interop::ManagedCallbacks;
 use types::native_mod::ModD3DState;
 use types::native_mod::NativeModData;
 use winapi::ctypes::c_void;
@@ -15,14 +14,10 @@ pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::d3d11::D3D11_BIND_VERTEX_BUFFER;
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use winapi::um::d3d11::D3D11_INPUT_ELEMENT_DESC;
-use winapi::um::d3d11::D3D11_SHADER_RESOURCE_VIEW_DESC;
 use winapi::um::d3d11::D3D11_SUBRESOURCE_DATA;
-use winapi::um::d3d11::D3D11_TEXTURE2D_DESC;
 use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
 use winapi::um::d3d11::ID3D11Device;
-use winapi::um::d3d11::ID3D11ShaderResourceView;
 use winapi::um::d3d11::ID3D11Texture2D;
-use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use fnv::FnvHashMap;
 
@@ -437,8 +432,8 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
             match d3dx::create_d3d11_srv_from_tex(dp, p_tex) {
                 Ok(srv) => {
                     d3d_data.srvs[idx] = srv;
-                // since there is at least one valid texture, set the flag in the data
-                d3d_data.has_textures = true;
+                    // since there is at least one valid texture, set the flag in the data
+                    d3d_data.has_textures = true;
                 },
                 Err(what) => {
                     write_log_file(&format!("Error creating mod {} tex {}: {:?}", nmd.name, idx, what));
@@ -459,6 +454,30 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
 
     nmd.d3d_data.set_loaded();
     true
+}
+
+/// Sort mod lists so that variants (mods with no parents) are up front.  This makes cycling 
+/// code simpler, since while iterating, once we see a parented mod or a deletion mod, 
+/// we know we've processed all the 
+/// variants and can wrap around. sort_by_key is stable so this should not break the ordering
+/// in the mod index.  This should be called whenever one or more mods are added.
+pub fn sort_mods(loaded_mods:&mut FnvHashMap<u32, Vec<native_mod::NativeModData>>) {
+    for nmodv in loaded_mods.values_mut() {
+        nmodv.sort_by_key(|nmod| {
+            // Key is a tuple:
+            // (0: mods with no parents, 1: mods with parents, 2: deletion mods)
+            // This will order: [variants], [parented], [deletions], preserving stable order.
+            let is_deletion = nmod.mod_data.numbers.mod_type == (interop::ModType::Deletion as i32);
+            let has_no_parents = nmod.parent_mod_names.is_empty();
+            if is_deletion {
+                2
+            } else if has_no_parents {
+                0
+            } else {
+                1
+            }
+        });
+    }
 }
 
 /// Set up mod data structures.  Should be called after the managed code is done loading
@@ -510,7 +529,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         } else {
             ((*mdat).numbers.prim_count as u32, (*mdat).numbers.vert_count as u32)
         };
-        
+
         let prof = (*mdat).mod_snap_profile;
         let fliptangent;
         let vecencoding;
@@ -521,10 +540,10 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
             vecencoding = util::from_wide_str(&prof.vec_encoding).unwrap_or_else(|_e| "".to_owned());
             prof_info_string = format!("[profile: fliptangent: {}, vec encoding: {}]", fliptangent, vecencoding);
         } else {
-            prof_info_string = "[profile: none or invalid]".to_string() 
+            prof_info_string = "[profile: none or invalid]".to_string()
         }
 
-        write_log_file(&format!("==> Initializing mod: name '{}', idx: {}, parents '{:?}', type {}, 
+        write_log_file(&format!("==> Initializing mod: name '{}', idx: {}, parents '{:?}', type {},
             prims {}, verts {} (ref prims {}, ref verts {}) {}",
             mod_name, midx,
             parent_mods, (*mdat).numbers.mod_type, prims, verts,
@@ -606,7 +625,8 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         // mod is actually referenced so that we don't clog d3d with a bunch of possibly unused
         // stuff. (see `load_deferred_mods`)
 
-        loaded_mods.entry(mod_key).or_insert_with(|| vec![]).push(native_mod_data);
+        let vec = loaded_mods.entry(mod_key).or_insert_with(|| vec![]);
+        vec.push(native_mod_data);
     }
 
     // mark all parent mods as such, and also warn about any parents that didn't load
@@ -674,6 +694,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         }
     }
 
+    sort_mods(&mut loaded_mods);
 
     let now = std::time::SystemTime::now();
     let elapsed = now.duration_since(ml_start);
@@ -736,7 +757,7 @@ pub unsafe fn update_ref_count(device:DevicePointer, pre_rc:u32) -> (u32,u32) {
     let diff = post_rc.saturating_sub(pre_rc);
     if diff > 0 {
         match dev_state_d3d11_write() {
-            Some((_lck, _state)) => {    
+            Some((_lck, _state)) => {
                 (*DEVICE_STATE).d3d_resource_count += diff;
                 (diff,(*DEVICE_STATE).d3d_resource_count)
             },
@@ -822,10 +843,10 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                             }
 
                             if lres != 1 {
-                                continue;    
+                                continue;
                             }
-                        }  
-                        
+                        }
+
                         if lres == 1 || (*mdat).data_available {
                             write_log_file(&format!("load_deferred_mods: updating mod numbers for mod: {}", nmod.name));
                             // data is now available but we need to update some entries in the nmod that we're not available before
@@ -847,16 +868,17 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                         cnt += 1;
                     }
                     DevicePointer::D3D11(dev) => {
+                        write_log_file(&format!("beginning d3d 11 load; can load thread load: {}", can_load_in_thread));
                         if can_load_in_thread {
                             match maybe_start_load(device, callbacks, nmod) {
                                 Ok(queued) => {
                                     if queued {
                                         write_log_file(&format!("load_deferred_mods: queued new load for resource:{}", nmod.midx));
-                                    } 
+                                    }
                                     // else {
                                     //     write_log_file(&format!("load_deferred_mods: not queueing new load for resource:{}", nmod.midx));
                                     // }
-                                    
+
                                 },
                                 Err(x) => {
                                     write_log_file(&format!("error: maybe_start_load failed: {}", x));
@@ -885,6 +907,11 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                     &format!("load_deferred_mods: {} in {}ms, added {} to device {:x} ref count, new count: {}",
                     cnt, elapsed.as_millis(), rc_diff, device.as_usize(), new_rc
                 ));
+                // after a successful load, reset the log limits - this is because
+                // otherwise when loading a lot of mods and if there are errors, 
+                // some of the error messages get suppressed,
+                // others don't, which causes me to get confused.
+                reset_log_counts();
             }
         };
 }

@@ -1,5 +1,4 @@
 
-use shared_dx::util;
 use winapi::shared::d3d9::*;
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, ID3D11Texture2D, ID3D11Resource, ID3D11ShaderResourceView};
 

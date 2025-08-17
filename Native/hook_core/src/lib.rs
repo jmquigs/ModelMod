@@ -31,6 +31,9 @@ extern crate types;
 #[macro_use]
 extern crate profiler;
 
+pub const ENABLE_DEBUG_SPAM:bool = false;
+pub const DEBUG_SPAM_TO_STDERR:bool = false;
+
 mod debugmode;
 mod hook_render;
 mod hook_render_d3d11;
