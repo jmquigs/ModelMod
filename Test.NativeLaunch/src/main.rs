@@ -249,16 +249,26 @@ type D3D11CreateDeviceAndSwapChainFN = extern "system" fn (
 
 /// Enabling this will prevent MM from hooking, see load_d3d11 comment below
 const USE_DEBUG_DEVICE:bool = false; 
-/// When running with MM, if this is false, it may stack overflow when creating the d3d resources, for unknown reasons
+/// When running with MM, if this is false, it may stack overflow when creating the d3d resources, in the debug build,
+/// for unknown reasons.  the release build does not appear to S.O.
+/// The SO appears to be related to the d3d load thread MM uses when the device says it is multithread.
+#[cfg(debug_assertions)]
 const SINGLE_THREADED_DEVICE: bool = true; 
+#[cfg(not(debug_assertions))]
+const SINGLE_THREADED_DEVICE: bool = false; 
 /// Whether to render or not.
 const RENDER:bool = true;
-/// If true sometimes the program will not render the full geometry causing a "miss" in modelmod,
+/// If > 0, the program will not sometimes render the full geometry causing a "miss" in modelmod,
 /// in other words no matching mod which is what it does most of the time in practice.
 /// (If this is true and RENDER is true and a valid MOD exists for the prim/vert count, 
 /// this will cause the mod to flicker on screen 
-/// since nothing is drawn otherwise)
-const RENDER_SIMULATE_MISS:bool = false; 
+/// since nothing is drawn otherwise).  The value is the chance of a miss.
+const RENDER_SIMULATE_MISS_FREQ:f32 = 0.0; // 0.0005; 
+/// If set, when a miss occurs (see RENDER_SIMULATE_MISS_FREQ) this number of primitives/vertexes 
+/// will be used to draw instead of a random amount.  This allows a different mod to be selected for the miss.
+/// These values must be <= the primary prim/vert counts used for the program.  The 
+/// program will exit with an error if they are greater.
+const RENDER_MISS_PRIMVERT_COUNT:Option<(u32,u32)> = None; // Some((7630,5435));
 
 // load the d3d11 library and obtain a pointer to the D3D11CreateDevice function
 unsafe fn load_d3d11() -> Option<D3D11CreateDeviceAndSwapChainFN> {
@@ -810,7 +820,24 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let index_buffer = create_index_buffer(
             device, num_indices as u32, |_num_indices| index_data)?; //.try_into().expect("can't convert to u32?")?;
 
-        use std::ptr::null_mut;
+        let (miss_prims, vertbuf_miss, indexbuf_miss) = if let Some((miss_prim, miss_vert)) = RENDER_MISS_PRIMVERT_COUNT {
+            if miss_prim >= prim_count as u32 || miss_vert >= vert_count as u32 {
+                panic!("miss primitives/vertex counts must be lower than program argument prim,verts");
+            }
+            let vert_data = get_empty_vertices(vert_size, miss_vert as usize)
+                .expect("failed to create empty vert buf for miss case");
+            let index_data = get_indices((miss_prim * 3) as u32);
+
+            let (vertex_buffer,vsize) = create_vertex_buffer(device, || (vert_data, vert_size))?;
+            if vsize != vert_size {
+                panic!("oops miss vertex buffer size does not match");
+            }
+            let index_buffer = create_index_buffer(device, (miss_prim * 3) as u32, |_| index_data)?;
+
+            (miss_prim, vertex_buffer, index_buffer)
+        } else {
+            (0, null_mut(), null_mut())
+        };
 
         let rend_data = if RENDER {
             Some(render::create_data(device)?)
@@ -1002,7 +1029,8 @@ unsafe fn runapp() -> anyhow::Result<()> {
         let pStrides = [vert_size as u32];
         let pOffsets = [0];
         let ppVertexBuffers = [vertex_buffer];
-        let ppVertexBuffers = ppVertexBuffers;        
+        let ppVertexBuffers = ppVertexBuffers;
+        let missPPVertexBuffers = [vertbuf_miss];
         
         let the_beginning = SystemTime::now();
         let mut msg;
@@ -1258,13 +1286,21 @@ unsafe fn runapp() -> anyhow::Result<()> {
 
                 let primCount = if let Mesh::Shape = opts.mesh {
                     max_prims
-                } else if RENDER_SIMULATE_MISS {
+                } else if RENDER_SIMULATE_MISS_FREQ > 0.0 {
                     // a small pct of the time, draw the target primCount, the rest draw a random number of
                     // prims up to primCount (simulates the high miss rate in mod rendering)
-                    if rand::random::<f32>() < 0.05 {
+                    if rand::random::<f32>() > RENDER_SIMULATE_MISS_FREQ {
                         max_prims
                     } else {
-                        rand::random::<usize>() % max_prims
+                        if miss_prims > 0 {
+                            (*context).IASetIndexBuffer(indexbuf_miss, DXGI_FORMAT_R16_UINT, 0);
+
+                            (*context).IASetVertexBuffers(0, 1,
+                                missPPVertexBuffers.as_ptr(), pStrides.as_ptr(), pOffsets.as_ptr());
+                            miss_prims as usize
+                        } else {
+                            rand::random::<usize>() % max_prims
+                        }
                     }
                 } else {
                     max_prims
