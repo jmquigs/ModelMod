@@ -808,6 +808,8 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         let pre_rc = device.get_ref_count();
 
         let mut cnt = 0;
+        let can_load_in_thread = (*DEVICE_STATE).multithreaded();
+
         for nmd in to_load.iter() {
             let mut nmod =
                 get_mod_by_name(&nmd, &mut GLOBAL_STATE.loaded_mods);
@@ -822,6 +824,12 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                 }
                 if let ModD3DState::Loaded(_) = nmod.d3d_data {
                     write_log_file(&format!("load_deferred_mods: mod already loaded: {}", nmod.name));
+                    // this block gets hit when using the threaded d3d loader and is the only way we know that thread finished its work,
+                    // since it doesn't communicate anything back to this thread but rather just updates the d3d data on the mod.
+                    // As I now want to reset log limits after each mod loads (as done below for the non-threaded case),
+                    // use this opportunity to do that.  (this _usually_ gets hit if the game is drawing fast enough, but it 
+                    // may not _always_ get hit - in particular test.nativelaunch doesn't seem to always trigger this due to its lower draw rate)
+                    reset_log_counts();
                     continue;
                 }
                 if !nmod.mod_data.data_available {
@@ -859,8 +867,6 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                         }
                     }
                 }
-
-                let can_load_in_thread = (*DEVICE_STATE).multithreaded();
 
                 match device {
                     DevicePointer::D3D9(device) => {
@@ -911,6 +917,7 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                 // otherwise when loading a lot of mods and if there are errors, 
                 // some of the error messages get suppressed,
                 // others don't, which causes me to get confused.
+                // note in the threaded loading case we do this above, because in that case cnt will typically be zero here
                 reset_log_counts();
             }
         };
