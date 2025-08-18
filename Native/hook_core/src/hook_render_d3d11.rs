@@ -312,6 +312,13 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     )
 }
 
+/// Compute the primitives and vertex counts being used by the current active draw call.
+/// Current bug: this is derived from the full size of currently bound vertex buffers; it does not consider the 
+/// min or base vertex index arguments passed to drawindexed.  So if the game uses those 
+/// to draw something it may result in no mod being select or the wrong mod.
+/// If you suspect that is a problem, there is some (disabled) logging code in DrawIndexed which can be used to log misses.
+/// (Search for CheckRenderModResult::NotRendered; In practice I have observed at least one game using vertex offsets 
+/// but only for things I don't mod like particle emitters, which also tend to use small primitive counts)
 fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u32,u32)> {
     if index_count <= 6 { // = 2 triangles generally, mods can't be this small or even close to this small
         // don't bother
@@ -586,6 +593,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         }
         let checkres = compute_prim_vert_count(IndexCount, &state.rs);
         profile_end!(hdi, geom_check);
+
         match checkres {
             Some((prim_count,vert_count)) if vert_count > 2  => {
                 // if primitive tracking is enabled, log just the primcount,vertcount if we were able
@@ -608,6 +616,10 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     .unwrap_or(false);
                 let mod_status = if !quickcheck {
                     profile_end!(hdi, mod_precheck);
+                    // this write_log_file can be used to get information about misses.
+                    // consider lowing the log LOG_LIMIT counts in util.rs before uncommenting this, as it will be incredibly 
+                    // spammy.  wait until it stabilizes and then try to produce the event which makes the draw you are interested in.
+                    //write_log_file(&format!("miss: {}p/{}v;s={};b={}", prim_count,vert_count, StartIndexLocation, BaseVertexLocation));
                     CheckRenderModResult::NotRendered
                 } else {
                     profile_end!(hdi, mod_precheck);
