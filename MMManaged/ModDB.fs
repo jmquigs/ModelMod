@@ -44,6 +44,65 @@ module ModDB =
 
     let private (|StringValueIgnoreCase|_|) node = Yaml.toOptionalString(Some(node)) |> strToLower
 
+    let mutable allAvailableFiles = [||]
+    let tryLocateFile(filepath:string):string option = 
+        if String.IsNullOrWhiteSpace(filepath) then
+            None
+        else if File.Exists(filepath) then
+            Some(filepath)
+        else
+            log().Warn "File is missing: %A"  filepath
+            let matches =
+                allAvailableFiles
+                |> Array.filter (fun file -> String.Equals(Path.GetFileName(file), Path.GetFileName(filepath), StringComparison.OrdinalIgnoreCase))
+            match matches with
+            | [| singleMatch |] ->
+                log().Warn "  File relocated: %s -> %s" filepath singleMatch
+                Some(singleMatch)
+            | [||] ->
+                log().Error "  No alternate files found matching: %s" filepath
+                None
+            | many ->
+                // Use this LLM generated stuff to try to find a file in the list who most closely matches the source
+                let dirParts (p:string) =
+                    let d = Path.GetDirectoryName(p)
+                    let d = if String.IsNullOrEmpty(d) then "" else d
+                    d.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                     .Split([| Path.DirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+
+                let commonSuffixLen (a:string[]) (b:string[]) =
+                    let mutable i = a.Length - 1
+                    let mutable j = b.Length - 1
+                    let mutable n = 0
+                    while i >= 0 && j >= 0 && a.[i].Equals(b.[j], StringComparison.OrdinalIgnoreCase) do
+                        n <- n + 1
+                        i <- i - 1
+                        j <- j - 1
+                    n
+
+                let pickMostSimilarByDir (original:string) (candidates:string[]) =
+                    let target = dirParts original
+                    let scored =
+                        candidates
+                        |> Array.map (fun c ->
+                            let parts = dirParts c
+                            let score = commonSuffixLen target parts
+                            let depthDiff = abs (parts.Length - target.Length)
+                            c, score, depthDiff)
+
+                    let ordered =
+                        scored
+                        |> Array.sortBy (fun (c,s,dd) -> (-s, dd, c.ToLowerInvariant()))
+
+                    let first = ordered.[0] |> fun (c,_,_) -> c
+                    let rest  = ordered |> Array.skip 1 |> Array.map (fun (c,_,_) -> c)
+                    first, rest
+
+                let first, rest = pickMostSimilarByDir filepath many
+
+                log().Warn "  Multiple files found matching name; loading (%A); other matches: %A;\n  to fix this message fix the path to point at an extant file" first rest
+                Some(first)
+
     /// Root type for the Mod Database; everything is stored in here.
     type ModDB(refObjects,modObjects,meshRels:MeshRelation list) =
         // explode deletion mods into interop representation now.
@@ -84,6 +143,8 @@ module ModDB =
         member x.Mods = modObjects
         member x.MeshRelations = meshRels
         member x.DeletionMods = deletionMods
+
+        member x.TryLocate = tryLocateFile
 
     /// Unpack a "transforms" list from yaml.
     let getMeshTransforms (node:YamlMappingNode) =
@@ -138,17 +199,18 @@ module ModDB =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
+        let makeAbsolute (path:string) =
+            match path with
+            | "" -> ""
+            | path when Path.IsPathRooted path -> path
+            | _ -> Path.GetFullPath(Path.Combine(basePath,path))
         let unpackPath =
             let useEmptyStringForMissing (x:string option) =
                 match x with
                 | None -> ""
                 | Some s when s.Trim() = "" -> ""
                 | Some s -> s
-            let makeAbsolute (path:string) =
-                match path with
-                | "" -> ""
-                | path when Path.IsPathRooted path -> path
-                | _ -> Path.GetFullPath(Path.Combine(basePath,path))
+
 
             Yaml.toOptionalString >> useEmptyStringForMissing >> makeAbsolute
 
@@ -213,10 +275,17 @@ module ModDB =
                     let meshPath = node |> Yaml.getValue "meshPath" |> Yaml.toString
                     if meshPath = "" then failwithf "meshPath is empty"
 
-                    let tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath
-                    let tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath
-                    let tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath
-                    let tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpackPath
+                    let maybeTryRelocate (f:string) = 
+                        match tryLocateFile f with 
+                        | Some(f) -> f
+                        | None -> f
+
+                    let meshPath = meshPath |> makeAbsolute |> maybeTryRelocate 
+
+                    let tex0Path = node |> Yaml.getOptionalValue "Tex0Path" |> unpackPath |> maybeTryRelocate
+                    let tex1Path = node |> Yaml.getOptionalValue "Tex1Path" |> unpackPath |> maybeTryRelocate
+                    let tex2Path = node |> Yaml.getOptionalValue "Tex2Path" |> unpackPath |> maybeTryRelocate
+                    let tex3Path = node |> Yaml.getOptionalValue "Tex3Path" |> unpackPath |> maybeTryRelocate
                     numOverrideTextures <- 
                         let oneIfNotEmpty (s:string) = if s.Trim() <> "" then 1 else 0
                         oneIfNotEmpty tex0Path + oneIfNotEmpty tex1Path + oneIfNotEmpty tex2Path + oneIfNotEmpty tex3Path
@@ -342,6 +411,12 @@ module ModDB =
         let meshPath = node |> Yaml.getValue "meshpath" |> Yaml.toString
 
         let meshFullPath = Path.Combine(basePath, meshPath)
+
+        let meshFullPath = 
+            match tryLocateFile meshFullPath with 
+            | Some(path) -> path
+            | None -> meshFullPath
+
         let meshReadFlags = CoreTypes.DefaultReadFlags
         let doMeshLoad() = 
             let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags)
@@ -499,8 +574,14 @@ module ModDB =
             | _ -> failwithf "Expected data with 'type: \"Index\"' in %s"  filename
 
         // get a list of all the yaml files in all subdirectories beneath the index file.
+        let start = new Util.StopwatchTracker("file scan");
         let searchRoot = Directory.GetParent(filename).FullName
-        let allFiles = Directory.GetFiles(searchRoot, "*.yaml", SearchOption.AllDirectories)
+        let allFiles = Directory.GetFiles(searchRoot, "*.*", SearchOption.AllDirectories)
+        allAvailableFiles <- allFiles
+        log().Info "%A files in data dir" (allFiles.Length)
+        let allFiles = allFiles |> Array.filter (fun f -> String.Equals(Path.GetExtension(f), ".yaml", StringComparison.OrdinalIgnoreCase) )
+        log().Info "%A yaml files in data dir" (allFiles.Length)
+        start.StopAndPrint()
 
         // walk the file list, loading the mods that are on the load list
         let nameMatches f1 f2 =
