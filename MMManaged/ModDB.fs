@@ -698,7 +698,7 @@ module ModDB =
 
                     let newMeshRel() =
                         nBuilt <- nBuilt + 1
-                        new MeshRelation(dbmod, Option.get dbmod.Ref)
+                        new MeshRelation(dbmod, Option.get dbmod.Ref, conf.BinCacheDir)
 
                     // if both of the meshes are unchanged (or if loading them would use a cache entry, meaning they are unchanged)
                     // we can reuse the mesh relation.  the case where the mesh relation exists but the meshes aren't loaded, yet they are cached,

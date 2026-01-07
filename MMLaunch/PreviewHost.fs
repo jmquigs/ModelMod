@@ -47,6 +47,7 @@ type PreviewHost() =
                             CamPosition = Some(Vec3F(0.f,3.75f,10.0f))
                             MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = false }
                     })
+                Conf.BinCacheDir = ""
             }
             control <- Some(new MeshView.Main.MeshViewControl(conf, x.GraphicsDevice))
         ()

@@ -300,6 +300,7 @@ module CoreTypes =
 
     /// Storage for a named Reference object.
     /// The Name of a reference is its base file name (no extension).
+    /// The "DB" prefix naming convention alludes to it being an entity in a "Database" (the mod db).
     type DBReference = {
         Name : string
         Mesh : Lazy<Mesh>
@@ -322,6 +323,9 @@ module CoreTypes =
 
     /// Storage for a named mod.
     /// The Name of a mod is its base file name (no extension).
+    /// The "DB" prefix naming convention alludes to it being an entity in a "Database" (the mod db).
+    /// Do not confuse this type with the `ModDB` type which is the actual database of all the mods and references.
+    /// (A bit of a naming fail there, alas).
     type DBMod = {
         RefName: string option
         Type: ModType

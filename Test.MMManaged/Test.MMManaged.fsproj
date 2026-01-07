@@ -39,7 +39,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="FSharp.Core">
-      <HintPath>..\packages\FSharp.Core\lib\net45\FSharp.Core.dll</HintPath>
+      <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="SharpDX">

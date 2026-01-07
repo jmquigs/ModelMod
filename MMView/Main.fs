@@ -286,6 +286,7 @@ module Main =
                     ModIndexFile = None
                     StartConf.Conf.FilesToLoad = [ file ] 
                     AppSettings = appSettings
+                    StartConf.Conf.BinCacheDir = Path.Combine(Path.GetTempPath(), "ModelMod", "BinCache", "mmview")
                 }
             | Some file when Path.GetExtension(file).ToLowerInvariant().Trim().Equals(".yaml") ->
                 // alternate conf file path

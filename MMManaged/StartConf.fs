@@ -44,6 +44,9 @@ module StartConf =
         ModIndexFile: string option
         FilesToLoad: string list
         AppSettings: AppSettings option // only present for the UI tools; MMView, etc
+        /// Location of the binary cache, if any.  Used to speed up reloads on e.g 
+        /// MeshRelation objects if the underlying data has not changed.
+        BinCacheDir: string
     }
 
     let loadConf confPath (appSettings:AppSettings option) =
@@ -68,6 +71,7 @@ module StartConf =
             ModIndexFile= modIndexFile
             FilesToLoad = files
             AppSettings = appSettings
+            BinCacheDir = ""
         }
 
         Some (conf)

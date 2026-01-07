@@ -16,6 +16,7 @@ let ``ModDB: load mod db``() =
                 StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
+                StartConf.Conf.BinCacheDir = Path.Combine(Path.GetTempPath(), "ModelMod", "BinCache", "tests")
             }, None)
 
     Assert.AreEqual (mdb.Mods.Length, 2, sprintf "incorrect number of mods: %A" mdb.Mods)

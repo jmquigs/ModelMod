@@ -132,10 +132,12 @@ module ModDBInterop =
             if not (File.Exists(modIndexPath)) then
                 failwithf "Cannot load data, index file does not exist: %A" modIndexPath
 
+            let binCacheDir = Path.Combine(Path.GetTempPath(), "ModelMod", "BinCache", State.getExeBaseName())
             let conf = {
                 StartConf.Conf.ModIndexFile = Some modIndexPath
                 StartConf.Conf.FilesToLoad = []
                 StartConf.Conf.AppSettings = None
+                StartConf.Conf.BinCacheDir = binCacheDir
             }
 
             let mdb =  ModDB.loadModDB(conf,Some(State.Data.Moddb))

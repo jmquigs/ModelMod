@@ -43,6 +43,7 @@ let load() =
                 StartConf.Conf.ModIndexFile = Some(mpath)
                 FilesToLoad = []
                 AppSettings = None
+                StartConf.Conf.BinCacheDir = Path.Combine(Path.GetTempPath(), "ModelMod", "BinCache", "standalone")
             }, None)
     mdb
 
