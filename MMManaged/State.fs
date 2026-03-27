@@ -151,8 +151,6 @@ module State =
         conf
 
     /// Reload snapshot profiles from disk, using the current root dir and conf.
-    /// Called during mod reload (Ctrl-F1) so that snapshot profile changes are picked up
-    /// without restarting the game.
     let reloadSnapshotProfiles() =
         try
             let sprofiles = SnapshotProfile.GetAll(_rootDir)
