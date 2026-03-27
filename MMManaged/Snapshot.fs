@@ -90,6 +90,22 @@ module Extractors =
         let a,b,c,d = br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
         a,b,c,d
 
+    // D3DCOLOR is stored in memory as BGRA, but the hardware
+    // presents it to the shader as RGBA. Swizzle accordingly.
+    let readBoneIndicesFromColor (reader: SourceReader) =
+        let b = reader.ReadByte() |> int  // B
+        let g = reader.ReadByte() |> int  // G
+        let r = reader.ReadByte() |> int  // R
+        let a = reader.ReadByte() |> int  // A
+        (r, g, b, a) // RGBA order as the shader sees it
+
+    let readBoneWeightsFromColor (reader: SourceReader) =
+        let b = (reader.ReadByte() |> float32) / 255.0f
+        let g = (reader.ReadByte() |> float32) / 255.0f
+        let r = (reader.ReadByte() |> float32) / 255.0f
+        let a = (reader.ReadByte() |> float32) / 255.0f
+        (r, g, b, a) // RGBA order as the shader sees it
+
 /// Snapshot utilities.
 module Snapshot =
     type MMVES = VertexTypes.MMVertexElemSemantic
@@ -134,6 +150,7 @@ module Snapshot =
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
     let private readElement (snapProfile:CoreTypes.SnapProfile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
+        let outputFns = fns // keep reference to real output functions
         let fns =
             if el.SemanticIndex = 0 then
                 fns
@@ -271,10 +288,17 @@ module Snapshot =
                         fns.BlendWeight (Extractors.xBlendWeightFromFloat4 reader)
                     | _ -> failwithf "Unsupported format for blend weight: %A" f
             | MMVES.Color ->
-                // TODO: currently ignored, but should probably keep this as baggage.
+                // Check if this Color element should be read as blend index or blend weight
+                // based on the snapshot profile flags (DX9 only).
+                let readAsBlendIndex = el.SemanticIndex = 1 && snapProfile.BlendIndexInColor1
+                let readAsBlendWeight = el.SemanticIndex = 2 && snapProfile.BlendWeightInColor2
                 match el.Type with
                 | MMET.DeclType(dt) ->
                     match dt with
+                    | SDXVertexDeclType.Color when readAsBlendIndex ->
+                        outputFns.BlendIndex (Extractors.readBoneIndicesFromColor reader)
+                    | SDXVertexDeclType.Color when readAsBlendWeight ->
+                        outputFns.BlendWeight (Extractors.readBoneWeightsFromColor reader)
                     | SDXVertexDeclType.Color ->
                         reader.ReadBytes(4) |> ignore
                     | SDXVertexDeclType.Float4 ->
@@ -292,7 +316,7 @@ module Snapshot =
                         reader.ReadSingle() |> ignore
                         reader.ReadSingle() |> ignore
                         reader.ReadSingle() |> ignore
-                    | SDXF.B8G8R8A8_UNorm -> 
+                    | SDXF.B8G8R8A8_UNorm ->
                         // no idea if this is the right ordering
                         reader.ReadBytes(4) |> ignore
 
@@ -419,7 +443,7 @@ module Snapshot =
                 if el.Stream <> 255s && el.Stream > 0s then
                     log.Warn "Stream %d is not supported" el.Stream
                 if el.Usage = SDXVertexDeclUsage.Color then
-                    log.Warn "Vertex uses color usage; this data is currently ignored"
+                    log.Warn "Vertex uses color usage; whether this data is used as blend data or ignored is controlled by the snapshot profile (BlendIndexInColor1, BlendWeightInColor2)"
 
             // store raw vertex elements in byte array
             let declMS = new MemoryStream()
@@ -704,8 +728,24 @@ module Snapshot =
             // log if any usages over 0 are found
             declElements |> List.iter (fun el ->
                 if el.SemanticIndex > 0 then
-                    log.Warn "semantic index %A not supported for semantic %A, this data will be ignored" el.SemanticIndex el.Semantic
+                    let handledByProfile =
+                        el.Semantic = MMVES.Color &&
+                        ((el.SemanticIndex = 1 && snapProfile.BlendIndexInColor1) ||
+                         (el.SemanticIndex = 2 && snapProfile.BlendWeightInColor2))
+                    if not handledByProfile then
+                        log.Warn "semantic index %A not supported for semantic %A, this data will be ignored" el.SemanticIndex el.Semantic
             )
+
+            // validate that BlendIndexInColor1/BlendWeightInColor2 profile flags don't conflict
+            // with actual BlendIndex/BlendWeight semantics in the vertex declaration
+            if snapProfile.BlendIndexInColor1 then
+                let hasDirectBlendIndex = declElements |> List.exists (fun el -> el.Semantic = MMVES.BlendIndices)
+                if hasDirectBlendIndex then
+                    log.Error "Profile has BlendIndexInColor1 set, but vertex declaration also contains a direct BlendIndices semantic; this is an error"
+            if snapProfile.BlendWeightInColor2 then
+                let hasDirectBlendWeight = declElements |> List.exists (fun el -> el.Semantic = MMVES.BlendWeight)
+                if hasDirectBlendWeight then
+                    log.Error "Profile has BlendWeightInColor2 set, but vertex declaration also contains a direct BlendWeight semantic; this is an error"
 
             // create per-element read function bound to the reader
             let readVertElement = readElement snapProfile readOutputFns readIgnoreFns dss.VBReader

@@ -11,7 +11,7 @@ open CoreTypes
 module SnapshotProfile =
     let private log = Logging.getLogger("SnapshotProfile")
 
-    let EmptyProfile = SnapProfile.Create("",new ResizeArray<string>(),new ResizeArray<string>(),false,"")
+    let EmptyProfile = SnapProfile.Create("",new ResizeArray<string>(),new ResizeArray<string>(),false,"",false,false)
 
     /// This profile should always exist in SnapshotProfiles.yaml.
     /// If it does not, new game profiles will be created with an empty snapshot profile (not an error, but not desirable either)
@@ -38,12 +38,15 @@ module SnapshotProfile =
             flipTang <- values |> Yaml.getOptionalBool "FlipTang" 
         let flipTang = Option.defaultValue false flipTang
 
-        let mutable vecEncoding = values |> Yaml.getOptionalString "vecEncoding" 
+        let mutable vecEncoding = values |> Yaml.getOptionalString "vecEncoding"
         let vecEncoding = Option.defaultValue "" vecEncoding
 
-        let pname = values |> Yaml.getOptionalString "Name" |> Option.defaultValue name 
+        let blendIndexInColor1 = values |> Yaml.getOptionalBool "BlendIndexInColor1" |> Option.defaultValue false
+        let blendWeightInColor2 = values |> Yaml.getOptionalBool "BlendWeightInColor2" |> Option.defaultValue false
 
-        SnapProfile.Create(pname,posX,uvX,flipTang,vecEncoding)
+        let pname = values |> Yaml.getOptionalString "Name" |> Option.defaultValue name
+
+        SnapProfile.Create(pname,posX,uvX,flipTang,vecEncoding,blendIndexInColor1,blendWeightInColor2)
 
     let toInteropStruct (profile: CoreTypes.SnapProfile): InteropTypes.ModSnapProfile =
         // Constants for field size limits
@@ -97,6 +100,8 @@ module SnapshotProfile =
                 UVX = uvXTransformed
                 FlipTangent = profile.FlipTang
                 VecEncoding = trimmedVecEncoding
+                BlendIndexInColor1 = profile.BlendIndexInColor1
+                BlendWeightInColor2 = profile.BlendWeightInColor2
             }
         else
             log.Error "Profile has too many transforms and will be marked as invalid."

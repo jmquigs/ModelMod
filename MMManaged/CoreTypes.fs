@@ -232,14 +232,18 @@ module CoreTypes =
         let mutable uvX:ResizeArray<String> = new ResizeArray<string>();
         let mutable flipTangent:bool = false;
         let mutable vecEncoding:string = "";
+        let mutable blendIndexInColor1:bool = false;
+        let mutable blendWeightInColor2:bool = false;
 
-        static member Create(name,posX,uvX,flipTangent,vecEncoding:string):SnapProfile = 
+        static member Create(name,posX,uvX,flipTangent,vecEncoding:string,blendIndexInColor1:bool,blendWeightInColor2:bool):SnapProfile =
             let p = new SnapProfile()
             p.Name <- name
-            p.PosXForm <- posX 
+            p.PosXForm <- posX
             p.UVXForm <- uvX
             p.FlipTang <- flipTangent
             p.VecEncoding <- vecEncoding
+            p.BlendIndexInColor1 <- blendIndexInColor1
+            p.BlendWeightInColor2 <- blendWeightInColor2
             p
 
         member x.Name with get() = name and set v = name <- v
@@ -247,12 +251,14 @@ module CoreTypes =
         member x.UVXForm with get() = uvX and set v = uvX <- v
         member x.FlipTang with get() = flipTangent and set v = flipTangent <- v
         member x.VecEncoding with get() = vecEncoding and set v = vecEncoding <- v
+        member x.BlendIndexInColor1 with get() = blendIndexInColor1 and set v = blendIndexInColor1 <- v
+        member x.BlendWeightInColor2 with get() = blendWeightInColor2 and set v = blendWeightInColor2 <- v
 
         member x.IsPackedVec() = vecEncoding.Trim().ToLowerInvariant() = "packed"
         member x.IsOctaVec() = vecEncoding.Trim().ToLowerInvariant() = "octa"
 
         override x.ToString() =
-            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A]" name posX uvX flipTangent vecEncoding
+            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A, blendindexincolor1: %A, blendweightincolor2: %A]" name posX uvX flipTangent vecEncoding blendIndexInColor1 blendWeightInColor2
 
     /// Basic storage for everything that we consider to be "mesh data".  This is intentionally pretty close to the
     /// renderer level; i.e. we don't have fields like "NormalMap" because the texture stage used for will vary
