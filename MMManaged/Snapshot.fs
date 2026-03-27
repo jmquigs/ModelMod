@@ -92,14 +92,14 @@ module Extractors =
 
     // D3DCOLOR is stored in memory as BGRA, but the hardware
     // presents it to the shader as RGBA. Swizzle accordingly.
-    let readBoneIndices (reader: SourceReader) =
+    let readBoneIndicesFromColor (reader: SourceReader) =
         let b = reader.ReadByte() |> int  // B
         let g = reader.ReadByte() |> int  // G
         let r = reader.ReadByte() |> int  // R
         let a = reader.ReadByte() |> int  // A
         (r, g, b, a) // RGBA order as the shader sees it
 
-    let readBoneWeights (reader: SourceReader) =
+    let readBoneWeightsFromColor (reader: SourceReader) =
         let b = (reader.ReadByte() |> float32) / 255.0f
         let g = (reader.ReadByte() |> float32) / 255.0f
         let r = (reader.ReadByte() |> float32) / 255.0f
@@ -296,9 +296,9 @@ module Snapshot =
                 | MMET.DeclType(dt) ->
                     match dt with
                     | SDXVertexDeclType.Color when readAsBlendIndex ->
-                        outputFns.BlendIndex (Extractors.readBoneIndices reader)
+                        outputFns.BlendIndex (Extractors.readBoneIndicesFromColor reader)
                     | SDXVertexDeclType.Color when readAsBlendWeight ->
-                        outputFns.BlendWeight (Extractors.readBoneWeights reader)
+                        outputFns.BlendWeight (Extractors.readBoneWeightsFromColor reader)
                     | SDXVertexDeclType.Color ->
                         reader.ReadBytes(4) |> ignore
                     | SDXVertexDeclType.Float4 ->
