@@ -143,6 +143,8 @@ module ModDBInterop =
             let mdb =  ModDB.loadModDB(conf,Some(State.Data.Moddb))
             Locking.write (fun _ -> State.Data.Moddb <- mdb)
 
+            State.reloadSnapshotProfiles()
+
             Util.reportMemoryUsage()
             0
         with

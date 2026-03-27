@@ -150,6 +150,24 @@ module State =
         _locator <- DirLocator(_rootDir,_conf)
         conf
 
+    /// Reload snapshot profiles from disk, using the current root dir and conf.
+    /// Called during mod reload (Ctrl-F1) so that snapshot profile changes are picked up
+    /// without restarting the game.
+    let reloadSnapshotProfiles() =
+        try
+            let sprofiles = SnapshotProfile.GetAll(_rootDir)
+            _snapProfiles <- sprofiles
+            let snapProfileVal = sprofiles |> Map.tryFind _conf.SnapshotProfile
+
+            if snapProfileVal.IsNone && _conf.SnapshotProfile <> "" then
+                log().Error "Unrecognized snapshot profile: %A; no snapshot transforms will be applied" _conf.SnapshotProfile
+                log().Info "The following snapshot profiles are available: %A" _snapProfiles
+            else
+                log().Info "Reloaded snapshot profiles; active: %A" snapProfileVal
+        with
+        | e ->
+            log().Error "Error reloading snapshot profiles: %A" e
+
     /// For use by tets
     let testSetConf(c:CoreTypes.RunConfig) =
         _conf <- c
