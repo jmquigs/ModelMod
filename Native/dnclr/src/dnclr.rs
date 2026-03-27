@@ -83,7 +83,7 @@ struct CLRGlobalState {
     runtime_host: *mut ICLRRuntimeHost
 }
 
-const NATIVE_CODE_VERSION:i32 = 4;
+const NATIVE_CODE_VERSION:i32 = 5;
 
 static mut CLR_GLOBAL_STATE: CLRGlobalState = CLRGlobalState {
     runtime_host: null_mut()
