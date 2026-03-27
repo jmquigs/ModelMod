@@ -443,7 +443,7 @@ module Snapshot =
                 if el.Stream <> 255s && el.Stream > 0s then
                     log.Warn "Stream %d is not supported" el.Stream
                 if el.Usage = SDXVertexDeclUsage.Color then
-                    log.Warn "Vertex uses color usage; this data is currently ignored"
+                    log.Warn "Vertex uses color usage; whether this data is used as blend data or ignored is controlled by the snapshot profile (BlendIndexInColor1, BlendWeightInColor2)"
 
             // store raw vertex elements in byte array
             let declMS = new MemoryStream()
@@ -738,11 +738,14 @@ module Snapshot =
 
             // validate that BlendIndexInColor1/BlendWeightInColor2 profile flags don't conflict
             // with actual BlendIndex/BlendWeight semantics in the vertex declaration
-            if snapProfile.BlendIndexInColor1 && snapProfile.BlendWeightInColor2 then
+            if snapProfile.BlendIndexInColor1 then
                 let hasDirectBlendIndex = declElements |> List.exists (fun el -> el.Semantic = MMVES.BlendIndices)
+                if hasDirectBlendIndex then
+                    log.Error "Profile has BlendIndexInColor1 set, but vertex declaration also contains a direct BlendIndices semantic; this is an error"
+            if snapProfile.BlendWeightInColor2 then
                 let hasDirectBlendWeight = declElements |> List.exists (fun el -> el.Semantic = MMVES.BlendWeight)
-                if hasDirectBlendIndex || hasDirectBlendWeight then
-                    log.Error "Profile has BlendIndexInColor1 and BlendWeightInColor2 both set, but vertex declaration also contains direct BlendIndex/BlendWeight semantics; this is an error"
+                if hasDirectBlendWeight then
+                    log.Error "Profile has BlendWeightInColor2 set, but vertex declaration also contains a direct BlendWeight semantic; this is an error"
 
             // create per-element read function bound to the reader
             let readVertElement = readElement snapProfile readOutputFns readIgnoreFns dss.VBReader
