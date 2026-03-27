@@ -1,0 +1,8 @@
+Profile5: 
+  pos: ["scale 25.0"]
+  uv: ["flip y"]
+  flipTangent: true
+  vecEncoding: "packed"
+  blendindexincolor1: true
+  blendweightincolor2: true
+  
