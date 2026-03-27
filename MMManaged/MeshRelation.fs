@@ -429,8 +429,8 @@ module MeshRelation =
 
         /// If the MeshRelation has not been built this will be None
         member x.GetVertDeclaration() =
-            if x.IsBuilt then 
-                None
-            else 
+            if x.IsBuilt then
                 // currently, vertex declaration always comes from the ref
                 refMesh.Value.Declaration
+            else
+                None
