@@ -98,6 +98,14 @@ module InteropTypes =
         /// How vectors should be encoded in d3d data
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)>]
         VecEncoding: string
+
+        /// Whether blend index is stored in color1
+        [<MarshalAs(UnmanagedType.U1)>]
+        BlendIndexInColor1: bool
+
+        /// Whether blend weight is stored in color2
+        [<MarshalAs(UnmanagedType.U1)>]
+        BlendWeightInColor2: bool
     }
 
     // Example empty value for InteropProfile
@@ -110,6 +118,8 @@ module InteropTypes =
         UVX = Array.create MaxModSnapProfileXFormLen (makeXFormString "")
         FlipTangent = false
         VecEncoding = ""
+        BlendIndexInColor1 = false
+        BlendWeightInColor2 = false
     }
 
     /// Various mod metadata.  Derived from Mesh, DBReference, and DBMod types.

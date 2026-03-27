@@ -52,6 +52,10 @@ pub struct ModSnapProfile {
     pub flip_tangent: bool,
 
     pub vec_encoding: [WCHAR; MAX_SNAPPROFILE_STRING],
+
+    pub blend_index_in_color1: bool,
+
+    pub blend_weight_in_color2: bool,
 }
 
 #[repr(C)]
