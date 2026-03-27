@@ -100,10 +100,10 @@ module Extractors =
         (r, g, b, a) // RGBA order as the shader sees it
 
     let readBoneWeights (reader: SourceReader) =
-        let b = reader.ReadByte() |> float32 / 255.0f
-        let g = reader.ReadByte() |> float32 / 255.0f
-        let r = reader.ReadByte() |> float32 / 255.0f
-        let a = reader.ReadByte() |> float32 / 255.0f
+        let b = (reader.ReadByte() |> float32) / 255.0f
+        let g = (reader.ReadByte() |> float32) / 255.0f
+        let r = (reader.ReadByte() |> float32) / 255.0f
+        let a = (reader.ReadByte() |> float32) / 255.0f
         (r, g, b, a) // RGBA order as the shader sees it
 
 /// Snapshot utilities.
