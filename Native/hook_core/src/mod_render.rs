@@ -485,9 +485,11 @@ mod tests {
         // but not if both are.  technically we could render if both are active but this might
         // obscure problems in how the parents are set up, which may cause problems later.  so
         // hide it.
+
+        // mix cases in some of the names to test case insensitivity
         let mut modmap:LoadedModsMap = new_fnv_map(10);
         add_mod(&mut modmap, new_mod("Mod1P", 100, 200));
-        add_mod(&mut modmap, new_mod("Mod4P", 100, 200));
+        add_mod(&mut modmap, new_mod("mod4P", 100, 200));
         let mut child = new_mod("ModC", 101, 201);
         child.parent_mod_names.push("Mod4P".to_string());
         child.parent_mod_names.push("Mod1P".to_string());
@@ -497,7 +499,7 @@ mod tests {
         // (which is a bit ugly, actually it should be an option with None)
         let r = select(&mut mstate, 101, 201, 0);
         assert!(r.is_none());
-        let pmod = get_parent(&mut mstate, "Mod4P");
+        let pmod = get_parent(&mut mstate, "Mod4p");
         // advance frame to put all mods out of recent window except this one
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
         pmod.last_frame_render = frame;
