@@ -312,11 +312,11 @@ pub fn init_device_state_once() -> bool {
 
         // allow it be created if it doesn't exist yet or if there is no hook yet
         if !was_init || !has_hook {
-        DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
-            hook: None,
-            d3d_window: null_mut(),
-            d3d_resource_count: 0,
-        }));
+            DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
+                hook: None,
+                d3d_window: null_mut(),
+                d3d_resource_count: 0,
+            }));
 
             write_log_file(&format!("initted new device state instance: {}; was initted: {}", DEVICE_STATE as usize, was_init));
         }
@@ -531,7 +531,8 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         let chook = hook_create_device as u64;
         let creal = real_create_device as u64;
         if chook == creal {
-            write_log_file(&format!("error: oops, the supposedly real create device function appears to be the hook function already, this case not handled well"));
+            write_log_file(&format!("error: oops, the supposedly real create device function appears to be the hook function already; bailing out to avoid infinite recursion"));
+            return Ok(direct3d9);
         }
         // write_log_file(&format!(
         //     "hooking real create device, hookfn: {:?}, realfn: {:?} ",
