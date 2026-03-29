@@ -125,6 +125,18 @@ unsafe fn create_and_hook_device(
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
     ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
 ) -> Result<()> {
+    {
+        let trylock = GLOBAL_STATE_LOCK.try_lock();
+        match trylock {
+            Ok(_) => {
+                //write_log_file("create_and_hook_device: lock is free (normal)");
+            },
+            Err(_) => {
+                write_log_file("create_and_hook_device: error: lock is already held, will deadlock");
+            }
+        }
+    }
+
     let lock = GLOBAL_STATE_LOCK
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
@@ -279,6 +291,14 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
     }
 }
 
+/// Allocate the device state object (pointer).  The "once"
+/// suggests we only expect this to be called once per app,
+/// but if called more than once as some apps tend to do,
+/// we may reallocate device state, unless a hook has already been
+/// set.  After the hook has been set we can't really reallocate
+/// because the hook structures are not copyable and so nulling them
+/// out, as we would need to do in a new allocation, would lose
+/// the addresses of any "real" functions such as create device.
 pub fn init_device_state_once() -> bool {
     unsafe {
         // its possible to get in here more than once in same process
@@ -288,11 +308,22 @@ pub fn init_device_state_once() -> bool {
         // note: in a single threaded env nothing else should be
         // using the state right now so we could free it.
         let was_init = DEVICE_STATE != null_mut();
+        let has_hook = DEVICE_STATE != null_mut() && (*DEVICE_STATE).hook.is_some();
+
+        // allow it be created if it doesn't exist yet or if there is no hook yet
+        if !was_init || !has_hook {
         DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
             hook: None,
             d3d_window: null_mut(),
             d3d_resource_count: 0,
         }));
+
+            write_log_file(&format!("initted new device state instance: {}; was initted: {}", DEVICE_STATE as usize, was_init));
+        }
+        // but if there is a hook already don't replace it since we might lose the real hook fn addresses if we do that
+        else if has_hook {
+            write_log_file(&format!("not creating new device state because it already has a hook"));
+        }
 
         was_init
     }
@@ -336,6 +367,10 @@ pub fn init_log(mm_root:&str) {
                 .write(true)
                 .truncate(clear_log_file)
                 .open(&tname)?;
+
+            if !clear_log_file {
+                writeln!(f, "ModelMod log file reinitialized (clear_log_file is false)")?;
+            }
             writeln!(f, "ModelMod initialized, built with rustc: {} {}, git hash: {}, build date: {}, mm root: {}",
                 super::RUSTCVER, super::RUSTCDATE, super::GIT_HASH, super::BUILD_TS, mm_root)?;
             writeln!(f, "Detected root directory (from registry, set by MMLaunch): {}", mm_root)?;
@@ -388,7 +423,7 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
         #[cfg(target_arch = "x86_64")]
         let praw:u64 = deviceptr;
 
-        let device:LPDIRECT3DDEVICE9 = std::mem::transmute(praw);
+        let device:LPDIRECT3DDEVICE9 = std::ptr::with_exposed_provenance_mut::<global_state::IDirect3DDevice9>(praw as usize);
 
         let hookit = || -> Result<()> {
             let lock = GLOBAL_STATE_LOCK
@@ -492,6 +527,12 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
 
         // save pointer to real function
         let real_create_device = (*vtbl).CreateDevice;
+        // hax check
+        let chook = hook_create_device as u64;
+        let creal = real_create_device as u64;
+        if chook == creal {
+            write_log_file(&format!("error: oops, the supposedly real create device function appears to be the hook function already, this case not handled well"));
+        }
         // write_log_file(&format!(
         //     "hooking real create device, hookfn: {:?}, realfn: {:?} ",
         //     hook_create_device as usize, real_create_device as usize
@@ -516,6 +557,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
                 device: None
             }));
 
+        write_log_file(&format!("device state set with hook on ds instance: {}", DEVICE_STATE as u64));
         Ok(direct3d9)
     }
 }
