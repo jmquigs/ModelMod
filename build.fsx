@@ -299,6 +299,7 @@ Target "SignBuild" (fun _ ->
             "Bin\WpfInteropSample.exe";
             "Bin\MMLaunch.exe";
             "Bin\MMManaged.dll";
+            "Bin\MMManaged.Engine.dll";
             "Bin\ModelModCLRAppDomain.dll";
         ] |> List.map (fun p -> Path.Combine(zipTemp,p))
 
@@ -443,6 +444,7 @@ let doCISetup() =
         let updateList = [
             "MMLaunch/MMLaunch.fsproj"
             "MMManaged/MMManaged.fsproj"
+            "MMManaged.Engine/MMManaged.Engine.fsproj"
             "MMView/MMView.fsproj"
             "Test.MMManaged/Test.MMManaged.fsproj"
         ]

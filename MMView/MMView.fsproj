@@ -100,6 +100,11 @@
       <Project>{e87272e6-ce49-4d85-9e55-eac6117d419a}</Project>
       <Private>True</Private>
     </ProjectReference>
+    <ProjectReference Include="..\MMManaged.Engine\MMManaged.Engine.fsproj">
+      <Name>MMManaged.Engine</Name>
+      <Project>{a1b2c3d4-e5f6-7890-abcd-ef1234567890}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <Reference Include="FSharp.Core">
       <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
     </Reference>

@@ -1,18 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>e87272e6-ce49-4d85-9e55-eac6117d419a</ProjectGuid>
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <RootNamespace>Library1</RootNamespace>
-    <AssemblyName>MMManaged</AssemblyName>
+    <RootNamespace>ModelMod.Engine</RootNamespace>
+    <AssemblyName>MMManaged.Engine</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <TargetFSharpCoreVersion>4.6.0.0</TargetFSharpCoreVersion>
-    <Name>MMManaged</Name>
-    <RunPostBuildEvent>Always</RunPostBuildEvent>
+    <Name>MMManaged.Engine</Name>
     <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -23,7 +22,6 @@
     <OutputPath>..\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>..\Debug\Library1.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -32,7 +30,6 @@
     <OutputPath>..\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <DocumentationFile>..\Release\Library1.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
@@ -55,26 +52,31 @@
     </Otherwise>
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
-  <PropertyGroup>
-    <PostBuildEvent>
-    </PostBuildEvent>
-  </PropertyGroup>
   <ItemGroup>
-    <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="Logging.fs" />
-    <Compile Include="CoreTypes.fs" />
-    <Compile Include="InteropTypes.fs" />
-    <Compile Include="RegConfig.fs" />
-    <Compile Include="IEngineModule.fs" />
-    <Compile Include="EngineInstance.fs" />
-    <Compile Include="Interop.fs" />
-    <Content Include="paket.references" />
-    <None Include="LoadInFSI.fsx" />
-    <None Include="TestFSI.fsx" />
-    <None Include="Program.fs" />
-    <Content Include="packages.config" />
+    <!-- Implementation files linked from MMManaged source directory -->
+    <Compile Include="..\MMManaged\Util.fs"><Link>Util.fs</Link></Compile>
+    <Compile Include="..\MMManaged\MeshUtil.fs"><Link>MeshUtil.fs</Link></Compile>
+    <Compile Include="..\MMManaged\MeshTransform.fs"><Link>MeshTransform.fs</Link></Compile>
+    <Compile Include="..\MMManaged\Yaml.fs"><Link>Yaml.fs</Link></Compile>
+    <Compile Include="..\MMManaged\StartConf.fs"><Link>StartConf.fs</Link></Compile>
+    <Compile Include="..\MMManaged\MeshRelation.fs"><Link>MeshRelation.fs</Link></Compile>
+    <Compile Include="..\MMManaged\MemoryCache.fs"><Link>MemoryCache.fs</Link></Compile>
+    <Compile Include="..\MMManaged\SnapshotProfile.fs"><Link>SnapshotProfile.fs</Link></Compile>
+    <Compile Include="..\MMManaged\ModDB.fs"><Link>ModDB.fs</Link></Compile>
+    <Compile Include="..\MMManaged\DataEncoding.fs"><Link>DataEncoding.fs</Link></Compile>
+    <Compile Include="..\MMManaged\State.fs"><Link>State.fs</Link></Compile>
+    <Compile Include="..\MMManaged\ModDBInterop.fs"><Link>ModDBInterop.fs</Link></Compile>
+    <Compile Include="..\MMManaged\Snapshot.fs"><Link>Snapshot.fs</Link></Compile>
+    <!-- EngineEntry is the only file unique to this project -->
+    <Compile Include="EngineEntry.fs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Reference the shell assembly for shared types (Logging, InteropTypes, CoreTypes, etc.) -->
+    <ProjectReference Include="..\MMManaged\MMManaged.fsproj">
+      <Name>MMManaged</Name>
+      <Project>{e87272e6-ce49-4d85-9e55-eac6117d419a}</Project>
+      <Private>False</Private>
+    </ProjectReference>
     <Reference Include="FSharp.Core">
       <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
     </Reference>
@@ -98,13 +100,6 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
   </ItemGroup>
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
   <Choose>
     <When Condition="$(TargetFrameworkIdentifier) == '.NETFramework' And ($(TargetFrameworkVersion) == 'v4.5' Or $(TargetFrameworkVersion) == 'v4.5.1' Or $(TargetFrameworkVersion) == 'v4.5.2' Or $(TargetFrameworkVersion) == 'v4.5.3' Or $(TargetFrameworkVersion) == 'v4.6' Or $(TargetFrameworkVersion) == 'v4.6.1' Or $(TargetFrameworkVersion) == 'v4.6.2' Or $(TargetFrameworkVersion) == 'v4.6.3' Or $(TargetFrameworkVersion) == 'v4.7' Or $(TargetFrameworkVersion) == 'v4.7.1' Or $(TargetFrameworkVersion) == 'v4.7.2' Or $(TargetFrameworkVersion) == 'v4.8')">
       <ItemGroup>

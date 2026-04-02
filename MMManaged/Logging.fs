@@ -49,6 +49,10 @@ module Logging =
         loggers.Clear()
         loggerFactory <- f
 
+    /// Returns the current logger factory. Used by BulkLoader to pass the factory
+    /// to the bulk implementation assembly so it can share the same logging setup.
+    let currentLoggerFactory() = loggerFactory
+
     let makeLogger x = loggerFactory x
 
     let getLogger(category) =

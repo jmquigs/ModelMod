@@ -149,18 +149,28 @@ type Main() =
         try
             RegConfig.init() // sets the hive root
 
+            // Load (or reload) the engine assembly.
+            // EngineInstance.load reads MMManaged.Engine.dll from disk via Assembly.Load(byte[]),
+            // which avoids file locking and allows loading fresh copies on each reload.
+            let logFactory = Logging.currentLoggerFactory()
+            EngineInstance.load logFactory context
+
             let phandle = Main.AllocPermaHandle
 
+            // Delegates point to EngineInstance wrapper functions, which internally forward
+            // to the current engine implementation. On hot-reload, only the internal
+            // targets change; the native-facing delegates (and their function pointers)
+            // remain stable.
             let (mCallbacks:MMNative.ManagedCallbacks) = {
-                SetPaths = phandle (new MMNative.SetPathsCB(ModDBInterop.setPaths))
-                LoadModDB = phandle (new MMNative.LoadModDBCB(ModDBInterop.loadFromDataPathAsync));
-                GetModCount = phandle (new InteropTypes.GetModCountCB(ModDBInterop.getModCount));
-                GetModData = phandle (new InteropTypes.GetModDataCB(ModDBInterop.getModData));
-                FillModData = phandle (new InteropTypes.FillModDataCB(ModDBInterop.fillModData));
-                LoadModData = phandle (new InteropTypes.LoadModDataCB(ModDBInterop.loadModData));
-                TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(Snapshot.take));
-                GetLoadingState = phandle (new InteropTypes.GetLoadingStateCB(ModDBInterop.getLoadingState))
-                GetSnapshotResult = phandle (new InteropTypes.GetSnapshotResultCB(Snapshot.getResult))
+                SetPaths = phandle (new MMNative.SetPathsCB(EngineInstance.setPaths))
+                LoadModDB = phandle (new MMNative.LoadModDBCB(EngineInstance.loadModDB));
+                GetModCount = phandle (new InteropTypes.GetModCountCB(EngineInstance.getModCount));
+                GetModData = phandle (new InteropTypes.GetModDataCB(EngineInstance.getModData));
+                FillModData = phandle (new InteropTypes.FillModDataCB(EngineInstance.fillModData));
+                LoadModData = phandle (new InteropTypes.LoadModDataCB(EngineInstance.loadModData));
+                TakeSnapshot = phandle (new InteropTypes.TakeSnapshotCB(EngineInstance.takeSnapshot));
+                GetLoadingState = phandle (new InteropTypes.GetLoadingStateCB(EngineInstance.getLoadingState))
+                GetSnapshotResult = phandle (new InteropTypes.GetSnapshotResultCB(EngineInstance.getSnapshotResult))
             }
 
             let ret =
