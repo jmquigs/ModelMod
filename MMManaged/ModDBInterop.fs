@@ -787,19 +787,24 @@ module ModDBInterop =
             let modm = meshrel.ModMesh.Value
             let vertRels = meshrel.VertRelations.Value
 
-            match meshrel.DBMod.Profile with 
-            | Some(profile) when profile.IsOctaVec() -> 
+            let snapProfile = meshrel.DBMod.Profile
+
+            match snapProfile with
+            | Some(profile) when profile.IsOctaVec() ->
                 log.Info "encoding vectors with octa format (some formats only)"
                 DataWriters.encVec <- DataEncoding.OctaV1.encode
-            | Some(profile) when profile.IsPackedVec() -> 
+            | Some(profile) when profile.IsPackedVec() ->
                 log.Info "encoding vectors with packed format (some formats only)"
                 DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
-            | Some (profile) -> 
+            | Some (profile) ->
                 log.Warn "possible unknown vector encoding %A, using packed (some formats only)" profile.VecEncoding
                 DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
-            | None -> 
+            | None ->
                 log.Info "encoding vectors with packed format (some formats only)"
                 DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
+
+            let blendIndexInColor1 = snapProfile |> Option.map (fun p -> p.BlendIndexInColor1) |> Option.defaultValue false
+            let blendWeightInColor2 = snapProfile |> Option.map (fun p -> p.BlendWeightInColor2) |> Option.defaultValue false
 
             let declElements =
                 match destDeclBx with
@@ -878,7 +883,15 @@ module ModDBInterop =
                 let useRefBlendData,useRefBinaryData =
                     // if blending is required, fail unless specified weight source has the data.
                     // otherwise return the bool configuration tuple
-                    let needsBlend = MeshUtil.hasBlendElements declElements
+                    let hasDirectBlend = MeshUtil.hasBlendElements declElements
+                    // also need blend data when profile flags route Color elements to blend data
+                    let hasBlendInColor =
+                        (blendIndexInColor1 || blendWeightInColor2) &&
+                        declElements |> Array.exists (fun el ->
+                            el.Semantic = MMVertexElemSemantic.Color &&
+                            ((el.SemanticIndex = 1 && blendIndexInColor1) ||
+                             (el.SemanticIndex = 2 && blendWeightInColor2)))
+                    let needsBlend = hasDirectBlend || hasBlendInColor
                     let wm = meshrel.DBMod.WeightMode
 
                     // user friendly error message
@@ -1005,25 +1018,73 @@ module ModDBInterop =
                         | MMVertexElemSemantic.BlendIndices -> blendIndexWriter modVertIndex el bw
                         | MMVertexElemSemantic.BlendWeight -> blendWeightWriter modVertIndex el bw
                         | MMVertexElemSemantic.Color ->
-                            // TODO: if/when snapshot & import/export write color out, will need to populate it here
-                            match el.Type with
-                            | MMET.DeclType(dt) when dt = SDXVT.Color ->
-                                let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
-                                bw.Write(bytes);
-                            | MMET.DeclType(dt) when dt = SDXVT.Float4 ->
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                            | MMET.Format(f) when f = SDXF.R32G32B32A32_Float ->
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                                bw.Write(1.f)
-                            | MMET.Format(f) when f = SDXF.B8G8R8A8_UNorm -> 
-                                let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
-                                bw.Write(bytes);
-                            | _ -> failwithf "Unsupported type for Color: %A" el.Type
+                            // Check if this Color element should be written as blend data
+                            // based on the snapshot profile flags (DX9 only).
+                            let writeAsBlendIndex = el.SemanticIndex = 1 && blendIndexInColor1
+                            let writeAsBlendWeight = el.SemanticIndex = 2 && blendWeightInColor2
+                            if writeAsBlendIndex then
+                                if useRefBinaryData then
+                                    // BinaryRef: copy raw bytes directly from snapshot binary data.
+                                    // Already in correct D3DCOLOR memory format (BGRA).
+                                    let binDataLookup =
+                                        match refBinDataLookup with
+                                        | None -> failwith "Binary vertex data is required to write blend index as color"
+                                        | Some bvd -> bvd
+                                    let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                                    bw.Write(br.ReadBytes(4))
+                                else
+                                    // Write blend indices into D3DCOLOR format.
+                                    // D3DCOLOR is BGRA in memory but RGBA to the shader.
+                                    // Mesh stores indices as Vec4X(R,G,B,A) in shader order,
+                                    // so write as B,G,R,A = Z,Y,X,W to get BGRA memory layout.
+                                    let mesh, idx =
+                                        if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
+                                        else modm, modVertIndex
+                                    let bi = mesh.BlendIndices.[idx]
+                                    let buf = [| byte (bi.Z :?> int32); byte (bi.Y :?> int32);
+                                                 byte (bi.X :?> int32); byte (bi.W :?> int32) |]
+                                    bw.Write(buf)
+                            elif writeAsBlendWeight then
+                                if useRefBinaryData then
+                                    // BinaryRef: copy raw bytes directly from snapshot binary data.
+                                    let binDataLookup =
+                                        match refBinDataLookup with
+                                        | None -> failwith "Binary vertex data is required to write blend weight as color"
+                                        | Some bvd -> bvd
+                                    let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                                    bw.Write(br.ReadBytes(4))
+                                else
+                                    // Write blend weights into D3DCOLOR format.
+                                    // Same BGRA swizzle as blend indices above.
+                                    // Mesh stores weights as Vec4F(R,G,B,A) normalized 0-1,
+                                    // convert back to bytes in BGRA memory order.
+                                    let mesh, idx =
+                                        if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
+                                        else modm, modVertIndex
+                                    let wgt = mesh.BlendWeights.[idx]
+                                    let round (x:float32) = System.Math.Round(float x)
+                                    let buf = [| byte (round(wgt.Z * 255.f)); byte (round(wgt.Y * 255.f));
+                                                 byte (round(wgt.X * 255.f)); byte (round(wgt.W * 255.f)) |]
+                                    bw.Write(buf)
+                            else
+                                match el.Type with
+                                | MMET.DeclType(dt) when dt = SDXVT.Color ->
+                                    let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                    bw.Write(bytes);
+                                | MMET.DeclType(dt) when dt = SDXVT.Float4 ->
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                | MMET.Format(f) when f = SDXF.R32G32B32A32_Float ->
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                    bw.Write(1.f)
+                                | MMET.Format(f) when f = SDXF.B8G8R8A8_UNorm ->
+                                    let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                    bw.Write(bytes);
+                                | _ -> failwithf "Unsupported type for Color: %A" el.Type
                         | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
                 // Write a full vertex to the buffer.
