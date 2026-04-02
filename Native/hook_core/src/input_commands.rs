@@ -347,11 +347,10 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
     inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
 
-    // Disabling this because its ineffective: the reload will complete without error, but
-    // The old managed code will still be used.  The old C++ code
-    // used a custom domain manager to support reloading, but I'd rather just move to the
-    // CoreCLR rather than reimplement that.
-    //inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
+    // Hot-reload: Ctrl+F10 reloads the managed DLL.  MMManaged.dll is now a thin shell
+    // that dynamically loads MMManaged.Engine.dll (the engine implementation).  On reload,
+    // the shell reads a fresh copy of the engine DLL from disk and swaps in its callbacks.
+    inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 }
 
 fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
@@ -373,6 +372,9 @@ fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
     // Running out of punct!  oh well use these
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
     inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
+
+    // Hot-reload managed DLL (Ctrl+F10) - available in all input profiles
+    inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
 
     // _punctKeyMap[DIK_MINUS] = [&]() { this->loadEverything(); };
 }
