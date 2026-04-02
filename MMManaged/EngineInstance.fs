@@ -146,6 +146,7 @@ module EngineInstance =
 
         if isReload then
             reloadCount <- reloadCount + 1
+            Logging.reinitLogOnceFns()
             log().Info "Hot-reloading engine assembly (reload #%d) from: %s" reloadCount enginePath
         else
             log().Info "Loading engine assembly from: %s" enginePath

@@ -69,23 +69,47 @@ module Logging =
 
     type logOnceFn = (string -> unit)
 
-    let logOnce(infoWarnOrError:int): logOnceFn = 
+    type private LogOnceEntry = {
+        Fn: logOnceFn
+        /// Whether the function has actually been invoked (logged its message).
+        /// Shared ref cell so the closure and the dictionary entry see the same value.
+        Called: bool ref
+    }
+
+    let private logOnceEntry(infoWarnOrError:int): LogOnceEntry =
         let log = getLogger("LogOnce")
-        let mutable logged = false
-        fun msg -> 
-            if not logged then 
-                match infoWarnOrError with 
+        let called = ref false
+        let fn msg =
+            if not !called then
+                match infoWarnOrError with
                 | 0 -> log.Info "%s" msg
                 | 1 -> log.Warn "%s" msg
                 | _ -> log.Error "%s" msg
-                logged <- true
+                called := true
+        { Fn = fn; Called = called }
 
-    let mutable logOnceFns = new Dictionary<string, logOnceFn>()
-    let getLogOnceFn(onceFnId:string,infoWarnOrError:int) = 
-        let ok, ofn = logOnceFns.TryGetValue onceFnId
-        if ok then 
-            ofn 
-        else 
-            let ofn = logOnce(infoWarnOrError)
-            logOnceFns.Add(onceFnId, ofn)
-            ofn
+    let logOnce(infoWarnOrError:int): logOnceFn =
+        (logOnceEntry infoWarnOrError).Fn
+
+    let mutable private logOnceFnEntries = new Dictionary<string, LogOnceEntry>()
+
+    /// After a hot-reload, mark any logOnceFn entries that have already fired as
+    /// eligible for reinit. The next call to getLogOnceFn for those IDs will
+    /// create a fresh function. Entries that have never fired are left alone.
+    let reinitLogOnceFns() =
+        let toRemove =
+            logOnceFnEntries
+            |> Seq.filter (fun kv -> !(kv.Value.Called))
+            |> Seq.map (fun kv -> kv.Key)
+            |> Seq.toList
+        for key in toRemove do
+            logOnceFnEntries.Remove(key) |> ignore
+
+    let getLogOnceFn(onceFnId:string,infoWarnOrError:int) =
+        let ok, entry = logOnceFnEntries.TryGetValue onceFnId
+        if ok then
+            entry.Fn
+        else
+            let entry = logOnceEntry(infoWarnOrError)
+            logOnceFnEntries.Add(onceFnId, entry)
+            entry.Fn
