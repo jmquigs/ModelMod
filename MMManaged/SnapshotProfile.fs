@@ -44,9 +44,13 @@ module SnapshotProfile =
         let blendIndexInColor1 = values |> Yaml.getOptionalBool "BlendIndexInColor1" |> Option.defaultValue false
         let blendWeightInColor2 = values |> Yaml.getOptionalBool "BlendWeightInColor2" |> Option.defaultValue false
 
+        let adjustBlendWeights = values |> Yaml.getOptionalString "AdjustBlendWeights" |> Option.defaultValue AdjustBlendWeightsDefault
+
         let pname = values |> Yaml.getOptionalString "Name" |> Option.defaultValue name
 
-        SnapProfile.Create(pname,posX,uvX,flipTang,vecEncoding,blendIndexInColor1,blendWeightInColor2)
+        let p = SnapProfile.Create(pname,posX,uvX,flipTang,vecEncoding,blendIndexInColor1,blendWeightInColor2)
+        p.AdjustBlendWeights <- adjustBlendWeights
+        p
 
     let toInteropStruct (profile: CoreTypes.SnapProfile): InteropTypes.ModSnapProfile =
         // Constants for field size limits
