@@ -58,6 +58,11 @@ if [ -f "$MMPATH/g2026g1_pre.sh" ]; then
     set -e
 fi 
 
-REXE="$(readlink $GPATH)"
-export RUST_BACKTRACE=1 && "$REXE"
+if [ "$START_EXE" != "" ]; then 
+    export RUST_BACKTRACE=1 && "$START_EXE"
+else
+    REXE="$(readlink $GPATH)"
+    export RUST_BACKTRACE=1 && "$REXE"
+fi
+
 echo "game has exited"
