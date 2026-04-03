@@ -45,7 +45,7 @@ type PreviewHost() =
                     Some({
                             Window = None
                             CamPosition = Some(Vec3F(0.f,3.75f,10.0f))
-                            MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = false }
+                            MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = false; AdjustBlendWeights = AdjustBlendWeightsDefault }
                     })
                 Conf.BinCacheDir = ""
             }

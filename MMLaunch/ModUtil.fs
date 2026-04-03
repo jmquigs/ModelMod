@@ -193,6 +193,7 @@ module ModUtil =
         VertDeclPath: string
         ExpectedPrimCount: int
         ExpectedVertCount: int
+        Profile: ModelMod.CoreTypes.SnapProfile
     }
 
     type YamlMod = {
@@ -351,8 +352,19 @@ mods:"""
                 File.Copy(refMMObjFile,modMMObjFile)
                 modMMObjFile
 
+            // look for a snapshot meta file which may contain information about what profile was used
+            let metaFile = Path.Combine(snapSrcDir, srcBasename + "_Meta.yaml")
+            let snapProfile =
+                if File.Exists(metaFile) then
+                    let sd = new Deserializer()
+                    use f = File.OpenText(metaFile);
+                    let p = sd.Deserialize<ModelMod.Snapshot.SnapMeta>(f)
+                    p.Profile
+                else
+                    ModelMod.SnapshotProfile.EmptyProfile
+
             // generate ref yaml
-            let refYamlFile = 
+            let refYamlFile =
                 let refYamlFile = Path.Combine(modOutDir, refBasename + ".yaml")
                 let refObj = {
                     YamlRef.Type = "Reference"
@@ -360,22 +372,12 @@ mods:"""
                     YamlRef.VertDeclPath = if vbDeclFile <> "" then Path.GetFileName(vbDeclFile) else ""
                     YamlRef.ExpectedPrimCount = pCount
                     YamlRef.ExpectedVertCount = vCount
+                    YamlRef.Profile = snapProfile
                 }
                 let sr = new Serializer()
                 use sw = new StreamWriter(refYamlFile)
-                sr.Serialize(sw, refObj) 
+                sr.Serialize(sw, refObj)
                 refYamlFile
-
-            // look for a snapshot meta file which may contain information about what profile was used
-            let metaFile = Path.Combine(snapSrcDir, srcBasename + "_Meta.yaml")
-            let snapProfile = 
-                if File.Exists(metaFile) then 
-                    let sd = new Deserializer()
-                    use f = File.OpenText(metaFile);
-                    let p = sd.Deserialize<ModelMod.Snapshot.SnapMeta>(f)
-                    p.Profile
-                else 
-                    ModelMod.SnapshotProfile.EmptyProfile
 
             // generate mod yaml 
             let modYamlFile = 

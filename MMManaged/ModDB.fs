@@ -218,9 +218,17 @@ module ModDB =
 
         let pixelShader = node |> Yaml.getOptionalValue "pixelshader" |> unpackPath
 
+        // load profile early so it can influence mesh read flags
+        let profile =
+            match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with
+            | Some(profile) -> Some(loadSingleProfile "" profile)
+            | None -> None
+
         let mutable numOverrideTextures = 0
         let mutable fullMeshPath = ""
-        let meshReadFlags = CoreTypes.DefaultReadFlags
+        let meshReadFlags =
+            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
+            { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
         let mesh,modType,weightMode,attrs =
             let sType = (node |> Yaml.getFirstValue ["modtype"; "meshtype"] |> Yaml.toString).ToLower().Trim()
             let modType = getModType sType
@@ -309,12 +317,6 @@ module ModDB =
         let parentModName = node |> Yaml.getOptionalValue "ParentModName" |> Yaml.toOptionalString
 
         let computeTS = node |> Yaml.getOptionalValue "UpdateTangentSpace" |> Yaml.toOptionalBool
-
-        // has a profile?
-        let profile = 
-            match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with 
-            | Some(profile) -> Some(loadSingleProfile "" profile)
-            | None -> None
 
         let md = {
             DBMod.RefName = refName
@@ -417,8 +419,15 @@ module ModDB =
             | Some(path) -> path
             | None -> meshFullPath
 
-        let meshReadFlags = CoreTypes.DefaultReadFlags
-        let doMeshLoad() = 
+        let profile =
+            match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with
+            | Some(profile) -> Some(loadSingleProfile "" profile)
+            | None -> None
+
+        let meshReadFlags =
+            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
+            { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
+        let doMeshLoad() =
             let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags)
 
             // load vertex elements (binary)

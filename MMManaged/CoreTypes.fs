@@ -211,12 +211,20 @@ module CoreTypes =
         /// happens.  It can be useful to turn it off in tools, so that the mod is displayed in post-snapshot
         /// space (the same view that the tool will see).  The launcher preview window, for instance, turns this off.
         ReverseTransform: bool
+        /// Controls whether blend weights are adjusted to sum to 1.0 on load.
+        /// AdjustBlendWeightsDefault or empty string applies the adjustment (adds deficit to X component).
+        /// Any other value leaves weights as-is.
+        AdjustBlendWeights: string
     }
+
+    /// Value for AdjustBlendWeights that applies the blend weight sum-to-1.0 fix (adds deficit to X component).
+    let AdjustBlendWeightsDefault = "addx"
 
     /// Default read flags; used when no overriding flags are specified.
     let DefaultReadFlags = {
         ReadMaterialFile = false
         ReverseTransform = true
+        AdjustBlendWeights = AdjustBlendWeightsDefault
     }
 
     /// A snapshot profile controls what types of data transformations
@@ -234,6 +242,7 @@ module CoreTypes =
         let mutable vecEncoding:string = "";
         let mutable blendIndexInColor1:bool = false;
         let mutable blendWeightInColor2:bool = false;
+        let mutable adjustBlendWeights:string = AdjustBlendWeightsDefault;
 
         static member Create(name,posX,uvX,flipTangent,vecEncoding:string,blendIndexInColor1:bool,blendWeightInColor2:bool):SnapProfile =
             let p = new SnapProfile()
@@ -253,12 +262,13 @@ module CoreTypes =
         member x.VecEncoding with get() = vecEncoding and set v = vecEncoding <- v
         member x.BlendIndexInColor1 with get() = blendIndexInColor1 and set v = blendIndexInColor1 <- v
         member x.BlendWeightInColor2 with get() = blendWeightInColor2 and set v = blendWeightInColor2 <- v
+        member x.AdjustBlendWeights with get() = adjustBlendWeights and set v = adjustBlendWeights <- v
 
         member x.IsPackedVec() = vecEncoding.Trim().ToLowerInvariant() = "packed"
         member x.IsOctaVec() = vecEncoding.Trim().ToLowerInvariant() = "octa"
 
         override x.ToString() =
-            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A, blendindexincolor1: %A, blendweightincolor2: %A]" name posX uvX flipTangent vecEncoding blendIndexInColor1 blendWeightInColor2
+            sprintf "[SnapshotProfile: %s; pos: %A; uv: %A, fliptangent: %A, vecencoding: %A, blendindexincolor1: %A, blendweightincolor2: %A, adjustblendweights: %A]" name posX uvX flipTangent vecEncoding blendIndexInColor1 blendWeightInColor2 adjustBlendWeights
 
     /// Basic storage for everything that we consider to be "mesh data".  This is intentionally pretty close to the
     /// renderer level; i.e. we don't have fields like "NormalMap" because the texture stage used for will vary

@@ -125,20 +125,27 @@ module MeshUtil =
                 Some( [| {Pos=v.[0]; Tex=v.[1]; Nrm=v.[2]}; {Pos=v.[3]; Tex=v.[4]; Nrm=v.[5]}; {Pos=v.[6]; Tex=v.[7]; Nrm=v.[8]} |] )
             | _ -> None
 
+        let shouldAdjustBlendWeights =
+            let abw = flags.AdjustBlendWeights.Trim().ToLowerInvariant()
+            abw = "" || abw = AdjustBlendWeightsDefault
+
         let makeBlendVectors (components:(int32 * float32)[] option) =
             match components with
             | Some v when v.Length = 4 ->
                 let indices = new Vec4X(fst v.[0], fst v.[1], fst v.[2], fst v.[3])
                 let weights = new Vec4F(snd v.[0], snd v.[1], snd v.[2], snd v.[3])
 
-                // TODO: hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.
-                // I think I have some bad rounding going on somewhere
-                // in the conversion/capture of these; either in snapshotting, or in blender,
-                // since the differences are small.
-                let sum = weights.X + weights.Y + weights.Z + weights.W
                 let weights =
-                    if ((1.f - sum) > 0.f) then
-                        new Vec4F(weights.X + (1.f - sum), weights.Y, weights.Z, weights.W)
+                    if shouldAdjustBlendWeights then
+                        // hack fix: the weights MUST sum to 1.0, or else bad shit happens in game.
+                        // I think I have some bad rounding going on somewhere
+                        // in the conversion/capture of these; either in snapshotting, or in blender,
+                        // since the differences are small.
+                        let sum = weights.X + weights.Y + weights.Z + weights.W
+                        if ((1.f - sum) > 0.f) then
+                            new Vec4F(weights.X + (1.f - sum), weights.Y, weights.Z, weights.W)
+                        else
+                            weights
                     else
                         weights
 
