@@ -42,6 +42,7 @@ mod hook_device;
 //mod hook_constants;
 mod mod_render;
 mod hook_device_d3d11;
+mod device_monitor;
 
 pub use interop::{LogError, LogInfo, LogWarn};
 pub use interop::{OnInitialized, SaveTexture};
@@ -54,3 +55,5 @@ pub use hook_render::D3DPERF_SetRegion;
 pub use hook_render::D3DPERF_QueryRepeatFrame;
 pub use hook_render::D3DPERF_SetOptions;
 pub use hook_render::D3DPERF_GetStatus;
+
+pub use device_monitor::Direct3DCreate9Ex;

@@ -543,12 +543,8 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
             };
             hookdevice.ref_count = (hookdevice.real_release)(THIS);
 
-            // if hookdevice.ref_count < 100 {
-            //     write_log_file(&format!(
-            //         "device {:x} refcount now {}",
-            //         THIS as usize, hookdevice.ref_count
-            //     ));
-            // }
+            // Diagnostic release logging
+            crate::device_monitor::diag_log_release(THIS, hookdevice.ref_count);
 
             // could just leak everything on device destroy.  but I know that will
             // come back to haunt me.  so make an effort to purge my stuff when the

@@ -59,25 +59,17 @@ unsafe fn hook_d3d9_device(
     let real_set_pixel_sc_i = (*vtbl).SetPixelShaderConstantI;
     let real_set_pixel_sc_b = (*vtbl).SetPixelShaderConstantB;
 
+    // Save real Reset before hooking
+    let real_reset = (*vtbl).Reset;
+    write_log_file(&format!("[DIAG] real Reset fn: {:x}", real_reset as usize));
+
     let old_prot = unprotect_memory(vtbl as *mut c_void, vsize)?;
 
-    // This was used to debug an issue with reshade where something
-    // was unhooking the pointers after I hooked it. this issue exists
-    // with multiple games when run under reshade, so it must be something
-    // to do with how reshade manages that (possibly interference from
-    // minhook or imgui)
-    // write_log_file(&format!("DrawIndexedPrimitive real: {:x}, hook: {:x}",
-    //     real_draw_indexed_primitive as usize,
-    //     hook_draw_indexed_primitive as usize,
-    // ));
-    // write_log_file(&format!("Present real: {:x}, hook: {:x}",
-    //     real_present as usize,
-    //     hook_present as usize,
-    // ));
     (*vtbl).DrawIndexedPrimitive = hook_draw_indexed_primitive;
-    //(*vtbl).BeginScene = hook_begin_scene;
     (*vtbl).Present = hook_present;
     (*vtbl).parent.Release = hook_release;
+    // Hook Reset for diagnostic logging
+    (*vtbl).Reset = crate::device_monitor::hook_reset;
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
 
@@ -100,7 +92,7 @@ unsafe fn hook_d3d9_device(
     write_log_file(&format!("constant tracking enabled: {}", constant_tracking::is_enabled()));
     write_log_file(&format!("periodic update freq: {} draw calls", HOOK_DRAW_PERIODIC_CALLS));
 
-    Ok(HookDirect3D9Device::new(
+    let mut hook_dev = HookDirect3D9Device::new(
         real_draw_indexed_primitive,
         //real_begin_scene,
         real_present,
@@ -112,7 +104,13 @@ unsafe fn hook_d3d9_device(
         real_set_pixel_sc_f,
         real_set_pixel_sc_i,
         real_set_pixel_sc_b,
-    ))
+    );
+    hook_dev.real_reset = Some(real_reset);
+
+    // Start the device monitor thread for diagnostics
+    crate::device_monitor::start_device_monitor(device);
+
+    Ok(hook_dev)
 }
 
 #[inline]
@@ -187,6 +185,13 @@ unsafe fn create_and_hook_device(
                 "hooked device on thread {:?}",
                 std::thread::current().id()
             ));
+            // Diagnostic logging for CreateDevice
+            crate::device_monitor::diag_log_create_device(
+                *ppReturnedDeviceInterface as usize,
+                Adapter,
+                DeviceType,
+                BehaviorFlags,
+            );
             Ok(())
         })
         .or_else(|err| {

@@ -65,6 +65,24 @@ pub type SetTextureFn = unsafe extern "system" fn(
     pTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT;
 
+// Reset
+pub type ResetFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+) -> HRESULT;
+
+// TestCooperativeLevel (for device monitor)
+pub type TestCooperativeLevelFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+) -> HRESULT;
+
+// GetSwapChain
+pub type GetSwapChainFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    iSwapChain: UINT,
+    ppSwapChain: *mut *mut IDirect3DSwapChain9,
+) -> HRESULT;
+
 // shader constants
 pub type SetVertexShaderConstantFFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
