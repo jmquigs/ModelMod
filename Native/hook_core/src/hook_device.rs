@@ -73,6 +73,14 @@ unsafe fn hook_d3d9_device(
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
 
+    // Record expected hook addresses so the monitor thread can verify them
+    crate::device_monitor::set_expected_hook_addrs(
+        hook_draw_indexed_primitive as usize,
+        hook_present as usize,
+        crate::device_monitor::hook_reset as usize,
+        hook_release as usize,
+    );
+
     // Inc ref count on the device
     (*device).AddRef();
 

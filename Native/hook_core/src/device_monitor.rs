@@ -39,6 +39,35 @@ static RESET_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Counter for total Release calls observed (sampled — only logged periodically).
 static RELEASE_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+// ── Expected hook function addresses (set at hook time) ──────────────
+
+/// Address of our hook_draw_indexed_primitive function, set when device is hooked.
+static EXPECTED_DIP_HOOK: AtomicUsize = AtomicUsize::new(0);
+/// Address of our hook_present function, set when device is hooked.
+static EXPECTED_PRESENT_HOOK: AtomicUsize = AtomicUsize::new(0);
+/// Address of our hook_reset function, set when device is hooked.
+static EXPECTED_RESET_HOOK: AtomicUsize = AtomicUsize::new(0);
+/// Address of our hook_release function, set when device is hooked.
+static EXPECTED_RELEASE_HOOK: AtomicUsize = AtomicUsize::new(0);
+
+/// Called from hook_d3d9_device after vtable patching to record the expected
+/// hook function addresses so the monitor thread can verify them.
+pub fn set_expected_hook_addrs(
+    dip: usize,
+    present: usize,
+    reset: usize,
+    release: usize,
+) {
+    EXPECTED_DIP_HOOK.store(dip, Ordering::Relaxed);
+    EXPECTED_PRESENT_HOOK.store(present, Ordering::Relaxed);
+    EXPECTED_RESET_HOOK.store(reset, Ordering::Relaxed);
+    EXPECTED_RELEASE_HOOK.store(release, Ordering::Relaxed);
+    write_log_file(&format!(
+        "[DIAG] Stored expected hook addrs: DIP={:x}, Present={:x}, Reset={:x}, Release={:x}",
+        dip, present, reset, release
+    ));
+}
+
 // ── D3D9 error codes we care about ────────────────────────────────────
 
 const D3DERR_DEVICELOST: HRESULT = -2005530520i32; // 0x88760868
@@ -365,6 +394,62 @@ fn device_monitor_loop() {
                     "[DIAG] Monitor #{}: Direct3DCreate9Ex ever called: {}",
                     iteration, CREATE9EX_CALLED.load(Ordering::Relaxed)
                 ));
+            }
+
+            // 6) Check vtable — are our hook functions still installed?
+            {
+                let vtbl: *const IDirect3DDevice9Vtbl = (*device).lpVtbl;
+                if !vtbl.is_null() {
+                    let current_dip = (*vtbl).DrawIndexedPrimitive as usize;
+                    let current_present = (*vtbl).Present as usize;
+                    let current_reset = (*vtbl).Reset as usize;
+                    let current_release = (*vtbl).parent.Release as usize;
+
+                    let expected_dip = EXPECTED_DIP_HOOK.load(Ordering::Relaxed);
+                    let expected_present = EXPECTED_PRESENT_HOOK.load(Ordering::Relaxed);
+                    let expected_reset = EXPECTED_RESET_HOOK.load(Ordering::Relaxed);
+                    let expected_release = EXPECTED_RELEASE_HOOK.load(Ordering::Relaxed);
+
+                    let dip_ok = expected_dip == 0 || current_dip == expected_dip;
+                    let present_ok = expected_present == 0 || current_present == expected_present;
+                    let reset_ok = expected_reset == 0 || current_reset == expected_reset;
+                    let release_ok = expected_release == 0 || current_release == expected_release;
+
+                    if !dip_ok || !present_ok || !reset_ok || !release_ok {
+                        write_log_file(&format!(
+                            "[DIAG] Monitor #{}: *** VTABLE HOOKS MODIFIED! ***", iteration
+                        ));
+                        if !dip_ok {
+                            write_log_file(&format!(
+                                "[DIAG]   DrawIndexedPrimitive: expected {:x}, got {:x} — UNHOOKED!",
+                                expected_dip, current_dip
+                            ));
+                        }
+                        if !present_ok {
+                            write_log_file(&format!(
+                                "[DIAG]   Present: expected {:x}, got {:x} — UNHOOKED!",
+                                expected_present, current_present
+                            ));
+                        }
+                        if !reset_ok {
+                            write_log_file(&format!(
+                                "[DIAG]   Reset: expected {:x}, got {:x} — UNHOOKED!",
+                                expected_reset, current_reset
+                            ));
+                        }
+                        if !release_ok {
+                            write_log_file(&format!(
+                                "[DIAG]   Release: expected {:x}, got {:x} — UNHOOKED!",
+                                expected_release, current_release
+                            ));
+                        }
+                    } else if iteration % 20 == 1 {
+                        write_log_file(&format!(
+                            "[DIAG] Monitor #{}: Vtable hooks intact (DIP={:x}, Present={:x}, Reset={:x}, Release={:x})",
+                            iteration, current_dip, current_present, current_reset, current_release
+                        ));
+                    }
+                }
             }
 
             // Warn if refcount drops to just our ref (game abandoned device)
