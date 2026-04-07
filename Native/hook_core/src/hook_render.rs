@@ -466,15 +466,34 @@ pub unsafe extern "system" fn hook_present(
                     let min_off = min_fps * 1.1;
                     if smooth_fps < min_fps && !metrics.low_framerate {
                         metrics.low_framerate = true;
+                        metrics.low_framerate_last_log = now;
+                        metrics.low_framerate_min_fps = min_fps;
+                        write_log_file(&format!(
+                            "Low framerate detected: {:.1} FPS (minimum required: {:.1}), disabling mods",
+                            smooth_fps, min_fps
+                        ));
                     }
                     // prevent oscillation: don't reactivate until 10% above mininum
                     else if metrics.low_framerate && smooth_fps > (min_off * 1.1) {
+                        write_log_file(&format!(
+                            "Framerate recovered: {:.1} FPS (minimum required: {:.1}), re-enabling mods",
+                            smooth_fps, min_fps
+                        ));
                         metrics.low_framerate = false;
                     }
-                    // write_log_file(&format!(
-                    //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
-                    //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
-                    // ));
+                    // periodic logging while low framerate condition is active
+                    if metrics.low_framerate {
+                        let since_last_log = now.duration_since(metrics.low_framerate_last_log);
+                        if let Ok(d) = since_last_log {
+                            if d.as_secs() >= 10 {
+                                write_log_file(&format!(
+                                    "Low framerate ongoing: {:.1} FPS (minimum required: {:.1})",
+                                    smooth_fps, metrics.low_framerate_min_fps
+                                ));
+                                metrics.low_framerate_last_log = now;
+                            }
+                        }
+                    }
                     metrics.last_fps_update = now;
                     metrics.frames = 0;
                 }

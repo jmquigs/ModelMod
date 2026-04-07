@@ -53,6 +53,8 @@ pub struct FrameMetrics {
     pub last_fps: f64,
     pub last_fps_update: SystemTime,
     pub low_framerate: bool,
+    pub low_framerate_last_log: SystemTime,
+    pub low_framerate_min_fps: f64,
     pub rendered_prims: Vec<RenderedPrimType>,
 }
 
@@ -178,6 +180,8 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps_update: std::time::UNIX_EPOCH,
         last_fps: 120.0,
         low_framerate: false,
+        low_framerate_last_log: std::time::UNIX_EPOCH,
+        low_framerate_min_fps: 0.0,
         rendered_prims: vec![],
     }
 };
