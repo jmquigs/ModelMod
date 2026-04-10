@@ -207,15 +207,15 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
                 write_log_file(&format!("==> precopy data now enabled; it was disabled, so you will need to reload game data for snapshots"));
             }
 
-            // For DX9: force force_tex_cpu_read so the CreateTexture hook changes
-            // DEFAULT pool to MANAGED, allowing texture data to be read during snapshots.
-            // Note: only affects textures created after this point. If textures were
-            // already created in DEFAULT pool, the game may need to be restarted with
-            // SnapForceTexCpuRead=1 in the registry for full effect.
+            // For DX9: log whether force_tex_cpu_read is enabled so the user knows
+            // if the CreateTexture hook will redirect DEFAULT pool textures to MANAGED
+            // (required for snapshotting most textures). This flag is only set via the
+            // SnapForceTexCpuRead registry value; it is not auto-enabled here.
             if let DevicePointer::D3D9(_) = device {
-                if !GLOBAL_STATE.run_conf.force_tex_cpu_read {
-                    GLOBAL_STATE.run_conf.force_tex_cpu_read = true;
-                    write_log_file("==> DX9: force_tex_cpu_read enabled, new textures will use MANAGED pool for snapshotting");
+                if GLOBAL_STATE.run_conf.force_tex_cpu_read {
+                    write_log_file("==> DX9: force_tex_cpu_read is enabled; new textures will use MANAGED pool for snapshotting");
+                } else {
+                    write_log_file("==> DX9: force_tex_cpu_read is disabled; set SnapForceTexCpuRead=1 in registry to enable MANAGED pool redirection for snapshotting");
                 }
             }
         }
