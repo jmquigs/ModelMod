@@ -11,6 +11,7 @@ pub struct HookDirect3D9Device {
     pub real_present: PresentFn,
     pub real_release: IUnknownReleaseFn,
     pub real_set_texture: SetTextureFn,
+    pub real_create_texture: CreateTextureFn,
     pub ref_count: ULONG,
     // shader constants
     pub real_set_vertex_sc_f: SetVertexShaderConstantFFn,
@@ -28,6 +29,7 @@ impl HookDirect3D9Device {
         real_present: PresentFn,
         real_release: IUnknownReleaseFn,
         real_set_texture: SetTextureFn,
+        real_create_texture: CreateTextureFn,
         real_set_vertex_sc_f: SetVertexShaderConstantFFn,
         real_set_vertex_sc_i: SetVertexShaderConstantIFn,
         real_set_vertex_sc_b: SetVertexShaderConstantBFn,
@@ -41,6 +43,7 @@ impl HookDirect3D9Device {
             real_release,
             real_present,
             real_set_texture,
+            real_create_texture,
             real_set_vertex_sc_f,
             real_set_vertex_sc_i,
             real_set_vertex_sc_b,

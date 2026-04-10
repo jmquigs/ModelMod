@@ -6,7 +6,7 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 use winapi::um::wingdi::RGNDATA;
-pub use winapi::um::winnt::{HRESULT, LPCWSTR};
+pub use winapi::um::winnt::{HANDLE, HRESULT, LPCWSTR};
 
 use crate::impl_release_drop;
 
@@ -63,6 +63,18 @@ pub type SetTextureFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     Stage: DWORD,
     pTexture: *mut IDirect3DBaseTexture9,
+) -> HRESULT;
+
+pub type CreateTextureFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    Width: UINT,
+    Height: UINT,
+    Levels: UINT,
+    Usage: DWORD,
+    Format: D3DFORMAT,
+    Pool: D3DPOOL,
+    ppTexture: *mut *mut IDirect3DTexture9,
+    pSharedHandle: *mut HANDLE,
 ) -> HRESULT;
 
 // shader constants
