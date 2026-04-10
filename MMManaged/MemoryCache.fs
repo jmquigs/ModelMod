@@ -22,6 +22,7 @@ open CoreTypes
 open InteropTypes
 
 open System.Collections.Generic
+open System.Collections.Concurrent
 
 /// This is a simple in-memory cache for loaded meshes.  It speeds up reload iteration time,
 /// since only modified meshes are reloaded.  Would be nice to extend this to other things
@@ -38,7 +39,7 @@ module MemoryCache =
         MTime:System.DateTime
     }
 
-    let cache = new Dictionary<string,CacheEntry>()
+    let cache = new ConcurrentDictionary<string,CacheEntry>()
 
     let clear() = cache.Clear()
 
