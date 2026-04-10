@@ -52,6 +52,7 @@ unsafe fn hook_d3d9_device(
     // remember these functions but don't hook them yet
     let real_set_texture = (*vtbl).SetTexture;
     let real_create_texture = (*vtbl).CreateTexture;
+    let real_update_texture = (*vtbl).UpdateTexture;
 
     let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
     let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
@@ -93,6 +94,9 @@ unsafe fn hook_d3d9_device(
     // method is sufficient is enable the reg key and load the game - 
     // if everything shows up black, this method is not sufficient.
     (*vtbl).CreateTexture = hook_create_texture;
+    // Always hook UpdateTexture to track source->destination mappings so that
+    // during snapshotting we can reach back to the lockable source texture.
+    (*vtbl).UpdateTexture = hook_update_texture;
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
 
@@ -122,6 +126,7 @@ unsafe fn hook_d3d9_device(
         real_release,
         real_set_texture,
         real_create_texture,
+        real_update_texture,
         real_set_vertex_sc_f,
         real_set_vertex_sc_i,
         real_set_vertex_sc_b,
@@ -187,6 +192,39 @@ unsafe extern "system" fn hook_create_texture(
     }
 
     res
+}
+
+/// Hook for IDirect3DDevice9::UpdateTexture.
+/// Records the (destination -> source) mapping in GLOBAL_STATE so that
+/// snapshotting code can locate a lockable source texture when asked to
+/// save a DEFAULT-pool destination texture. The map is never cleared;
+/// the most recent mapping for a given destination overwrites any prior
+/// entry.
+unsafe extern "system" fn hook_update_texture(
+    THIS: *mut IDirect3DDevice9,
+    pSourceTexture: *mut IDirect3DBaseTexture9,
+    pDestinationTexture: *mut IDirect3DBaseTexture9,
+) -> HRESULT {
+    let real_fn = match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            dev.real_update_texture
+        },
+        _ => {
+            write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
+            return E_FAIL;
+        }
+    };
+
+    if !pSourceTexture.is_null() && !pDestinationTexture.is_null() {
+        if GLOBAL_STATE.dx9_update_texture_map.is_none() {
+            GLOBAL_STATE.dx9_update_texture_map = Some(fnv::FnvHashMap::default());
+        }
+        if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
+            map.insert(pDestinationTexture as usize, pSourceTexture as usize);
+        }
+    }
+
+    (real_fn)(THIS, pSourceTexture, pDestinationTexture)
 }
 
 #[inline]

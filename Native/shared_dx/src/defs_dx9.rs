@@ -77,6 +77,12 @@ pub type CreateTextureFn = unsafe extern "system" fn(
     pSharedHandle: *mut HANDLE,
 ) -> HRESULT;
 
+pub type UpdateTextureFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    pSourceTexture: *mut IDirect3DBaseTexture9,
+    pDestinationTexture: *mut IDirect3DBaseTexture9,
+) -> HRESULT;
+
 // shader constants
 pub type SetVertexShaderConstantFFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
