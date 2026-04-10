@@ -92,6 +92,16 @@ pub struct HookState {
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<usize>>,
     pub active_texture_list: Option<Vec<usize>>,
+    /// DX9 only: mapping of destination texture pointer (usize) to source texture
+    /// pointer (usize), as observed in calls to IDirect3DDevice9::UpdateTexture.
+    /// Used during snapshotting to find a lockable (SYSTEMMEM/MANAGED) source
+    /// texture for a given DEFAULT-pool destination texture. The map is populated
+    /// by `hook_update_texture` and read by `d3dx::save_texture`. Entries are
+    /// never cleared - the most recent mapping for a given destination wins.
+    /// Pointers are stored as raw addresses and are only dereferenced at snapshot
+    /// time; callers accept the risk that the source texture may have been freed
+    /// or reallocated since the UpdateTexture call.
+    pub dx9_update_texture_map: Option<FnvHashMap<usize, usize>>,
     pub making_selection: bool,
     pub in_dip: bool,
     pub in_hook_release: bool,
@@ -152,6 +162,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     loaded_mods: None,
     active_texture_set: None,
     active_texture_list: None,
+    dx9_update_texture_map: None,
     making_selection: false,
     in_dip: false,
     in_hook_release: false,
