@@ -190,6 +190,13 @@ unsafe extern "system" fn hook_create_texture(
 /// save a DEFAULT-pool destination texture. The map is never cleared;
 /// the most recent mapping for a given destination overwrites any prior
 /// entry.
+///
+/// To keep the source alive long enough to snapshot (the game may Release
+/// the source before we get a chance to save it), we AddRef the stored
+/// source. When a destination's mapping is overwritten, we Release the
+/// previous source to avoid unbounded leaking from repeated UpdateTexture
+/// calls to the same destination. This still "leaks" the most recent
+/// source for each destination until a future GC pass cleans them up.
 unsafe extern "system" fn hook_update_texture(
     THIS: *mut IDirect3DDevice9,
     pSourceTexture: *mut IDirect3DBaseTexture9,
@@ -210,7 +217,24 @@ unsafe extern "system" fn hook_update_texture(
             GLOBAL_STATE.dx9_update_texture_map = Some(fnv::FnvHashMap::default());
         }
         if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
-            map.insert(pDestinationTexture as usize, pSourceTexture as usize);
+            let dest_key = pDestinationTexture as usize;
+            let new_src = pSourceTexture as usize;
+            // If there is a prior source for this destination, release it
+            // (but not if it happens to be the same pointer as the new one -
+            // in that case we keep the existing ref and skip the AddRef too).
+            let prev = map.insert(dest_key, new_src);
+            match prev {
+                Some(prev_src) if prev_src == new_src => {
+                    // same pointer, no ref count change needed
+                },
+                Some(prev_src) if prev_src != 0 => {
+                    (*(prev_src as *mut IDirect3DBaseTexture9)).Release();
+                    (*pSourceTexture).AddRef();
+                },
+                _ => {
+                    (*pSourceTexture).AddRef();
+                }
+            }
         }
     }
 
