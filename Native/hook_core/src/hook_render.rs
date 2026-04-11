@@ -439,6 +439,20 @@ pub unsafe extern "system" fn hook_present(
         return call_real_present()
     }
 
+    // Periodically GC the DX9 UpdateTexture source-tracking state.
+    // This releases refs we took on sources in `hook_update_texture` that
+    // have been sitting around long enough that we no longer need them.
+    {
+        let now = SystemTime::now();
+        let due = now.duration_since(GLOBAL_STATE.dx9_update_texture_last_gc)
+            .map(|d| d.as_secs() >= 30)
+            .unwrap_or(false);
+        if due {
+            crate::hook_device::dx9_update_texture_gc();
+            GLOBAL_STATE.dx9_update_texture_last_gc = now;
+        }
+    }
+
     let min_fps = GLOBAL_STATE
         .interop_state
         .map(|is| is.conf_data.MinimumFPS)
