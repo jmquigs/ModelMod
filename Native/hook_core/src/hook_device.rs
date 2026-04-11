@@ -16,9 +16,10 @@ use util;
 use util::*;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
-use device_state::DEVICE_STATE;
+use device_state::{DEVICE_STATE, dev_state};
 use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release};
 use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
+use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
 
 /*
 Would be nice to move this into a separate crate, but it needs to know about the device functions
@@ -50,6 +51,7 @@ unsafe fn hook_d3d9_device(
 
     // remember these functions but don't hook them yet
     let real_set_texture = (*vtbl).SetTexture;
+    let real_create_texture = (*vtbl).CreateTexture;
 
     let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
     let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
@@ -78,6 +80,9 @@ unsafe fn hook_d3d9_device(
     //(*vtbl).BeginScene = hook_begin_scene;
     (*vtbl).Present = hook_present;
     (*vtbl).parent.Release = hook_release;
+    // Always hook CreateTexture; the hook checks force_tex_cpu_read at runtime
+    // to decide whether to change DEFAULT pool to MANAGED for snapshotting.
+    (*vtbl).CreateTexture = hook_create_texture;
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
 
@@ -106,6 +111,7 @@ unsafe fn hook_d3d9_device(
         real_present,
         real_release,
         real_set_texture,
+        real_create_texture,
         real_set_vertex_sc_f,
         real_set_vertex_sc_i,
         real_set_vertex_sc_b,
@@ -113,6 +119,64 @@ unsafe fn hook_d3d9_device(
         real_set_pixel_sc_i,
         real_set_pixel_sc_b,
     ))
+}
+
+/// Hook for IDirect3DDevice9::CreateTexture.
+/// When force_tex_cpu_read is enabled, changes D3DPOOL_DEFAULT to D3DPOOL_MANAGED
+/// for regular textures (not render targets, depth stencils, or dynamic textures).
+/// This allows D3DXSaveTextureToFileW to lock and read the texture data during
+/// snapshotting. Falls back to original pool if creation with MANAGED fails.
+unsafe extern "system" fn hook_create_texture(
+    THIS: *mut IDirect3DDevice9,
+    Width: UINT,
+    Height: UINT,
+    Levels: UINT,
+    Usage: DWORD,
+    Format: D3DFORMAT,
+    Pool: D3DPOOL,
+    ppTexture: *mut *mut IDirect3DTexture9,
+    pSharedHandle: *mut winapi::um::winnt::HANDLE,
+) -> HRESULT {
+    let real_fn = match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            dev.real_create_texture
+        },
+        _ => {
+            write_log_file("hook_CreateTexture: no device state, returning E_FAIL");
+            return E_FAIL;
+        }
+    };
+
+    let mut actual_pool = Pool;
+    let mut changed = false;
+
+    if GLOBAL_STATE.run_conf.force_tex_cpu_read && Pool == D3DPOOL_DEFAULT {
+        // Only change pool for textures without special usage flags that require DEFAULT pool
+        let special_usage = D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL | D3DUSAGE_DYNAMIC;
+        if (Usage & special_usage) == 0 {
+            actual_pool = D3DPOOL_MANAGED;
+            changed = true;
+        }
+    }
+
+    let res = (real_fn)(THIS, Width, Height, Levels, Usage, Format, actual_pool, ppTexture, pSharedHandle);
+
+    if res != 0 && changed {
+        // Retry with original pool if MANAGED creation failed
+        write_log_file(&format!(
+            "hook_CreateTexture: MANAGED pool failed (hr {:x}) for {}x{} fmt {}, retrying with DEFAULT",
+            res, Width, Height, Format
+        ));
+        let res = (real_fn)(THIS, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle);
+        if res == 0 {
+            write_log_file("hook_CreateTexture: retry with original pool succeeded");
+        } else {
+            write_log_file(&format!("hook_CreateTexture: retry also failed: {:x}", res));
+        }
+        return res;
+    }
+
+    res
 }
 
 #[inline]
@@ -144,6 +208,10 @@ unsafe fn create_and_hook_device(
     if DEVICE_STATE == null_mut() {
         return Err(HookError::BadStateError("no device state pointer??".to_owned()));
     }
+
+    // Query run configuration (e.g. force_tex_cpu_read) so DX9 hooks can use it
+    query_and_set_runconf_in_globalstate(true);
+
     (*DEVICE_STATE)
         .hook
         .as_mut()
