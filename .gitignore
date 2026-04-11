@@ -82,3 +82,5 @@ SnapshotProfiles/TestProfile1.yaml
 SnapshotProfiles/TexFormat.txt
 BUGSBUNNY.txt
 SnapshotProfiles/TestProfile2.yaml
+MMManaged.Engine/obj
+MMManaged.Engine/bin
