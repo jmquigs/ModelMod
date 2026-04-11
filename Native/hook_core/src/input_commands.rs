@@ -215,7 +215,7 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
                 if GLOBAL_STATE.run_conf.force_tex_cpu_read {
                     write_log_file("==> DX9: force_tex_cpu_read is enabled; new textures will use MANAGED pool for snapshotting");
                 } else {
-                    write_log_file("==> DX9: force_tex_cpu_read is disabled; set SnapForceTexCpuRead=1 in registry to enable MANAGED pool redirection for snapshotting");
+                    write_log_file("==> DX9: force_tex_cpu_read is disabled; set SnapForceTexCpuRead=1 in registry to enable MANAGED pool redirection for texture snapshotting if required");
                 }
             }
         }

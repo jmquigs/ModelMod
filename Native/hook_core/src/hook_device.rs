@@ -82,6 +82,16 @@ unsafe fn hook_d3d9_device(
     (*vtbl).parent.Release = hook_release;
     // Always hook CreateTexture; the hook checks force_tex_cpu_read at runtime
     // to decide whether to change DEFAULT pool to MANAGED for snapshotting.
+    // JMQNOTE: This d3d9-specific change sets up a hook method that converts to using the MANAGED pool 
+    // instead of DEFAULT for textures if the registry key enables it. 
+    // Games that use MANAGED (every dx9 game I have tried until now)
+    // don't need this.
+    // For games that do use DEFAULT, this might be sufficient to capture textures,
+    // which can't be captured from default. It wasn't for 2026g1, which micromanages textures
+    // by putting them in SYSTEMMEM first and then copying to the device via UpdateTexture. 
+    // The way to tell if this pool-flip 
+    // method is sufficient is enable the reg key and load the game - 
+    // if everything shows up black, this method is not sufficient.
     (*vtbl).CreateTexture = hook_create_texture;
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
