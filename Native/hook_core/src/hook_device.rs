@@ -187,16 +187,17 @@ unsafe extern "system" fn hook_create_texture(
 /// Hook for IDirect3DDevice9::UpdateTexture.
 /// Records the (destination -> source) mapping in GLOBAL_STATE so that
 /// snapshotting code can locate a lockable source texture when asked to
-/// save a DEFAULT-pool destination texture. The map is never cleared;
-/// the most recent mapping for a given destination overwrites any prior
-/// entry.
+/// save a DEFAULT-pool destination texture. The most recent mapping for a
+/// given destination wins.
 ///
-/// To keep the source alive long enough to snapshot (the game may Release
-/// the source before we get a chance to save it), we AddRef the stored
-/// source. When a destination's mapping is overwritten, we Release the
-/// previous source to avoid unbounded leaking from repeated UpdateTexture
-/// calls to the same destination. This still "leaks" the most recent
-/// source for each destination until a future GC pass cleans them up.
+/// Because the game may Release the source before we get a chance to
+/// snapshot it, we AddRef the source the first time we see it and record
+/// it in `dx9_update_texture_tracked_srcs` + `dx9_update_texture_deque`.
+/// Subsequent UpdateTexture calls with a source we already track skip the
+/// AddRef (so we only ever own a single ref per unique source, which lets
+/// us later detect when the game has dropped its own refs by observing a
+/// zero refcount on Release). The `dx9_update_texture_gc` pass periodically
+/// releases these refs.
 unsafe extern "system" fn hook_update_texture(
     THIS: *mut IDirect3DDevice9,
     pSourceTexture: *mut IDirect3DBaseTexture9,
@@ -216,29 +217,122 @@ unsafe extern "system" fn hook_update_texture(
         if GLOBAL_STATE.dx9_update_texture_map.is_none() {
             GLOBAL_STATE.dx9_update_texture_map = Some(fnv::FnvHashMap::default());
         }
+        if GLOBAL_STATE.dx9_update_texture_tracked_srcs.is_none() {
+            GLOBAL_STATE.dx9_update_texture_tracked_srcs = Some(fnv::FnvHashSet::default());
+        }
+        if GLOBAL_STATE.dx9_update_texture_deque.is_none() {
+            GLOBAL_STATE.dx9_update_texture_deque = Some(std::collections::VecDeque::new());
+        }
+
+        let dest_key = pDestinationTexture as usize;
+        let src_key = pSourceTexture as usize;
+
         if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
-            let dest_key = pDestinationTexture as usize;
-            let new_src = pSourceTexture as usize;
-            // If there is a prior source for this destination, release it
-            // (but not if it happens to be the same pointer as the new one -
-            // in that case we keep the existing ref and skip the AddRef too).
-            let prev = map.insert(dest_key, new_src);
-            match prev {
-                Some(prev_src) if prev_src == new_src => {
-                    // same pointer, no ref count change needed
-                },
-                Some(prev_src) if prev_src != 0 => {
-                    (*(prev_src as *mut IDirect3DBaseTexture9)).Release();
-                    (*pSourceTexture).AddRef();
-                },
-                _ => {
-                    (*pSourceTexture).AddRef();
-                }
+            map.insert(dest_key, src_key);
+        }
+
+        // Only AddRef the first time we see this source pointer; subsequent
+        // references are deduped by the tracked-srcs set.
+        let is_new = GLOBAL_STATE.dx9_update_texture_tracked_srcs.as_mut()
+            .map(|set| set.insert(src_key))
+            .unwrap_or(false);
+        if is_new {
+            (*pSourceTexture).AddRef();
+            if let Some(deque) = GLOBAL_STATE.dx9_update_texture_deque.as_mut() {
+                deque.push_back((src_key, std::time::SystemTime::now()));
             }
         }
     }
 
     (real_fn)(THIS, pSourceTexture, pDestinationTexture)
+}
+
+/// Garbage-collect the DX9 UpdateTexture source-tracking state.
+///
+/// Intended to be called periodically (e.g. every ~30 seconds from
+/// `hook_present`). Pops up to `MAX_PER_PASS` entries from the front of
+/// `dx9_update_texture_deque` (the oldest tracked sources). For each entry
+/// older than `AGE_THRESHOLD`:
+///
+/// * Release the ref we AddRef'd in `hook_update_texture`.
+/// * If the refcount is still > 0, the texture is still alive — probably
+///   the game is still holding its own ref — so we re-AddRef and push the
+///   entry back on the deque with a refreshed timestamp. This means we'll
+///   wait another AGE_THRESHOLD before re-checking it.
+/// * If the refcount reached zero, we were the last owner; the texture is
+///   now destroyed. Remove it from the tracked-srcs set and purge any map
+///   entries whose value points at this (now-dangling) source.
+///
+/// If the entry at the front is not yet old enough, stop early (the deque
+/// is ordered oldest-first, so nothing behind is due either).
+pub unsafe fn dx9_update_texture_gc() {
+    use std::time::Duration;
+    const AGE_THRESHOLD: Duration = Duration::from_secs(600); // 10 minutes
+    const MAX_PER_PASS: usize = 100;
+
+    let deque_len = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
+        .map(|d| d.len())
+        .unwrap_or(0);
+    if deque_len == 0 {
+        return;
+    }
+
+    let count = deque_len.min(MAX_PER_PASS);
+    let mut released_srcs: Vec<usize> = Vec::new();
+    let mut processed: usize = 0;
+    let mut refreshed: usize = 0;
+
+    for _ in 0..count {
+        // Peek front; if not old enough, stop the whole pass.
+        let front_due = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
+            .and_then(|d| d.front().copied())
+            .map(|(_, t)| t.elapsed().map(|e| e >= AGE_THRESHOLD).unwrap_or(false))
+            .unwrap_or(false);
+        if !front_due {
+            break;
+        }
+
+        let popped = GLOBAL_STATE.dx9_update_texture_deque.as_mut()
+            .and_then(|d| d.pop_front());
+        let (src_key, _) = match popped {
+            Some(e) => e,
+            None => break,
+        };
+        processed += 1;
+
+        let src_ptr = src_key as *mut IDirect3DBaseTexture9;
+        let remaining = (*src_ptr).Release();
+        if remaining > 0 {
+            // Still alive: re-take our ref and push back with a fresh stamp.
+            (*src_ptr).AddRef();
+            if let Some(deque) = GLOBAL_STATE.dx9_update_texture_deque.as_mut() {
+                deque.push_back((src_key, std::time::SystemTime::now()));
+            }
+            refreshed += 1;
+        } else {
+            // Refcount hit zero — the texture is gone. Drop our tracking.
+            if let Some(set) = GLOBAL_STATE.dx9_update_texture_tracked_srcs.as_mut() {
+                set.remove(&src_key);
+            }
+            released_srcs.push(src_key);
+        }
+    }
+
+    if !released_srcs.is_empty() {
+        if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
+            map.retain(|_, v| !released_srcs.contains(v));
+        }
+    }
+
+    if processed > 0 {
+        write_log_file(&format!(
+            "dx9_update_texture_gc: processed {} (refreshed {}, released {}), deque now {}",
+            processed,
+            refreshed,
+            released_srcs.len(),
+            GLOBAL_STATE.dx9_update_texture_deque.as_ref().map(|d| d.len()).unwrap_or(0)
+        ));
+    }
 }
 
 #[inline]
