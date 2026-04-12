@@ -253,8 +253,8 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
             // UpdateTexture hook), use the source instead. Games commonly create
             // the source in SYSTEMMEM (lockable) and the destination in DEFAULT
             // (not lockable), so the destination can't be saved directly.
-            // Note: the source pointer is used without AddRef - if the game has
-            // released it since the UpdateTexture call, this could crash or fail.
+            // The source is kept alive by an AddRef in hook_update_texture;
+            // the dx9_update_texture_gc pass releases it when no longer needed.
             let save_tex = match GLOBAL_STATE.dx9_update_texture_map.as_ref()
                 .and_then(|m| m.get(&(tex as usize))) {
                 Some(&src) if src != 0 => {
