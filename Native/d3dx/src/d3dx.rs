@@ -14,7 +14,7 @@ use winapi::um::d3d11::D3D11_TEXTURE2D_DESC;
 use winapi::um::d3dcommon::D3D11_SRV_DIMENSION_TEXTURE2D;
 
 use std::ptr::null_mut;
-use shared_dx::util::ReleaseOnDrop;
+use shared_dx::util::{ReleaseOnDrop, write_log_file};
 
 use types::d3dx::*;
 
@@ -249,9 +249,27 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
                 )));
             }
 
+            // If this destination texture has a known source (tracked by the
+            // UpdateTexture hook), use the source instead. Games commonly create
+            // the source in SYSTEMMEM (lockable) and the destination in DEFAULT
+            // (not lockable), so the destination can't be saved directly.
+            // The source is kept alive by an AddRef in hook_update_texture;
+            // the dx9_update_texture_gc pass releases it when no longer needed.
+            let save_tex = match GLOBAL_STATE.dx9_update_texture_map.as_ref()
+                .and_then(|m| m.get(&(tex as usize))) {
+                Some(&src) if src != 0 => {
+                    write_log_file(&format!(
+                        "save_texture: stage {}: using UpdateTexture source {:x} for destination {:x}",
+                        idx, src, tex as usize
+                    ));
+                    src as *mut IDirect3DBaseTexture9
+                },
+                _ => tex,
+            };
+
             match d3dx_fn {
                 D3DXFn::DX9(d3dx_fn) => {
-                    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, tex, null_mut());
+                    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, save_tex, null_mut());
                     if hr != 0 {
                         return Err(HookError::SnapshotFailed(format!(
                             "failed to save snapshot texture on stage {}: {:x}",
