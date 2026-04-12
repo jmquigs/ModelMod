@@ -7,6 +7,7 @@ pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std;
 use std::ptr::null_mut;
+use std::time::Instant;
 use shared_dx::types::*;
 use shared_dx::types_dx9::*;
 use shared_dx::util::*;
@@ -277,8 +278,11 @@ unsafe extern "system" fn hook_update_texture(
 /// is ordered oldest-first, so nothing behind is due either).
 pub unsafe fn dx9_update_texture_gc() {
     use std::time::Duration;
-    const AGE_THRESHOLD: Duration = Duration::from_secs(600); // 10 minutes
-    const MAX_PER_PASS: usize = 100;
+    const AGE_THRESHOLD: Duration = Duration::from_mins(5);
+    const MAX_PER_PASS: usize = 1000;
+    const MAX_TIME_PER_PASS_MICROS:u128 = 10000;
+
+    let start = Instant::now();
 
     let deque_len = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
         .map(|d| d.len())
@@ -292,7 +296,13 @@ pub unsafe fn dx9_update_texture_gc() {
     let mut processed: usize = 0;
     let mut refreshed: usize = 0;
 
-    for _ in 0..count {
+    for i in 0..count {
+        if i % 50 == 0 {
+            // check to see if we ran out of time
+            if Instant::now().duration_since(start).as_micros() > MAX_TIME_PER_PASS_MICROS {
+                break;
+            }
+        }
         // Peek front; if not old enough, stop the whole pass.
         let front_due = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
             .and_then(|d| d.front().copied())
@@ -336,11 +346,12 @@ pub unsafe fn dx9_update_texture_gc() {
 
     if processed > 0 {
         write_log_file(&format!(
-            "dx9_update_texture_gc: processed {} (refreshed {}, released {}), deque now {}",
+            "dx9_update_texture_gc: processed {} (refreshed {}, released {}), deque now {}; elapsed: {}micros",
             processed,
             refreshed,
             released_srcs.len(),
-            GLOBAL_STATE.dx9_update_texture_deque.as_ref().map(|d| d.len()).unwrap_or(0)
+            GLOBAL_STATE.dx9_update_texture_deque.as_ref().map(|d| d.len()).unwrap_or(0),
+            Instant::now().duration_since(start).as_micros()
         ));
     }
 }
