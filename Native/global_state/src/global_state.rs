@@ -78,6 +78,11 @@ pub struct ClrState {
 pub struct RunConf {
     pub precopy_data: bool,
     pub force_tex_cpu_read: bool,
+    /// Registry path of the matched game profile (e.g.
+    /// `Software\ModelMod\Profiles\Profile0000`), or empty if none was found.
+    /// Populated at device-creation time by the early profile lookup in
+    /// `util::game_profile`.
+    pub profile_key: String,
 }
 pub struct HookState {
     pub run_conf: RunConf,
@@ -167,6 +172,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     run_conf: RunConf {
         precopy_data: false,
         force_tex_cpu_read: false,
+        profile_key: String::new(),
     },
     clr: { ClrState { runtime_pointer: None, run_context: String::new() } },
     interop_state: None,

@@ -688,8 +688,15 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
 pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
     let mut changed = false;
 
-    // this is a root reg query because at this time I don't know the game profile
-    // TODO: potentially merge this with snapconf
+    // Look up the game profile for the current exe so that profile settings
+    // are available before hooks are installed.
+    if GLOBAL_STATE.run_conf.profile_key.is_empty() {
+        let profile = util::game_profile::load_for_current_exe();
+        if !profile.profile_key.is_empty() {
+            GLOBAL_STATE.run_conf.profile_key = profile.profile_key;
+        }
+    }
+
     if check_precopy {
         let precopy = util::reg_query_root_dword("SnapPreCopyData");
 
@@ -714,8 +721,10 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
     if old_force_tex_cpu_read != GLOBAL_STATE.run_conf.force_tex_cpu_read {
         changed = true;
     }
-    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
-        GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read, changed));
+    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {}, profile: {} (setting changed: {})",
+        GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read,
+        if GLOBAL_STATE.run_conf.profile_key.is_empty() { "<none>" } else { &GLOBAL_STATE.run_conf.profile_key },
+        changed));
     changed
 }
 
