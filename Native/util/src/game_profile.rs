@@ -45,16 +45,32 @@ pub struct GameProfile {
     pub reverse_normals: bool,
     pub update_tangent_space: bool,
     pub data_path_name: String,
+    /// Whether to enable dx9 systemmem tracking for texture snapshots.  Default is false. 
+    /// 
+    /// At least one game (2026g1) creates textures in 
+    /// the sysmem d3d pool, and then creates another for the device to use in the default d3d pool, 
+    /// and copies the data from source to dest with UpdateTexture.
+    /// The textures used for rendering are thus in the default pool and cannot be snapshotted.  
+    /// 
+    /// When this 
+    /// setting is enabled, we track and keep references to the original textures so that we can snap from those instead.
+    /// This also enables a garbage collector for the systemmem copies which introduces some performance hit (~10ms every 30secs on my 2015 desktop).
+    /// The system textures will be kept for at least 5 minutes after creation.  Once disposed the textures involved may be 
+    /// un-snapshotable, but sometimes loading a new level (to trigger the game to produce a fresh systemmem texture) works to refresh them.
+    pub snap_use_sysmemtexturetracking: bool,
 }
+
+pub const EMPTY_GAME_PROFILE:GameProfile = GameProfile {
+    profile_key: String::new(),
+    reverse_normals: false,
+    update_tangent_space: true,
+    data_path_name: String::new(),
+    snap_use_sysmemtexturetracking: false,
+};
 
 impl Default for GameProfile {
     fn default() -> Self {
-        GameProfile {
-            profile_key: String::new(),
-            reverse_normals: false,
-            update_tangent_space: true,
-            data_path_name: String::new(),
-        }
+        EMPTY_GAME_PROFILE
     }
 }
 
@@ -141,12 +157,16 @@ unsafe fn read_profile_from_key(profile_path: &str) -> GameProfile {
         .unwrap_or(true); // default is true, matching F# DefaultGameProfile
     let data_path_name = reg_query_string(profile_path, "GameProfileDataPathName")
         .unwrap_or_default();
+    let snap_use_sysmemtexturetracking = reg_query_dword(profile_path, "GameProfileSnapUseSysmemTextureTracking")
+        .map(|v| v > 0)
+        .unwrap_or(false);
 
     GameProfile {
         profile_key: profile_path.to_owned(),
         reverse_normals,
         update_tangent_space,
         data_path_name,
+        snap_use_sysmemtexturetracking
     }
 }
 

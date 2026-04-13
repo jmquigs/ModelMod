@@ -94,10 +94,14 @@ unsafe fn hook_d3d9_device(
     // The way to tell if this pool-flip 
     // method is sufficient is enable the reg key and load the game - 
     // if everything shows up black, this method is not sufficient.
+    // For games of that type, snap_use_sysmemtexturetracking below might be what is needed.
     (*vtbl).CreateTexture = hook_create_texture;
-    // Always hook UpdateTexture to track source->destination mappings so that
-    // during snapshotting we can reach back to the lockable source texture.
-    (*vtbl).UpdateTexture = hook_update_texture;
+
+    if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
+        // hook UpdateTexture to track source->destination mappings so that
+        // during snapshotting we can reach back to the lockable source texture.
+        (*vtbl).UpdateTexture = hook_update_texture;
+    }
 
     protect_memory(vtbl as *mut c_void, vsize, old_prot)?;
 

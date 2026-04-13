@@ -250,7 +250,7 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
             }
 
             // If this destination texture has a known source (tracked by the
-            // UpdateTexture hook), use the source instead. Games commonly create
+            // UpdateTexture hook), use the source instead. At least one dx9 game creates
             // the source in SYSTEMMEM (lockable) and the destination in DEFAULT
             // (not lockable), so the destination can't be saved directly.
             // The source is kept alive by an AddRef in hook_update_texture;

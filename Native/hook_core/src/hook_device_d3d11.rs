@@ -690,10 +690,10 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
 
     // Look up the game profile for the current exe so that profile settings
     // are available before hooks are installed.
-    if GLOBAL_STATE.run_conf.profile_key.is_empty() {
+    if GLOBAL_STATE.run_conf.profile.profile_key.is_empty() {
         let profile = util::game_profile::load_for_current_exe();
         if !profile.profile_key.is_empty() {
-            GLOBAL_STATE.run_conf.profile_key = profile.profile_key;
+            GLOBAL_STATE.run_conf.profile = profile;
         }
     }
 
@@ -721,10 +721,11 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
     if old_force_tex_cpu_read != GLOBAL_STATE.run_conf.force_tex_cpu_read {
         changed = true;
     }
-    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {}, profile: {} (setting changed: {})",
+    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
         GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read,
-        if GLOBAL_STATE.run_conf.profile_key.is_empty() { "<none>" } else { &GLOBAL_STATE.run_conf.profile_key },
-        changed));
+        changed,
+    ));
+    write_log_file(&format!("runconf: game profile: {:?}", GLOBAL_STATE.run_conf.profile));
     changed
 }
 

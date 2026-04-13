@@ -76,6 +76,9 @@ module RegUtil =
             sw.ToString()
 
 /// Utilities for accessing ModelMod specific configuration data.
+///
+/// Note the GameProfile portion of this also now has an implementation in the rust code (util::GameProfile) which 
+/// provides read-only access to profile values.
 module RegConfig =
     let private log = Logging.getLogger("RegConfig")
 

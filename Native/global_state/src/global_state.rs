@@ -2,6 +2,7 @@
 use shared_dx::types::DevicePointer;
 use shared_dx::util::write_log_file;
 use types::TexPtr;
+use util::game_profile::EMPTY_GAME_PROFILE;
 pub use winapi::shared::d3d9::*;
 pub use winapi::shared::d3d9types::*;
 pub use winapi::shared::minwindef::*;
@@ -23,6 +24,7 @@ use types::native_mod;
 use types::d3dx;
 
 use snaplib::anim_snap_state::AnimSnapState;
+use util::game_profile::GameProfile;
 
 pub const MAX_STAGE: usize = 40;
 
@@ -78,11 +80,9 @@ pub struct ClrState {
 pub struct RunConf {
     pub precopy_data: bool,
     pub force_tex_cpu_read: bool,
-    /// Registry path of the matched game profile (e.g.
-    /// `Software\ModelMod\Profiles\Profile0000`), or empty if none was found.
-    /// Populated at device-creation time by the early profile lookup in
-    /// `util::game_profile`.
-    pub profile_key: String,
+    /// Game profile data loaded from the profile found for this registry key
+    /// (example: `Software\ModelMod\Profiles\Profile0000`), or empty if none was found.
+    pub profile: GameProfile,
 }
 pub struct HookState {
     pub run_conf: RunConf,
@@ -172,7 +172,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     run_conf: RunConf {
         precopy_data: false,
         force_tex_cpu_read: false,
-        profile_key: String::new(),
+        profile: EMPTY_GAME_PROFILE,
     },
     clr: { ClrState { runtime_pointer: None, run_context: String::new() } },
     interop_state: None,
