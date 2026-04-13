@@ -120,6 +120,7 @@ dependencies = [
  "shared_dx",
  "snaplib",
  "types",
+ "util",
  "winapi",
 ]
 

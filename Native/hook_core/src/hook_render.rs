@@ -442,7 +442,7 @@ pub unsafe extern "system" fn hook_present(
     // Periodically GC the DX9 UpdateTexture source-tracking state.
     // This releases refs we took on sources in `hook_update_texture` that
     // have been sitting around long enough that we no longer need them.
-    {
+    if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
         let now = SystemTime::now();
         let due = now.duration_since(GLOBAL_STATE.dx9_update_texture_last_gc)
             .map(|d| d.as_secs() >= 30)
