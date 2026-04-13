@@ -4,3 +4,5 @@ extern crate shared_dx;
 
 mod util;
 pub use crate::util::*;
+
+pub mod game_profile;
