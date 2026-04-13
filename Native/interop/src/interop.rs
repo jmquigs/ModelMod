@@ -42,25 +42,25 @@ unsafe fn loggit(prefix: &str, category: *const c_char, message: *const c_char) 
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogInfo(category: *const c_char, message: *const c_char) {
+pub unsafe extern "system" fn LogInfo(category: *const c_char, message: *const c_char) {
     loggit("", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogWarn(category: *const c_char, message: *const c_char) {
+pub unsafe extern "system" fn LogWarn(category: *const c_char, message: *const c_char) {
     loggit("WARN", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn LogError(category: *const c_char, message: *const c_char) {
+pub unsafe extern "system" fn LogError(category: *const c_char, message: *const c_char) {
     loggit("ERROR", category, message);
 }
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u16) -> bool {
+pub unsafe extern "system" fn SaveTexture(index: i32, filepath: *const u16) -> bool {
     match d3dx::save_texture(index, filepath) {
         Ok(_) => true,
         Err(e) => {
@@ -72,7 +72,7 @@ pub unsafe extern "stdcall" fn SaveTexture(index: i32, filepath: *const u16) -> 
 
 #[allow(unused)]
 #[no_mangle]
-pub unsafe extern "stdcall" fn OnInitialized(
+pub unsafe extern "system" fn OnInitialized(
     callbacks: *mut ManagedCallbacks,
     global_state_pointer: u64,
 ) -> i32 {

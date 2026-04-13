@@ -200,12 +200,12 @@ pub struct SnapshotResult {
 
 
 type SetPathsCB =
-    unsafe extern "stdcall" fn(dllpath: *mut WCHAR, exemodule: *mut WCHAR) -> *mut ConfData;
-type LoadModDBCB = unsafe extern "stdcall" fn() -> i32;
-type GetModCountCB = unsafe extern "stdcall" fn() -> i32;
-type GetModDataCB = unsafe extern "stdcall" fn(modIndex: i32) -> *mut ModData;
-type LoadModDataCB = unsafe extern "stdcall" fn(modIndex: i32) -> i32;
-type FillModDataCB = unsafe extern "stdcall" fn(
+    unsafe extern "system" fn(dllpath: *mut WCHAR, exemodule: *mut WCHAR) -> *mut ConfData;
+type LoadModDBCB = unsafe extern "system" fn() -> i32;
+type GetModCountCB = unsafe extern "system" fn() -> i32;
+type GetModDataCB = unsafe extern "system" fn(modIndex: i32) -> *mut ModData;
+type LoadModDataCB = unsafe extern "system" fn(modIndex: i32) -> i32;
+type FillModDataCB = unsafe extern "system" fn(
     modIndex: i32,
     declData: *mut u8,
     declSize: i32,
@@ -214,13 +214,13 @@ type FillModDataCB = unsafe extern "stdcall" fn(
     ibData: *mut u8,
     ibSize: i32,
 ) -> i32;
-type TakeSnapshotCB = unsafe extern "stdcall" fn(
+type TakeSnapshotCB = unsafe extern "system" fn(
     device: *mut c_void,  // *mut IDirect3DDevice9 or *mut IDirect3D11Device
     snapdata: *mut SnapshotData,
 ) -> i32;
-type GetSnapshotResultCB = unsafe extern "stdcall" fn() -> *mut SnapshotResult;
+type GetSnapshotResultCB = unsafe extern "system" fn() -> *mut SnapshotResult;
 
-type GetLoadingStateCB = unsafe extern "stdcall" fn() -> i32;
+type GetLoadingStateCB = unsafe extern "system" fn() -> i32;
 
 
 #[repr(C)]

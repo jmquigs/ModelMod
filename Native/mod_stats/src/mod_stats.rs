@@ -362,6 +362,8 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
         let elapsed = elapsed.unwrap_or_else(|| Duration::from_secs(0));
 
         let (total_frames, loaded_mods) = unsafe {
+            // this is the one place where I currently allow this warning, but it is pervasive in the code until I do 
+            // something about it - unfortunately seems to be not an easy thing to fix.
             (GLOBAL_STATE.metrics.total_frames, GLOBAL_STATE.loaded_mods.as_ref())
         };
 

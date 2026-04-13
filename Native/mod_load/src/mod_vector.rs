@@ -1,5 +1,4 @@
-
-
+#![allow(non_snake_case)]
 use shared_dx::dx11rs::VertexFormat;
 use shared_dx::error;
 use shared_dx::error::HookError;
@@ -60,10 +59,14 @@ enum CNormFlags {
 #[allow(non_camel_case_types)]
 /// DirectXMesh doesn't normally build as a dll.  Had to change it to do that and then manually
 /// export this function.
-type DirectX_ComputeNormals_32Fn = unsafe extern "stdcall" fn(indices:*const u32,
+/// Function exported by https://github.com/jmquigs/DirectXMesh/tree/changes-for-mm
+type DirectX_ComputeNormals_32Fn = unsafe extern "system" fn(indices:*const u32,
     nFaces: usize, positions: *const Float3, nVerts:usize, flags:CNormFlags, normals:*mut Float3) -> HRESULT;
     #[allow(non_camel_case_types)]
-type DirectX_ComputeTangentFrame_32TBFn = unsafe extern "stdcall" fn(indices:*const u32,
+/// DirectXMesh doesn't normally build as a dll.  Had to change it to do that and then manually
+/// export this function.
+/// Function exported by https://github.com/jmquigs/DirectXMesh/tree/changes-for-mm
+type DirectX_ComputeTangentFrame_32TBFn = unsafe extern "system" fn(indices:*const u32,
     nFaces: usize, positions: *const Float3, normals:*const Float3, texcoords:*const Float2,
     nVerts:usize, tangents:*mut Float3, binormals:*mut Float3) -> HRESULT;
 

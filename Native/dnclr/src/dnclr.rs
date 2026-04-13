@@ -76,7 +76,7 @@ interface ICLRRuntimeHost(ICLRRuntimeHostVtbl): IUnknown(IUnknownVtbl) {
 });
 
 type CLRCreateInstanceFn =
-    unsafe extern "stdcall" fn(clsid: REFCLSID, riid: REFIID, ppInterface: *mut *mut ICLRMetaHost)
+    unsafe extern "system" fn(clsid: REFCLSID, riid: REFIID, ppInterface: *mut *mut ICLRMetaHost)
         -> HRESULT;
 
 struct CLRGlobalState {
