@@ -996,6 +996,12 @@ module ModDBInterop =
                                     let srcTC = srcTex.[v.Tex]
                                     bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
                                     bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                                | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
+                                    let srcTC = srcTex.[v.Tex]
+                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
+                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                                    bw.Write(uint16 0)
+                                    bw.Write(uint16 0)
                                 | MMET.Format(f) when f = SDXF.R32G32_Float ->
                                     let srcTC = srcTex.[v.Tex]
                                     bw.Write(srcTC.X)

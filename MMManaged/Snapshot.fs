@@ -52,6 +52,12 @@ module Extractors =
     let xPosFromFloat3 (br:SourceReader) = br.ReadSingle(), br.ReadSingle(), br.ReadSingle()
     let xTexFromFloat2 (br:SourceReader) = br.ReadSingle(), br.ReadSingle()
     let xTexFromHalfFloat2 (br:SourceReader) = MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16()), MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+    let xTexFromHalfFloat4 (br:SourceReader) =
+        let x = MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+        let y = MonoGameHelpers.halfUint16ToFloat(br.ReadUInt16())
+        br.ReadUInt16() |> ignore // z - unused for now
+        br.ReadUInt16() |> ignore // w - unused for now
+        (x, y)
     let xTexFrom2S16_x2S16 (br:SourceReader) = 
         let x1 = br.ReadInt16()
         let x2 = br.ReadInt16()
@@ -239,6 +245,8 @@ module Snapshot =
                         fns.TexCoord (Extractors.xTexFromFloat2 reader)
                     | SDXVertexDeclType.HalfTwo ->
                         fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
+                    | SDXVertexDeclType.HalfFour ->
+                        fns.TexCoord (Extractors.xTexFromHalfFloat4 reader)
                     | _ -> failwithf "Unsupported type for texture coordinate: %A" dt
                 | MMET.Format(f) ->
                     match f with
