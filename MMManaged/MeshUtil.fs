@@ -489,6 +489,7 @@ map_Kd $$filename
         | SDXDT.Ubyte4 -> 4
         | SDXDT.Color -> 4
         | SDXDT.HalfTwo -> 4
+        | SDXDT.HalfFour -> 8
         | _ -> failwithf "Some lazy person didn't fill in the size of vert decl type %A" dtype
 
     /// Returns the total vertex size (in bytes), using the specified declaration
