@@ -941,7 +941,8 @@ module Snapshot =
             match getBoundChecksum with
             | None -> ()
             | Some(fn) ->
-                for stage in texturePaths.Keys do
+                let keys = texturePaths |> Map.toSeq |> Seq.map fst |> Array.ofSeq
+                for stage in keys do
                     if stage >= 0 && stage < 4 then
                         let cs = fn (uint32 stage)
                         if cs <> 0u then
