@@ -35,15 +35,17 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Checkout TPLib
-      uses: actions/checkout@v3
-      with:
+    # disabled this, required only for artifacts
+    
+    #- name: Checkout TPLib
+    #  uses: actions/checkout@v3
+    #  with:
         # this key will expire 3/13/2024 after which I can either create a new one for this repo
         # (just needs read access) or disable this step entirely to build without the TPLib files.
         # (I can then download the package and put them in the zip manually)
-        repository: jmquigs/ModelModTPLib
-        token: ${{ secrets.MMTPLIBCIKEY }}
-        path: TPLib
+    #    repository: jmquigs/ModelModTPLib
+    #    token: ${{ secrets.MMTPLIBCIKEY }}
+    #    path: TPLib
 
     - name: Set path (fsharp tools)
       run: echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -94,11 +96,12 @@ jobs:
       env:
         TARGET: AppveyorPackage
 
-    - name: Store package
-      uses: actions/upload-artifact@v3
-      with:
-        name: ModelModArchive
-        path: deploy/*.zip
+    # disabled this as I'm not building new artifacts right now
+    #- name: Store package
+    #  uses: actions/upload-artifact@v3
+    #  with:
+    #    name: ModelModArchive
+    #    path: deploy/*.zip
 
     # disabling this for now since I always prefer to download the archive and smoke test it myself
     # before making a release, and I don't want to run the a rebuild (which would generate new artifacts) as part of
