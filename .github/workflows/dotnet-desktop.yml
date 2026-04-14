@@ -67,6 +67,11 @@ jobs:
     - name: Restore the application
       run: .\installdeps.bat nopause
 
+    - name: Add FSI to PATH
+      run: |
+        $fsiDir = "$env:VsInstallRoot\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools"
+        echo $fsiDir >> $env:GITHUB_PATH      
+
     - name: Run FSI to setup build dir
       run: fsi build.fsx
       env:
