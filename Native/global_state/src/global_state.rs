@@ -28,6 +28,14 @@ use util::game_profile::GameProfile;
 
 pub const MAX_STAGE: usize = 40;
 
+/// Number of texture stages that participate in the texture-checksum
+/// disambiguation path.  A mod YAML can declare `Tex0Checksum` through
+/// `Tex(MAX_CHECKSUM_STAGES-1)Checksum` to require that the texture bound
+/// on that stage at draw time hashes to the given value.  The bound
+/// textures on these stages are tracked unconditionally (i.e. outside of
+/// selection mode) in `HookState::bound_textures_per_stage`.
+pub const MAX_CHECKSUM_STAGES: usize = 4;
+
 /// Enable this to dump out a file containing metrics for primitives every
 /// few seconds.  The file is `rendered_last_frame.txt` and is stored in the
 /// same directory as logs.  It contains one line for each primitive count,
@@ -120,6 +128,34 @@ pub struct HookState {
     pub dx9_update_texture_deque: Option<VecDeque<(usize, SystemTime)>>,
     /// DX9 only: the last time the GC pass was run (from `hook_present`).
     pub dx9_update_texture_last_gc: SystemTime,
+    /// Map of texture *resource* pointer (as `usize`) to its CRC32 checksum,
+    /// computed when the texture was created or updated. Key convention:
+    /// * DX9: the `IDirect3DBaseTexture9*` returned by `CreateTexture`
+    ///   (or, for games using SYSTEMMEM staging, the destination pointer
+    ///   recorded in `dx9_update_texture_map`).
+    /// * DX11: the `ID3D11Texture2D*` returned by `CreateTexture2D`.
+    ///
+    /// Looked up via `srv_to_resource` (DX11) or directly (DX9) at draw
+    /// time when a mod constrains the bound texture's checksum, and also
+    /// at snapshot time so the checksum can be written to the snapshot
+    /// meta file for the modder to see.  Absence means "unknown" (either
+    /// the texture wasn't lockable/readable, or it was created before the
+    /// hook was installed).
+    pub texture_checksums: Option<FnvHashMap<usize, u32>>,
+    /// DX11 only: map of `ID3D11ShaderResourceView*` pointer (as `usize`) to
+    /// the underlying resource pointer (as `usize`) used to key
+    /// `texture_checksums`.  Populated lazily the first time a given SRV
+    /// is observed in `hook_PSSetShaderResources`; entries are kept
+    /// indefinitely (pointer collisions on freed SRVs are possible but
+    /// harmless - the worst case is a stale lookup that simply misses).
+    pub srv_to_resource: Option<FnvHashMap<usize, usize>>,
+    /// The texture resource pointer (as `usize`) currently bound on each
+    /// of the first `MAX_CHECKSUM_STAGES` texture stages.  Written
+    /// unconditionally by `hook_set_texture` (DX9) and
+    /// `hook_PSSetShaderResources` (DX11); consumed by `mod_render::select`
+    /// when a candidate mod has a texture checksum constraint.  Zero means
+    /// "no texture currently bound".
+    pub bound_textures_per_stage: [usize; MAX_CHECKSUM_STAGES],
     pub making_selection: bool,
     pub in_dip: bool,
     pub in_hook_release: bool,
@@ -185,6 +221,9 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     dx9_update_texture_tracked_srcs: None,
     dx9_update_texture_deque: None,
     dx9_update_texture_last_gc: std::time::UNIX_EPOCH,
+    texture_checksums: None,
+    srv_to_resource: None,
+    bound_textures_per_stage: [0usize; MAX_CHECKSUM_STAGES],
     making_selection: false,
     in_dip: false,
     in_hook_release: false,

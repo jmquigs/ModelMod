@@ -9,6 +9,9 @@ edition = "2021"
 [features]
 ci = []
 
+[dependencies]
+crc32fast = "1"
+
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",

@@ -366,6 +366,12 @@ module CoreTypes =
         UpdateTangentSpace: bool option
         /// Snapshot profile; optional since many older mods will not have this.
         Profile: SnapProfile option
+        /// Optional per-stage texture CRC32 checksum constraints.  Each entry
+        /// is `(stage, crc32)`.  When non-empty, the mod only renders while
+        /// the textures bound on the listed stages have the listed checksums.
+        /// Parsed from `Tex0Checksum`..`Tex3Checksum` in the mod YAML.  The
+        /// common unconstrained case uses an empty list.
+        TextureChecksums: (int * uint32) list
     }
 
     /// Union Parent type for the yaml objects.

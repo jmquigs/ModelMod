@@ -1,6 +1,7 @@
 use device_state::dev_state_d3d11_nolock;
 use global_state::HookState;
 use global_state::MAX_STAGE;
+use global_state::MAX_CHECKSUM_STAGES;
 use types::d3ddata::ModD3DData9;
 use types::interop::D3D9SnapshotRendData;
 use types::interop::SnapshotRendData;
@@ -339,7 +340,22 @@ pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     Ok(())
 }
 
+/// Always-on: record the resource pointer bound on stage `tex_stage` into
+/// `bound_textures_per_stage` when the stage is within the checksum range.
+/// This is used by `mod_render::select` to look up a checksum for the
+/// currently bound texture when a mod has a texture constraint.
+#[inline]
+pub fn track_bound_texture(tex_as_int:usize, tex_stage:u32, global_state:&mut HookState) {
+    if tex_stage < MAX_CHECKSUM_STAGES as u32 {
+        global_state.bound_textures_per_stage[tex_stage as usize] = tex_as_int;
+    }
+}
+
 pub fn track_set_texture(tex_as_int:usize, tex_stage:u32, global_state:&mut HookState) {
+    // Note: this function is selection-mode only.  Call `track_bound_texture`
+    // from your hook if you need the always-on per-stage bound-texture slot
+    // (the ptr stored there must be the *resource* pointer, which on DX11
+    // differs from the SRV passed here).
     if !global_state.making_selection {
         return;
     }
@@ -375,6 +391,10 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
     Stage: DWORD,
     pTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT {
+    // Always track the bound texture for the checksum stages (DX9 binds the
+    // resource pointer directly, so we can record it here without any
+    // SRV-style resolution).  Selection-mode accounting is layered on top.
+    track_bound_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
     if GLOBAL_STATE.making_selection {
         track_set_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
     }
@@ -754,9 +774,14 @@ where
         .and_then(|mods| {
             profile_start!(hdip, mod_select);
 
+            let bound = mod_render::BoundTextures {
+                per_stage: GLOBAL_STATE.bound_textures_per_stage,
+                checksums: GLOBAL_STATE.texture_checksums.as_ref(),
+            };
             let r = mod_render::select(mods,
                 primCount, NumVertices,
-                GLOBAL_STATE.metrics.total_frames);
+                GLOBAL_STATE.metrics.total_frames,
+                &bound);
             profile_end!(hdip, mod_select);
             r
         })

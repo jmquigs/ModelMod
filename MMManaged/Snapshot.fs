@@ -140,11 +140,20 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
-    type SnapMeta() = 
+    type SnapMeta() =
         let mutable profile:CoreTypes.SnapProfile = SnapshotProfile.EmptyProfile
         let mutable context:string = ""
+        // Identifier for the algorithm used to compute `TextureChecksums`.
+        // Stable string so that future algorithm changes won't silently
+        // invalidate mods that were authored against the previous scheme.
+        let mutable textureChecksumAlgo:string = "crc32-center64"
+        // Per-stage texture CRC32 checksum captured at snapshot time, keyed
+        // by stage index.  Stored as hex strings (8 chars, no prefix) so the
+        // YAML is human-readable.  Stages we couldn't read are omitted.
+        let mutable textureChecksums:System.Collections.Generic.Dictionary<int,string> =
+            System.Collections.Generic.Dictionary<int,string>()
 
-        static member Create(profile):SnapMeta = 
+        static member Create(profile):SnapMeta =
             let p = SnapMeta()
             p.Profile <- profile
             p.Context <- CoreState.Context
@@ -152,6 +161,8 @@ module Snapshot =
 
         member x.Profile with get() = profile and set v = profile <- v
         member x.Context with get() = context and set v = context <- v
+        member x.TextureChecksumAlgo with get() = textureChecksumAlgo and set v = textureChecksumAlgo <- v
+        member x.TextureChecksums with get() = textureChecksums and set v = textureChecksums <- v
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
@@ -915,7 +926,29 @@ module Snapshot =
             let metaFile = Path.Combine(baseDir, (sprintf "%s_Meta.yaml" sbasename))
             let serializer = Serializer()
             let sw = new StringWriter();
-            serializer.Serialize(sw, SnapMeta.Create(snapProfile))
+            let meta = SnapMeta.Create(snapProfile)
+            // Record texture checksums for the stages that actually had a
+            // texture saved.  The native helper returns 0 for unknown stages
+            // (e.g. textures we couldn't read); we omit those.  The algorithm
+            // identifier is set here so any future change to the native
+            // hashing scheme can be detected by mod tooling.
+            let getBoundChecksum =
+                match CoreState.Context with
+                | "mm_native" -> Some(NativeImportsAsMMNative.GetBoundTextureChecksum)
+                | "d3d9" -> Some(NativeImportsAsD3D9.GetBoundTextureChecksum)
+                | "d3d11" -> Some(NativeImportsAsD3D11.GetBoundTextureChecksum)
+                | _ -> None
+            match getBoundChecksum with
+            | None -> ()
+            | Some(fn) ->
+                for stage in texturePaths.Keys do
+                    if stage >= 0 && stage < 4 then
+                        let cs = fn (uint32 stage)
+                        if cs <> 0u then
+                            meta.TextureChecksums.[stage] <- sprintf "%08x" cs
+                        else
+                            log.Info "No texture checksum recorded for snapshot stage %d" stage
+            serializer.Serialize(sw, meta)
             File.WriteAllText(metaFile, (sw.ToString()))
 
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir

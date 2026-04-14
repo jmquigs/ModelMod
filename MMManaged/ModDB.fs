@@ -318,6 +318,32 @@ module ModDB =
 
         let computeTS = node |> Yaml.getOptionalValue "UpdateTangentSpace" |> Yaml.toOptionalBool
 
+        // Optional per-stage texture CRC32 checksum constraints.  The YAML
+        // stores them as hex strings (with or without a leading "0x"); we
+        // parse to uint32.  Slots not present in the yaml contribute no
+        // entry to the list (empty list == "unconstrained", the common case).
+        let parseHexCs (stage:int) (raw:string option) : (int * uint32) option =
+            match raw with
+            | None -> None
+            | Some s ->
+                let s = s.Trim()
+                if s = "" then None
+                else
+                    let s =
+                        if s.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase)
+                           || s.StartsWith("0X", System.StringComparison.OrdinalIgnoreCase)
+                        then s.Substring 2 else s
+                    match System.UInt32.TryParse(s, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture) with
+                    | true, v -> Some (stage, v)
+                    | false, _ ->
+                        log().Warn "Mod %s: could not parse Tex%dChecksum '%s' as hex uint32" modName stage s
+                        None
+        let texChecksums =
+            [0..3]
+            |> List.choose (fun stage ->
+                let key = sprintf "Tex%dChecksum" stage
+                node |> Yaml.getOptionalValue key |> Yaml.toOptionalString |> parseHexCs stage)
+
         let md = {
             DBMod.RefName = refName
             Type = modType
@@ -332,6 +358,7 @@ module ModDB =
             ParentModName = parentModName
             UpdateTangentSpace = computeTS
             Profile = profile
+            TextureChecksums = texChecksums
         }
 
         log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d: profile: %A" modName modType refName weightMode numOverrideTextures profile

@@ -75,6 +75,7 @@ use shared_dx::{util::write_log_file,
 use util::mm_verify_load;
 use device_state::{DEVICE_STATE, dev_state_d3d11_nolock, dev_state_d3d11_write};
 use crate::hook_render_d3d11::*;
+use util::tex_checksum;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
@@ -1044,6 +1045,107 @@ unsafe extern "system" fn hook_CreateBuffer(
     res
 }
 
+/// Default sample-window size used when computing DX11 texture checksums.
+/// This must match `TEX_CHECKSUM_SAMPLE_SIZE` in `hook_device.rs` (the DX9
+/// side) and the algorithm name written into the snapshot meta file.
+const TEX_CHECKSUM_SAMPLE_SIZE: u32 = 64;
+
+/// Classify a DXGI_FORMAT for the checksum helper.  See the DX9 equivalent
+/// in `hook_device.rs::classify_d3d_format`.
+enum DxgiFmtKind {
+    Uncompressed { bpp_bytes: u32 },
+    Block { block_bytes: u32 },
+}
+
+fn classify_dxgi_format(format: DXGI_FORMAT) -> Option<DxgiFmtKind> {
+    use winapi::shared::dxgiformat::*;
+    let bpp = |n:u32| Some(DxgiFmtKind::Uncompressed { bpp_bytes: n });
+    let blk = |n:u32| Some(DxgiFmtKind::Block { block_bytes: n });
+    match format {
+        // 128-bit
+        DXGI_FORMAT_R32G32B32A32_TYPELESS | DXGI_FORMAT_R32G32B32A32_FLOAT |
+        DXGI_FORMAT_R32G32B32A32_UINT | DXGI_FORMAT_R32G32B32A32_SINT => bpp(16),
+        // 96-bit
+        DXGI_FORMAT_R32G32B32_TYPELESS | DXGI_FORMAT_R32G32B32_FLOAT |
+        DXGI_FORMAT_R32G32B32_UINT | DXGI_FORMAT_R32G32B32_SINT => bpp(12),
+        // 64-bit
+        DXGI_FORMAT_R16G16B16A16_TYPELESS | DXGI_FORMAT_R16G16B16A16_FLOAT |
+        DXGI_FORMAT_R16G16B16A16_UNORM | DXGI_FORMAT_R16G16B16A16_UINT |
+        DXGI_FORMAT_R16G16B16A16_SNORM | DXGI_FORMAT_R16G16B16A16_SINT |
+        DXGI_FORMAT_R32G32_TYPELESS | DXGI_FORMAT_R32G32_FLOAT |
+        DXGI_FORMAT_R32G32_UINT | DXGI_FORMAT_R32G32_SINT |
+        DXGI_FORMAT_R32G8X24_TYPELESS | DXGI_FORMAT_D32_FLOAT_S8X24_UINT |
+        DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS | DXGI_FORMAT_X32_TYPELESS_G8X24_UINT => bpp(8),
+        // 32-bit
+        DXGI_FORMAT_R10G10B10A2_TYPELESS | DXGI_FORMAT_R10G10B10A2_UNORM | DXGI_FORMAT_R10G10B10A2_UINT |
+        DXGI_FORMAT_R11G11B10_FLOAT |
+        DXGI_FORMAT_R8G8B8A8_TYPELESS | DXGI_FORMAT_R8G8B8A8_UNORM | DXGI_FORMAT_R8G8B8A8_UNORM_SRGB |
+        DXGI_FORMAT_R8G8B8A8_UINT | DXGI_FORMAT_R8G8B8A8_SNORM | DXGI_FORMAT_R8G8B8A8_SINT |
+        DXGI_FORMAT_R16G16_TYPELESS | DXGI_FORMAT_R16G16_FLOAT | DXGI_FORMAT_R16G16_UNORM |
+        DXGI_FORMAT_R16G16_UINT | DXGI_FORMAT_R16G16_SNORM | DXGI_FORMAT_R16G16_SINT |
+        DXGI_FORMAT_R32_TYPELESS | DXGI_FORMAT_D32_FLOAT | DXGI_FORMAT_R32_FLOAT |
+        DXGI_FORMAT_R32_UINT | DXGI_FORMAT_R32_SINT |
+        DXGI_FORMAT_R24G8_TYPELESS | DXGI_FORMAT_D24_UNORM_S8_UINT |
+        DXGI_FORMAT_R24_UNORM_X8_TYPELESS | DXGI_FORMAT_X24_TYPELESS_G8_UINT |
+        DXGI_FORMAT_R9G9B9E5_SHAREDEXP |
+        DXGI_FORMAT_R8G8_B8G8_UNORM | DXGI_FORMAT_G8R8_G8B8_UNORM |
+        DXGI_FORMAT_B8G8R8A8_UNORM | DXGI_FORMAT_B8G8R8X8_UNORM |
+        DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM |
+        DXGI_FORMAT_B8G8R8A8_TYPELESS | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB |
+        DXGI_FORMAT_B8G8R8X8_TYPELESS | DXGI_FORMAT_B8G8R8X8_UNORM_SRGB => bpp(4),
+        // 16-bit
+        DXGI_FORMAT_R8G8_TYPELESS | DXGI_FORMAT_R8G8_UNORM | DXGI_FORMAT_R8G8_UINT |
+        DXGI_FORMAT_R8G8_SNORM | DXGI_FORMAT_R8G8_SINT |
+        DXGI_FORMAT_R16_TYPELESS | DXGI_FORMAT_R16_FLOAT | DXGI_FORMAT_D16_UNORM |
+        DXGI_FORMAT_R16_UNORM | DXGI_FORMAT_R16_UINT | DXGI_FORMAT_R16_SNORM | DXGI_FORMAT_R16_SINT |
+        DXGI_FORMAT_B5G6R5_UNORM | DXGI_FORMAT_B5G5R5A1_UNORM | DXGI_FORMAT_B4G4R4A4_UNORM => bpp(2),
+        // 8-bit
+        DXGI_FORMAT_R8_TYPELESS | DXGI_FORMAT_R8_UNORM | DXGI_FORMAT_R8_UINT |
+        DXGI_FORMAT_R8_SNORM | DXGI_FORMAT_R8_SINT | DXGI_FORMAT_A8_UNORM => bpp(1),
+        // Block-compressed
+        DXGI_FORMAT_BC1_TYPELESS | DXGI_FORMAT_BC1_UNORM | DXGI_FORMAT_BC1_UNORM_SRGB |
+        DXGI_FORMAT_BC4_TYPELESS | DXGI_FORMAT_BC4_UNORM | DXGI_FORMAT_BC4_SNORM => blk(8),
+        DXGI_FORMAT_BC2_TYPELESS | DXGI_FORMAT_BC2_UNORM | DXGI_FORMAT_BC2_UNORM_SRGB |
+        DXGI_FORMAT_BC3_TYPELESS | DXGI_FORMAT_BC3_UNORM | DXGI_FORMAT_BC3_UNORM_SRGB |
+        DXGI_FORMAT_BC5_TYPELESS | DXGI_FORMAT_BC5_UNORM | DXGI_FORMAT_BC5_SNORM |
+        DXGI_FORMAT_BC6H_TYPELESS | DXGI_FORMAT_BC6H_UF16 | DXGI_FORMAT_BC6H_SF16 |
+        DXGI_FORMAT_BC7_TYPELESS | DXGI_FORMAT_BC7_UNORM | DXGI_FORMAT_BC7_UNORM_SRGB => blk(16),
+        _ => None,
+    }
+}
+
+/// Compute a checksum for a DX11 texture's mip 0 initial-data, if present.
+/// We hash the initial data that was passed to CreateTexture2D directly -
+/// this avoids creating a staging texture and Mapping it, which would be
+/// expensive and isn't always possible.  Games that stream texture data via
+/// UpdateSubresource after creation won't have a checksum until a future
+/// iteration adds that hook.
+unsafe fn try_checksum_dx11_initial(
+    desc: &D3D11_TEXTURE2D_DESC,
+    initial: *const D3D11_SUBRESOURCE_DATA,
+) -> Option<u32> {
+    if initial.is_null() {
+        return None;
+    }
+    let kind = classify_dxgi_format(desc.Format)?;
+    let sd = &*initial;
+    if sd.pSysMem.is_null() || sd.SysMemPitch == 0 {
+        return None;
+    }
+    let (rows, pitch) = match kind {
+        DxgiFmtKind::Uncompressed { .. } => (desc.Height as usize, sd.SysMemPitch as usize),
+        DxgiFmtKind::Block { .. } => (((desc.Height + 3) / 4) as usize, sd.SysMemPitch as usize),
+    };
+    let buf_len = rows.saturating_mul(pitch);
+    let data = std::slice::from_raw_parts(sd.pSysMem as *const u8, buf_len);
+    match kind {
+        DxgiFmtKind::Uncompressed { bpp_bytes } => tex_checksum::compute_uncompressed(
+            data, desc.Width, desc.Height, sd.SysMemPitch, bpp_bytes, TEX_CHECKSUM_SAMPLE_SIZE),
+        DxgiFmtKind::Block { block_bytes } => tex_checksum::compute_block_compressed(
+            data, desc.Width, desc.Height, sd.SysMemPitch, block_bytes, TEX_CHECKSUM_SAMPLE_SIZE),
+    }
+}
+
 unsafe extern "system" fn hook_CreateTexture2D(
     THIS: *mut ID3D11Device,
     pDesc: *const D3D11_TEXTURE2D_DESC,
@@ -1127,6 +1229,24 @@ unsafe extern "system" fn hook_CreateTexture2D(
             write_log_file(&format!("hook_CreateTexture2D: retry with unmodified desc succeeded"));
         } else {
             write_log_file(&format!("hook_CreateTexture2D: retry failed"));
+        }
+    }
+
+    // If creation succeeded and the game supplied initial mip-0 data, hash
+    // the data we've been given and cache it under the resulting texture
+    // pointer.  `mod_render::select` will later consult this via the
+    // PSSetShaderResources srv->resource map when a mod constrains the
+    // texture on a particular stage.
+    if res == 0 && !pDesc.is_null() && !pInitialData.is_null()
+        && !ppTexture2D.is_null() && !(*ppTexture2D).is_null()
+    {
+        if let Some(cs) = try_checksum_dx11_initial(&*pDesc, pInitialData) {
+            if GLOBAL_STATE.texture_checksums.is_none() {
+                GLOBAL_STATE.texture_checksums = Some(fnv::FnvHashMap::default());
+            }
+            if let Some(m) = GLOBAL_STATE.texture_checksums.as_mut() {
+                m.insert(*ppTexture2D as usize, cs);
+            }
         }
     }
 

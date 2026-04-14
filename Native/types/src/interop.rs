@@ -75,6 +75,15 @@ pub struct ModData {
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
     pub mod_snap_profile: ModSnapProfile,
     pub data_available: bool,
+    /// Per-stage texture CRC32 checksum constraints. Only the slots whose
+    /// bit is set in `tex_checksum_mask` are meaningful; unused slots are 0.
+    /// When a bit is set, the mod is only rendered if the texture currently
+    /// bound on that stage has the matching checksum in
+    /// `GLOBAL_STATE.texture_checksums`. See `mod_render::select`.
+    pub tex_checksums: [u32; 4],
+    /// Bitmask over `tex_checksums` - bit `i` is set iff slot `i` is an
+    /// active constraint. 0 means "no constraint", which is the common case.
+    pub tex_checksum_mask: u8,
 }
 
 impl ModData {

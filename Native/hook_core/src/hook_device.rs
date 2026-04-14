@@ -6,6 +6,7 @@ pub use winapi::shared::windef::HWND;
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std;
+use std::mem::MaybeUninit;
 use std::ptr::null_mut;
 use std::time::Instant;
 use shared_dx::types::*;
@@ -15,6 +16,7 @@ use shared_dx::error::*;
 use input;
 use util;
 use util::*;
+use util::tex_checksum;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
 use device_state::{DEVICE_STATE, dev_state};
@@ -82,6 +84,10 @@ unsafe fn hook_d3d9_device(
     //(*vtbl).BeginScene = hook_begin_scene;
     (*vtbl).Present = hook_present;
     (*vtbl).parent.Release = hook_release;
+    // Always hook SetTexture so that we can track the texture bound on each
+    // stage (used for the texture-checksum mesh-disambiguation path in
+    // mod_render::select and historically for selection mode).
+    (*vtbl).SetTexture = crate::hook_render::hook_set_texture;
     // Always hook CreateTexture; the hook checks force_tex_cpu_read at runtime
     // to decide whether to change DEFAULT pool to MANAGED for snapshotting.
     // JMQNOTE: This d3d9-specific change sets up a hook method that converts to using the MANAGED pool 
@@ -139,6 +145,122 @@ unsafe fn hook_d3d9_device(
         real_set_pixel_sc_i,
         real_set_pixel_sc_b,
     ))
+}
+
+/// Default sample-window size (in pixels) for the texture-checksum path.
+/// The algorithm name written to snapshot meta must match this value.
+const TEX_CHECKSUM_SAMPLE_SIZE: u32 = 64;
+
+/// Classification of a D3DFORMAT for the checksum helper.
+enum FmtKind {
+    /// Plain `bpp` bytes per pixel.
+    Uncompressed { bpp_bytes: u32 },
+    /// Block-compressed with `block_bytes` bytes per 4x4 block.
+    Block { block_bytes: u32 },
+}
+
+/// Return the pixel-layout classification we need to walk a locked surface
+/// when computing a texture checksum.  `None` means "we don't know how to
+/// hash this format" and the caller should skip the texture.
+fn classify_d3d_format(format: D3DFORMAT) -> Option<FmtKind> {
+    // These FourCC codes match the values produced by MAKEFOURCC('D','X','T','1')
+    // etc., which is how D3D9 encodes the BC1-BC3 formats in a D3DFORMAT.
+    const FOURCC_DXT1: u32 = 0x31545844;
+    const FOURCC_DXT2: u32 = 0x32545844;
+    const FOURCC_DXT3: u32 = 0x33545844;
+    const FOURCC_DXT4: u32 = 0x34545844;
+    const FOURCC_DXT5: u32 = 0x35545844;
+    match format {
+        // 32-bit formats
+        D3DFMT_A8R8G8B8 | D3DFMT_X8R8G8B8 | D3DFMT_A8B8G8R8 | D3DFMT_X8B8G8R8 |
+        D3DFMT_A2R10G10B10 | D3DFMT_A2B10G10R10 | D3DFMT_G16R16 |
+        D3DFMT_Q8W8V8U8 | D3DFMT_V16U16 | D3DFMT_X8L8V8U8 | D3DFMT_A2W10V10U10 |
+        D3DFMT_D32 | D3DFMT_D24S8 | D3DFMT_D24X8 | D3DFMT_D24X4S4 | D3DFMT_D32F_LOCKABLE |
+        D3DFMT_INDEX32
+            => Some(FmtKind::Uncompressed { bpp_bytes: 4 }),
+        // 16-bit formats
+        D3DFMT_R5G6B5 | D3DFMT_X1R5G5B5 | D3DFMT_A1R5G5B5 | D3DFMT_A4R4G4B4 |
+        D3DFMT_R3G3B2 | D3DFMT_A8R3G3B2 | D3DFMT_X4R4G4B4 |
+        D3DFMT_A8L8 | D3DFMT_V8U8 | D3DFMT_L6V5U5 | D3DFMT_D16 | D3DFMT_D15S1 |
+        D3DFMT_D16_LOCKABLE | D3DFMT_INDEX16
+            => Some(FmtKind::Uncompressed { bpp_bytes: 2 }),
+        // 8-bit formats
+        D3DFMT_R8G8B8
+            => Some(FmtKind::Uncompressed { bpp_bytes: 3 }),
+        D3DFMT_A8 | D3DFMT_L8 | D3DFMT_A4L4 | D3DFMT_P8
+            => Some(FmtKind::Uncompressed { bpp_bytes: 1 }),
+        f => {
+            let fv = f as u32;
+            match fv {
+                FOURCC_DXT1 => Some(FmtKind::Block { block_bytes: 8 }),
+                FOURCC_DXT2 | FOURCC_DXT3 | FOURCC_DXT4 | FOURCC_DXT5
+                    => Some(FmtKind::Block { block_bytes: 16 }),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Attempt to compute a checksum for mip 0 of a DX9 texture.
+/// The texture is locked `D3DLOCK_READONLY`; this will fail for textures in
+/// non-lockable pools (e.g. `D3DPOOL_DEFAULT` without `force_tex_cpu_read`).
+/// In that case we return `None` and the caller skips caching.
+unsafe fn try_checksum_dx9_texture(tex: *mut IDirect3DTexture9) -> Option<u32> {
+    if tex.is_null() {
+        return None;
+    }
+    let mut desc = MaybeUninit::<D3DSURFACE_DESC>::uninit();
+    let hr = (*tex).GetLevelDesc(0, desc.as_mut_ptr());
+    if hr != 0 {
+        return None;
+    }
+    let desc = desc.assume_init();
+    let kind = classify_d3d_format(desc.Format)?;
+
+    let mut locked = MaybeUninit::<D3DLOCKED_RECT>::uninit();
+    const D3DLOCK_READONLY: DWORD = 0x00000010;
+    let hr = (*tex).LockRect(0, locked.as_mut_ptr(), null_mut(), D3DLOCK_READONLY);
+    if hr != 0 {
+        return None;
+    }
+    let locked = locked.assume_init();
+
+    // The slice length is the number of full rows in the locked surface: for
+    // uncompressed formats that's Height rows, for block-compressed it's
+    // ceil(Height/4) block-rows.
+    let (rows, pitch_usable) = match kind {
+        FmtKind::Uncompressed { .. } => (desc.Height as usize, locked.Pitch as usize),
+        FmtKind::Block { .. } => (((desc.Height + 3) / 4) as usize, locked.Pitch as usize),
+    };
+    let buf_len = rows.saturating_mul(pitch_usable);
+    let data = std::slice::from_raw_parts(locked.pBits as *const u8, buf_len);
+
+    let result = match kind {
+        FmtKind::Uncompressed { bpp_bytes } => tex_checksum::compute_uncompressed(
+            data, desc.Width, desc.Height, locked.Pitch as u32, bpp_bytes, TEX_CHECKSUM_SAMPLE_SIZE),
+        FmtKind::Block { block_bytes } => tex_checksum::compute_block_compressed(
+            data, desc.Width, desc.Height, locked.Pitch as u32, block_bytes, TEX_CHECKSUM_SAMPLE_SIZE),
+    };
+
+    let _ = (*tex).UnlockRect(0);
+    result
+}
+
+/// Insert a checksum into the global map, creating it if needed.
+unsafe fn insert_checksum(key: usize, cs: u32) {
+    if GLOBAL_STATE.texture_checksums.is_none() {
+        GLOBAL_STATE.texture_checksums = Some(fnv::FnvHashMap::default());
+    }
+    if let Some(m) = GLOBAL_STATE.texture_checksums.as_mut() {
+        m.insert(key, cs);
+    }
+}
+
+/// Remove a checksum entry if present.
+unsafe fn remove_checksum(key: usize) {
+    if let Some(m) = GLOBAL_STATE.texture_checksums.as_mut() {
+        m.remove(&key);
+    }
 }
 
 /// Hook for IDirect3DDevice9::CreateTexture.
@@ -259,7 +381,26 @@ unsafe extern "system" fn hook_update_texture(
         }
     }
 
-    (real_fn)(THIS, pSourceTexture, pDestinationTexture)
+    let hr = (real_fn)(THIS, pSourceTexture, pDestinationTexture);
+
+    // After a successful update, checksum the source (which is lockable,
+    // being SYSTEMMEM/MANAGED for games that use this staging path) and
+    // store it under the destination pointer key - this is the key that
+    // `SetTexture` will later bind for draw calls. Mirror the hash under
+    // the source key too so subsequent update cycles that skip the
+    // AddRef can still benefit from the cached value.
+    if hr == 0 && !pSourceTexture.is_null() && !pDestinationTexture.is_null() {
+        // Both D3D9 base-texture types we see here are IDirect3DTexture9 in
+        // practice; for non-2D textures the cast is still safe because we
+        // classify by format and bail out early if unsupported.
+        let src_tex = pSourceTexture as *mut IDirect3DTexture9;
+        if let Some(cs) = try_checksum_dx9_texture(src_tex) {
+            insert_checksum(pDestinationTexture as usize, cs);
+            insert_checksum(pSourceTexture as usize, cs);
+        }
+    }
+
+    hr
 }
 
 /// Garbage-collect the DX9 UpdateTexture source-tracking state.
@@ -338,11 +479,19 @@ pub unsafe fn dx9_update_texture_gc() {
             if let Some(set) = GLOBAL_STATE.dx9_update_texture_tracked_srcs.as_mut() {
                 set.remove(&src_key);
             }
+            // Drop any cached checksum keyed by the now-dead source pointer.
+            remove_checksum(src_key);
             released_srcs.push(src_key);
         }
     }
 
     if !released_srcs.is_empty() {
+        // Drop the dest->src entries that referenced any of the released
+        // source pointers. The corresponding dest-keyed checksum entries
+        // can outlive this pass: the destination texture may still be alive
+        // and carrying the same contents, so we deliberately leave
+        // `texture_checksums[dest]` in place. If the dest gets overwritten
+        // by a future UpdateTexture the new checksum will replace it.
         if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
             map.retain(|_, v| !released_srcs.contains(v));
         }

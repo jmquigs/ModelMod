@@ -6,3 +6,4 @@ mod util;
 pub use crate::util::*;
 
 pub mod game_profile;
+pub mod tex_checksum;

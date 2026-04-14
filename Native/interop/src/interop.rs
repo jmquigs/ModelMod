@@ -5,7 +5,7 @@ use std::os::raw::c_char;
 
 
 use shared_dx::util::write_log_file;
-use global_state::HookState;
+use global_state::{HookState, GLOBAL_STATE};
 use types::interop::*;
 
 lazy_static! {
@@ -67,6 +67,49 @@ pub unsafe extern "system" fn SaveTexture(index: i32, filepath: *const u16) -> b
             write_log_file(&format!("failed to save texture: {:?}", e));
             false
         }
+    }
+}
+
+/// Look up the texture checksum for a previously-seen texture resource pointer.
+///
+/// `tex_ptr` is the native resource pointer (DX9 `IDirect3DBaseTexture9*`,
+/// DX11 `ID3D11Texture2D*`) as a `usize`.  Returns the CRC32 recorded for that
+/// texture, or `0` if no checksum is known.  Zero is treated as "unknown" by
+/// callers (real checksums of non-trivial image data collide with 0 with
+/// probability ~2^-32 and this simplifies the interop signature).
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "system" fn GetTextureChecksum(tex_ptr: usize) -> u32 {
+    if tex_ptr == 0 {
+        return 0;
+    }
+    match GLOBAL_STATE.texture_checksums.as_ref() {
+        Some(m) => m.get(&tex_ptr).copied().unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Look up the checksum of the texture currently bound on the given stage.
+///
+/// Stages >= `MAX_CHECKSUM_STAGES` are not tracked and will always return 0.
+/// Returns 0 if nothing is bound on the stage or its checksum is unknown.
+/// Used by the snapshot code to record `TextureChecksums` in the snap meta
+/// without needing to resolve native texture pointers itself (which is
+/// especially awkward for DX11 where we need to translate SRV → resource).
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "system" fn GetBoundTextureChecksum(stage: u32) -> u32 {
+    let s = stage as usize;
+    if s >= global_state::MAX_CHECKSUM_STAGES {
+        return 0;
+    }
+    let ptr = GLOBAL_STATE.bound_textures_per_stage[s];
+    if ptr == 0 {
+        return 0;
+    }
+    match GLOBAL_STATE.texture_checksums.as_ref() {
+        Some(m) => m.get(&ptr).copied().unwrap_or(0),
+        None => 0,
     }
 }
 

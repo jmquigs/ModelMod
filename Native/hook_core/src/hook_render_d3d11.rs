@@ -32,7 +32,8 @@ use winapi::shared::minwindef::UINT;
 use device_state::{dev_state, dev_state_d3d11_nolock, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
-use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
+use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, track_bound_texture, get_override_tex_if_selected};
+use global_state::MAX_CHECKSUM_STAGES;
 use crate::{input_commands, debugmode, mod_render};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
@@ -412,21 +413,73 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
         Err(_) => return,
     };
 
-    if GLOBAL_STATE.making_selection {
-        // need to iterate the srvs and track any that are 2d textures
+    // We always want to keep `bound_textures_per_stage` current for the
+    // checksum-disambiguation path (stages < MAX_CHECKSUM_STAGES). The full
+    // active_texture_list accounting only runs in selection mode.
+    let end_slot = StartSlot.saturating_add(NumViews);
+    let touches_checksum_stages = StartSlot < MAX_CHECKSUM_STAGES as u32;
+    let in_selection = GLOBAL_STATE.making_selection;
+    if in_selection || touches_checksum_stages {
         for i in 0..NumViews {
+            let stage = StartSlot + i;
             let srv = *ppShaderResourceViews.offset(i as isize);
-            if !srv.is_null() {
-                let mut desc = MaybeUninit::uninit();
-                (*srv).GetDesc(desc.as_mut_ptr());
-                let desc = desc.assume_init();
-                if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
-                    let stage = StartSlot + i;
-                    track_set_texture(srv as usize, stage, &mut GLOBAL_STATE);
+            if srv.is_null() {
+                // Clear the bound slot so a stale pointer isn't used after an
+                // unbind.
+                if (stage as usize) < MAX_CHECKSUM_STAGES {
+                    GLOBAL_STATE.bound_textures_per_stage[stage as usize] = 0;
                 }
+                continue;
+            }
+            // Only TEXTURE2D SRVs participate; the existing selection code
+            // already filtered on this, and our checksum store is keyed by
+            // resource pointer which we can only get from a 2D SRV resolve.
+            let mut desc = MaybeUninit::uninit();
+            (*srv).GetDesc(desc.as_mut_ptr());
+            let desc = desc.assume_init();
+            if desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D {
+                if (stage as usize) < MAX_CHECKSUM_STAGES {
+                    GLOBAL_STATE.bound_textures_per_stage[stage as usize] = 0;
+                }
+                continue;
+            }
+
+            if (stage as usize) < MAX_CHECKSUM_STAGES {
+                // Lazily cache SRV -> resource. GetResource AddRefs the
+                // resource; we only want the pointer as an integer key, so
+                // release immediately.
+                let resource_ptr = {
+                    let cached = GLOBAL_STATE.srv_to_resource
+                        .as_ref()
+                        .and_then(|m| m.get(&(srv as usize)).copied());
+                    match cached {
+                        Some(p) => p,
+                        None => {
+                            let mut resource: *mut ID3D11Resource = null_mut();
+                            (*srv).GetResource(&mut resource);
+                            let rp = resource as usize;
+                            if !resource.is_null() {
+                                (*resource).Release();
+                            }
+                            if GLOBAL_STATE.srv_to_resource.is_none() {
+                                GLOBAL_STATE.srv_to_resource = Some(FnvHashMap::default());
+                            }
+                            if let Some(m) = GLOBAL_STATE.srv_to_resource.as_mut() {
+                                m.insert(srv as usize, rp);
+                            }
+                            rp
+                        }
+                    }
+                };
+                track_bound_texture(resource_ptr, stage, &mut GLOBAL_STATE);
+            }
+
+            if in_selection {
+                track_set_texture(srv as usize, stage, &mut GLOBAL_STATE);
             }
         }
     }
+    let _ = end_slot; // silence unused if checks are skipped in the future
 
     (hook_context.real_ps_set_shader_resources)(
         THIS,

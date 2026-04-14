@@ -260,10 +260,20 @@ module ModDBInterop =
             | None -> -1
             | Some(upd) -> if upd then 1 else 0
 
-        let profile = 
-            match meshrel.DBMod.Profile with 
+        let profile =
+            match meshrel.DBMod.Profile with
             | None -> EmptyModSnapProfile
             | Some(p) -> SnapshotProfile.toInteropStruct p
+
+        // Collapse the optional per-stage checksum constraints into the
+        // flat (checksums + mask) representation that crosses the interop
+        // boundary.  Slots not listed in `TextureChecksums` contribute 0.
+        let texCs = Array.create 4 0u
+        let mutable texMask = 0uy
+        for (stage, crc) in meshrel.DBMod.TextureChecksums do
+            if stage >= 0 && stage < 4 then
+                texCs.[stage] <- crc
+                texMask <- texMask ||| (1uy <<< stage)
 
         {
             InteropTypes.ModData.ModType = modType
@@ -286,6 +296,11 @@ module ModDBInterop =
             UpdateTangentSpace = updateTS
             SnapProfile = profile
             DataAvailable = meshrel.IsBuilt
+            Tex0Checksum = texCs.[0]
+            Tex1Checksum = texCs.[1]
+            Tex2Checksum = texCs.[2]
+            Tex3Checksum = texCs.[3]
+            TexChecksumMask = texMask
         }
 
     let emptyMod = InteropTypes.EmptyModData

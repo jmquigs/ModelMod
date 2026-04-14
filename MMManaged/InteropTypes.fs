@@ -153,11 +153,22 @@ module InteropTypes =
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         PixelShaderPath: string
         SnapProfile: ModSnapProfile
-        /// Whether the data has been loaded for this mod.  If this is false only some metadata will be available 
-        /// (extracted from the yaml files).  The full mod data including meshes and the meshrelation 
+        /// Whether the data has been loaded for this mod.  If this is false only some metadata will be available
+        /// (extracted from the yaml files).  The full mod data including meshes and the meshrelation
         /// can be loaded with ModDBInterop.loadModData.
         [<MarshalAs(UnmanagedType.U1)>]
         DataAvailable: bool
+        /// Per-stage texture CRC32 checksum constraints.  Only slots whose
+        /// bit is set in `TexChecksumMask` are meaningful.  When a bit is set
+        /// the mod only renders if the texture bound on that stage has the
+        /// matching checksum recorded by native code.
+        Tex0Checksum: uint32
+        Tex1Checksum: uint32
+        Tex2Checksum: uint32
+        Tex3Checksum: uint32
+        /// Bitmask over Tex[0..3]Checksum; bit i set iff slot i is an
+        /// active constraint.  0 means "no constraint", which is the common case.
+        TexChecksumMask: byte
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
@@ -182,6 +193,11 @@ module InteropTypes =
         UpdateTangentSpace = -1
         SnapProfile = EmptyModSnapProfile
         DataAvailable = false
+        Tex0Checksum = 0u
+        Tex1Checksum = 0u
+        Tex2Checksum = 0u
+        Tex3Checksum = 0u
+        TexChecksumMask = 0uy
     }
 
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]
@@ -373,6 +389,14 @@ module NativeImportsAsD3D11 =
     /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
     /// If you call this function twice in succession and then use the results from the first call, it will crash.
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Retrieves the CRC32 checksum recorded for a given native texture resource
+    /// pointer.  Returns 0 when the checksum is unknown.
+    extern uint32 GetTextureChecksum(nativeint texPtr)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Retrieves the CRC32 checksum of the texture currently bound on the
+    /// given stage.  Returns 0 for unknown/unbound/out-of-range stages.
+    extern uint32 GetBoundTextureChecksum(uint32 stage)
 
 module NativeImportsAsD3D9 =
     [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall ) >]
@@ -393,6 +417,14 @@ module NativeImportsAsD3D9 =
     /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
     /// If you call this function twice in succession and then use the results from the first call, it will crash.
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Retrieves the CRC32 checksum recorded for a given native texture resource
+    /// pointer.  Returns 0 when the checksum is unknown.
+    extern uint32 GetTextureChecksum(nativeint texPtr)
+    [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Retrieves the CRC32 checksum of the texture currently bound on the
+    /// given stage.  Returns 0 for unknown/unbound/out-of-range stages.
+    extern uint32 GetBoundTextureChecksum(uint32 stage)
 
 module NativeImportsAsMMNative =
     [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
@@ -407,3 +439,11 @@ module NativeImportsAsMMNative =
     extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
     [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
+    /// Retrieves the CRC32 checksum recorded for a given native texture resource
+    /// pointer.  Returns 0 when the checksum is unknown.
+    extern uint32 GetTextureChecksum(nativeint texPtr)
+    [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
+    /// Retrieves the CRC32 checksum of the texture currently bound on the
+    /// given stage.  Returns 0 for unknown/unbound/out-of-range stages.
+    extern uint32 GetBoundTextureChecksum(uint32 stage)
