@@ -1,10 +1,6 @@
+# Warning: OUT OF DATE
+
 # Dev Guide
-
-## Demo video
-
-This video is a live coding exercise showing how to make some (admittedly simple) changes to ModelMod to support a new game.  
-
-https://www.youtube.com/watch?v=KGN7MSjSx_U
 
 ## Development environment setup
 
