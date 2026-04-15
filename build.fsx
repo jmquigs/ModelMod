@@ -323,7 +323,7 @@ Target "SignBuild" (fun _ ->
 
     try
         File.WriteAllText(passFile,pass)
-        SignTool @"C:\Program Files (x86)\Windows Kits\8.1\bin\x64" certPath passFile files
+        SignTool @"C:\Program Files\Windows Kits\8.1\bin\x64" certPath passFile files
         File.Delete passFile
     with
         | e ->
@@ -391,12 +391,12 @@ Target "CheckConf" ignore
 
 let VSSearchPaths =
     [
-        @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise" // github win 2019 runner
+        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise" // github win 2022 runner
         @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community" // my system
     ]
 let MSBuildPaths =
     [
-        @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin" // github win 2019 runner
+        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin" // github win 2022 runner
         @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin" // my system
     ]
 
@@ -435,12 +435,11 @@ let doCISetup() =
 
     // MSBuild will usually to fail to set up the FSharpTargetsPath variable properly, so we need to
     // manually slam it to the proper value in each project.
-    // github has these targets files as of 3/10/2023 on the windows 2019 build image
-    // C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets
-    // C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools\Microsoft.FSharp.Targets
+    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets
+    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools\Microsoft.FSharp.Targets
     let tryUpdateProj = true
     if tryUpdateProj then
-        let usePath = @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets"
+        let usePath = @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets"
 
         let updateList = [
             "MMLaunch/MMLaunch.fsproj"
@@ -498,10 +497,10 @@ let getVSPath() =
 // Verify that the env is set up properly and if not, try to set it up.  set SKIPENV=1 to skip this
 // min env needed to build is these vars, MSBuild is optional but if there are a lot of vs studio
 // versions installed Fake may find the wrong one.
-    //   VSINSTALLDIR: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise
-    //   VsInstallRoot: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise
+    //   VSINSTALLDIR: C:\Program Files\Microsoft Visual Studio\2022\Enterprise
+    //   VsInstallRoot: C:\Program Files\Microsoft Visual Studio\2022\Enterprise
     //   VisualStudioVersion: 16.0
-    //   MSBuild: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin
+    //   MSBuild: C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin
 let envv x = System.Environment.GetEnvironmentVariable(x)
 let checkEnv = envv("SKIPENV") <> "1"
 if checkEnv then
