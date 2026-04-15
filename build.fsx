@@ -181,6 +181,7 @@ Target "UpdateRcVersions" (fun _ ->
 
 Target "BuildCS" (fun _ ->
     !! "**/*.csproj"
+      -- "**/ModelModCLRAppDomain.csproj"
       |> MSBuildRelease buildBin "Build"
       |> Log "BuildCS-Output: "
 )
@@ -294,13 +295,13 @@ Target "SignBuild" (fun _ ->
             "ModelMod.exe";
             "Bin\ModelMod.exe";
             "Bin\ModelMod.dll";
-            "Bin\MMLoader.exe";
+            //"Bin\MMLoader.exe";
             "Bin\MeshView.exe";
             "Bin\WpfInteropSample.exe";
             "Bin\MMLaunch.exe";
             "Bin\MMManaged.dll";
             "Bin\MMManaged.Engine.dll";
-            "Bin\ModelModCLRAppDomain.dll";
+            //"Bin\ModelModCLRAppDomain.dll";
         ] |> List.map (fun p -> Path.Combine(zipTemp,p))
 
     files |> List.iter (fun f ->
