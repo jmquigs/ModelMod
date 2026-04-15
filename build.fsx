@@ -435,11 +435,11 @@ let doCISetup() =
 
     // MSBuild will usually to fail to set up the FSharpTargetsPath variable properly, so we need to
     // manually slam it to the proper value in each project.
-    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets
+    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v17.0\FSharp\Microsoft.FSharp.targets
     // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools\Microsoft.FSharp.Targets
     let tryUpdateProj = true
     if tryUpdateProj then
-        let usePath = @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets"
+        let usePath = @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v17.0\FSharp\Microsoft.FSharp.targets"
 
         let updateList = [
             "MMLaunch/MMLaunch.fsproj"
