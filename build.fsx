@@ -179,10 +179,27 @@ Target "UpdateRcVersions" (fun _ ->
     //updateRcVersions ("./MMLoader/MMLoader.rc")
 )
 
+// F# glob enumeration will fail with a cryptic invalid directory error, if it hits any of the game symlinks I now use
+// in my working copy.
+// this can be used to fund such symlinks.  Unfortunately only workaround right now
+// is to move them out of the out the project root so that they won't get scanned.
+let rec findBadDir (dir: string) =
+    try
+        let subDirs = System.IO.Directory.GetDirectories(dir)
+        for d in subDirs do
+            findBadDir d
+    with ex ->
+        printfn "FAILED AT: %s" dir
+        printfn "Error: %s" ex.Message
+
 Target "BuildCS" (fun _ ->
     !! "**/*.csproj"
       -- "**/ModelModCLRAppDomain.csproj"
-      |> MSBuildRelease buildBin "Build"
+      |> fun x -> 
+        findBadDir buildDir
+
+        if not (Directory.Exists buildBin) then Directory.CreateDirectory buildBin |> ignore
+        MSBuildRelease buildBin "Build" x
       |> Log "BuildCS-Output: "
 )
 
