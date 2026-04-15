@@ -9,10 +9,11 @@
     <OutputType>Library</OutputType>
     <RootNamespace>Test.MMManaged</RootNamespace>
     <AssemblyName>Test.MMManaged</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFSharpCoreVersion>4.6.0.0</TargetFSharpCoreVersion>
     <Name>Test.MMManaged</Name>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>

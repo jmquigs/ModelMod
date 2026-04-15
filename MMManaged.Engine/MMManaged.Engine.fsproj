@@ -9,7 +9,7 @@
     <OutputType>Library</OutputType>
     <RootNamespace>ModelMod.Engine</RootNamespace>
     <AssemblyName>MMManaged.Engine</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <TargetFSharpCoreVersion>4.6.0.0</TargetFSharpCoreVersion>
     <Name>MMManaged.Engine</Name>
     <TargetFrameworkProfile />
@@ -54,19 +54,45 @@
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
     <!-- Implementation files linked from MMManaged source directory -->
-    <Compile Include="..\MMManaged\Util.fs"><Link>Util.fs</Link></Compile>
-    <Compile Include="..\MMManaged\MeshUtil.fs"><Link>MeshUtil.fs</Link></Compile>
-    <Compile Include="..\MMManaged\MeshTransform.fs"><Link>MeshTransform.fs</Link></Compile>
-    <Compile Include="..\MMManaged\Yaml.fs"><Link>Yaml.fs</Link></Compile>
-    <Compile Include="..\MMManaged\StartConf.fs"><Link>StartConf.fs</Link></Compile>
-    <Compile Include="..\MMManaged\MeshRelation.fs"><Link>MeshRelation.fs</Link></Compile>
-    <Compile Include="..\MMManaged\MemoryCache.fs"><Link>MemoryCache.fs</Link></Compile>
-    <Compile Include="..\MMManaged\SnapshotProfile.fs"><Link>SnapshotProfile.fs</Link></Compile>
-    <Compile Include="..\MMManaged\ModDB.fs"><Link>ModDB.fs</Link></Compile>
-    <Compile Include="..\MMManaged\DataEncoding.fs"><Link>DataEncoding.fs</Link></Compile>
-    <Compile Include="..\MMManaged\State.fs"><Link>State.fs</Link></Compile>
-    <Compile Include="..\MMManaged\ModDBInterop.fs"><Link>ModDBInterop.fs</Link></Compile>
-    <Compile Include="..\MMManaged\Snapshot.fs"><Link>Snapshot.fs</Link></Compile>
+    <Compile Include="..\MMManaged\Util.fs">
+      <Link>Util.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshUtil.fs">
+      <Link>MeshUtil.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshTransform.fs">
+      <Link>MeshTransform.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\Yaml.fs">
+      <Link>Yaml.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\StartConf.fs">
+      <Link>StartConf.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshRelation.fs">
+      <Link>MeshRelation.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MemoryCache.fs">
+      <Link>MemoryCache.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\SnapshotProfile.fs">
+      <Link>SnapshotProfile.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\ModDB.fs">
+      <Link>ModDB.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\DataEncoding.fs">
+      <Link>DataEncoding.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\State.fs">
+      <Link>State.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\ModDBInterop.fs">
+      <Link>ModDBInterop.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\Snapshot.fs">
+      <Link>Snapshot.fs</Link>
+    </Compile>
     <!-- EngineEntry is the only file unique to this project -->
     <Compile Include="EngineEntry.fs" />
   </ItemGroup>
