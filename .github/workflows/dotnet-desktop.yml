@@ -21,10 +21,10 @@ jobs:
                              # https://help.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idruns-on
 
     env:
-      VSINSTALLDIR: C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise
-      VsInstallRoot: C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise
-      VisualStudioVersion: 16.0
-      MSBuild: C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin
+      VSINSTALLDIR: C:\Program Files\Microsoft Visual Studio\2022\Enterprise
+      VsInstallRoot: C:\Program Files\Microsoft Visual Studio\2022\Enterprise
+      VisualStudioVersion: 17.0
+      MSBuild: C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin
       # this should speed up cargo eventually but the Rust version on this build image
       # doesn't support it properly yet (and fails if specified)
       #CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -34,6 +34,12 @@ jobs:
       uses: actions/checkout@v3
       with:
         fetch-depth: 0
+
+    - name: Debug - find VS and FSI
+      run: |
+        & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+        Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp" -Recurse -Filter "fsi.exe" -ErrorAction SilentlyContinue
+        Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp" -Recurse -Filter "fsi.exe" -ErrorAction SilentlyContinue
 
     # disabled this, required only for artifacts
 
@@ -48,7 +54,7 @@ jobs:
     #    path: TPLib
 
     #- name: Set path (fsharp tools)
-    #  run: echo "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    #  run: echo "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - name: Add FSI to PATH
       run: |
         $fsiDir = "$env:VsInstallRoot\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools"
