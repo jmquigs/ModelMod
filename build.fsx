@@ -6,7 +6,7 @@ open Fake.AssemblyInfoFile
 open System.IO
 
 let buildDir = "./build/"
-let buildBin = buildDir + "/Bin"
+let buildBin = buildDir @@ "Bin"
 let testDir = "./test"
 let deployDir = "./deploy/"
 let nativeOut = "./Release"
@@ -391,13 +391,14 @@ Target "CheckConf" ignore
 
 let VSSearchPaths =
     [
-        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise" // github win 2022 runner
         @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community" // my system
+        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise" // github win 2022 runner
+        
     ]
 let MSBuildPaths =
     [
-        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin" // github win 2022 runner
         @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin" // my system
+        @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin" // github win 2022 runner
     ]
 
 let checkAndUpdateVersion = true
@@ -412,6 +413,14 @@ if checkAndUpdateVersion then
         with
         | e -> failwithf "failed to set build number: %A" e
     printfn "MM Version: %A" version
+
+let getVSPath() =
+    VSSearchPaths
+    |> List.tryFind (fun p -> System.IO.Directory.Exists p)
+    |> function
+        | Some p -> p
+        | None -> failwithf "no vs path found, searched %A" VSSearchPaths
+
 /// Used to setup github CI build (or debug that build by looking for stuff and printing
 /// out what it finds)
 let doCISetup() =
@@ -439,7 +448,14 @@ let doCISetup() =
     // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools\Microsoft.FSharp.Targets
     let tryUpdateProj = true
     if tryUpdateProj then
-        let usePath = @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v17.0\FSharp\Microsoft.FSharp.targets"
+        let vspath = getVSPath()
+        let msbuildFSTargets = 
+            if vspath.Contains "2019" then 
+                @"MSBuild\Microsoft\VisualStudio\v16.0\FSharp\Microsoft.FSharp.targets"
+            else 
+                @"MSBuild\Microsoft\VisualStudio\v17.0\FSharp\Microsoft.FSharp.targets"
+
+        let usePath = vspath @@ msbuildFSTargets
 
         let updateList = [
             "MMLaunch/MMLaunch.fsproj"
@@ -486,13 +502,6 @@ let doCISetup() =
     //     Directory.CreateDirectory("Logs") |> ignore
 
     printfn "action setup complete"
-
-let getVSPath() =
-    VSSearchPaths
-    |> List.tryFind (fun p -> System.IO.Directory.Exists p)
-    |> function
-        | Some p -> p
-        | None -> failwithf "no vs path found, searched %A" VSSearchPaths
 
 // Verify that the env is set up properly and if not, try to set it up.  set SKIPENV=1 to skip this
 // min env needed to build is these vars, MSBuild is optional but if there are a lot of vs studio
