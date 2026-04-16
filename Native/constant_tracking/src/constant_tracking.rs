@@ -342,8 +342,7 @@ mod tests {
         iconst.set(16, (vec![FALSE, TRUE, TRUE, FALSE]).as_ptr(), 4 );
 
         let s = iconst.serialize().expect("shit");
-        assert_eq!(s, r"---
-0: 1
+        assert_eq!(s, r"0: 1
 1: 0
 2: 1
 3: 0
@@ -358,7 +357,8 @@ mod tests {
 16: 0
 17: 1
 18: 1
-19: 0");
+19: 0
+");
 
     }
 }
