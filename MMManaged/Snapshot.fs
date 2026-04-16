@@ -58,6 +58,15 @@ module Extractors =
         br.ReadUInt16() |> ignore // z - unused for now
         br.ReadUInt16() |> ignore // w - unused for now
         (x, y)
+    // UByte4N: 4 unsigned bytes normalized to [0,1].  Texture coord interpretation is a guess;
+    // we use the first two bytes as (u,v) and discard the rest.  If this doesn't work the 
+    // vertex shader may provide more information on how the format is decoded.
+    let xTexFromUbyte4N (br:SourceReader) =
+        let u = byteToFloat (br.ReadByte())
+        let v = byteToFloat (br.ReadByte())
+        br.ReadByte() |> ignore // z - unused
+        br.ReadByte() |> ignore // w - unused
+        (u, v)
     let xTexFrom2S16_x2S16 (br:SourceReader) = 
         let x1 = br.ReadInt16()
         let x2 = br.ReadInt16()
@@ -247,6 +256,8 @@ module Snapshot =
                         fns.TexCoord (Extractors.xTexFromHalfFloat2 reader)
                     | SDXVertexDeclType.HalfFour ->
                         fns.TexCoord (Extractors.xTexFromHalfFloat4 reader)
+                    | SDXVertexDeclType.UByte4N ->
+                        fns.TexCoord (Extractors.xTexFromUbyte4N reader)
                     | _ -> failwithf "Unsupported type for texture coordinate: %A" dt
                 | MMET.Format(f) ->
                     match f with
