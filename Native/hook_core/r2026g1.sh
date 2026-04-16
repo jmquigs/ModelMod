@@ -17,9 +17,14 @@ GLINK="G2026g1"
 
 GPATH="$MMPATH/$GLINK"
 if [ ! -f "$GPATH" ]; then 
-    echo "Game symlink $GPATH does not exist" 
-    exit 1
+    echo "Possible game symlink $GPATH does not exist" 
+    GPATH="$MMPATH/../GameLink/$GLINK"
+    if [ ! -f "$GPATH" ]; then 
+        echo "Possible game symlink $GPATH does not exist" 
+        exit 1
+    fi 
 fi 
+echo "Using game symlink: $GPATH"
 
 # possible features:
 #   profile

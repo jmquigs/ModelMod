@@ -19,7 +19,7 @@ function find_mm {
     MMPATH=$(realpath "$MMPATH")
     # Walk upward until we find "ModelMod"
     while [ "$MMPATH" != "/" ]; do
-        if [ -d "$MMPATH/ModelMod" ]; then
+        if [ -d "$MMPATH/ModelMod" ] && [ ! -d "$MMPATH/../ModelMod" ]; then
             # Found it: set MMPATH to the ModelMod directory
             MMPATH="$MMPATH/ModelMod"
             echo "Found ModelMod at: $MMPATH"
