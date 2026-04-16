@@ -1002,6 +1002,15 @@ module ModDBInterop =
                                     bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
                                     bw.Write(uint16 0)
                                     bw.Write(uint16 0)
+                                | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+                                    // UV packed as 4 normalized bytes; first two are (u,v), last two
+                                    // are unrelated per-vertex scalars we can't reconstruct, so zero them.
+                                    let srcTC = srcTex.[v.Tex]
+                                    let clamp01 f = max 0.f (min 1.f f)
+                                    bw.Write(byte (round (clamp01 srcTC.X * 255.f)))
+                                    bw.Write(byte (round (clamp01 srcTC.Y * 255.f)))
+                                    bw.Write(byte 0)
+                                    bw.Write(byte 0)
                                 | MMET.Format(f) when f = SDXF.R32G32_Float ->
                                     let srcTC = srcTex.[v.Tex]
                                     bw.Write(srcTC.X)
