@@ -964,6 +964,8 @@ module ModDBInterop =
                         RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
                 let tex1SemUnused = Logging.logOnce(0)
+                let tex1UnormSub = Logging.logOnce(0)
+                
                 // Write part of a vertex.  The input element controls which
                 // part is written.
                 let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
@@ -1003,8 +1005,9 @@ module ModDBInterop =
                                     bw.Write(uint16 0)
                                     bw.Write(uint16 0)
                                 | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
-                                    // UV packed as 4 normalized bytes; first two are (u,v), last two
-                                    // are unrelated per-vertex scalars we can't reconstruct, so zero them.
+                                    // UV packed as 4 normalized bytes; first two are (u,v).
+                                    // If this is incorrect for some game a new SnapProfile might be needed 
+                                    // (and code added) to control that.
                                     let srcTC = srcTex.[v.Tex]
                                     let clamp01 f = max 0.f (min 1.f f)
                                     bw.Write(byte (round (clamp01 srcTC.X * 255.f)))
@@ -1025,7 +1028,17 @@ module ModDBInterop =
                                     ()
                                 | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
                             else 
-                                tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: %A" el.SemanticIndex)
+                                match el.Type with
+                                | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+                                    // I don't track this data currently but write some stub bytes so the mod at least loads; if we don't
+                                    // write anything the vert size check will complain about an insufficient number of bytes
+                                    let stubBytes = [| byte 16; byte 128; byte 128; byte 128 |]
+                                    tex1UnormSub (
+                                        sprintf "warning: writing stub bytes %A for tex coord semantic index %d (format %A); no source data available" stubBytes el.SemanticIndex el.Type)
+                                    bw.Write(stubBytes)
+                                | _ ->
+                                    tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
+                                        el.SemanticIndex el.Type)
                             
                         | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
                         | MMVertexElemSemantic.Binormal

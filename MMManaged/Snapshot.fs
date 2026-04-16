@@ -59,8 +59,8 @@ module Extractors =
         br.ReadUInt16() |> ignore // w - unused for now
         (x, y)
     // UByte4N: 4 unsigned bytes normalized to [0,1].  Texture coord interpretation is a guess;
-    // we use the first two bytes as (u,v) and discard the rest.  Once the snapshot succeeds the
-    // actual shader usage can be inspected to confirm the real encoding.
+    // we use the first two bytes as (u,v) and discard the rest.  If this doesn't work the 
+    // vertex shader may provide more information on how the format is decoded.
     let xTexFromUbyte4N (br:SourceReader) =
         let u = byteToFloat (br.ReadByte())
         let v = byteToFloat (br.ReadByte())
