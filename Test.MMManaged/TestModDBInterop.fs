@@ -28,6 +28,31 @@ let ``ModDBInterop: module functions``() =
     let mcount = ModDBInterop.getModCount()
     Assert.AreEqual (mcount, 3 , "incorrect mod count")
 
+    // since loading for non-deletion mods is now deferred, need to trigger it and 
+    // potentially wait.
+    let mutable allLoaded = false
+    let mutable iters = 0
+    let maxiters = 10
+    while not allLoaded do 
+        iters <- iters + 1
+        allLoaded <- true
+        // note the deletion mods are excluded from this since they aren't "loaded" (i.e are available immediately)
+        for midx in [0..0] do 
+            let loadres = ModDBInterop.loadModData midx
+            match loadres with
+            | 1 -> printfn "mod %A has finished loading" midx 
+            | 2 -> printfn "mod %A load has started" midx 
+            | 3 -> printfn "mod %A load is in progress" midx 
+            | 4 -> failwithf "error loading mod %A" midx
+            | n -> failwithf "unexpected mod load result: %A for mod %A" n midx
+            if loadres <> 1 then 
+                allLoaded <- false
+        
+        if not allLoaded then 
+            if iters > maxiters then 
+                failwithf "Waited too long for mods to load"
+            System.Threading.Thread.Sleep(1000)
+
     [0..2] |> List.iter (fun modidx ->
         let mmod = ModDBInterop.getModData(modidx)
         printfn "Mod %A: type %A, pc %A, vc %A" modidx mmod.ModType mmod.PrimCount mmod.VertCount

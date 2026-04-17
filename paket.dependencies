@@ -10,3 +10,4 @@ nuget NUnit 2.6.4 framework: >= net45
 nuget YamlDotNet 3.5.1 framework: >= net45
 nuget FAKE
 nuget NUnit.Runners
+nuget FsPickler 5.3.2 framework: >= net45
