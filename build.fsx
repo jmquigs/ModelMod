@@ -408,13 +408,15 @@ Target "CheckConf" ignore
 
 let VSSearchPaths =
     [
+        @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community"
         @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community" // my system
         @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise" // github win 2022 runner
         
     ]
 let MSBuildPaths =
     [
-        @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin" // my system
+        @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin" // my system
+        @"F:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin" // my system4
         @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin" // github win 2022 runner
     ]
 
