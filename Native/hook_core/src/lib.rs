@@ -1,4 +1,5 @@
 #![allow(static_mut_refs)]
+#![cfg_attr(test, allow(static_mut_refs))]
 
 #![allow(non_snake_case)]
 // this is here to silence the spammy warnings from the COM macro definitions in dnclr.

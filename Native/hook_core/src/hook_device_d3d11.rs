@@ -1361,7 +1361,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = hook_device_QueryInterface;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
@@ -1380,7 +1380,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = nasty_reentrant_test_function;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
@@ -1412,7 +1412,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = valid_qi;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             let mut pdev:*mut ID3D11Device = null_mut();
             let ppdev: *mut *mut ID3D11Device= &mut pdev;
