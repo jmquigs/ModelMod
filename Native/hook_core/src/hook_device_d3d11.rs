@@ -78,7 +78,7 @@ use crate::hook_render_d3d11::*;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
 
 type D3D11CreateDeviceFN = extern "system" fn (
     pAdapter: *mut IDXGIAdapter,
@@ -1026,6 +1026,21 @@ unsafe extern "system" fn hook_CreateBuffer(
                 let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
                 std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
                 dest_v.set_len(vlen);
+                // For VBs, also record a CRC32 of the initial bytes so that mods
+                // can optionally constrain themselves to a specific VB via
+                // `VBChecksum`. Hash before moving `dest_v` into the buffer map.
+                // Note: if the game later rewrites this buffer via Map /
+                // UpdateSubresource the checksum will be stale; we don't
+                // currently hook those calls.
+                if is_vb {
+                    let crc = util::vb_checksum::compute(&dest_v);
+                    if GLOBAL_STATE.vb_checksums.is_none() {
+                        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
+                    }
+                    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+                        map.insert(*ppBuffer as usize, VBChecksumStatus::Checksum(crc));
+                    }
+                }
                 dev_state_d3d11_write()
                 .map(|(_lock,ds)| {
                     if is_ib {
@@ -1346,7 +1361,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = hook_device_QueryInterface;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
@@ -1365,7 +1380,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = nasty_reentrant_test_function;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             assert_eq!(hook_device_QueryInterface(&mut iunk as *mut IUnknown,
                 &ID3D11Device::uuidof() as *const GUID,
@@ -1397,7 +1412,7 @@ pub mod tests {
             let mut lhooks = DEVICE_REALFN.write().expect("no hooks lock");
             let hooks = lhooks.as_mut().expect("no hooks");
             hooks.real_query_interface = valid_qi;
-            drop(hooks);
+            //drop(hooks);
             drop(lhooks);
             let mut pdev:*mut ID3D11Device = null_mut();
             let ppdev: *mut *mut ID3D11Device= &mut pdev;

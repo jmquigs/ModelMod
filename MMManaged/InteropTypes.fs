@@ -153,11 +153,18 @@ module InteropTypes =
         [<MarshalAs(UnmanagedType.ByValTStr, SizeConst=8192)>]
         PixelShaderPath: string
         SnapProfile: ModSnapProfile
-        /// Whether the data has been loaded for this mod.  If this is false only some metadata will be available 
-        /// (extracted from the yaml files).  The full mod data including meshes and the meshrelation 
+        /// Whether the data has been loaded for this mod.  If this is false only some metadata will be available
+        /// (extracted from the yaml files).  The full mod data including meshes and the meshrelation
         /// can be loaded with ModDBInterop.loadModData.
         [<MarshalAs(UnmanagedType.U1)>]
         DataAvailable: bool
+        /// CRC32 of the stream-0 vertex buffer bound at the time of the
+        /// original snapshot.  Only consulted when `VBChecksumSet` is true.
+        VBChecksum: uint32
+        /// Whether `VBChecksum` is a real constraint.  If false, the mod
+        /// matches any VB whose prim/vert counts match (default behavior).
+        [<MarshalAs(UnmanagedType.U1)>]
+        VBChecksumSet: bool
     }
 
     /// Default value.  Also used as an error return value, since we don't throw exceptions accross interop.
@@ -182,6 +189,8 @@ module InteropTypes =
         UpdateTangentSpace = -1
         SnapProfile = EmptyModSnapProfile
         DataAvailable = false
+        VBChecksum = 0u
+        VBChecksumSet = false
     }
 
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]
@@ -373,6 +382,12 @@ module NativeImportsAsD3D11 =
     /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
     /// If you call this function twice in succession and then use the results from the first call, it will crash.
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the specified vertex buffer pointer, or 0 if unknown.
+    extern uint32 GetVertexBufferChecksum(uint64 vbPtr)
+    [< DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the currently bound stream-0 vertex buffer, or 0 if unknown.
+    extern uint32 GetBoundVertexBufferChecksum()
 
 module NativeImportsAsD3D9 =
     [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall ) >]
@@ -393,6 +408,12 @@ module NativeImportsAsD3D9 =
     /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
     /// If you call this function twice in succession and then use the results from the first call, it will crash.
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the specified vertex buffer pointer, or 0 if unknown.
+    extern uint32 GetVertexBufferChecksum(uint64 vbPtr)
+    [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the currently bound stream-0 vertex buffer, or 0 if unknown.
+    extern uint32 GetBoundVertexBufferChecksum()
 
 module NativeImportsAsMMNative =
     [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
@@ -407,3 +428,7 @@ module NativeImportsAsMMNative =
     extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
     [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
     extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
+    extern uint32 GetVertexBufferChecksum(uint64 vbPtr)
+    [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
+    extern uint32 GetBoundVertexBufferChecksum()

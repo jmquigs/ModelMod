@@ -247,12 +247,22 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
                         if idx == 0 {
                             state.rs.vb_state.clear();
                         }
+                        // Track slot-0 pointer for the VB-checksum mesh identifier.
+                        // `StartSlot` is the absolute slot of the first buffer in
+                        // `ppVertexBuffers`, so a buffer at index `i` is at slot
+                        // `StartSlot + i`.
+                        if StartSlot + idx == 0 {
+                            GLOBAL_STATE.bound_vertex_buffer = pbuf as usize;
+                        }
                         let mut desc:D3D11_BUFFER_DESC = std::mem::zeroed();
                         (*pbuf).GetDesc(&mut desc);
                         let bw = desc.ByteWidth;
                         let stride = desc.StructureByteStride;
                         let vbinfo = (idx,bw,stride);
                         state.rs.vb_state.push(vbinfo);
+                    } else if StartSlot + idx == 0 {
+                        // null rebind of slot 0 clears our tracked pointer
+                        GLOBAL_STATE.bound_vertex_buffer = 0;
                     }
                 }
                 // if GLOBAL_STATE.metrics.dip_calls % 10000 == 0 {
@@ -260,6 +270,9 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
                 // }
             } else if NumBuffers == 0 {
                 state.rs.vb_state.clear();
+                if StartSlot == 0 {
+                    GLOBAL_STATE.bound_vertex_buffer = 0;
+                }
             }
         },
         None => {}

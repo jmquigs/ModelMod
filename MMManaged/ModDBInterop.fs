@@ -260,10 +260,15 @@ module ModDBInterop =
             | None -> -1
             | Some(upd) -> if upd then 1 else 0
 
-        let profile = 
-            match meshrel.DBMod.Profile with 
+        let profile =
+            match meshrel.DBMod.Profile with
             | None -> EmptyModSnapProfile
             | Some(p) -> SnapshotProfile.toInteropStruct p
+
+        let vbChecksum,vbChecksumSet =
+            match meshrel.DBMod.VBChecksum with
+            | None -> 0u, false
+            | Some crc -> crc, true
 
         {
             InteropTypes.ModData.ModType = modType
@@ -286,6 +291,8 @@ module ModDBInterop =
             UpdateTangentSpace = updateTS
             SnapProfile = profile
             DataAvailable = meshrel.IsBuilt
+            VBChecksum = vbChecksum
+            VBChecksumSet = vbChecksumSet
         }
 
     let emptyMod = InteropTypes.EmptyModData

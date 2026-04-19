@@ -318,6 +318,23 @@ module ModDB =
 
         let computeTS = node |> Yaml.getOptionalValue "UpdateTangentSpace" |> Yaml.toOptionalBool
 
+        // Optional VBChecksum: parsed as a hex string (with optional `0x`
+        // prefix).  Used as a secondary mesh identifier at render-time to
+        // disambiguate mods that share (prim_count, vert_count).
+        let vbChecksum =
+            match node |> Yaml.getOptionalValue "VBChecksum" |> Yaml.toOptionalString with
+            | None -> None
+            | Some s ->
+                let s = s.Trim()
+                if s = "" then None
+                else
+                    let s = if s.StartsWith("0x") || s.StartsWith("0X") then s.Substring(2) else s
+                    match System.UInt32.TryParse(s, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture) with
+                    | true, v -> Some v
+                    | false, _ ->
+                        log().Warn "Mod %A: could not parse VBChecksum %A as hex; ignoring" modName s
+                        None
+
         let md = {
             DBMod.RefName = refName
             Type = modType
@@ -332,6 +349,7 @@ module ModDB =
             ParentModName = parentModName
             UpdateTangentSpace = computeTS
             Profile = profile
+            VBChecksum = vbChecksum
         }
 
         log().Info "Mod: %A: type: %A, ref: %A, weightmode: %A, override textures: %d: profile: %A" modName modType refName weightMode numOverrideTextures profile

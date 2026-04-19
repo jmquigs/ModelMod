@@ -366,6 +366,12 @@ module CoreTypes =
         UpdateTangentSpace: bool option
         /// Snapshot profile; optional since many older mods will not have this.
         Profile: SnapProfile option
+        /// Optional CRC32 of the stream-0 vertex buffer bound at the time of
+        /// the original snapshot (algorithm: `crc32-full`).  Can be used as a
+        /// secondary mesh identifier to disambiguate mods that share the same
+        /// `(prim_count, vert_count)` pair.  `None` means no VB constraint
+        /// (default behavior).
+        VBChecksum: uint32 option
     }
 
     /// Union Parent type for the yaml objects.
