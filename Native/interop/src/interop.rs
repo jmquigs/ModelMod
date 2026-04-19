@@ -70,6 +70,38 @@ pub unsafe extern "system" fn SaveTexture(index: i32, filepath: *const u16) -> b
     }
 }
 
+/// Look up the CRC32 of a specific vertex buffer pointer. Returns 0 if the
+/// pointer is unknown (e.g. the VB was created before our hook was
+/// installed, or its pool/flags made it unlockable at create time), or if
+/// the hash is still pending / impossible.
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "system" fn GetVertexBufferChecksum(vb_ptr: u64) -> u32 {
+    if vb_ptr == 0 {
+        return 0;
+    }
+    let key = vb_ptr as usize;
+    match global_state::GLOBAL_STATE.vb_checksums.as_ref() {
+        Some(map) => map.get(&key).and_then(|s| s.checksum()).unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Look up the CRC32 of the currently bound stream-0 vertex buffer.
+/// Returns 0 if no VB is bound or the CRC is unknown / pending / impossible.
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "system" fn GetBoundVertexBufferChecksum() -> u32 {
+    let ptr = global_state::GLOBAL_STATE.bound_vertex_buffer;
+    if ptr == 0 {
+        return 0;
+    }
+    match global_state::GLOBAL_STATE.vb_checksums.as_ref() {
+        Some(map) => map.get(&ptr).and_then(|s| s.checksum()).unwrap_or(0),
+        None => 0,
+    }
+}
+
 #[allow(unused)]
 #[no_mangle]
 pub unsafe extern "system" fn OnInitialized(

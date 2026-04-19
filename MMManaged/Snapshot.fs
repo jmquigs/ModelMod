@@ -149,18 +149,27 @@ module Snapshot =
         BlendWeight: float32 * float32 * float32 * float32 -> unit
     }
 
-    type SnapMeta() = 
+    type SnapMeta() =
         let mutable profile:CoreTypes.SnapProfile = SnapshotProfile.EmptyProfile
         let mutable context:string = ""
+        let mutable vbChecksumAlgo:string = ""
+        let mutable vbChecksum:string = ""
 
-        static member Create(profile):SnapMeta = 
+        static member Create(profile, ?vbChecksum:uint32):SnapMeta =
             let p = SnapMeta()
             p.Profile <- profile
             p.Context <- CoreState.Context
+            match vbChecksum with
+            | Some crc when crc <> 0u ->
+                p.VBChecksumAlgo <- "crc32-full"
+                p.VBChecksum <- sprintf "%08x" crc
+            | _ -> ()
             p
 
         member x.Profile with get() = profile and set v = profile <- v
         member x.Context with get() = context and set v = context <- v
+        member x.VBChecksumAlgo with get() = vbChecksumAlgo and set v = vbChecksumAlgo <- v
+        member x.VBChecksum with get() = vbChecksum and set v = vbChecksum <- v
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
@@ -926,7 +935,18 @@ module Snapshot =
             let metaFile = Path.Combine(baseDir, (sprintf "%s_Meta.yaml" sbasename))
             let serializer = Serializer()
             let sw = new StringWriter();
-            serializer.Serialize(sw, SnapMeta.Create(snapProfile))
+            // Capture the currently bound stream-0 VB checksum so mods loaded
+            // from this snapshot can use it as a secondary mesh identifier.
+            let vbChecksum =
+                try
+                    match CoreState.Context with
+                    | "d3d9" -> NativeImportsAsD3D9.GetBoundVertexBufferChecksum()
+                    | "d3d11" -> NativeImportsAsD3D11.GetBoundVertexBufferChecksum()
+                    | _ -> 0u
+                with e ->
+                    log.Warn "failed to read bound VB checksum: %A" e
+                    0u
+            serializer.Serialize(sw, SnapMeta.Create(snapProfile, vbChecksum))
             File.WriteAllText(metaFile, (sw.ToString()))
 
             log.Info "Wrote snapshot %d to %s" snapshotNum.Value baseDir

@@ -1,8 +1,56 @@
 use std::collections::HashMap;
 
-use global_state::LoadedModState;
+use fnv::FnvHashMap;
+use global_state::{LoadedModState, VBChecksumStatus};
 use types::native_mod::NativeModData;
 use shared_dx::util::*;
+
+/// The vertex buffer bound to stream 0 at the time of the current draw,
+/// plus a reference to the checksum map so we can look up the CRC without
+/// holding a mutable borrow on `GLOBAL_STATE`.
+///
+/// `ptr == 0`, `checksums.is_none()`, a missing map entry, or a
+/// `NotPossible` status for the bound VB are all treated as "unknown"
+/// for filtering purposes (constrained mods are skipped).
+pub struct BoundVB<'a> {
+    pub ptr: usize,
+    pub checksums: Option<&'a FnvHashMap<usize, VBChecksumStatus>>,
+}
+
+impl<'a> BoundVB<'a> {
+    /// An "unknown" bound VB, used by tests and by paths that don't yet
+    /// have VB information wired in.
+    pub fn empty() -> Self {
+        Self { ptr: 0, checksums: None }
+    }
+
+    /// Look up the CRC32 of the currently bound VB, if a successful hash
+    /// has been recorded. Returns `None` for unknown / `NotPossible`.
+    fn current_checksum(&self) -> Option<u32> {
+        if self.ptr == 0 {
+            return None;
+        }
+        self.checksums
+            .and_then(|m| m.get(&self.ptr))
+            .and_then(|s| s.checksum())
+    }
+}
+
+#[inline]
+fn has_vb_constraint(nmod: &NativeModData) -> bool {
+    nmod.mod_data.vb_checksum_set
+}
+
+#[inline]
+fn vb_constraint_matches(nmod: &NativeModData, bound: &BoundVB) -> bool {
+    if !has_vb_constraint(nmod) {
+        return true;
+    }
+    match bound.current_checksum() {
+        Some(crc) => crc == nmod.mod_data.vb_checksum,
+        None => false,
+    }
+}
 
 fn find_parent<'a>(name:&str, mvec:&'a mut Vec<NativeModData>) -> Option<&'a mut NativeModData> {
     for p in mvec.iter_mut() {
@@ -118,14 +166,40 @@ impl<'a> std::fmt::Debug for SelectedMod<'a> {
 /// The mod state is &mut because we may need to update the last frame rendered for any
 /// parent mods we find.
 ///
+/// `bound` describes the current stream-0 vertex buffer and the checksum map;
+/// it's used as a secondary mesh identifier when mods declare a `VBChecksum`.
+/// See `BoundVB` for details.
+///
 /// Perf note: since checking for a mod is needed for everything drawn by the game, it is better to
 /// call `preselect` first to determine if this function even needs to be called.  `select` does
 /// early out as soon as it knows there is no mod, but still incurs a bit of extra cost.
-pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64) -> Option<SelectedMod<'a>> {
+pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64, bound: &BoundVB) -> Option<SelectedMod<'a>> {
     let mod_key = NativeModData::mod_key(vert_count, prim_count);
     let r = mstate.mods.get(&mod_key);
     // just get out of here if we didn't have a match
     r?;
+
+    // Apply VB-checksum filtering. The policy: if any candidate declares a
+    // VB constraint and its constraint matches the currently bound VB,
+    // restrict selection to matching constrained candidates. Otherwise fall
+    // back to unconstrained candidates (legacy behavior). Candidates whose
+    // VB constraint doesn't match are never considered.
+    let allowed: Vec<bool> = if let Some(nmods) = r {
+        let any_constrained_match = nmods.iter().any(|m| has_vb_constraint(m) && vb_constraint_matches(m, bound));
+        nmods.iter().map(|m| {
+            if any_constrained_match {
+                has_vb_constraint(m) && vb_constraint_matches(m, bound)
+            } else {
+                !has_vb_constraint(m)
+            }
+        }).collect()
+    } else {
+        vec![]
+    };
+    // If the filter excluded everything, there's nothing to render.
+    if !allowed.iter().any(|a| *a) {
+        return None;
+    }
 
     // found at least one mod.  do some more checks to see if each has a parent, and if the parent
     // is active.  count the active parents we find because if more than one is active,
@@ -139,6 +213,7 @@ pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32
 
         debug_spam!(|| format!("checking {} mods for {}p/{}v", num_mods, prim_count, vert_count));
         for (midx,nmod) in nmods.iter().enumerate() {
+            if !allowed[midx] { continue; }
             if nmod.parent_mod_names.is_empty() {
                 if num_mods > 1 {
                     observed_noparent_mods.insert(nmod.name.clone(), midx);
@@ -195,7 +270,7 @@ pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32
                 let tmic = target_mod_index;
                 let sel_index = mstate.selected_variant.get(&mod_key).unwrap_or(&tmic);
                 debug_spam!(|| format!("var sel index: {}, max: {}", sel_index, n));
-                if *sel_index < n {
+                if *sel_index < n && allowed[*sel_index] {
                     // currently child mods can't be variants - this avoids messy cases with
                     // one or more children whose parents may or may not have rendered recently.
                     nmods.get(*sel_index).and_then(|nmod| {
@@ -334,6 +409,13 @@ mod tests {
         m.name = name.to_owned();
         m
     }
+
+    /// Test helper that calls `select` with an empty `BoundVB`, matching
+    /// the pre-VB-checksum call signature so legacy tests need not care
+    /// about the new parameter.
+    fn testsel<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32, current_frame_num:u64) -> Option<SelectedMod<'a>> {
+        select(mstate, prim_count, vert_count, current_frame_num, &BoundVB::empty())
+    }
     fn add_mod(mmap:&mut LoadedModsMap, nmod:NativeModData) {
         let mk = NativeModData::mod_key(
             nmod.mod_data.numbers.vert_count as u32,
@@ -388,16 +470,16 @@ mod tests {
         add_mod(&mut modmap, new_mod("Mod1", 100, 200));
         add_mod(&mut modmap, new_mod("Mod2", 101, 201));
         let mut mstate = new_state(modmap);
-        let r = select(&mut mstate, 99, 100, 1);
+        let r = testsel(&mut mstate, 99, 100, 1);
         assert!(r.is_none());
-        let r = select(&mut mstate, 100, 202, 1);
+        let r = testsel(&mut mstate, 100, 202, 1);
         assert!(r.is_none());
-        let r = select(&mut mstate, 100, 200, 1);
+        let r = testsel(&mut mstate, 100, 200, 1);
         match r.expect("no mod found") {
             SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "mod1".to_string()),
             _ => panic!("Expected SelectedMod::One"),
         }
-        let r = select(&mut mstate, 101, 201, 1);
+        let r = testsel(&mut mstate, 101, 201, 1);
         match r.expect("no mod found") {
             SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "mod2".to_string()),
             _ => panic!("Expected SelectedMod::One"),
@@ -425,21 +507,21 @@ mod tests {
         // since both are eligible and we can't pick one
         // (note, variations doesn't apply here, because variations
         // should select root parent mods, not children).
-        let r = select(&mut mstate, 101, 201, 1);
+        let r = testsel(&mut mstate, 101, 201, 1);
         assert!(r.is_none());
         // update so that we have just one recent parent
         let pmod = get_parent(&mut mstate, "Mod1P");
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
         pmod.last_frame_render = frame;
         // trying to select child when one parent has rendered recently should find it
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         assert_selected_mod_name(r, "mod2c");
         // and should not when parent hasn't been rendered
         let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         assert!(r.is_none());
         // when a parent is rendered, its frame should update
-        let r = select(&mut mstate, 100, 200, frame+60);
+        let r = testsel(&mut mstate, 100, 200, frame+60);
         match r {
             Some(SelectedMod::One(nmod)) => {
                 assert_eq!(nmod.name, "mod1p".to_string());
@@ -467,12 +549,12 @@ mod tests {
         let pmod = get_parent(&mut mstate, "Mod1P");
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10; // make sure all mods are out of recent window
         pmod.last_frame_render = frame;
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         assert!(r.is_none());
         // and if we update our parent, we should be selected now
         let pmod = get_parent(&mut mstate, "Mod4P");
         pmod.last_frame_render = frame;
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         match r.expect("no mod found") {
             SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
             _ => panic!("Expected SelectedMod::One"),
@@ -497,13 +579,13 @@ mod tests {
         let mut mstate = new_state(modmap);
         // both recent = no child render.  since they are new mods their last recent frame is zero
         // (which is a bit ugly, actually it should be an option with None)
-        let r = select(&mut mstate, 101, 201, 0);
+        let r = testsel(&mut mstate, 101, 201, 0);
         assert!(r.is_none());
         let pmod = get_parent(&mut mstate, "Mod4p");
         // advance frame to put all mods out of recent window except this one
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
         pmod.last_frame_render = frame;
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         match r.expect("no mod found") {
             SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
             _ => panic!("Expected SelectedMod::One"),
@@ -511,7 +593,7 @@ mod tests {
         let pmod = get_parent(&mut mstate, "Mod1P");
         let frame = frame + MAX_RECENT_RENDER_PARENT_THRESH + 10;
         pmod.last_frame_render = frame;
-        let r = select(&mut mstate, 101, 201, frame);
+        let r = testsel(&mut mstate, 101, 201, frame);
         match r.expect("no mod found") {
             SelectedMod::One(mod_data) => assert_eq!(mod_data.name, "modc".to_string()),
             _ => panic!("Expected SelectedMod::One"),
@@ -539,30 +621,30 @@ mod tests {
         let mut mstate = new_state(modmap);
         // selecting 100/200 mod should return the ModC because its parent is active - the other
         // two have no parent and so are lower priority, so we exclude them.
-        let r = select(&mut mstate, 100, 200, 0);
+        let r = testsel(&mut mstate, 100, 200, 0);
 
         assert_selected_mod_name(r, "modc");
         // now select with a more recent frame to exclude the parent, this should return the first
         // mod, because we haven't selected a variant yet, so the default is the first
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         //assert!(r.is_none(), "unexpected mod: {:?}", r.unwrap().name);
         assert_selected_mod_name(r, "mod1");
         // now pick a variant.  the indexes will be the same as the mod insertion order.
         let mk = NativeModData::mod_key(200, 100);
         mstate.selected_variant.insert(mk, 0);
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "mod1");
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 1;
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "mod2");
         // select() should not return a selected child
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 2;
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert!(r.is_none(), "unexpected mod");
         // select() should not puke if selected child is out of range
         *mstate.selected_variant.get_mut(&mk).expect("oops") = 3;
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert!(r.is_none(), "unexpected mod");
     }
 
@@ -602,13 +684,13 @@ mod tests {
         let frame = MAX_RECENT_RENDER_PARENT_THRESH + 10;
 
         // Cycle through variants by updating the selected_variant index.
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "variant1");
         select_next_variant(&mut mstate, frame);
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "variant2");
         select_next_variant(&mut mstate, frame);
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         match r {
             None => panic!("expected return for variant 3 case, got none"),
             Some(SelectedMod::One(_)) => panic!("expected many but got: {:?}", r),
@@ -619,8 +701,105 @@ mod tests {
         }
         // should wrap around
         select_next_variant(&mut mstate, frame);
-        let r = select(&mut mstate, 100, 200, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "variant1");
+    }
+
+    /// Build a BoundVB that answers `checksum_for(ptr) == Some(crc)`.
+    fn make_bound<'a>(ptr: usize, map: &'a FnvHashMap<usize, VBChecksumStatus>) -> BoundVB<'a> {
+        BoundVB { ptr, checksums: Some(map) }
+    }
+
+    /// Build a new mod that carries a VB-checksum constraint.
+    fn new_mod_with_vb(name:&str, prims:i32, verts:i32, crc:u32) -> NativeModData {
+        let mut m = new_mod(name, prims, verts);
+        m.mod_data.vb_checksum = crc;
+        m.mod_data.vb_checksum_set = true;
+        m
+    }
+
+    #[test]
+    fn test_vb_constrained_wins() {
+        // Two mods with the same prim/vert. One is VB-constrained to CRC `A`.
+        // When the bound VB has CRC `A`, the constrained mod is selected
+        // instead of the unconstrained one.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("ModDefault", 100, 200));
+        add_mod(&mut modmap, new_mod_with_vb("ModVB", 100, 200, 0xDEAD_BEEF));
+        let mut mstate = new_state(modmap);
+
+        let vb_ptr: usize = 0x1000;
+        let mut cmap: FnvHashMap<usize, VBChecksumStatus> = FnvHashMap::default();
+        cmap.insert(vb_ptr, VBChecksumStatus::Checksum(0xDEAD_BEEF));
+
+        let bound = make_bound(vb_ptr, &cmap);
+        let r = select(&mut mstate, 100, 200, 1, &bound);
+        assert_selected_mod_name(r, "modvb");
+    }
+
+    #[test]
+    fn test_vb_fallback_to_unconstrained() {
+        // Same setup as above, but the bound VB's CRC doesn't match any
+        // constrained mod. The unconstrained mod should still be rendered.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("ModDefault", 100, 200));
+        add_mod(&mut modmap, new_mod_with_vb("ModVB", 100, 200, 0xDEAD_BEEF));
+        let mut mstate = new_state(modmap);
+
+        let vb_ptr: usize = 0x1000;
+        let mut cmap: FnvHashMap<usize, VBChecksumStatus> = FnvHashMap::default();
+        cmap.insert(vb_ptr, VBChecksumStatus::Checksum(0xCAFE_F00D));
+
+        let bound = make_bound(vb_ptr, &cmap);
+        let r = select(&mut mstate, 100, 200, 1, &bound);
+        assert_selected_mod_name(r, "moddefault");
+    }
+
+    #[test]
+    fn test_vb_unknown_checksum_skips() {
+        // If no checksum is known for the bound VB (e.g. VB was created
+        // before our hook was installed, or the pool makes it unlockable),
+        // constrained mods are skipped and we fall back to unconstrained.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("ModDefault", 100, 200));
+        add_mod(&mut modmap, new_mod_with_vb("ModVB", 100, 200, 0xDEAD_BEEF));
+        let mut mstate = new_state(modmap);
+
+        // ptr == 0 models "no VB bound yet".
+        let r = select(&mut mstate, 100, 200, 1, &BoundVB::empty());
+        assert_selected_mod_name(r, "moddefault");
+
+        // Non-zero ptr but the ptr isn't in the checksum map.
+        let cmap: FnvHashMap<usize, VBChecksumStatus> = FnvHashMap::default();
+        let bound = make_bound(0x2000, &cmap);
+        let r = select(&mut mstate, 100, 200, 1, &bound);
+        assert_selected_mod_name(r, "moddefault");
+
+        // With only a constrained mod present and no checksum match,
+        // select should return None.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod_with_vb("OnlyVB", 100, 200, 0xDEAD_BEEF));
+        let mut mstate = new_state(modmap);
+        let r = select(&mut mstate, 100, 200, 1, &BoundVB::empty());
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn test_vb_not_possible_skips() {
+        // A `NotPossible` entry (we tried to hash but couldn't) is
+        // treated the same as "unknown" for filtering: constrained mods
+        // are skipped and we fall back to unconstrained.
+        let mut modmap:LoadedModsMap = new_fnv_map(10);
+        add_mod(&mut modmap, new_mod("ModDefault", 100, 200));
+        add_mod(&mut modmap, new_mod_with_vb("ModVB", 100, 200, 0xDEAD_BEEF));
+        let mut mstate = new_state(modmap);
+
+        let vb_ptr: usize = 0x1000;
+        let mut cmap: FnvHashMap<usize, VBChecksumStatus> = FnvHashMap::default();
+        cmap.insert(vb_ptr, VBChecksumStatus::NotPossible);
+        let bound = make_bound(vb_ptr, &cmap);
+        let r = select(&mut mstate, 100, 200, 1, &bound);
+        assert_selected_mod_name(r, "moddefault");
     }
 
     #[test]

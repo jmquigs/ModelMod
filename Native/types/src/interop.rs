@@ -75,6 +75,12 @@ pub struct ModData {
     pub _pixelShaderPath: [WCHAR; MAX_TEX_PATH_LEN], // not used
     pub mod_snap_profile: ModSnapProfile,
     pub data_available: bool,
+    /// Vertex-buffer CRC32 that this mod requires of the bound stream-0 VB
+    /// in order to render. Only consulted when `vb_checksum_set` is true.
+    pub vb_checksum: u32,
+    /// Whether `vb_checksum` is a real constraint; if false the mod matches
+    /// any VB (legacy behavior).
+    pub vb_checksum_set: bool,
 }
 
 impl ModData {

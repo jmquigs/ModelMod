@@ -387,6 +387,32 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
     }
 }
 
+/// Record the pointer of the vertex buffer bound to slot `slot`. We only
+/// care about stream 0 for secondary mesh identification; bindings on other
+/// slots are ignored here.
+pub fn track_bound_vertex_buffer(vb_as_int: usize, slot: u32, global_state: &mut HookState) {
+    if slot == 0 {
+        global_state.bound_vertex_buffer = vb_as_int;
+    }
+}
+
+pub (crate) unsafe extern "system" fn hook_set_stream_source(
+    THIS: *mut IDirect3DDevice9,
+    StreamNumber: UINT,
+    pStreamData: *mut IDirect3DVertexBuffer9,
+    OffsetInBytes: UINT,
+    Stride: UINT,
+) -> HRESULT {
+    track_bound_vertex_buffer(pStreamData as usize, StreamNumber, &mut GLOBAL_STATE);
+
+    match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            (dev.real_set_stream_source)(THIS, StreamNumber, pStreamData, OffsetInBytes, Stride)
+        },
+        _ => E_FAIL
+    }
+}
+
 // TODO: hook this up to device release at the proper time
 unsafe fn purge_device_resources(device: DevicePointer) {
     if device.is_null() {
@@ -750,13 +776,20 @@ where
     F: FnMut(&ModD3DData,&NativeModData) -> bool {
 
     let mut loading_mod_name = None;
+    // Build a view of the currently-bound stream-0 VB so that `select` can
+    // apply the optional VB-checksum secondary mesh identifier.
+    let bound_vb = mod_render::BoundVB {
+        ptr: GLOBAL_STATE.bound_vertex_buffer,
+        checksums: GLOBAL_STATE.vb_checksums.as_ref(),
+    };
     let res = GLOBAL_STATE.loaded_mods.as_mut()
         .and_then(|mods| {
             profile_start!(hdip, mod_select);
 
             let r = mod_render::select(mods,
                 primCount, NumVertices,
-                GLOBAL_STATE.metrics.total_frames);
+                GLOBAL_STATE.metrics.total_frames,
+                &bound_vb);
             profile_end!(hdip, mod_select);
             r
         })
@@ -914,6 +947,16 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS {
         metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
+    }
+
+    // Compute a CRC for the currently bound VB if we haven't already.
+    // First-time: we try to Lock/hash it and record `Checksum` or
+    // `NotPossible`. Subsequent draws are a no-op once the entry is
+    // resolved.
+    if GLOBAL_STATE.bound_vertex_buffer != 0 {
+        crate::hook_device::ensure_vb_checksum_dx9(
+            GLOBAL_STATE.bound_vertex_buffer as *mut IDirect3DVertexBuffer9
+        );
     }
 
     // if there is a matching mod, render it

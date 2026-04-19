@@ -15,10 +15,10 @@ use shared_dx::error::*;
 use input;
 use util;
 use util::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
 
 use device_state::{DEVICE_STATE, dev_state};
-use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release};
+use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_set_stream_source};
 use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
 
@@ -54,6 +54,7 @@ unsafe fn hook_d3d9_device(
     let real_set_texture = (*vtbl).SetTexture;
     let real_create_texture = (*vtbl).CreateTexture;
     let real_update_texture = (*vtbl).UpdateTexture;
+    let real_set_stream_source = (*vtbl).SetStreamSource;
 
     let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
     let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
@@ -96,6 +97,9 @@ unsafe fn hook_d3d9_device(
     // if everything shows up black, this method is not sufficient.
     // For games of that type, snap_use_sysmemtexturetracking below might be what is needed.
     (*vtbl).CreateTexture = hook_create_texture;
+    // Hook SetStreamSource so we can record which VB is bound at slot 0
+    // (used as the secondary mesh identifier at DIP time).
+    (*vtbl).SetStreamSource = hook_set_stream_source;
 
     if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
         // hook UpdateTexture to track source->destination mappings so that
@@ -132,6 +136,7 @@ unsafe fn hook_d3d9_device(
         real_set_texture,
         real_create_texture,
         real_update_texture,
+        real_set_stream_source,
         real_set_vertex_sc_f,
         real_set_vertex_sc_i,
         real_set_vertex_sc_b,
@@ -260,6 +265,65 @@ unsafe extern "system" fn hook_update_texture(
     }
 
     (real_fn)(THIS, pSourceTexture, pDestinationTexture)
+}
+
+/// Attempt to CRC32 the contents of a DX9 vertex buffer.
+/// Returns `Some(crc)` on success, `None` if the buffer cannot be locked
+/// (e.g. `D3DPOOL_DEFAULT` without `D3DUSAGE_DYNAMIC`, or a lock failure)
+/// or if something else goes wrong.
+unsafe fn try_checksum_dx9_vb(vb: *mut IDirect3DVertexBuffer9, length: u32) -> Option<u32> {
+    if vb.is_null() || length == 0 {
+        return None;
+    }
+    let mut data_ptr: *mut winapi::ctypes::c_void = null_mut();
+    // D3DLOCK_READONLY = 0x00000010
+    let hr = (*vb).Lock(0, length, &mut data_ptr, winapi::shared::d3d9types::D3DLOCK_READONLY);
+    if hr != S_OK || data_ptr.is_null() {
+        return None;
+    }
+    let slice = std::slice::from_raw_parts(data_ptr as *const u8, length as usize);
+    let crc = util::vb_checksum::compute(slice);
+    let _ = (*vb).Unlock();
+    Some(crc)
+}
+
+/// Attempt to hash a DX9 VB and record the result in `vb_checksums`.
+/// Called from the DIP hook for the currently bound VB. No-op if we
+/// already have a resolved entry for it (either `Checksum` or
+/// `NotPossible`). Otherwise we optimistically try to Lock/CRC the
+/// buffer regardless of pool or usage flags — if the Lock succeeds we
+/// store `Checksum(crc)`, and if it fails (e.g. `D3DPOOL_DEFAULT`
+/// without `D3DUSAGE_DYNAMIC`) we store `NotPossible` so we don't keep
+/// retrying.
+pub unsafe fn ensure_vb_checksum_dx9(vb: *mut IDirect3DVertexBuffer9) {
+    if vb.is_null() {
+        return;
+    }
+    let key = vb as usize;
+    let already_resolved = GLOBAL_STATE.vb_checksums.as_ref()
+        .map(|m| m.contains_key(&key))
+        .unwrap_or(false);
+    if already_resolved {
+        return;
+    }
+
+    // Ask the buffer for its length so we know how much to hash.
+    let mut desc: D3DVERTEXBUFFER_DESC = std::mem::zeroed();
+    let hr = (*vb).GetDesc(&mut desc);
+    let new_status = if hr != S_OK || desc.Size == 0 {
+        VBChecksumStatus::NotPossible
+    } else {
+        match try_checksum_dx9_vb(vb, desc.Size) {
+            Some(crc) => VBChecksumStatus::Checksum(crc),
+            None => VBChecksumStatus::NotPossible,
+        }
+    };
+    if GLOBAL_STATE.vb_checksums.is_none() {
+        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
+    }
+    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+        map.insert(key, new_status);
+    }
 }
 
 /// Garbage-collect the DX9 UpdateTexture source-tracking state.

@@ -47,6 +47,32 @@ pub enum RenderedPrimType {
     PrimCountVertSizeAndVBs(u32,u32,Vec<(u32,u32,u32)>)
 }
 
+/// Resolved state of a vertex buffer's CRC32 entry in `vb_checksums`.
+///
+/// A VB that is not present in the map at all is implicitly "pending" —
+/// the DX9 DIP hook will attempt to hash it the first time it sees it
+/// bound, and insert either `Checksum` or `NotPossible` depending on
+/// whether the Lock succeeded. DX11 hashes at create time using the
+/// supplied initial data and goes straight to `Checksum`.
+#[derive(Debug, Clone, Copy)]
+pub enum VBChecksumStatus {
+    /// Successfully computed CRC32 over the buffer's bytes.
+    Checksum(u32),
+    /// Buffer cannot be hashed (Lock failed). Don't retry.
+    NotPossible,
+}
+
+impl VBChecksumStatus {
+    /// Return the CRC if this entry has successfully been hashed.
+    /// `NotPossible` returns `None`.
+    pub fn checksum(&self) -> Option<u32> {
+        match self {
+            VBChecksumStatus::Checksum(c) => Some(*c),
+            VBChecksumStatus::NotPossible => None,
+        }
+    }
+}
+
 pub struct FrameMetrics {
     pub dip_calls: u32,
     pub frames: u32,
@@ -138,6 +164,23 @@ pub struct HookState {
     pub vertex_constants: Option<constant_tracking::ConstantGroup>,
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
     pub last_snapshot_dir: Option<String>,
+    /// Map of vertex-buffer pointer (as `usize`) to its checksum status.
+    /// DX9 entries are inserted lazily by the DIP hook the first time it
+    /// sees a given VB bound: it attempts to Lock/CRC the buffer and
+    /// stores `Checksum(crc)` on success or `NotPossible` if the Lock
+    /// failed (e.g. `D3DPOOL_DEFAULT` without `D3DUSAGE_DYNAMIC`). A VB
+    /// that is not present in the map at all is implicitly pending. DX11
+    /// inserts `Checksum(crc)` directly from the `CreateBuffer` hook
+    /// since the initial data is available at create time. Used as a
+    /// secondary mesh identifier so mods can disambiguate meshes that
+    /// share `(prim_count, vert_count)`. `None` until the first VB is
+    /// seen; entries for released buffers are not currently garbage
+    /// collected (see TODO).
+    pub vb_checksums: Option<FnvHashMap<usize, VBChecksumStatus>>,
+    /// Pointer (as `usize`) of the vertex buffer currently bound to stream 0.
+    /// Written by the DX9 `SetStreamSource` hook and the DX11
+    /// `IASetVertexBuffers` hook. `0` means no buffer is bound.
+    pub bound_vertex_buffer: usize,
 }
 
 impl HookState {
@@ -212,7 +255,9 @@ pub static mut GLOBAL_STATE: HookState = HookState {
         last_fps: 120.0,
         low_framerate: false,
         rendered_prims: vec![],
-    }
+    },
+    vb_checksums: None,
+    bound_vertex_buffer: 0,
 };
 pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
 

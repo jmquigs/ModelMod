@@ -83,6 +83,14 @@ pub type UpdateTextureFn = unsafe extern "system" fn(
     pDestinationTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT;
 
+pub type SetStreamSourceFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    StreamNumber: UINT,
+    pStreamData: *mut IDirect3DVertexBuffer9,
+    OffsetInBytes: UINT,
+    Stride: UINT,
+) -> HRESULT;
+
 // shader constants
 pub type SetVertexShaderConstantFFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
