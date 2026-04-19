@@ -44,7 +44,7 @@ fn has_vb_constraint(nmod: &NativeModData) -> bool {
 #[inline]
 fn vb_constraint_matches(nmod: &NativeModData, bound: &BoundVB) -> bool {
     if !has_vb_constraint(nmod) {
-        return true;
+        return false;
     }
     match bound.current_checksum() {
         Some(crc) => crc == nmod.mod_data.vb_checksum,
@@ -182,17 +182,21 @@ pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32
     // Apply VB-checksum filtering. The policy: if any candidate declares a
     // VB constraint and its constraint matches the currently bound VB,
     // restrict selection to matching constrained candidates. Otherwise fall
-    // back to unconstrained candidates (legacy behavior). Candidates whose
+    // back to unconstrained candidates (default behavior). Candidates whose
     // VB constraint doesn't match are never considered.
     let allowed: Vec<bool> = if let Some(nmods) = r {
         let any_constrained_match = nmods.iter().any(|m| has_vb_constraint(m) && vb_constraint_matches(m, bound));
-        nmods.iter().map(|m| {
+        debug_spam!(|| format!("vb constraits; any match: {}", any_constrained_match));
+        let allowed = nmods.iter().map(|m| {
+            debug_spam!(|| format!("  {}: has constraint: {}; matches: {}", m.name, has_vb_constraint(m), vb_constraint_matches(m, bound)));
             if any_constrained_match {
-                has_vb_constraint(m) && vb_constraint_matches(m, bound)
+                vb_constraint_matches(m, bound)
             } else {
                 !has_vb_constraint(m)
             }
-        }).collect()
+        }).collect();
+        debug_spam!(|| format!("  allowed: {:?}", allowed));
+        allowed
     } else {
         vec![]
     };
@@ -268,16 +272,26 @@ pub fn select<'a>(mstate: &'a mut LoadedModState, prim_count:u32, vert_count:u32
             // index, use that index
             n if n > 1 => { //&& mstate.selected_variant.contains_key(&mod_key)
                 let tmic = target_mod_index;
-                let sel_index = mstate.selected_variant.get(&mod_key).unwrap_or(&tmic);
-                debug_spam!(|| format!("var sel index: {}, max: {}", sel_index, n));
-                if *sel_index < n && allowed[*sel_index] {
+                let mut sel_index = *mstate.selected_variant.get(&mod_key).unwrap_or(&tmic);
+                debug_spam!(|| format!("var sel index: {}, allowed: {:?}, max: {}", sel_index, allowed.get(sel_index), n));
+                // may need to skip forward to account for mod being previously disallowed.
+                // FIX?: i'm not sure this will interact properly with variants (i.e variants that also use a vb checksum)
+                let orig_sel_index = sel_index;
+                while sel_index < n && allowed.get(sel_index) != Some(&true) {
+                    sel_index += 1;
+                }
+                if orig_sel_index != sel_index {
+                    debug_spam!(|| format!("new selected index set due to previous being disallowed: {}", sel_index))
+                }
+
+                if sel_index < n {
                     // currently child mods can't be variants - this avoids messy cases with
                     // one or more children whose parents may or may not have rendered recently.
-                    nmods.get(*sel_index).and_then(|nmod| {
+                    nmods.get(sel_index).and_then(|nmod| {
                         if !nmod.parent_mod_names.is_empty() {
                             None
                         } else {
-                            target_mod_index = *sel_index;
+                            target_mod_index = sel_index;
                             Some(())
                         }
                     })
