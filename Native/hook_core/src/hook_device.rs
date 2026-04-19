@@ -288,7 +288,7 @@ unsafe fn try_checksum_dx9_vb(vb: *mut IDirect3DVertexBuffer9, length: u32) -> O
 }
 
 /// Attempt to hash a DX9 VB and record the result in `vb_checksums`.
-/// Called from the DIP hook for the currently bound VB. No-op if we
+/// No-op if we
 /// already have a resolved entry for it (either `Checksum` or
 /// `NotPossible`). Otherwise we optimistically try to Lock/CRC the
 /// buffer regardless of pool or usage flags — if the Lock succeeds we

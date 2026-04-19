@@ -1031,7 +1031,7 @@ unsafe extern "system" fn hook_CreateBuffer(
                 // `VBChecksum`. Hash before moving `dest_v` into the buffer map.
                 // Note: if the game later rewrites this buffer via Map /
                 // UpdateSubresource the checksum will be stale; we don't
-                // currently hook those calls (see branch docs for details).
+                // currently hook those calls.
                 if is_vb {
                     let crc = util::vb_checksum::compute(&dest_v);
                     if GLOBAL_STATE.vb_checksums.is_none() {

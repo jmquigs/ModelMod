@@ -165,17 +165,9 @@ pub struct HookState {
     pub pixel_constants: Option<constant_tracking::ConstantGroup>,
     pub last_snapshot_dir: Option<String>,
     /// Map of vertex-buffer pointer (as `usize`) to its checksum status.
-    /// DX9 entries are inserted lazily by the DIP hook the first time it
-    /// sees a given VB bound: it attempts to Lock/CRC the buffer and
-    /// stores `Checksum(crc)` on success or `NotPossible` if the Lock
-    /// failed (e.g. `D3DPOOL_DEFAULT` without `D3DUSAGE_DYNAMIC`). A VB
-    /// that is not present in the map at all is implicitly pending. DX11
-    /// inserts `Checksum(crc)` directly from the `CreateBuffer` hook
-    /// since the initial data is available at create time. Used as a
-    /// secondary mesh identifier so mods can disambiguate meshes that
-    /// share `(prim_count, vert_count)`. `None` until the first VB is
-    /// seen; entries for released buffers are not currently garbage
-    /// collected (see TODO).
+    /// Checksums are generally computed at snapshot or on the first draw.
+    /// When a checksum is specified in a mod it serves as an extra key 
+    /// (other than prim,vert count) to control whether a mod is displayed.
     pub vb_checksums: Option<FnvHashMap<usize, VBChecksumStatus>>,
     /// Pointer (as `usize`) of the vertex buffer currently bound to stream 0.
     /// Written by the DX9 `SetStreamSource` hook and the DX11

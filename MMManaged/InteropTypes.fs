@@ -162,7 +162,7 @@ module InteropTypes =
         /// original snapshot.  Only consulted when `VBChecksumSet` is true.
         VBChecksum: uint32
         /// Whether `VBChecksum` is a real constraint.  If false, the mod
-        /// matches any VB (legacy behavior).
+        /// matches any VB whose prim/vert counts match (default behavior).
         [<MarshalAs(UnmanagedType.U1)>]
         VBChecksumSet: bool
     }

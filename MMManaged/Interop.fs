@@ -57,7 +57,7 @@ type InteropInitStruct =
 type Main() =
     /// The native code version that this managed code is compatible with.  This should be bumped each
     /// time the interop interface (e.g struct layouts) change.  (also see NATIVE_CODE_VERSION in rust code)
-    static let NativeCodeVersion = 5
+    static let NativeCodeVersion = 6
 
     static let mutable oninitialized: ((MMNative.ManagedCallbacks * uint64) -> int) option = None
     static let mutable log:Logging.ILog option = None
