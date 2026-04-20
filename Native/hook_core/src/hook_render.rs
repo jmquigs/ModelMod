@@ -923,10 +923,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     // Compute a CRC for the currently bound VB if we haven't already, but
     // only when we actually need it: during a snapshot (so the CRC is
     // available to the snapshot meta) or when a loaded mod has a
-    // VB-checksum constraint for this draw's (prim,vert) counts. Must
-    // happen before `hook_snapshot::take` so the snapshot reads the
-    // freshly-computed value. First-time hash tries to Lock the VB and
-    // records `Checksum` or `NotPossible`; subsequent draws are no-ops.
+    // VB-checksum constraint for this draw's (prim,vert) counts.
     if GLOBAL_STATE.bound_vertex_buffer != 0
         && (GLOBAL_STATE.is_snapping
             || global_state::vb_checksum_target_matches(primCount, NumVertices))

@@ -514,9 +514,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     use std::collections::HashSet;
     let mut all_parent_mods:HashSet<String> = HashSet::new();
     // Set of `(ref_prim_count, ref_vert_count)` pairs for mods that have a
-    // `VBChecksum` constraint. Populated by pulling data from managed code
-    // via `GetModData` below, then installed into global state so the DIP
-    // hooks can gate draw-time VB hashing on these counts.
+    // `VBChecksum` constraint.
     let mut vb_checksum_targets: FnvHashSet<(u32, u32)> =
         FnvHashSet::with_capacity_and_hasher(16, Default::default());
     write_log_file(&format!("setting up {} mods", mod_count));
@@ -724,10 +722,6 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         selected_variant: global_state::new_fnv_map(16),
     } );
 
-    // Install the VB-checksum target set so the DIP hooks can start (or stop)
-    // hashing VBs for matching draws. Done here, after `LoadModDB` completed
-    // on the managed side, so that native pulls the data rather than managed
-    // pushing it back — avoiding re-entrant native calls from managed.
     global_state::set_vb_checksum_targets(vb_checksum_targets);
 }
 

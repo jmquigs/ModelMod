@@ -630,11 +630,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     }
                 }
 
-                // If a loaded mod targets this (prim,vert) combo with a
-                // VB-checksum constraint, lazily compute the CRC32 for the
-                // currently-bound VB so that `mod_render::select` can apply
-                // it. Skipped entirely when no mod targets this combo,
-                // which is the common case.
+                // Compute the VB Crc if snapping or if the bound vb matches this prim/vert count
                 if !GLOBAL_STATE.is_snapping
                     && GLOBAL_STATE.bound_vertex_buffer != 0
                     && global_state::vb_checksum_target_matches(prim_count, vert_count)

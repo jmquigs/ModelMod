@@ -1026,12 +1026,6 @@ unsafe extern "system" fn hook_CreateBuffer(
                 let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
                 std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
                 dest_v.set_len(vlen);
-                // Note: the VB CRC32 used for `VBChecksum` mod constraints is
-                // computed lazily at draw time by `ensure_vb_checksum_dx11`
-                // (it reads the saved bytes below). We don't hash here to
-                // avoid paying the cost for every created VB. If the game
-                // later rewrites this buffer via Map / UpdateSubresource the
-                // checksum will be stale; we don't currently hook those calls.
                 dev_state_d3d11_write()
                 .map(|(_lock,ds)| {
                     if is_ib {
@@ -1050,11 +1044,13 @@ unsafe extern "system" fn hook_CreateBuffer(
     res
 }
 
-/// Lazily compute and cache the CRC32 of a DX11 vertex buffer's contents.
+/// Compute and cache the CRC32 of a DX11 vertex buffer's contents.
 /// The bytes are looked up from `device_vertex_buffer_data` (populated by
 /// `hook_CreateBuffer`). No-op if the VB is unknown or already hashed.
 /// Called from the DX11 draw hook only when a checksum is actually needed
 /// (snapshot in progress, or a mod targets this prim/vert combo).
+/// Note we don't recompute checksums, so if the buffer is updated via Map
+/// or something similar the checksum will be stale.
 pub unsafe fn ensure_vb_checksum_dx11(vb_ptr: usize) {
     if vb_ptr == 0 {
         return;
