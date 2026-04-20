@@ -78,7 +78,7 @@ use crate::hook_render_d3d11::*;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
 
 type D3D11CreateDeviceFN = extern "system" fn (
     pAdapter: *mut IDXGIAdapter,
@@ -1026,21 +1026,6 @@ unsafe extern "system" fn hook_CreateBuffer(
                 let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
                 std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
                 dest_v.set_len(vlen);
-                // For VBs, also record a CRC32 of the initial bytes so that mods
-                // can optionally constrain themselves to a specific VB via
-                // `VBChecksum`. Hash before moving `dest_v` into the buffer map.
-                // Note: if the game later rewrites this buffer via Map /
-                // UpdateSubresource the checksum will be stale; we don't
-                // currently hook those calls.
-                if is_vb {
-                    let crc = util::vb_checksum::compute(&dest_v);
-                    if GLOBAL_STATE.vb_checksums.is_none() {
-                        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
-                    }
-                    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
-                        map.insert(*ppBuffer as usize, VBChecksumStatus::Checksum(crc));
-                    }
-                }
                 dev_state_d3d11_write()
                 .map(|(_lock,ds)| {
                     if is_ib {
@@ -1057,6 +1042,43 @@ unsafe extern "system" fn hook_CreateBuffer(
     }
 
     res
+}
+
+/// Compute and cache the CRC32 of a DX11 vertex buffer's contents.
+/// The bytes are looked up from `device_vertex_buffer_data` (populated by
+/// `hook_CreateBuffer`). No-op if the VB is unknown or already hashed.
+/// Called from the DX11 draw hook only when a checksum is actually needed
+/// (snapshot in progress, or a mod targets this prim/vert combo).
+/// Note we don't recompute checksums, so if the buffer is updated via Map
+/// or something similar the checksum will be stale.
+pub unsafe fn ensure_vb_checksum_dx11(vb_ptr: usize) {
+    if vb_ptr == 0 {
+        return;
+    }
+    let already_resolved = GLOBAL_STATE
+        .vb_checksums
+        .as_ref()
+        .map(|m| m.contains_key(&vb_ptr))
+        .unwrap_or(false);
+    if already_resolved {
+        return;
+    }
+    let status = match dev_state_d3d11_nolock() {
+        Some(state) => match state.rs.device_vertex_buffer_data.get(&vb_ptr) {
+            Some(bytes) => {
+                let crc = util::vb_checksum::compute(bytes);
+                global_state::VBChecksumStatus::Checksum(crc)
+            }
+            None => global_state::VBChecksumStatus::NotPossible,
+        },
+        None => global_state::VBChecksumStatus::NotPossible,
+    };
+    if GLOBAL_STATE.vb_checksums.is_none() {
+        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
+    }
+    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+        map.insert(vb_ptr, status);
+    }
 }
 
 unsafe extern "system" fn hook_CreateTexture2D(

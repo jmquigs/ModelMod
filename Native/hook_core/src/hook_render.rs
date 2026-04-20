@@ -920,6 +920,19 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
         }).unwrap_or((null_mut(), 0, false))
     };
 
+    // Compute a CRC for the currently bound VB if we haven't already, but
+    // only when we actually need it: during a snapshot (so the CRC is
+    // available to the snapshot meta) or when a loaded mod has a
+    // VB-checksum constraint for this draw's (prim,vert) counts.
+    if GLOBAL_STATE.bound_vertex_buffer != 0
+        && (GLOBAL_STATE.is_snapping
+            || global_state::vb_checksum_target_matches(primCount, NumVertices))
+    {
+        crate::hook_device::ensure_vb_checksum_dx9(
+            GLOBAL_STATE.bound_vertex_buffer as *mut IDirect3DVertexBuffer9,
+        );
+    }
+
     if GLOBAL_STATE.is_snapping {
         let mut sd = types::interop::SnapshotData {
             sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
@@ -947,16 +960,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS {
         metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
-    }
-
-    // Compute a CRC for the currently bound VB if we haven't already.
-    // First-time: we try to Lock/hash it and record `Checksum` or
-    // `NotPossible`. Subsequent draws are a no-op once the entry is
-    // resolved.
-    if GLOBAL_STATE.bound_vertex_buffer != 0 {
-        crate::hook_device::ensure_vb_checksum_dx9(
-            GLOBAL_STATE.bound_vertex_buffer as *mut IDirect3DVertexBuffer9
-        );
     }
 
     // if there is a matching mod, render it
