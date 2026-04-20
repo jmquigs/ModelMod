@@ -173,6 +173,14 @@ pub struct HookState {
     /// Written by the DX9 `SetStreamSource` hook and the DX11
     /// `IASetVertexBuffers` hook. `0` means no buffer is bound.
     pub bound_vertex_buffer: usize,
+    /// Set of `(prim_count, vert_count)` pairs for which at least one loaded
+    /// mod has a VB-checksum constraint. When `Some`, the DIP hooks will only
+    /// compute a VB checksum for draws whose counts are in this set (or when
+    /// snapshotting). When `None`, mod load has not yet populated the set;
+    /// treat as "no targets known, skip all non-snapshot hashing". An empty
+    /// set also means no targets. Populated by native mod-load code after
+    /// `LoadModDB` completes (see `setup_mod_data`).
+    pub vb_checksum_targets: Option<FnvHashSet<(u32, u32)>>,
 }
 
 impl HookState {
@@ -250,6 +258,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     },
     vb_checksums: None,
     bound_vertex_buffer: 0,
+    vb_checksum_targets: None,
 };
 pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
 
@@ -297,4 +306,28 @@ impl<'a> Drop for GSPointerRef<'a> {
 
 pub fn get_global_state_ptr<'a>() -> GSPointerRef<'a> {
     GSPointerRef::new()
+}
+
+/// Install the set of `(prim_count, vert_count)` pairs for which a loaded
+/// mod has a VB-checksum constraint. Called by native mod-load code after
+/// `LoadModDB` completes, walking the freshly-loaded mods pulled from
+/// managed via `GetModData`. Passing an empty set disables all
+/// non-snapshot VB hashing.
+pub unsafe fn set_vb_checksum_targets(set: FnvHashSet<(u32, u32)>) {
+    write_log_file(&format!(
+        "set_vb_checksum_targets: installed {} target(s)",
+        set.len()
+    ));
+    GLOBAL_STATE.vb_checksum_targets = Some(set);
+}
+
+/// Quick check used by DIP hooks: returns true if the given
+/// `(prim_count, vert_count)` pair matches a loaded mod's VB-checksum
+/// constraint. Returns false when no target list has been installed yet
+/// (i.e. `vb_checksum_targets` is `None`).
+pub unsafe fn vb_checksum_target_matches(prim_count: u32, vert_count: u32) -> bool {
+    match GLOBAL_STATE.vb_checksum_targets.as_ref() {
+        Some(set) => set.contains(&(prim_count, vert_count)),
+        None => false,
+    }
 }

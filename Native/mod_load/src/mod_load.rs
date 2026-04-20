@@ -19,7 +19,7 @@ use winapi::um::d3d11::D3D11_USAGE_DEFAULT;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Texture2D;
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 
 use util;
 use d3dx;
@@ -489,6 +489,9 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
 
     let mod_count = (callbacks.GetModCount)();
     if mod_count <= 0 {
+        // No mods are loaded, so there are no VB-checksum targets either.
+        // Install an empty set to disable draw-time VB hashing.
+        global_state::set_vb_checksum_targets(FnvHashSet::default());
         return;
     }
 
@@ -510,6 +513,12 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     // temporary list of all mods that have been referenced as a parent by something
     use std::collections::HashSet;
     let mut all_parent_mods:HashSet<String> = HashSet::new();
+    // Set of `(ref_prim_count, ref_vert_count)` pairs for mods that have a
+    // `VBChecksum` constraint. Populated by pulling data from managed code
+    // via `GetModData` below, then installed into global state so the DIP
+    // hooks can gate draw-time VB hashing on these counts.
+    let mut vb_checksum_targets: FnvHashSet<(u32, u32)> =
+        FnvHashSet::with_capacity_and_hasher(16, Default::default());
     write_log_file(&format!("setting up {} mods", mod_count));
     for midx in 0..mod_count {
         let mdat: *mut interop::ModData = (callbacks.GetModData)(midx);
@@ -517,6 +526,13 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         if mdat == null_mut() {
             write_log_file(&format!("null mod at index {}", midx));
             continue;
+        }
+
+        if (*mdat).vb_checksum_set {
+            vb_checksum_targets.insert((
+                (*mdat).numbers.ref_prim_count as u32,
+                (*mdat).numbers.ref_vert_count as u32,
+            ));
         }
         let mod_name = util::from_wide_str(&(*mdat).modName).unwrap_or_else(|_e| "".to_owned());
         let mod_name = mod_name.trim().to_owned();
@@ -707,6 +723,12 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         mods_by_name: mods_by_name,
         selected_variant: global_state::new_fnv_map(16),
     } );
+
+    // Install the VB-checksum target set so the DIP hooks can start (or stop)
+    // hashing VBs for matching draws. Done here, after `LoadModDB` completed
+    // on the managed side, so that native pulls the data rather than managed
+    // pushing it back — avoiding re-entrant native calls from managed.
+    global_state::set_vb_checksum_targets(vb_checksum_targets);
 }
 
 pub fn get_mod_by_name<'a>(name:&str, loaded_mods:&'a mut Option<LoadedModState>) -> Option<&'a mut NativeModData> {

@@ -568,6 +568,14 @@ pub unsafe extern "system" fn hook_draw_indexed(
     };
 
     if GLOBAL_STATE.is_snapping {
+        // Ensure the bound VB's CRC32 is computed before `hook_snapshot::take`
+        // so that the snapshot meta can record it via
+        // `GetBoundVertexBufferChecksum`.
+        if GLOBAL_STATE.bound_vertex_buffer != 0 {
+            crate::hook_device_d3d11::ensure_vb_checksum_dx11(
+                GLOBAL_STATE.bound_vertex_buffer,
+            );
+        }
         dev_state_d3d11_nolock().map(|state| {
             let checkres = compute_prim_vert_count(IndexCount, &state.rs);
             let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
@@ -620,6 +628,20 @@ pub unsafe extern "system" fn hook_draw_indexed(
                         GLOBAL_STATE.metrics.rendered_prims.push(
                         PrimCountVertSizeAndVBs(prim_count, vert_count, state.rs.vb_state.clone()));
                     }
+                }
+
+                // If a loaded mod targets this (prim,vert) combo with a
+                // VB-checksum constraint, lazily compute the CRC32 for the
+                // currently-bound VB so that `mod_render::select` can apply
+                // it. Skipped entirely when no mod targets this combo,
+                // which is the common case.
+                if !GLOBAL_STATE.is_snapping
+                    && GLOBAL_STATE.bound_vertex_buffer != 0
+                    && global_state::vb_checksum_target_matches(prim_count, vert_count)
+                {
+                    crate::hook_device_d3d11::ensure_vb_checksum_dx11(
+                        GLOBAL_STATE.bound_vertex_buffer,
+                    );
                 }
 
                 // if there is a matching mod, render it
