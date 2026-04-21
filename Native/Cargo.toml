@@ -9,6 +9,7 @@ members = [
     "input",
     "interop",
     "mod_load",
+    "mod_prefs",
     "mod_stats",
     "profiler",
     "shader_capture",

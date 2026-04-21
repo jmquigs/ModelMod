@@ -333,6 +333,7 @@ fn select_next_variant() {
 
     hookstate.loaded_mods.as_mut().map(|mstate| {
         mod_render::select_next_variant(mstate, lastframe);
+        mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
     });
 }
 

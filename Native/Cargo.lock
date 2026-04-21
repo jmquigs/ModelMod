@@ -161,6 +161,7 @@ dependencies = [
  "interop",
  "lazy_static",
  "mod_load",
+ "mod_prefs",
  "mod_stats",
  "profiler",
  "rustc_version",
@@ -259,10 +260,23 @@ dependencies = [
  "fnv",
  "glam",
  "global_state",
+ "mod_prefs",
  "shared_dx",
  "types",
  "util",
  "winapi",
+]
+
+[[package]]
+name = "mod_prefs"
+version = "0.1.0"
+dependencies = [
+ "global_state",
+ "serde",
+ "serde_yaml",
+ "shared_dx",
+ "types",
+ "util",
 ]
 
 [[package]]

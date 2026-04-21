@@ -40,6 +40,9 @@
 			"path": "mod_load"
 		},
 		{
+			"path": "mod_prefs"
+		},
+		{
 			"path": "interop"
 		},
 		{
