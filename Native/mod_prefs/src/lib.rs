@@ -21,14 +21,14 @@ const PREFS_VERSION: u32 = 1;
 const PREFS_SUBDIR: &str = "ModelMod";
 const PREFS_EXT: &str = "prefs.yaml";
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct VariantPref {
     pub ref_prim_count: u32,
     pub ref_vert_count: u32,
     pub index: usize,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ModPrefs {
     #[serde(default = "default_version")]
     pub version: u32,
@@ -48,13 +48,41 @@ impl Default for ModPrefs {
     fn default() -> Self { Self::new() }
 }
 
-fn prefs_dir() -> Option<PathBuf> {
+#[cfg(test)]
+// this locate's this crate's "target", not the workspace, but is otherwise ok for test purposes
+fn prefs_dir_base() -> Option<PathBuf> {
+    let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("target");
+    path.push("tmp");
+    // rust names test thread after current test
+    let test_name = std::thread::current()
+        .name()
+        .unwrap_or("unknown_test")
+        .replace("::", "_");
+
+    let fnopath = file!().replace("\\", "_").replace("/", "_").replace("..", "_");
+    path.push(format!("test_run_{}_{}", fnopath, test_name)); // Uses the line number as a simple unique ID
+    path.push(PREFS_SUBDIR);
+    Some(path)
+}
+
+#[cfg(not(test))]
+fn prefs_dir_base() -> Option<PathBuf> {
     match std::env::var("LOCALAPPDATA") {
         Ok(v) if !v.is_empty() => {
             let mut pb = PathBuf::from(v);
             pb.push(PREFS_SUBDIR);
             Some(pb)
         },
+        _ => {
+            None
+        }
+    }
+}
+
+fn prefs_dir() -> Option<PathBuf> {
+    match prefs_dir_base() {
+        Some(x) => Some(x),
         _ => {
             write_log_file("prefs: LOCALAPPDATA environment variable not set; variant prefs disabled");
             None
@@ -278,6 +306,10 @@ mod tests {
         assert_eq!(total, 1);
         let mk = NativeModData::mod_key(13, 7);
         assert_eq!(sel.get(&mk), Some(&2));
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -294,6 +326,10 @@ mod tests {
         assert_eq!(applied, 0);
         assert_eq!(total, 1);
         assert!(sel.is_empty(), "out-of-range index must not be applied");
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -309,6 +345,10 @@ mod tests {
         assert_eq!(applied, 0);
         assert_eq!(total, 1);
         assert!(sel.is_empty());
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -330,6 +370,10 @@ mod tests {
         let good = NativeModData::mod_key(13, 7);
         assert_eq!(sel.get(&good), Some(&1));
         assert_eq!(sel.len(), 1);
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -344,6 +388,10 @@ mod tests {
         let prefs = build_prefs(&mods, &sel);
         assert!(prefs.variants.is_empty());
         assert_eq!(prefs.version, PREFS_VERSION);
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -361,6 +409,10 @@ mod tests {
         assert_eq!(v.ref_prim_count, 5);
         assert_eq!(v.ref_vert_count, 10);
         assert_eq!(v.index, 2);
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -380,6 +432,10 @@ mod tests {
             .map(|v| (v.ref_prim_count, v.ref_vert_count))
             .collect();
         assert_eq!(keys, vec![(5, 10), (5, 50), (10, 5)]);
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -391,6 +447,10 @@ mod tests {
 
         let prefs = build_prefs(&mods, &sel);
         assert!(prefs.variants.is_empty());
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
     }
 
     #[test]
@@ -418,5 +478,13 @@ mod tests {
 
         assert_eq!(sel_dst.get(&NativeModData::mod_key(10, 5)), Some(&2));
         assert_eq!(sel_dst.get(&NativeModData::mod_key(40, 20)), Some(&3));
+
+        write_prefs(&prefs);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs));
+
+        write_prefs(&prefs2);
+        let res = read_prefs();
+        assert_eq!(res, Some(prefs2));
     }
 }
