@@ -23,4 +23,5 @@ global_state = { path = "../global_state" }
 types = { path = "../types" }
 d3dx = { path = "../d3dx" }
 device_state = { path = "../device_state" }
+mod_prefs = { path = "../mod_prefs" }
 glam = { version = "*", optional = true }

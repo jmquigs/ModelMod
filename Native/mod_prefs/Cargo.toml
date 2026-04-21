@@ -1,0 +1,13 @@
+[package]
+name = "mod_prefs"
+version = "0.1.0"
+authors = ["John Quigley <jmquigs@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+shared_dx = { path = "../shared_dx" }
+util = { path = "../util" }
+global_state = { path = "../global_state" }
+types = { path = "../types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"

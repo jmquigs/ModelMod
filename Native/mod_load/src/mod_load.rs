@@ -716,10 +716,13 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
         write_log_file(&format!("mod load complete in {}ms", elapsed.as_millis()));
     };
 
+    let mut selected_variant = global_state::new_fnv_map(16);
+    mod_prefs::load_and_apply_variants(&loaded_mods, &mut selected_variant);
+
     GLOBAL_STATE.loaded_mods = Some(LoadedModState {
         mods: loaded_mods,
         mods_by_name: mods_by_name,
-        selected_variant: global_state::new_fnv_map(16),
+        selected_variant,
     } );
 
     global_state::set_vb_checksum_targets(vb_checksum_targets);
