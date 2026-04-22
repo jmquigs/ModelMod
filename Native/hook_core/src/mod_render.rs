@@ -408,6 +408,65 @@ pub fn select_next_variant(mstate: &mut LoadedModState, lastframe:u64) {
     }
 }
 
+pub fn select_prev_variant(mstate: &mut LoadedModState, lastframe:u64) {
+    // note this function is structurally a bit different from select_next_variant because it was written with 
+    // the assumption mods are sorted by parent status, which was not true when select_next_variant was 
+    // authored.  despite that simplifying assumption it somehow ended up longer.
+
+    for (mkey, nmdv) in mstate.mods.iter() {
+        if nmdv.len() <= 1 {
+            // most mods have no variants
+            continue;
+        }
+
+        // don't change the selection if none have been rendered recently
+        let foundrecent = nmdv.iter().find(|nmd| nmd.recently_rendered(lastframe));
+        if foundrecent.is_none() {
+            continue;
+        }
+
+        // get the current variant for this mod
+        let sel_index_entry = mstate.selected_variant.entry(*mkey).or_insert(0);
+        let mut sel_index = *sel_index_entry;
+        
+        if sel_index == 0 {
+            // find the last variant (mod with no parent) and loop around to it.
+            // note the minimum size is 1 mod and there may not be any child mods - but variants
+            // should be before all child mods in the list (sorted on mod load)
+            let first_child = nmdv.iter().enumerate().find(|(_,m)| !m.parent_mod_names.is_empty());
+            match first_child {
+                None => {
+                    // no children so all are variants, already checked size is at least 1 above so just decrement
+                    sel_index = nmdv.len() - 1;
+                }
+                Some((i,_)) if i > 0 => {
+                    sel_index = i - 1;
+                },
+                Some(_) => 
+                    // found a child at index zero, so I guess no variants here
+                    continue
+            }
+        } else {
+            sel_index -= 1;
+        }
+        match nmdv.get(sel_index) {
+            Some(nmod) => {
+                if nmod.parent_mod_names.is_empty() {
+                    // found one
+                    write_log_file(&format!("selected prev variant: {} => {}", nmod.name, sel_index));
+                    *sel_index_entry = sel_index;
+                } else {
+                    write_log_file(&format!("error: should have selected a variant but found a child; bad sort?  {} => {}"
+                        , nmod.name, sel_index));
+                }
+            },
+            None => {
+                write_log_file(&format!("error: should have selected a variant but found nothing at index {}", sel_index));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,6 +776,25 @@ mod tests {
         select_next_variant(&mut mstate, frame);
         let r = testsel(&mut mstate, 100, 200, frame);
         assert_selected_mod_name(r, "variant1");
+
+        // now test other way with select_prev_variant
+        select_prev_variant(&mut mstate, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
+        match r {
+            None => panic!("expected return for variant 3 case, got none"),
+            Some(SelectedMod::One(_)) => panic!("expected many but got: {:?}", r),
+            Some(SelectedMod::Many(list)) => {
+                let names:Vec<String> = list.as_slice().iter().map(|nmd| nmd.name.to_string()).collect();
+                assert_eq!(names, vec!["variant3", "childofv3"])
+            }
+        }
+        select_prev_variant(&mut mstate, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
+        assert_selected_mod_name(r, "variant2");
+        select_prev_variant(&mut mstate, frame);
+        let r = testsel(&mut mstate, 100, 200, frame);
+        assert_selected_mod_name(r, "variant1");
+
     }
 
     /// Build a BoundVB that answers `checksum_for(ptr) == Some(crc)`.

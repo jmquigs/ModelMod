@@ -336,6 +336,15 @@ fn select_next_variant() {
         mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
     });
 }
+fn select_prev_variant() {
+    let hookstate = unsafe { &mut GLOBAL_STATE };
+    let lastframe = hookstate.metrics.total_frames;
+
+    hookstate.loaded_mods.as_mut().map(|mstate| {
+        mod_render::select_prev_variant(mstate, lastframe);
+        mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
+    });
+}
 
 fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     write_log_file("using fkey input layout");
@@ -358,7 +367,7 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(cmd_take_snapshot));
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
-    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_prev_variant));
 
     // Hot-reload: Ctrl+F10 reloads the managed DLL.  MMManaged.dll is now a thin shell
     // that dynamically loads MMManaged.Engine.dll (the engine implementation).  On reload,
@@ -384,7 +393,7 @@ fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
 
     // Running out of punct!  oh well use these
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
-    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_next_variant));
+    inp.add_press_fn(input::DIK_NUMPAD9, Box::new(select_prev_variant));
 
     // Hot-reload managed DLL (Ctrl+F10) - available in all input profiles
     inp.add_press_fn(input::DIK_F10, Box::new(move || cmd_reload_managed_dll(device)));
