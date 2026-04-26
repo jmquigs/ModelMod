@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use global_state::TRUE;
 use types::interop::{ModData, ModSnapProfile};
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::{REFCLSID, REFIID};
@@ -13,7 +14,7 @@ use std::ptr::null_mut;
 
 use shared_dx::error::*;
 use shared_dx::util::*;
-use util::{get_proc_address, load_lib};
+use util::{get_proc_address, load_lib, reg_query_root_dword};
 
 DEFINE_GUID!{CLSID_CLR_META_HOST,
 0x9280188d, 0xe8e, 0x4867, 0xb3, 0xc, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}
@@ -146,7 +147,7 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
             let hr = (*metahost).GetRuntime(wide.as_ptr(), &IID_ICLR_RUNTIME_INFO, &mut p_runtime);
             if hr != 0 {
                 return Err(HookError::CLRInitFailed(
-                    "failed to create runtime".to_owned(),
+                    format!("failed to create runtime: hr=0x{:08X}", hr as u32),
                 ));
             }
             if p_runtime == null_mut() {
@@ -157,17 +158,22 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
             p_runtime
         };
 
-        let mut loadable: BOOL = FALSE;
-        let hr = (*runtime_info).IsLoadable(&mut loadable);
-        if hr != 0 {
-            return Err(HookError::CLRInitFailed(
-                "failed to check loadability".to_owned(),
-            ));
-        }
-        if loadable == FALSE {
-            return Err(HookError::CLRInitFailed(
-                "runtime is not loadable".to_owned(),
-            ));
+        let mut loadable: BOOL = TRUE;
+        let check_loadable = reg_query_root_dword("CLRCheckLoadable").unwrap_or(0) > 0;
+        if check_loadable {
+            let hr = (*runtime_info).IsLoadable(&mut loadable);
+            if hr != 0 {
+                return Err(HookError::CLRInitFailed(
+                    format!("failed to check loadability: hr=0x{:08X}", hr as u32),
+                ));
+            }
+            if loadable == FALSE {
+                return Err(HookError::CLRInitFailed(
+                    "runtime is not loadable".to_owned(),
+                ));
+            }    
+        } else {
+            write_log_file("skipping clr loadable check");
         }
 
         let runtime_host: *mut ICLRRuntimeHost = {
@@ -180,7 +186,7 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
 
             if hr != 0 {
                 return Err(HookError::CLRInitFailed(
-                    "failed to query runtime host".to_owned(),
+                    format!("failed to query runtime host: hr=0x{:08X}", hr as u32),
                 ));
             }
             if p_rhost == null_mut() {
@@ -196,8 +202,8 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
         let hr = (*runtime_host).Start();
         if hr != 0 {
             return Err(HookError::CLRInitFailed(format!(
-                "failed to start clr, HRESULT: {}",
-                hr
+                "failed to start clr, HRESULT: {:08X}",
+                hr as u32
             )));
         }
 

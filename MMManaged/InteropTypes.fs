@@ -193,6 +193,7 @@ module InteropTypes =
         VBChecksumSet = false
     }
 
+    [<Struct>]
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]
     type D3D9SnapshotRendData = {
         /// Vertex declaration pointer
@@ -200,6 +201,7 @@ module InteropTypes =
         /// Index buffer pointer
         IndexBuffer:nativeint
     }
+    [<Struct>]
     [<StructLayout(LayoutKind.Sequential, Pack=4)>]
     type D3D11SnapshotRendData = {
           /// Vertex declaration pointer
@@ -224,6 +226,7 @@ module InteropTypes =
           NumActiveTexIndices:uint32
       }
 
+    [<Struct>]
     [<StructLayout(LayoutKind.Explicit, Pack=4)>]
     /// This represents a C-style union in the native code.  Only one of these fields will be valid at a time.
     /// The native representation for these fields ensures that both structs are the same size, using padding 
