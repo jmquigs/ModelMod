@@ -18,7 +18,7 @@ use util::*;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
 
 use device_state::{DEVICE_STATE, dev_state};
-use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_set_stream_source};
+use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_reset, hook_set_stream_source};
 use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
 
@@ -55,6 +55,7 @@ unsafe fn hook_d3d9_device(
     let real_create_texture = (*vtbl).CreateTexture;
     let real_update_texture = (*vtbl).UpdateTexture;
     let real_set_stream_source = (*vtbl).SetStreamSource;
+    let real_reset = (*vtbl).Reset;
 
     let real_set_vertex_sc_f = (*vtbl).SetVertexShaderConstantF;
     let real_set_vertex_sc_i = (*vtbl).SetVertexShaderConstantI;
@@ -100,6 +101,11 @@ unsafe fn hook_d3d9_device(
     // Hook SetStreamSource so we can record which VB is bound at slot 0
     // (used as the secondary mesh identifier at DIP time).
     (*vtbl).SetStreamSource = hook_set_stream_source;
+    // Hook Reset so we can drop stale VB pointers/checksum cache: the game
+    // typically releases its D3DPOOL_DEFAULT VBs around Reset, which would
+    // otherwise leave bound_vertex_buffer dangling and crash the next draw
+    // that tries to checksum it.
+    (*vtbl).Reset = hook_reset;
 
     if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
         // hook UpdateTexture to track source->destination mappings so that
@@ -137,6 +143,7 @@ unsafe fn hook_d3d9_device(
         real_create_texture,
         real_update_texture,
         real_set_stream_source,
+        real_reset,
         real_set_vertex_sc_f,
         real_set_vertex_sc_i,
         real_set_vertex_sc_b,

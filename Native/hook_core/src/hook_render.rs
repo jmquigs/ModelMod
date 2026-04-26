@@ -413,6 +413,30 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
     }
 }
 
+/// Hook for IDirect3DDevice9::Reset.
+///
+/// The game releases its D3DPOOL_DEFAULT vertex buffers across a Reset, so any
+/// VB pointers we have stashed in `bound_vertex_buffer` or as keys in
+/// `vb_checksums` are stale by the time Reset is called. Drop them before
+/// invoking the real Reset so a subsequent draw doesn't call GetDesc/Lock on
+/// freed memory.
+pub (crate) unsafe extern "system" fn hook_reset(
+    THIS: *mut IDirect3DDevice9,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+) -> HRESULT {
+    GLOBAL_STATE.bound_vertex_buffer = 0;
+    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+        map.clear();
+    }
+
+    match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            (dev.real_reset)(THIS, pPresentationParameters)
+        },
+        _ => E_FAIL
+    }
+}
+
 // TODO: hook this up to device release at the proper time
 unsafe fn purge_device_resources(device: DevicePointer) {
     if device.is_null() {
