@@ -413,6 +413,26 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
     }
 }
 
+/// Hook for IDirect3DDevice9::Reset.
+///
+/// Clean up any state that may be invalidated by device reset.
+pub (crate) unsafe extern "system" fn hook_reset(
+    THIS: *mut IDirect3DDevice9,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+) -> HRESULT {
+    GLOBAL_STATE.bound_vertex_buffer = 0;
+    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+        map.clear();
+    }
+
+    match (dev_state()).hook {
+        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
+            (dev.real_reset)(THIS, pPresentationParameters)
+        },
+        _ => E_FAIL
+    }
+}
+
 // TODO: hook this up to device release at the proper time
 unsafe fn purge_device_resources(device: DevicePointer) {
     if device.is_null() {

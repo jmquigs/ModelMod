@@ -52,6 +52,10 @@ pub type DrawIndexedPrimitiveFn = unsafe extern "system" fn(
 ) -> HRESULT;
 pub type BeginSceneFn = unsafe extern "system" fn(THIS: *mut IDirect3DDevice9) -> HRESULT;
 pub type IUnknownReleaseFn = unsafe extern "system" fn(THIS: *mut IUnknown) -> ULONG;
+pub type ResetFn = unsafe extern "system" fn(
+    THIS: *mut IDirect3DDevice9,
+    pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
+) -> HRESULT;
 pub type PresentFn = unsafe extern "system" fn(
     THIS: *mut IDirect3DDevice9,
     pSourceRect: *const RECT,
