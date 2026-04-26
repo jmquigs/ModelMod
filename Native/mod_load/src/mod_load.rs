@@ -487,17 +487,17 @@ pub fn sort_mods(loaded_mods:&mut FnvHashMap<u32, Vec<native_mod::NativeModData>
 pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
     clear_loaded_mods(device);
 
+    let lock = GLOBAL_STATE_LOCK.lock();
+    if let Err(_e) = lock {
+        write_log_file("failed to lock global state to setup mod data");
+        return;
+    }
+
     let mod_count = (callbacks.GetModCount)();
     if mod_count <= 0 {
         // No mods are loaded, so there are no VB-checksum targets either.
         // Install an empty set to disable draw-time VB hashing.
         global_state::set_vb_checksum_targets(FnvHashSet::default());
-        return;
-    }
-
-    let lock = GLOBAL_STATE_LOCK.lock();
-    if let Err(_e) = lock {
-        write_log_file("failed to lock global state to setup mod data");
         return;
     }
 
