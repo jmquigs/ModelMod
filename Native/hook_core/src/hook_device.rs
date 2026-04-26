@@ -101,10 +101,8 @@ unsafe fn hook_d3d9_device(
     // Hook SetStreamSource so we can record which VB is bound at slot 0
     // (used as the secondary mesh identifier at DIP time).
     (*vtbl).SetStreamSource = hook_set_stream_source;
-    // Hook Reset so we can drop stale VB pointers/checksum cache: the game
-    // typically releases its D3DPOOL_DEFAULT VBs around Reset, which would
-    // otherwise leave bound_vertex_buffer dangling and crash the next draw
-    // that tries to checksum it.
+    // Hook Reset so we can drop stale VB pointers/checksum cache, and anything 
+    // else that might be invalidated by reset.
     (*vtbl).Reset = hook_reset;
 
     if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {

@@ -415,11 +415,7 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
 
 /// Hook for IDirect3DDevice9::Reset.
 ///
-/// The game releases its D3DPOOL_DEFAULT vertex buffers across a Reset, so any
-/// VB pointers we have stashed in `bound_vertex_buffer` or as keys in
-/// `vb_checksums` are stale by the time Reset is called. Drop them before
-/// invoking the real Reset so a subsequent draw doesn't call GetDesc/Lock on
-/// freed memory.
+/// Clean up any state that may be invalidated by device reset.
 pub (crate) unsafe extern "system" fn hook_reset(
     THIS: *mut IDirect3DDevice9,
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
