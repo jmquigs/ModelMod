@@ -1,0 +1,129 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>MMManaged.Engine</AssemblyName>
+    <RootNamespace>ModelMod.Engine</RootNamespace>
+
+    <!-- Match original output layout -->
+    <OutputPath>..\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+
+    <!-- F# tail-call behavior, matching original per-config settings -->
+    <Tailcalls Condition="'$(Configuration)' == 'Debug'">false</Tailcalls>
+    <Tailcalls Condition="'$(Configuration)' == 'Release'">true</Tailcalls>
+
+    <!-- Engine has no AssemblyInfo.fs of its own; let SDK auto-generate one.
+         If you'd prefer to suppress that, set GenerateAssemblyInfo=false and
+         add a hand-written one to the Compile list. -->
+  </PropertyGroup>
+
+<PropertyGroup>
+  <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+</PropertyGroup>
+<ItemGroup>
+  <Reference Include="FSharp.Core">
+    <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
+    <Private>False</Private>
+  </Reference>
+</ItemGroup>
+
+  <!-- F# compilation order is significant.
+       All implementation files are linked from the MMManaged source directory;
+       only EngineEntry.fs is unique to this project. This is the engine half of
+       the shell/engine split. -->
+  <ItemGroup>
+    <Compile Include="..\MMManaged\Util.fs">
+      <Link>Util.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshUtil.fs">
+      <Link>MeshUtil.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshTransform.fs">
+      <Link>MeshTransform.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\Yaml.fs">
+      <Link>Yaml.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\StartConf.fs">
+      <Link>StartConf.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MeshRelation.fs">
+      <Link>MeshRelation.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\MemoryCache.fs">
+      <Link>MemoryCache.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\SnapshotProfile.fs">
+      <Link>SnapshotProfile.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\ModDB.fs">
+      <Link>ModDB.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\DataEncoding.fs">
+      <Link>DataEncoding.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\State.fs">
+      <Link>State.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\ModDBInterop.fs">
+      <Link>ModDBInterop.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\Snapshot.fs">
+      <Link>Snapshot.fs</Link>
+    </Compile>
+    <Compile Include="EngineEntry.fs" />
+  </ItemGroup>
+
+  <!-- Reference assemblies for net462 - required for non-Windows builds -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies"
+                      Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- Project reference to the shell assembly for shared types
+       (Logging, InteropTypes, CoreTypes, IEngineModule, etc.).
+       Private=False because the shell is loaded once at startup; the engine
+       is the hot-reloadable inner payload that doesn't ship its own copy. -->
+  <ItemGroup>
+    <ProjectReference Include="..\MMManaged\MMManaged.dotnet.fsproj">
+      <Private>False</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!-- Package dependencies via HintPath into the existing packages folder.
+       Same pattern as you used for MMManaged.dotnet.fsproj after the PackageReference
+       attempt didn't pull these in via Paket. FsPickler is referenced because
+       the shell uses it for serialization across the shell/engine boundary. -->
+  <ItemGroup>
+    <Reference Include="FsPickler">
+      <HintPath>..\packages\FsPickler.5.3.2\lib\net45\FsPickler.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D9">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D9.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D11">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D11.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.DXGI">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.DXGI.dll</HintPath>
+    </Reference>
+    <Reference Include="YamlDotNet">
+      <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Paket integration kept for future migration; harmless if file doesn't exist. -->
+  <!--
+  <Import Project="..\.paket\Paket.Restore.targets"
+          Condition="Exists('..\.paket\Paket.Restore.targets')" />
+  -->
+</Project>

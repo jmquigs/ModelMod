@@ -17,7 +17,6 @@ install:
 #  - cargo -V
 
 before_build:
-- del "MMManaged\\Dn5-MMManaged.fsproj" # this confuses paket restore, so remove it
 - installdeps.bat nopause
 # for testing native builds before building all the managed crap
 # needs to be done after deps installed though because that is what gets us fake/paket

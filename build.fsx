@@ -206,7 +206,6 @@ Target "BuildCS" (fun _ ->
 Target "BuildFS" (fun _ ->
     !! "**/*.fsproj"
       -- "**/Test.*"
-      -- "**/Dn5*.fsproj"
       |> MSBuildRelease buildBin "Build"
       |> Log "BuildFS-Output: "
 )
