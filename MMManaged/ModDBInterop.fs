@@ -1144,7 +1144,19 @@ module ModDBInterop =
                 let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
 
                 // Write all the triangles to the buffer.
-                modm.Triangles |> Array.iter writeTriangle
+                let maxTri = modm.Triangles.Length
+                let mutable currTri  = 0
+                let doload() = 
+                    use sw = new Util.StopwatchTracker(sprintf "fill mod: %A: " md.ModName)
+                    modm.Triangles |> Array.iter 
+                        (fun tri 
+                            -> 
+                            if currTri % 1000 = 0 then 
+                                log.Info "fill %A; tri %d/%d (%d%%)" md.ModName  currTri maxTri (int (float currTri / float maxTri * float 100))
+                            currTri <- currTri + 1
+                            writeTriangle tri
+                        )
+                doload()
 
                 if int64 destVbSize <> bw.BaseStream.Position then
                     // uh oh

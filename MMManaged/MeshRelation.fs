@@ -388,6 +388,7 @@ module MeshRelation =
             let cacheVROpt = 
                 if useBinCache then 
                     try 
+                        use sw = new Util.StopwatchTracker(sprintf "load mesh rel cache for mod: %A: " md.Name)
                         MeshRelDiskCache.tryLoad binCacheDir md ref 
                     with e -> 
                         log.Error "%A" e

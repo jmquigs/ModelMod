@@ -893,7 +893,8 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                         cnt += 1;
                     }
                     DevicePointer::D3D11(dev) => {
-                        write_log_file(&format!("beginning d3d 11 load; can load thread load: {}", can_load_in_thread));
+                        // this is a bit spammy on slow systems, which is all of mine
+                        //write_log_file(&format!("beginning d3d 11 load; can load thread load: {}", can_load_in_thread));
                         if can_load_in_thread {
                             match maybe_start_load(device, callbacks, nmod) {
                                 Ok(queued) => {

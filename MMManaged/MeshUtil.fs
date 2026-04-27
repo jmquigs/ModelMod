@@ -100,7 +100,7 @@ module MeshUtil =
         // We define a bunch of helper functions, pack them up into
         // active patterns, then run a match with all the patterns on each line.
 
-        //use sw = new Util.StopwatchTracker("read obj: " + filename)
+        use sw = new Util.StopwatchTracker("read obj: " + filename)
         let lines = File.ReadAllLines(filename)
 
         // obj indices are 1 based, this makes them zero-based
