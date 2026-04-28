@@ -164,17 +164,117 @@ module ModDB =
         else
             mesh
 
-    /// Load specified mesh, using cached version if available.
-    let loadMesh(path, (modType:ModType), flags) =
+    /// Utility module to cache full meshes to disk so that startup doesn't have to
+    /// re-parse mmobj files when nothing has changed.  Modeled on MeshRelDiskCache
+    /// in MeshRelation.fs.  See comments there about FsPickler / FSharp.Core
+    /// version sensitivity.
+    module private MeshDiskCache =
+        open System.IO.Compression
+        open MBrace.FsPickler
+
+        let private mlog = Logging.getLogger("MeshDiskCache")
+        let private ser = FsPickler.CreateBinarySerializer()
+        let private cacheVersion = 1
+
+        type MeshSig = {
+            Path: string
+            Ticks: int64
+            Size: int64
+            ModType: ModType
+            Flags: MeshReadFlags
+        }
+
+        type Entry = {
+            Version: int
+            Sig: MeshSig
+            Mesh: Mesh
+        }
+
+        let private fileSig (path: string) =
+            let fi = FileInfo(path)
+            fi.LastWriteTimeUtc.Ticks, fi.Length
+
+        let private mkSig (path: string) (modType: ModType) (flags: MeshReadFlags) =
+            let t,s = fileSig path
+            { Path = path; Ticks = t; Size = s; ModType = modType; Flags = flags }
+
+        let private key (path: string) =
+            let s = path.ToLowerInvariant()
+            use sha = System.Security.Cryptography.SHA256.Create()
+            sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(s))
+            |> Seq.map (fun b -> b.ToString("x2"))
+            |> String.concat ""
+
+        let relPath (cacheDir: string) (path: string) =
+            Path.Combine(cacheDir, "Meshes", key path + ".bin.gz")
+
+        let tryLoad (cacheDir: string) (path: string) (modType: ModType) (flags: MeshReadFlags) : Mesh option =
+            let p = relPath cacheDir path
+            if not (File.Exists(p)) then None
+            else
+                use fs = File.OpenRead(p)
+                use gz = new GZipStream(fs, CompressionMode.Decompress)
+                let e = ser.Deserialize<Entry>(gz)
+
+                if e.Version <> cacheVersion then None
+                else
+                    let cur = mkSig path modType flags
+                    if e.Sig = cur then Some e.Mesh else None
+
+        let save (cacheDir: string) (path: string) (modType: ModType) (flags: MeshReadFlags) (mesh: Mesh) =
+            let dir = Path.Combine(cacheDir, "Meshes")
+            Directory.CreateDirectory(dir) |> ignore
+            let p = relPath cacheDir path
+            let tmp = p + ".tmp"
+
+            mlog.Info "[meshcache]: creating bincache entry: %A for mesh=%A" tmp path
+
+            let e =
+                {
+                    Entry.Version = cacheVersion
+                    Sig = mkSig path modType flags
+                    Mesh = mesh
+                }
+
+            use fs = File.Create(tmp)
+            use gz = new GZipStream(fs, CompressionMode.Compress)
+            ser.Serialize(gz, e)
+
+            if File.Exists(p) then File.Delete(p)
+            File.Move(tmp, p)
+
+    /// Load specified mesh, using cached version if available.  binCacheDir, if non-empty,
+    /// enables a binary disk cache that short-circuits mmobj parsing on startup when the source
+    /// file is unchanged.
+    let loadMesh(path, (modType:ModType), flags, (binCacheDir:string)) =
         match MemoryCache.get (path,modType,flags) with
-        | None ->
-            let mesh = loadUncachedMesh(path,modType,flags)
-            MemoryCache.save(path,modType,flags,mesh)
-            let mesh = { mesh with Cached = false }
-            mesh
         | Some mesh ->
-            let mesh = { mesh with Cached = true }
-            mesh
+            { mesh with Cached = true }
+        | None ->
+            let useDiskCache = not (System.String.IsNullOrWhiteSpace binCacheDir)
+            let diskHit =
+                if useDiskCache then
+                    try
+                        use sw = new Util.StopwatchTracker(sprintf "load mesh disk cache: %s" path)
+                        MeshDiskCache.tryLoad binCacheDir path modType flags
+                    with e ->
+                        log().Error "%A" e
+                        None
+                else None
+            match diskHit with
+            | Some mesh ->
+                log().Info "[meshcache]: loaded mesh from cache: %s" path
+                // populate the in-memory cache so future Ctrl-F1 reloads stay fast without
+                // touching disk again
+                MemoryCache.save(path, modType, flags, mesh)
+                { mesh with Cached = true }
+            | None ->
+                let mesh = loadUncachedMesh(path, modType, flags)
+                MemoryCache.save(path, modType, flags, mesh)
+                if useDiskCache then
+                    try MeshDiskCache.save binCacheDir path modType flags mesh
+                    with e -> log().Error "%A" e
+                { mesh with Cached = false }
 
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
@@ -195,7 +295,8 @@ module ModDB =
 
     /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Mod.
-    let buildMod (node:YamlMappingNode) (filename:string): ModElement =
+    /// binCacheDir, if non-empty, is forwarded to loadMesh to enable the binary mesh cache.
+    let buildMod (node:YamlMappingNode) (filename:string) (binCacheDir:string): ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
@@ -300,8 +401,8 @@ module ModDB =
 
                     let meshPath = Path.Combine(basePath, meshPath)
                     fullMeshPath <- meshPath
-                    let doMeshLoad() = 
-                        let mesh = loadMesh (meshPath,modType,meshReadFlags)
+                    let doMeshLoad() =
+                        let mesh = loadMesh (meshPath,modType,meshReadFlags,binCacheDir)
                         // fill in texture paths (if any) from yaml
                         {
                             mesh with 
@@ -422,7 +523,8 @@ module ModDB =
 
     /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Reference.
-    let buildReference (node:YamlMappingNode) (filename:string) =
+    /// binCacheDir, if non-empty, is forwarded to loadMesh to enable the binary mesh cache.
+    let buildReference (node:YamlMappingNode) (filename:string) (binCacheDir:string) =
         //log().Info "Building reference from %A" node
 
         let basePath = Path.GetDirectoryName filename
@@ -446,7 +548,7 @@ module ModDB =
             let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
             { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
         let doMeshLoad() =
-            let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags)
+            let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags,binCacheDir)
 
             // load vertex elements (binary)
             let binVertDeclPath =
@@ -531,9 +633,9 @@ module ModDB =
                         let nType = mapNode |> Yaml.getValue "type"
                         match nType with
                         | StringValueIgnoreCase "reference" ->
-                            yield buildReference mapNode filename
+                            yield buildReference mapNode filename conf.BinCacheDir
                         | StringValueIgnoreCase "mod" ->
-                            yield buildMod mapNode filename
+                            yield buildMod mapNode filename conf.BinCacheDir
                         | _ -> failwithf "Illegal 'type' field in yaml file: %s" filename
 
                     | _ -> failwithf "Don't know how to process yaml node type: %A in file %s" (d.RootNode.GetType()) filename
@@ -548,10 +650,10 @@ module ModDB =
                 match conf.AppSettings with
                 | None ->
                     mrFlags <- CoreTypes.DefaultReadFlags
-                    loadMesh (filename,ModType.Reference, mrFlags)
+                    loadMesh (filename,ModType.Reference, mrFlags, conf.BinCacheDir)
                 | Some settings ->
                     mrFlags <- settings.MeshReadFlags
-                    loadMesh (filename,ModType.Reference, mrFlags)
+                    loadMesh (filename,ModType.Reference, mrFlags, conf.BinCacheDir)
 
             let refName = Path.GetFileNameWithoutExtension filename
             [ MReference(
