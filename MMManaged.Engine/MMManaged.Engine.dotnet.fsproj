@@ -59,6 +59,9 @@
     <Compile Include="..\MMManaged\SnapshotProfile.fs">
       <Link>SnapshotProfile.fs</Link>
     </Compile>
+    <Compile Include="..\MMManaged\MeshDiskCache.fs">
+      <Link>MeshDiskCache.fs</Link>
+    </Compile>
     <Compile Include="..\MMManaged\ModDB.fs">
       <Link>ModDB.fs</Link>
     </Compile>

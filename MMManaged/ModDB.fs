@@ -153,29 +153,6 @@ module ModDB =
         | None -> []
         | Some xforms -> xforms |> Seq.map Yaml.toString |> List.ofSeq
 
-    /// Load specified mesh, bypassing the cache.
-    let loadUncachedMesh(path, (modType:ModType), flags) =
-        let mesh = MeshUtil.readFrom(path, modType, flags)
-        if flags.ReverseTransform &&
-            (mesh.AppliedPositionTransforms.Length > 0 || mesh.AppliedUVTransforms.Length > 0) then
-            let mesh = MeshTransform.reverseMeshTransforms (mesh.AppliedPositionTransforms) (mesh.AppliedUVTransforms) mesh
-            // clear out applied transforms, since they have been reversed.
-            { mesh with AppliedPositionTransforms = [||]; AppliedUVTransforms = [||] }
-        else
-            mesh
-
-    /// Load specified mesh, using cached version if available.
-    let loadMesh(path, (modType:ModType), flags) =
-        match MemoryCache.get (path,modType,flags) with
-        | None ->
-            let mesh = loadUncachedMesh(path,modType,flags)
-            MemoryCache.save(path,modType,flags,mesh)
-            let mesh = { mesh with Cached = false }
-            mesh
-        | Some mesh ->
-            let mesh = { mesh with Cached = true }
-            mesh
-
     /// Convert a string representation of a mod type into a type.  Throws exception if invalid.
     let getModType = function
         | "cpuadditive" /// This doesn't even exist anymore, but for data-file compatibiliity treat it as GPUAdditive
@@ -195,7 +172,8 @@ module ModDB =
 
     /// Build a Mod(x) from the specified yaml mapping.  Loads all associated data of the mod, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Mod.
-    let buildMod (node:YamlMappingNode) (filename:string): ModElement =
+    /// binCacheDir, if non-empty, is forwarded to loadMesh to enable the binary mesh cache.
+    let buildMod (node:YamlMappingNode) (filename:string) (binCacheDir:string): ModElement =
         let basePath = Path.GetDirectoryName filename
         let modName = Path.GetFileNameWithoutExtension filename
 
@@ -300,8 +278,8 @@ module ModDB =
 
                     let meshPath = Path.Combine(basePath, meshPath)
                     fullMeshPath <- meshPath
-                    let doMeshLoad() = 
-                        let mesh = loadMesh (meshPath,modType,meshReadFlags)
+                    let doMeshLoad() =
+                        let mesh = MeshDiskCache.loadMesh (meshPath,modType,meshReadFlags,binCacheDir)
                         // fill in texture paths (if any) from yaml
                         {
                             mesh with 
@@ -422,7 +400,8 @@ module ModDB =
 
     /// Build a Reference(x) from the specified yaml mapping.  Loads all associated data, including the mesh.
     /// It is an error to call this on yaml that represents something other than a Reference.
-    let buildReference (node:YamlMappingNode) (filename:string) =
+    /// binCacheDir, if non-empty, is forwarded to loadMesh to enable the binary mesh cache.
+    let buildReference (node:YamlMappingNode) (filename:string) (binCacheDir:string) =
         //log().Info "Building reference from %A" node
 
         let basePath = Path.GetDirectoryName filename
@@ -446,7 +425,7 @@ module ModDB =
             let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
             { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
         let doMeshLoad() =
-            let mesh = loadMesh (meshFullPath,ModType.Reference,meshReadFlags)
+            let mesh = MeshDiskCache.loadMesh (meshFullPath,ModType.Reference,meshReadFlags,binCacheDir)
 
             // load vertex elements (binary)
             let binVertDeclPath =
@@ -531,9 +510,9 @@ module ModDB =
                         let nType = mapNode |> Yaml.getValue "type"
                         match nType with
                         | StringValueIgnoreCase "reference" ->
-                            yield buildReference mapNode filename
+                            yield buildReference mapNode filename conf.BinCacheDir
                         | StringValueIgnoreCase "mod" ->
-                            yield buildMod mapNode filename
+                            yield buildMod mapNode filename conf.BinCacheDir
                         | _ -> failwithf "Illegal 'type' field in yaml file: %s" filename
 
                     | _ -> failwithf "Don't know how to process yaml node type: %A in file %s" (d.RootNode.GetType()) filename
@@ -548,10 +527,10 @@ module ModDB =
                 match conf.AppSettings with
                 | None ->
                     mrFlags <- CoreTypes.DefaultReadFlags
-                    loadMesh (filename,ModType.Reference, mrFlags)
+                    MeshDiskCache.loadMesh (filename,ModType.Reference, mrFlags, conf.BinCacheDir)
                 | Some settings ->
                     mrFlags <- settings.MeshReadFlags
-                    loadMesh (filename,ModType.Reference, mrFlags)
+                    MeshDiskCache.loadMesh (filename,ModType.Reference, mrFlags, conf.BinCacheDir)
 
             let refName = Path.GetFileNameWithoutExtension filename
             [ MReference(
