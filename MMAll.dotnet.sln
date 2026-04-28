@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MMManaged.dotnet", "MMManaged\MMManaged.dotnet.fsproj", "{C6097DB3-F08B-4F18-9E9F-F87E4FE3C99B}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MMManaged.Engine.dotnet", "MMManaged.Engine\MMManaged.Engine.dotnet.fsproj", "{91E5FD7F-68BC-40F6-BFBE-549F0B82C671}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C6097DB3-F08B-4F18-9E9F-F87E4FE3C99B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C6097DB3-F08B-4F18-9E9F-F87E4FE3C99B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C6097DB3-F08B-4F18-9E9F-F87E4FE3C99B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C6097DB3-F08B-4F18-9E9F-F87E4FE3C99B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91E5FD7F-68BC-40F6-BFBE-549F0B82C671}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91E5FD7F-68BC-40F6-BFBE-549F0B82C671}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91E5FD7F-68BC-40F6-BFBE-549F0B82C671}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91E5FD7F-68BC-40F6-BFBE-549F0B82C671}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
