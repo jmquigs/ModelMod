@@ -26,8 +26,6 @@ module private MeshDiskCache =
 
     let private mlog = Logging.getLogger("MeshDiskCache")
     let private ser = FsPickler.CreateBinarySerializer()
-    // bumped to 2 when MeshSig was lifted into the shared BinCacheTypes module
-    // (FsPickler keys on type identity / namespace, so prior caches won't deserialize)
     let private cacheVersion = 2
 
     type Entry = {

@@ -941,7 +941,7 @@ module ModDBInterop =
                     // Fill into a managed buffer (one extra memcpy at the end vs.
                     // writing straight to the unmanaged dest, in exchange for being
                     // able to stash the bytes in the VBData disk cache for later
-                    // single-shot blits.)
+                    // single-shot copy)
                     let vbBuffer : byte[] = Array.zeroCreate destVbSize
                     use vbStream = new MemoryStream(vbBuffer, 0, vbBuffer.Length, true)
                     let bw = new BinaryWriter(vbStream)

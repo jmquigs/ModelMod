@@ -5,9 +5,7 @@ open System.IO
 open CoreTypes
 
 /// Types and helpers shared by the various binary disk caches
-/// (MeshDiskCache, MeshRelDiskCache, VBDataDiskCache).  Lifted here so
-/// that the same MeshSig record describes a mesh source file across all
-/// of them.
+/// (MeshDiskCache, MeshRelDiskCache, VBDataDiskCache).
 module BinCacheTypes =
 
     /// Identifies a mesh source file plus the parameters that govern how it

@@ -13,8 +13,9 @@ open BinCacheTypes
 
 /// Binary disk cache for the bytes that fillModData writes into the
 /// vertex buffer (and, for DX9, the bytes written into the vertex
-/// declaration buffer).  On a hit, the caller can blit the cached bytes
-/// in one shot instead of re-walking the mod triangle list.
+/// declaration buffer).  When available, used instead of manual fill process,
+/// which can be quite slow on an underpowered laptop especially when running
+/// in proton.
 ///
 /// Modeled on MeshDiskCache / MeshRelDiskCache; same FsPickler / GZip
 /// approach and same FSharp.Core sensitivity caveats.
