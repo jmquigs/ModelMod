@@ -784,50 +784,10 @@ module ModDBInterop =
                 && (intToModType md.ModType) <> GPUAdditive
                 then failwithf "unsupported mod type: %d" md.ModType
 
-            // grab more stuff that we'll need
             let meshrel = List.item modIndex (moddb.MeshRelations)
-            if not meshrel.IsBuilt then 
-                log.Warn "mesh rel is not built, building now (slow!)" 
-                meshrel.Build() |> ignore
-
-            let refm = meshrel.RefMesh.Value
-            let modm = meshrel.ModMesh.Value
-            let vertRels = meshrel.VertRelations.Value
-
             let snapProfile = meshrel.DBMod.Profile
-
-            match snapProfile with
-            | Some(profile) when profile.IsOctaVec() ->
-                log.Info "encoding vectors with octa format (some formats only)"
-                DataWriters.encVec <- DataEncoding.OctaV1.encode
-            | Some(profile) when profile.IsPackedVec() ->
-                log.Info "encoding vectors with packed format (some formats only)"
-                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
-            | Some (profile) ->
-                log.Warn "possible unknown vector encoding %A, using packed (some formats only)" profile.VecEncoding
-                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
-            | None ->
-                log.Info "encoding vectors with packed format (some formats only)"
-                DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
-
             let blendIndexInColor1 = snapProfile |> Option.map (fun p -> p.BlendIndexInColor1) |> Option.defaultValue false
             let blendWeightInColor2 = snapProfile |> Option.map (fun p -> p.BlendWeightInColor2) |> Option.defaultValue false
-
-            let declElements =
-                match destDeclBx with
-                | WriteD3D9Decl (destDeclBw,destDeclSize) ->
-                    let srcDeclData,declElements =
-                        match meshrel.GetVertDeclaration() with
-                        | None -> failwith "A vertex declaration must be set here, native code requires it."
-                        | Some (data,elements) -> data,elements
-                    // copy declaration data to destination
-                    if (destDeclSize > 0) then
-                        if destDeclSize <> srcDeclData.Length then
-                            failwithf "Decl src/dest mismatch: src: %d, dest: %d" srcDeclData.Length destDeclSize
-
-                        destDeclBw.Write(srcDeclData)
-                    declElements |> List.map (VertexTypes.sdxDeclElementToMMDeclElement) |> Array.ofList
-                | ReadD3D11Layout elements -> elements
 
             // in DX9 we use the vertex size from the mod, because we also create the declaration.
             // in DX11 we use the vertex size computed from the elements which are currently being
@@ -842,326 +802,452 @@ module ModDBInterop =
                 | None -> md.VertSizeBytes
                 | Some(size) -> size
 
+            // Resolve the vertex declaration and its identifying hash early so we
+            // can use them in the VBData cache key (and cache value, for DX9).  For
+            // DX9 we have to load the ref mesh's declaration; for DX11 the layout
+            // is provided by native each call so no mesh data is required.
+            let context, srcDeclData, declElements, declHash, declSize =
+                match destDeclBx with
+                | WriteD3D9Decl (_, destDeclSize) ->
+                    let refMesh = meshrel.DBRef.Mesh.Force()
+                    let srcDeclData,sdxDeclElements =
+                        match refMesh.Declaration with
+                        | None -> failwith "A vertex declaration must be set here, native code requires it."
+                        | Some (data,elements) -> data,elements
+                    let mmEls =
+                        sdxDeclElements
+                        |> List.map (VertexTypes.sdxDeclElementToMMDeclElement)
+                        |> Array.ofList
+                    "d3d9", srcDeclData, mmEls, VBDataDiskCache.hashBytes srcDeclData, destDeclSize
+                | ReadD3D11Layout elements ->
+                    let elStr = vertElsToString elements
+                    "d3d11", [||], elements, VBDataDiskCache.hashString elStr, 0
+
             // copy index data...someday
             if (destIbSize > 0) then
                 failwith "Filling index data is not yet supported"
 
-            // copy vertex data.  this is where most of the work happens.
-            if (destVbSize > 0) then
-                // we aren't using an index list, so we'll fill the buffer with vertices representing all the primitives.
+            // Build the VBData cache signature.  All inputs that influence the
+            // bytes fillModData would write must be folded in here so we don't
+            // serve a stale entry after, e.g., a profile or game-config change.
+            let vbSig: VBDataDiskCache.VBDataSig = {
+                Mod = BinCacheTypes.mkSig meshrel.DBMod.MeshPath meshrel.DBMod.Type meshrel.DBMod.MeshReadFlags
+                Ref = BinCacheTypes.mkSig meshrel.DBRef.MeshPath ModType.Reference meshrel.DBRef.MeshReadFlags
+                VertSizeBytes = vertSizeBytes
+                VbSize = destVbSize
+                DeclSize = declSize
+                DeclHash = declHash
+                Context = context
+                WeightMode = meshrel.DBMod.WeightMode
+                VecEncoding = snapProfile |> Option.map (fun p -> p.VecEncoding) |> Option.defaultValue ""
+                BlendIndexInColor1 = blendIndexInColor1
+                BlendWeightInColor2 = blendWeightInColor2
+                ReverseNormals = State.Data.Conf.GameProfile.ReverseNormals
+            }
 
-                // walk the mod triangle list: for each point on each triangle, write a unique entry into the vb.
-                // the following bools control where data comes from (normally we don't want to change these except
-                // when debugging something)
+            let binCacheDir = meshrel.BinCacheDir.Trim()
+            let useBinCache =
+                if binCacheDir = "" then false
+                else
+                    if not (Directory.Exists binCacheDir) then Directory.CreateDirectory binCacheDir |> ignore
+                    true
 
-                // true: use normals from the mod
-                // false: copy normals from nearest ref vert in raw binary data.  possibly useful for debugging but
-                // will otherwise produces screwy results if the mod mesh is different enough.
-                let useModNormals = true
+            let cacheHit =
+                if useBinCache && destVbSize > 0 then
+                    try
+                        use sw = new Util.StopwatchTracker(sprintf "load vb data cache for mod: %A" meshrel.DBMod.Name)
+                        VBDataDiskCache.tryLoad binCacheDir meshrel.DBMod.Name meshrel.DBRef.Name vbSig
+                    with e ->
+                        log.Error "%A" e
+                        None
+                else None
 
-                // true: compute the binormal and tangent from the mod normal
-                // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
-                let computeBinormalTangent = true
+            // helper that writes the decl bytes to the dest decl buffer; used by
+            // both the cache-hit and cache-miss paths.  takes the bytes to write
+            // so the cache hit path can supply the cached copy.
+            let writeDecl (bytes: byte[]) =
+                match destDeclBx with
+                | WriteD3D9Decl (destDeclBw, destDeclSize) ->
+                    if destDeclSize > 0 then
+                        if destDeclSize <> bytes.Length then
+                            failwithf "Decl src/dest mismatch: src: %d, dest: %d" bytes.Length destDeclSize
+                        destDeclBw.Write(bytes)
+                | ReadD3D11Layout _ -> ()
 
-                let srcVbSize = md.PrimCount * 3 * vertSizeBytes
-                if (destVbSize <> srcVbSize) then
-                    failwithf "VB size src/dest mismatch: src: %d, dest: %d (prims: %A, vert size: %A)" srcVbSize destVbSize md.PrimCount vertSizeBytes
+            match cacheHit with
+            | Some entry ->
+                log.Info "[vbdatacache]: loaded vb data from cache for mod '%s' to ref '%s' (cache file: %A)"
+                    meshrel.DBMod.Name meshrel.DBRef.Name
+                    (VBDataDiskCache.relPath binCacheDir meshrel.DBMod.Name meshrel.DBRef.Name vbSig.DeclHash vbSig.Context vbSig.VertSizeBytes)
+                writeDecl entry.Decl
+                if entry.Vb.Length <> destVbSize then
+                    failwithf "Cached vb size %d does not match dest vb size %d" entry.Vb.Length destVbSize
+                destVbBw.Write(entry.Vb)
+                0
+            | None ->
 
-                let bw = destVbBw
-                // sort vertex elements in offset order ascending, so that we don't have to reposition the memory stream
-                // as we go
-                let declElements = declElements |> Array.sortBy (fun el -> el.Offset)
+                // cache miss path - run the slow fill, then save the cache entry.
 
-                let srcPositions = modm.Positions
-                let srcTex = modm.UVs
+                // ensure mesh relation (and underlying meshes) are loaded.  build is
+                // gated by the lazy inside MeshRelation, and uses the meshrel disk
+                // cache, so this is fast on warm caches.
+                if not meshrel.IsBuilt then
+                    log.Warn "mesh rel is not built, building now (slow!)"
+                    meshrel.Build() |> ignore
 
-                // log some of the vectors we compute, but don't log too much because then loading will be slooooow...
-//                let debugLogVectors = false
-//                let maxLog = 20
-//
-//                let loggedVectorsCount = ref 0
-//                let debugLogEnabled() = debugLogVectors && loggedVectorsCount.Value < maxLog
-//                let debugLog (s:string) =
-//                    log.Info "%A" s
-//                    incr loggedVectorsCount
+                // for DX9, write the decl bytes to the destination buffer.  same
+                // bytes that will be cached below.
+                writeDecl srcDeclData
 
-                // determine how we will write the data, depending on weight mode and available input data sources
+                let refm = meshrel.RefMesh.Value
+                let modm = meshrel.ModMesh.Value
+                let vertRels = meshrel.VertRelations.Value
 
-                let useRefBlendData,useRefBinaryData =
-                    // if blending is required, fail unless specified weight source has the data.
-                    // otherwise return the bool configuration tuple
-                    let hasDirectBlend = MeshUtil.hasBlendElements declElements
-                    // also need blend data when profile flags route Color elements to blend data
-                    let hasBlendInColor =
-                        (blendIndexInColor1 || blendWeightInColor2) &&
-                        declElements |> Array.exists (fun el ->
-                            el.Semantic = MMVertexElemSemantic.Color &&
-                            ((el.SemanticIndex = 1 && blendIndexInColor1) ||
-                             (el.SemanticIndex = 2 && blendWeightInColor2)))
-                    let needsBlend = hasDirectBlend || hasBlendInColor
-                    let wm = meshrel.DBMod.WeightMode
+                match snapProfile with
+                | Some(profile) when profile.IsOctaVec() ->
+                    log.Info "encoding vectors with octa format (some formats only)"
+                    DataWriters.encVec <- DataEncoding.OctaV1.encode
+                | Some(profile) when profile.IsPackedVec() ->
+                    log.Info "encoding vectors with packed format (some formats only)"
+                    DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
+                | Some (profile) ->
+                    log.Warn "possible unknown vector encoding %A, using packed (some formats only)" profile.VecEncoding
+                    DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
+                | None ->
+                    log.Info "encoding vectors with packed format (some formats only)"
+                    DataWriters.encVec <- DataEncoding.PackedVectorV1.encode
 
-                    // user friendly error message
-                    let failMsg = sprintf "mod named %A specifies %A weight mode, but no blend index/weight data found; add the data or use a different weight mode" meshrel.DBMod.Name wm
+                // copy vertex data.  this is where most of the work happens.
+                if (destVbSize > 0) then
+                    // we aren't using an index list, so we'll fill the buffer with vertices representing all the primitives.
 
-                    match needsBlend, wm with
-                    | true,BinaryRef ->
+                    // walk the mod triangle list: for each point on each triangle, write a unique entry into the vb.
+                    // the following bools control where data comes from (normally we don't want to change these except
+                    // when debugging something)
+
+                    // true: use normals from the mod
+                    // false: copy normals from nearest ref vert in raw binary data.  possibly useful for debugging but
+                    // will otherwise produces screwy results if the mod mesh is different enough.
+                    let useModNormals = true
+
+                    // true: compute the binormal and tangent from the mod normal
+                    // false: copy bin/tan from the nearest ref in raw binary data.  mostly for debug.
+                    let computeBinormalTangent = true
+
+                    let srcVbSize = md.PrimCount * 3 * vertSizeBytes
+                    if (destVbSize <> srcVbSize) then
+                        failwithf "VB size src/dest mismatch: src: %d, dest: %d (prims: %A, vert size: %A)" srcVbSize destVbSize md.PrimCount vertSizeBytes
+
+                    // Fill into a managed buffer (one extra memcpy at the end vs.
+                    // writing straight to the unmanaged dest, in exchange for being
+                    // able to stash the bytes in the VBData disk cache for later
+                    // single-shot copy)
+                    let vbBuffer : byte[] = Array.zeroCreate destVbSize
+                    use vbStream = new MemoryStream(vbBuffer, 0, vbBuffer.Length, true)
+                    let bw = new BinaryWriter(vbStream)
+                    // sort vertex elements in offset order ascending, so that we don't have to reposition the memory stream
+                    // as we go
+                    let declElements = declElements |> Array.sortBy (fun el -> el.Offset)
+
+                    let srcPositions = modm.Positions
+                    let srcTex = modm.UVs
+
+                    // log some of the vectors we compute, but don't log too much because then loading will be slooooow...
+    //                let debugLogVectors = false
+    //                let maxLog = 20
+    //
+    //                let loggedVectorsCount = ref 0
+    //                let debugLogEnabled() = debugLogVectors && loggedVectorsCount.Value < maxLog
+    //                let debugLog (s:string) =
+    //                    log.Info "%A" s
+    //                    incr loggedVectorsCount
+
+                    // determine how we will write the data, depending on weight mode and available input data sources
+
+                    let useRefBlendData,useRefBinaryData =
+                        // if blending is required, fail unless specified weight source has the data.
+                        // otherwise return the bool configuration tuple
+                        let hasDirectBlend = MeshUtil.hasBlendElements declElements
+                        // also need blend data when profile flags route Color elements to blend data
+                        let hasBlendInColor =
+                            (blendIndexInColor1 || blendWeightInColor2) &&
+                            declElements |> Array.exists (fun el ->
+                                el.Semantic = MMVertexElemSemantic.Color &&
+                                ((el.SemanticIndex = 1 && blendIndexInColor1) ||
+                                 (el.SemanticIndex = 2 && blendWeightInColor2)))
+                        let needsBlend = hasDirectBlend || hasBlendInColor
+                        let wm = meshrel.DBMod.WeightMode
+
+                        // user friendly error message
+                        let failMsg = sprintf "mod named %A specifies %A weight mode, but no blend index/weight data found; add the data or use a different weight mode" meshrel.DBMod.Name wm
+
+                        match needsBlend, wm with
+                        | true,BinaryRef ->
+                            match refm.BinaryVertexData with
+                            | None -> failwith failMsg
+                            | _ -> true,true
+                        | true,WeightMode.Mod ->
+                            match modm.BlendIndices,modm.BlendWeights with
+                            | _,[||]
+                            | [||],_ -> failwith failMsg
+                            | _ -> false,false
+                        | true,WeightMode.Ref ->
+                            match refm.BlendIndices,refm.BlendWeights with
+                            | _,[||]
+                            | [||],_ -> failwith failMsg
+                            | _ -> true,false
+                        | false,_ -> false,false
+
+                    let refBinDataLookup =
                         match refm.BinaryVertexData with
-                        | None -> failwith failMsg
-                        | _ -> true,true
-                    | true,WeightMode.Mod ->
-                        match modm.BlendIndices,modm.BlendWeights with
-                        | _,[||]
-                        | [||],_ -> failwith failMsg
-                        | _ -> false,false
-                    | true,WeightMode.Ref ->
-                        match refm.BlendIndices,refm.BlendWeights with
-                        | _,[||]
-                        | [||],_ -> failwith failMsg
-                        | _ -> true,false
-                    | false,_ -> false,false
+                        | None -> None
+                        | Some bvd -> Some (new ModDB.BinaryLookupHelper(bvd,declElements))
 
-                let refBinDataLookup =
-                    match refm.BinaryVertexData with
-                    | None -> None
-                    | Some bvd -> Some (new ModDB.BinaryLookupHelper(bvd,declElements))
+                    let blendIndexWriter,blendWeightWriter =
+                        if useRefBlendData then
+                            if useRefBinaryData then
+                                let binDataLookup =
+                                    match refBinDataLookup with
+                                    | None -> failwith "Binary vertex data is required to write blend index,blend weight"
+                                    | Some bvd -> bvd
 
-                let blendIndexWriter,blendWeightWriter =
-                    if useRefBlendData then
-                        if useRefBinaryData then
+                                let biw = RawBinaryWriters.rbBlendIndex binDataLookup vertRels
+                                let bww = RawBinaryWriters.rbBlendWeight binDataLookup vertRels
+
+                                biw,bww
+                            else
+                                let biw = DataWriters.refmBlendIndex vertRels refm
+                                let bww = DataWriters.refmBlendWeight vertRels refm
+
+                                biw,bww
+                        else
+                            let biw = DataWriters.modmBlendIndex vertRels modm
+                            let bww = DataWriters.modmBlendWeight vertRels modm
+                            biw,bww
+
+                    let normalWriter =
+                        if useModNormals then
+                            let nrmw = DataWriters.modmNormal modm
+                            nrmw
+                        else
                             let binDataLookup =
                                 match refBinDataLookup with
-                                | None -> failwith "Binary vertex data is required to write blend index,blend weight"
+                                | None -> failwith "Binary vertex data is required to write normal"
                                 | Some bvd -> bvd
+                            let nrmw = RawBinaryWriters.rbNormal binDataLookup vertRels
+                            nrmw
 
-                            let biw = RawBinaryWriters.rbBlendIndex binDataLookup vertRels
-                            let bww = RawBinaryWriters.rbBlendWeight binDataLookup vertRels
-
-                            biw,bww
+                    let binormalTangentWriter =
+                        if computeBinormalTangent then
+                            DataWriters.modmBinormalTangent modm
                         else
-                            let biw = DataWriters.refmBlendIndex vertRels refm
-                            let bww = DataWriters.refmBlendWeight vertRels refm
+                            let binDataLookup =
+                                match refBinDataLookup with
+                                | None -> failwith "Binary vertex data is required to write binormal"
+                                | Some bvd -> bvd
+                            RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
-                            biw,bww
-                    else
-                        let biw = DataWriters.modmBlendIndex vertRels modm
-                        let bww = DataWriters.modmBlendWeight vertRels modm
-                        biw,bww
-
-                let normalWriter =
-                    if useModNormals then
-                        let nrmw = DataWriters.modmNormal modm
-                        nrmw
-                    else
-                        let binDataLookup =
-                            match refBinDataLookup with
-                            | None -> failwith "Binary vertex data is required to write normal"
-                            | Some bvd -> bvd
-                        let nrmw = RawBinaryWriters.rbNormal binDataLookup vertRels
-                        nrmw
-
-                let binormalTangentWriter =
-                    if computeBinormalTangent then
-                        DataWriters.modmBinormalTangent modm
-                    else
-                        let binDataLookup =
-                            match refBinDataLookup with
-                            | None -> failwith "Binary vertex data is required to write binormal"
-                            | Some bvd -> bvd
-                        RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
-
-                let tex1SemUnused = Logging.logOnce(0)
-                let tex1UnormSub = Logging.logOnce(0)
+                    let tex1SemUnused = Logging.logOnce(0)
+                    let tex1UnormSub = Logging.logOnce(0)
                 
-                // Write part of a vertex.  The input element controls which
-                // part is written.
-                let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
-                    let modVertIndex = v.Pos
-                    let modNrmIndex = v.Nrm
+                    // Write part of a vertex.  The input element controls which
+                    // part is written.
+                    let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
+                        let modVertIndex = v.Pos
+                        let modNrmIndex = v.Nrm
 
-                    match el.Semantic with
-                        | MMVertexElemSemantic.Position ->
-                            match el.Type with
-                            | MMET.Format(f) when f = SDXF.R32G32B32_Float ->
-                                let srcPos = srcPositions.[modVertIndex]
-                                bw.Write(srcPos.X)
-                                bw.Write(srcPos.Y)
-                                bw.Write(srcPos.Z)
-                            | MMET.DeclType(dt) when dt = SDXVT.Float3 ->
-                                let srcPos = srcPositions.[modVertIndex]
-                                bw.Write(srcPos.X)
-                                bw.Write(srcPos.Y)
-                                bw.Write(srcPos.Z)
-                            | MMET.DeclType(dt) when dt = SDXVT.Unused -> ()
-                            | _ -> failwithf "Unsupported type for position: %A" el.Type
-                        | MMVertexElemSemantic.TextureCoordinate ->
-                            if el.SemanticIndex = 0 then
+                        match el.Semantic with
+                            | MMVertexElemSemantic.Position ->
                                 match el.Type with
-                                | MMET.DeclType(dt) when dt = SDXVT.Float2 ->
-                                    let srcTC = srcTex.[v.Tex]
-                                    bw.Write(srcTC.X)
-                                    bw.Write(srcTC.Y)
-                                | MMET.DeclType(dt) when dt = SDXVT.HalfTwo ->
-                                    let srcTC = srcTex.[v.Tex]
-                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
-                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
-                                | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
-                                    let srcTC = srcTex.[v.Tex]
-                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
-                                    bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
-                                    bw.Write(uint16 0)
-                                    bw.Write(uint16 0)
-                                | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
-                                    // UV packed as 4 normalized bytes; first two are (u,v).
-                                    // If this is incorrect for some game a new SnapProfile might be needed 
-                                    // (and code added) to control that.
-                                    let srcTC = srcTex.[v.Tex]
-                                    let clamp01 f = max 0.f (min 1.f f)
-                                    bw.Write(byte (round (clamp01 srcTC.X * 255.f)))
-                                    bw.Write(byte (round (clamp01 srcTC.Y * 255.f)))
-                                    bw.Write(byte 0)
-                                    bw.Write(byte 0)
-                                | MMET.Format(f) when f = SDXF.R32G32_Float ->
-                                    let srcTC = srcTex.[v.Tex]
-                                    bw.Write(srcTC.X)
-                                    bw.Write(srcTC.Y)
-                                | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
-                                    let srcTC = srcTex.[v.Tex]
-                                    bw.Write(int16(srcTC.X * 32767.f))
-                                    bw.Write(int16(srcTC.Y * 32767.f))
-                                    bw.Write(int16(0.0))
-                                    bw.Write(int16(0.0))
-                                    // remaining two shorts unused for now but maybe not in general case
-                                    ()
-                                | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
-                            else 
-                                match el.Type with
-                                | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
-                                    // I don't track this data currently but write some stub bytes so the mod at least loads; if we don't
-                                    // write anything the vert size check will complain about an insufficient number of bytes
-                                    let stubBytes = [| byte 16; byte 128; byte 128; byte 128 |]
-                                    tex1UnormSub (
-                                        sprintf "warning: writing stub bytes %A for tex coord semantic index %d (format %A); no source data available" stubBytes el.SemanticIndex el.Type)
-                                    bw.Write(stubBytes)
-                                | _ ->
-                                    tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
-                                        el.SemanticIndex el.Type)
+                                | MMET.Format(f) when f = SDXF.R32G32B32_Float ->
+                                    let srcPos = srcPositions.[modVertIndex]
+                                    bw.Write(srcPos.X)
+                                    bw.Write(srcPos.Y)
+                                    bw.Write(srcPos.Z)
+                                | MMET.DeclType(dt) when dt = SDXVT.Float3 ->
+                                    let srcPos = srcPositions.[modVertIndex]
+                                    bw.Write(srcPos.X)
+                                    bw.Write(srcPos.Y)
+                                    bw.Write(srcPos.Z)
+                                | MMET.DeclType(dt) when dt = SDXVT.Unused -> ()
+                                | _ -> failwithf "Unsupported type for position: %A" el.Type
+                            | MMVertexElemSemantic.TextureCoordinate ->
+                                if el.SemanticIndex = 0 then
+                                    match el.Type with
+                                    | MMET.DeclType(dt) when dt = SDXVT.Float2 ->
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(srcTC.X)
+                                        bw.Write(srcTC.Y)
+                                    | MMET.DeclType(dt) when dt = SDXVT.HalfTwo ->
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
+                                        bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                                    | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.X)
+                                        bw.Write(MonoGameHelpers.floatToHalfUint16 srcTC.Y)
+                                        bw.Write(uint16 0)
+                                        bw.Write(uint16 0)
+                                    | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+                                        // UV packed as 4 normalized bytes; first two are (u,v).
+                                        // If this is incorrect for some game a new SnapProfile might be needed 
+                                        // (and code added) to control that.
+                                        let srcTC = srcTex.[v.Tex]
+                                        let clamp01 f = max 0.f (min 1.f f)
+                                        bw.Write(byte (round (clamp01 srcTC.X * 255.f)))
+                                        bw.Write(byte (round (clamp01 srcTC.Y * 255.f)))
+                                        bw.Write(byte 0)
+                                        bw.Write(byte 0)
+                                    | MMET.Format(f) when f = SDXF.R32G32_Float ->
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(srcTC.X)
+                                        bw.Write(srcTC.Y)
+                                    | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(int16(srcTC.X * 32767.f))
+                                        bw.Write(int16(srcTC.Y * 32767.f))
+                                        bw.Write(int16(0.0))
+                                        bw.Write(int16(0.0))
+                                        // remaining two shorts unused for now but maybe not in general case
+                                        ()
+                                    | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
+                                else 
+                                    match el.Type with
+                                    | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+                                        // I don't track this data currently but write some stub bytes so the mod at least loads; if we don't
+                                        // write anything the vert size check will complain about an insufficient number of bytes
+                                        let stubBytes = [| byte 16; byte 128; byte 128; byte 128 |]
+                                        tex1UnormSub (
+                                            sprintf "warning: writing stub bytes %A for tex coord semantic index %d (format %A); no source data available" stubBytes el.SemanticIndex el.Type)
+                                        bw.Write(stubBytes)
+                                    | _ ->
+                                        tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
+                                            el.SemanticIndex el.Type)
                             
-                        | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
-                        | MMVertexElemSemantic.Binormal
-                        | MMVertexElemSemantic.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
-                        | MMVertexElemSemantic.BlendIndices -> blendIndexWriter modVertIndex el bw
-                        | MMVertexElemSemantic.BlendWeight -> blendWeightWriter modVertIndex el bw
-                        | MMVertexElemSemantic.Color ->
-                            // Check if this Color element should be written as blend data
-                            // based on the snapshot profile flags (DX9 only).
-                            let writeAsBlendIndex = el.SemanticIndex = 1 && blendIndexInColor1
-                            let writeAsBlendWeight = el.SemanticIndex = 2 && blendWeightInColor2
-                            if writeAsBlendIndex then
-                                if useRefBinaryData then
-                                    // BinaryRef: copy raw bytes directly from snapshot binary data.
-                                    // Already in correct D3DCOLOR memory format (BGRA).
-                                    let binDataLookup =
-                                        match refBinDataLookup with
-                                        | None -> failwith "Binary vertex data is required to write blend index as color"
-                                        | Some bvd -> bvd
-                                    let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
-                                    bw.Write(br.ReadBytes(4))
+                            | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
+                            | MMVertexElemSemantic.Binormal
+                            | MMVertexElemSemantic.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw
+                            | MMVertexElemSemantic.BlendIndices -> blendIndexWriter modVertIndex el bw
+                            | MMVertexElemSemantic.BlendWeight -> blendWeightWriter modVertIndex el bw
+                            | MMVertexElemSemantic.Color ->
+                                // Check if this Color element should be written as blend data
+                                // based on the snapshot profile flags (DX9 only).
+                                let writeAsBlendIndex = el.SemanticIndex = 1 && blendIndexInColor1
+                                let writeAsBlendWeight = el.SemanticIndex = 2 && blendWeightInColor2
+                                if writeAsBlendIndex then
+                                    if useRefBinaryData then
+                                        // BinaryRef: copy raw bytes directly from snapshot binary data.
+                                        // Already in correct D3DCOLOR memory format (BGRA).
+                                        let binDataLookup =
+                                            match refBinDataLookup with
+                                            | None -> failwith "Binary vertex data is required to write blend index as color"
+                                            | Some bvd -> bvd
+                                        let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                                        bw.Write(br.ReadBytes(4))
+                                    else
+                                        // Write blend indices into D3DCOLOR format.
+                                        // D3DCOLOR is BGRA in memory but RGBA to the shader.
+                                        // Mesh stores indices as Vec4X(R,G,B,A) in shader order,
+                                        // so write as B,G,R,A = Z,Y,X,W to get BGRA memory layout.
+                                        let mesh, idx =
+                                            if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
+                                            else modm, modVertIndex
+                                        let bi = mesh.BlendIndices.[idx]
+                                        let buf = [| byte (bi.Z :?> int32); byte (bi.Y :?> int32);
+                                                     byte (bi.X :?> int32); byte (bi.W :?> int32) |]
+                                        bw.Write(buf)
+                                elif writeAsBlendWeight then
+                                    if useRefBinaryData then
+                                        // BinaryRef: copy raw bytes directly from snapshot binary data.
+                                        let binDataLookup =
+                                            match refBinDataLookup with
+                                            | None -> failwith "Binary vertex data is required to write blend weight as color"
+                                            | Some bvd -> bvd
+                                        let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
+                                        bw.Write(br.ReadBytes(4))
+                                    else
+                                        // Write blend weights into D3DCOLOR format.
+                                        // Same BGRA swizzle as blend indices above.
+                                        // Mesh stores weights as Vec4F(R,G,B,A) normalized 0-1,
+                                        // convert back to bytes in BGRA memory order.
+                                        let mesh, idx =
+                                            if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
+                                            else modm, modVertIndex
+                                        let wgt = mesh.BlendWeights.[idx]
+                                        let round (x:float32) = System.Math.Round(float x)
+                                        let buf = [| byte (round(wgt.Z * 255.f)); byte (round(wgt.Y * 255.f));
+                                                     byte (round(wgt.X * 255.f)); byte (round(wgt.W * 255.f)) |]
+                                        bw.Write(buf)
                                 else
-                                    // Write blend indices into D3DCOLOR format.
-                                    // D3DCOLOR is BGRA in memory but RGBA to the shader.
-                                    // Mesh stores indices as Vec4X(R,G,B,A) in shader order,
-                                    // so write as B,G,R,A = Z,Y,X,W to get BGRA memory layout.
-                                    let mesh, idx =
-                                        if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
-                                        else modm, modVertIndex
-                                    let bi = mesh.BlendIndices.[idx]
-                                    let buf = [| byte (bi.Z :?> int32); byte (bi.Y :?> int32);
-                                                 byte (bi.X :?> int32); byte (bi.W :?> int32) |]
-                                    bw.Write(buf)
-                            elif writeAsBlendWeight then
-                                if useRefBinaryData then
-                                    // BinaryRef: copy raw bytes directly from snapshot binary data.
-                                    let binDataLookup =
-                                        match refBinDataLookup with
-                                        | None -> failwith "Binary vertex data is required to write blend weight as color"
-                                        | Some bvd -> bvd
-                                    let br = binDataLookup.BinaryReader(vertRels.[modVertIndex].RefPointIdx, el.Semantic)
-                                    bw.Write(br.ReadBytes(4))
-                                else
-                                    // Write blend weights into D3DCOLOR format.
-                                    // Same BGRA swizzle as blend indices above.
-                                    // Mesh stores weights as Vec4F(R,G,B,A) normalized 0-1,
-                                    // convert back to bytes in BGRA memory order.
-                                    let mesh, idx =
-                                        if useRefBlendData then refm, vertRels.[modVertIndex].RefPointIdx
-                                        else modm, modVertIndex
-                                    let wgt = mesh.BlendWeights.[idx]
-                                    let round (x:float32) = System.Math.Round(float x)
-                                    let buf = [| byte (round(wgt.Z * 255.f)); byte (round(wgt.Y * 255.f));
-                                                 byte (round(wgt.X * 255.f)); byte (round(wgt.W * 255.f)) |]
-                                    bw.Write(buf)
-                            else
-                                match el.Type with
-                                | MMET.DeclType(dt) when dt = SDXVT.Color ->
-                                    let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
-                                    bw.Write(bytes);
-                                | MMET.DeclType(dt) when dt = SDXVT.Float4 ->
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                | MMET.Format(f) when f = SDXF.R32G32B32A32_Float ->
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                    bw.Write(1.f)
-                                | MMET.Format(f) when f = SDXF.B8G8R8A8_UNorm ->
-                                    let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
-                                    bw.Write(bytes);
-                                | _ -> failwithf "Unsupported type for Color: %A" el.Type
-                        | _ -> failwithf "Unsupported semantic: %A" el.Semantic
+                                    match el.Type with
+                                    | MMET.DeclType(dt) when dt = SDXVT.Color ->
+                                        let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                        bw.Write(bytes);
+                                    | MMET.DeclType(dt) when dt = SDXVT.Float4 ->
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                    | MMET.Format(f) when f = SDXF.R32G32B32A32_Float ->
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                        bw.Write(1.f)
+                                    | MMET.Format(f) when f = SDXF.B8G8R8A8_UNorm ->
+                                        let bytes:byte[] = [|255uy;255uy;255uy;255uy|];
+                                        bw.Write(bytes);
+                                    | _ -> failwithf "Unsupported type for Color: %A" el.Type
+                            | _ -> failwithf "Unsupported semantic: %A" el.Semantic
 
-                // Write a full vertex to the buffer.
-                let writeVertex (v:PTNIndex) =
-                    let startPos = bw.BaseStream.Position
-                    let writeToVert = writeElement v
-                    declElements |> Array.iter (fun el ->
-                        // may need to seek to skip unused space in the vert.  only need to seek
-                        // ahead because we sorted the elements by offset ascending above.
-                        let currPos = bw.BaseStream.Position
-                        let currOffset = currPos - startPos
-                        let elOffset = int64 el.Offset
-                        if elOffset > currOffset then
-                            bw.BaseStream.Seek(elOffset - currOffset, SeekOrigin.Current) |> ignore
-                        writeToVert el
-                    )
-                    if (bw.BaseStream.Position % (int64 vertSizeBytes) <> 0L) then
-                        let bytesWrote = bw.BaseStream.Position - startPos
-                        failwithf "Wrote an insufficient number of bytes for the vertex (wrote %A, want %A, possible offset/stride/vertsize issue)" bytesWrote vertSizeBytes
-
-                // Write the three triangle verts to the buffer.
-                let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
-
-                // Write all the triangles to the buffer.
-                let maxTri = modm.Triangles.Length
-                let mutable currTri  = 0
-                let doload() = 
-                    use sw = new Util.StopwatchTracker(sprintf "fill mod: %A: " md.ModName)
-                    modm.Triangles |> Array.iter 
-                        (fun tri 
-                            -> 
-                            if currTri % 1000 = 0 then 
-                                log.Info "fill %A; tri %d/%d (%d%%)" md.ModName  currTri maxTri (int (float currTri / float maxTri * float 100))
-                            currTri <- currTri + 1
-                            writeTriangle tri
+                    // Write a full vertex to the buffer.
+                    let writeVertex (v:PTNIndex) =
+                        let startPos = bw.BaseStream.Position
+                        let writeToVert = writeElement v
+                        declElements |> Array.iter (fun el ->
+                            // may need to seek to skip unused space in the vert.  only need to seek
+                            // ahead because we sorted the elements by offset ascending above.
+                            let currPos = bw.BaseStream.Position
+                            let currOffset = currPos - startPos
+                            let elOffset = int64 el.Offset
+                            if elOffset > currOffset then
+                                bw.BaseStream.Seek(elOffset - currOffset, SeekOrigin.Current) |> ignore
+                            writeToVert el
                         )
-                doload()
+                        if (bw.BaseStream.Position % (int64 vertSizeBytes) <> 0L) then
+                            let bytesWrote = bw.BaseStream.Position - startPos
+                            failwithf "Wrote an insufficient number of bytes for the vertex (wrote %A, want %A, possible offset/stride/vertsize issue)" bytesWrote vertSizeBytes
 
-                if int64 destVbSize <> bw.BaseStream.Position then
-                    // uh oh
-                    log.Warn "vb fill did not produce the expected number of bytes (want %A, got %A)" destVbSize bw.BaseStream.Position
-            0
+                    // Write the three triangle verts to the buffer.
+                    let writeTriangle (tri:IndexedTri) = tri.Verts |> Array.iter writeVertex
+
+                    // Write all the triangles to the buffer.
+                    let maxTri = modm.Triangles.Length
+                    let mutable currTri  = 0
+                    let doload() = 
+                        use sw = new Util.StopwatchTracker(sprintf "fill mod: %A: " md.ModName)
+                        modm.Triangles |> Array.iter 
+                            (fun tri 
+                                -> 
+                                if currTri % 1000 = 0 then 
+                                    log.Info "fill %A; tri %d/%d (%d%%)" md.ModName  currTri maxTri (int (float currTri / float maxTri * float 100))
+                                currTri <- currTri + 1
+                                writeTriangle tri
+                            )
+                    doload()
+
+                    if int64 destVbSize <> bw.BaseStream.Position then
+                        // uh oh
+                        log.Warn "vb fill did not produce the expected number of bytes (want %A, got %A)" destVbSize bw.BaseStream.Position
+
+                    // copy the filled managed buffer to the unmanaged dest in one shot
+                    destVbBw.Write(vbBuffer)
+
+                    // refresh the VBData disk cache so future loads can blit directly
+                    if useBinCache then
+                        try
+                            VBDataDiskCache.save binCacheDir meshrel.DBMod.Name meshrel.DBRef.Name vbSig srcDeclData vbBuffer
+                        with e -> log.Error "%A" e
+                0
         with
             | e ->
                 log.Error "%s" e.Message

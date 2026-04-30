@@ -84,35 +84,23 @@ module MeshRelation =
         open System.IO.Compression
         open MBrace.FsPickler
 
+        open BinCacheTypes
+
         let private ser = FsPickler.CreateBinarySerializer()
-        let private cacheVersion = 1
-    
-        type MeshSig = {
-            Path: string
-            Ticks: int64
-            Size: int64
-            ModType: ModType
-            Flags: MeshReadFlags
-        }
-    
+        let private cacheVersion = 2
+
         type Entry = {
             Version: int
             Mod: MeshSig
             Ref: MeshSig
             VertRels: VertRel[]
         }
-    
-        let private fileSig (path: string) =
-            let fi = FileInfo(path)
-            fi.LastWriteTimeUtc.Ticks, fi.Length
-    
+
         let private mkModSig (md: DBMod) =
-            let t,s = fileSig md.MeshPath
-            { Path = md.MeshPath; Ticks = t; Size = s; ModType = md.Type; Flags = md.MeshReadFlags }
-    
+            mkSig md.MeshPath md.Type md.MeshReadFlags
+
         let private mkRefSig (r: DBReference) =
-            let t,s = fileSig r.MeshPath
-            { Path = r.MeshPath; Ticks = t; Size = s; ModType = ModType.Reference; Flags = r.MeshReadFlags }
+            mkSig r.MeshPath ModType.Reference r.MeshReadFlags
     
         let private key (modName: string) (refName: string) =
             let s = modName.ToLowerInvariant() + "|" + refName.ToLowerInvariant()
@@ -417,6 +405,9 @@ module MeshRelation =
 
         member x.DBMod = md
         member x.DBRef = ref
+        /// The binary cache directory this mesh relation was constructed with
+        /// (empty string if no cache configured).
+        member x.BinCacheDir = binCacheDir
 
         member x.UpdateDBElems(dbMod,dbRef) = updateDBElems dbMod dbRef
 

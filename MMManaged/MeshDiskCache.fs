@@ -22,31 +22,17 @@ module private MeshDiskCache =
     open System.IO.Compression
     open MBrace.FsPickler
 
+    open BinCacheTypes
+
     let private mlog = Logging.getLogger("MeshDiskCache")
     let private ser = FsPickler.CreateBinarySerializer()
-    let private cacheVersion = 1
-
-    type MeshSig = {
-        Path: string
-        Ticks: int64
-        Size: int64
-        ModType: ModType
-        Flags: MeshReadFlags
-    }
+    let private cacheVersion = 2
 
     type Entry = {
         Version: int
         Sig: MeshSig
         Mesh: Mesh
     }
-
-    let private fileSig (path: string) =
-        let fi = FileInfo(path)
-        fi.LastWriteTimeUtc.Ticks, fi.Length
-
-    let private mkSig (path: string) (modType: ModType) (flags: MeshReadFlags) =
-        let t,s = fileSig path
-        { Path = path; Ticks = t; Size = s; ModType = modType; Flags = flags }
 
     let private key (path: string) =
         let s = path.ToLowerInvariant()

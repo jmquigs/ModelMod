@@ -50,6 +50,9 @@
     <Compile Include="..\MMManaged\StartConf.fs">
       <Link>StartConf.fs</Link>
     </Compile>
+    <Compile Include="..\MMManaged\BinCacheTypes.fs">
+      <Link>BinCacheTypes.fs</Link>
+    </Compile>
     <Compile Include="..\MMManaged\MeshRelation.fs">
       <Link>MeshRelation.fs</Link>
     </Compile>
@@ -61,6 +64,9 @@
     </Compile>
     <Compile Include="..\MMManaged\MeshDiskCache.fs">
       <Link>MeshDiskCache.fs</Link>
+    </Compile>
+    <Compile Include="..\MMManaged\VBDataDiskCache.fs">
+      <Link>VBDataDiskCache.fs</Link>
     </Compile>
     <Compile Include="..\MMManaged\ModDB.fs">
       <Link>ModDB.fs</Link>
