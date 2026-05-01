@@ -19,6 +19,20 @@ so that the first in-game load of those mods is fast.  The vertex-buffer
 fill cache (VBData) is intentionally NOT populated -- it requires the
 running game's vertex layout and cannot be produced offline.
 
+IMPORTANT: MMTricks.exe must be run under the SAME .NET runtime the game
+will use to consume the cache.  The on-disk cache format is sensitive to
+which runtime serialized it (FsPickler binds to specific FSharp.Core /
+runtime versions), so cache files written by one runtime are unusable by
+another and vice versa.
+
+  - Native Windows game:  run MMTricks.exe natively on Windows.
+  - Game under proton:    run MMTricks.exe inside the same proton prefix
+                          that runs the game (e.g. via protontricks).
+                          Running it on the host Linux's dotnet/mono will
+                          produce caches that proton's CLR cannot read,
+                          and will fail to recognize caches the game has
+                          already written.
+
 Arguments:
   <gameDataDir>      Directory containing the game's ModIndex.yaml.
   <listFile>         File with one mod name per line.  Lines may be wrapped
@@ -29,10 +43,14 @@ Options:
   --base <name>      Cache lands in
                      %LOCALAPPDATA%/ModelMod/BinCache/<name>.
                      Must match the game's exe basename (e.g. DragonsDogma)
-                     for the live Windows game to pick it up.
-  --output-dir <p>   Cache lands in <p> directly.  Use this on Linux to
-                     point at a proton prefix's cache location.
-                     Mutually exclusive with --base.
+                     for the live Windows game to pick it up.  Resolved
+                     against whatever %LOCALAPPDATA% points to under the
+                     runtime MMTricks is invoked from -- which under
+                     proton is the prefix's per-user AppData, not the
+                     host's.
+  --output-dir <p>   Cache lands in <p> directly.  Use this when you want
+                     to point at an explicit path rather than rely on the
+                     %LOCALAPPDATA% lookup.  Mutually exclusive with --base.
   --stdin            Read mod list from stdin instead of <listFile>.
   --threads <N>      Parallelism for the meshrelation build phase
                      (default: 1).
