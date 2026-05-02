@@ -1,4 +1,4 @@
-module ModelMod.MMTricks.Program
+module ModelMod.MMTricks.CacheMods
 
 open System
 open System.IO
@@ -6,7 +6,10 @@ open System.Threading.Tasks
 
 open ModelMod
 
-let private USAGE = """
+open ModelMod.MeshRelation
+open MMTricks.Util
+
+let USAGE = """
 MMTricks - ModelMod offline pre-cache utility
 
 Usage:
@@ -19,6 +22,20 @@ so that the first in-game load of those mods is fast.  The vertex-buffer
 fill cache (VBData) is intentionally NOT populated -- it requires the
 running game's vertex layout and cannot be produced offline.
 
+IMPORTANT: MMTricks.exe must be run under the SAME .NET runtime the game
+will use to consume the cache.  The on-disk cache format is sensitive to
+which runtime serialized it (FsPickler binds to specific FSharp.Core /
+runtime versions), so cache files written by one runtime are unusable by
+another and vice versa.
+
+  - Native Windows game:  run MMTricks.exe natively on Windows.
+  - Game under proton:    run MMTricks.exe inside the same proton prefix
+                          that runs the game (e.g. via protontricks).
+                          Running it on the host Linux's dotnet/mono will
+                          produce caches that proton's CLR cannot read,
+                          and will fail to recognize caches the game has
+                          already written.
+
 Arguments:
   <gameDataDir>      Directory containing the game's ModIndex.yaml.
   <listFile>         File with one mod name per line.  Lines may be wrapped
@@ -29,10 +46,14 @@ Options:
   --base <name>      Cache lands in
                      %LOCALAPPDATA%/ModelMod/BinCache/<name>.
                      Must match the game's exe basename (e.g. DragonsDogma)
-                     for the live Windows game to pick it up.
-  --output-dir <p>   Cache lands in <p> directly.  Use this on Linux to
-                     point at a proton prefix's cache location.
-                     Mutually exclusive with --base.
+                     for the live Windows game to pick it up.  Resolved
+                     against whatever %LOCALAPPDATA% points to under the
+                     runtime MMTricks is invoked from -- which under
+                     proton is the prefix's per-user AppData, not the
+                     host's.
+  --output-dir <p>   Cache lands in <p> directly.  Use this when you want
+                     to point at an explicit path rather than rely on the
+                     %LOCALAPPDATA% lookup.  Mutually exclusive with --base.
   --stdin            Read mod list from stdin instead of <listFile>.
   --threads <N>      Parallelism for the meshrelation build phase
                      (default: 1).
@@ -47,15 +68,7 @@ type private Args = {
     Threads: int
 }
 
-let private die (code:int) (msg:string) : 'a =
-    eprintfn "%s" msg
-    exit code
-
 let private parseArgs (argv: string[]) : Args =
-    if argv.Length = 0 then die 2 USAGE
-    if argv.[0] <> "cachemods" then
-        die 2 (sprintf "Unknown subcommand '%s'\n\n%s" argv.[0] USAGE)
-
     let mutable positional : string list = []
     let mutable useStdin = false
     let mutable baseName : string option = None
@@ -67,27 +80,27 @@ let private parseArgs (argv: string[]) : Args =
         let a = argv.[i]
         match a with
         | "--base" ->
-            if i + 1 >= argv.Length then die 2 "--base requires a value"
+            if i + 1 >= argv.Length then errorExit 2 "--base requires a value"
             baseName <- Some argv.[i+1]
             i <- i + 2
         | "--output-dir" ->
-            if i + 1 >= argv.Length then die 2 "--output-dir requires a value"
+            if i + 1 >= argv.Length then errorExit 2 "--output-dir requires a value"
             outputDir <- Some argv.[i+1]
             i <- i + 2
         | "--stdin" ->
             useStdin <- true
             i <- i + 1
         | "--threads" ->
-            if i + 1 >= argv.Length then die 2 "--threads requires a value"
+            if i + 1 >= argv.Length then errorExit 2 "--threads requires a value"
             match Int32.TryParse(argv.[i+1]) with
             | true, n when n >= 1 -> threads <- n
-            | _ -> die 2 (sprintf "--threads must be a positive integer (got '%s')" argv.[i+1])
+            | _ -> errorExit 2 (sprintf "--threads must be a positive integer (got '%s')" argv.[i+1])
             i <- i + 2
         | "--help" | "-h" ->
             printfn "%s" USAGE
             exit 0
         | s when s.StartsWith("--") ->
-            die 2 (sprintf "Unknown option '%s'\n\n%s" s USAGE)
+            errorExit 2 (sprintf "Unknown option '%s'\n\n%s" s USAGE)
         | s ->
             positional <- s :: positional
             i <- i + 1
@@ -98,21 +111,21 @@ let private parseArgs (argv: string[]) : Args =
         match positional with
         | [g] -> g, None
         | [g; l] -> g, Some l
-        | [] -> die 2 (sprintf "Missing <gameDataDir>\n\n%s" USAGE)
-        | _ -> die 2 (sprintf "Too many positional arguments\n\n%s" USAGE)
+        | [] -> errorExit 2 (sprintf "Missing <gameDataDir>\n\n%s" USAGE)
+        | _ -> errorExit 2 (sprintf "Too many positional arguments\n\n%s" USAGE)
 
     if useStdin && listFileFromPos.IsSome then
-        die 2 "Specify either --stdin or <listFile>, not both"
+        errorExit 2 "Specify either --stdin or <listFile>, not both"
     if not useStdin && listFileFromPos.IsNone then
-        die 2 (sprintf "Missing <listFile> (or pass --stdin)\n\n%s" USAGE)
+        errorExit 2 (sprintf "Missing <listFile> (or pass --stdin)\n\n%s" USAGE)
 
     match baseName, outputDir with
-    | None, None -> die 2 "One of --base or --output-dir is required"
-    | Some _, Some _ -> die 2 "--base and --output-dir are mutually exclusive"
+    | None, None -> errorExit 2 "One of --base or --output-dir is required"
+    | Some _, Some _ -> errorExit 2 "--base and --output-dir are mutually exclusive"
     | _ -> ()
 
     if not (Directory.Exists gameDataDir) then
-        die 2 (sprintf "gameDataDir does not exist: %s" gameDataDir)
+        errorExit 2 (sprintf "gameDataDir does not exist: %s" gameDataDir)
 
     {
         GameDataDir = gameDataDir
@@ -196,14 +209,14 @@ let private cachemods (args: Args) : int =
 
     let indexPath = Path.Combine(args.GameDataDir, "ModIndex.yaml")
     if not (File.Exists indexPath) then
-        die 2 (sprintf "ModIndex.yaml not found in gameDataDir: %s" indexPath)
+        errorExit 2 (sprintf "ModIndex.yaml not found in gameDataDir: %s" indexPath)
 
     let binCacheDir = resolveBinCacheDir args
     printfn "BinCacheDir: %s" binCacheDir
 
     let requested = readModNames args
     if requested.IsEmpty then
-        die 2 "Mod list is empty"
+        errorExit 2 "Mod list is empty"
     printfn "Requested %d mod(s)" requested.Length
 
     let indexNames = readActiveIndexNames indexPath
@@ -216,7 +229,7 @@ let private cachemods (args: Args) : int =
         eprintfn "WARN: mod '%s' is not in %s; skipping" m indexPath
 
     if validated.IsEmpty then
-        die 1 "No requested mods were found in the game's ModIndex.yaml"
+        errorExit 1 "No requested mods were found in the game's ModIndex.yaml"
 
     let validatedSet =
         System.Collections.Generic.HashSet<string>(validated, StringComparer.OrdinalIgnoreCase)
@@ -271,13 +284,6 @@ let private cachemods (args: Args) : int =
 
     if !errored > 0 then 1 else 0
 
-[<EntryPoint>]
-let main argv =
-    try
-        let args = parseArgs argv
-        cachemods args
-    with
-    | e ->
-        eprintfn "FATAL: %s" e.Message
-        eprintfn "%s" e.StackTrace
-        1
+let run argv = 
+    let args = parseArgs argv
+    cachemods args
