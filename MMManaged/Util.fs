@@ -73,14 +73,18 @@ module Util =
 
     let replaceUnderscoreWithSpace (s:string) = s.Replace('_', ' ')
 
-    let private swEnabled = true
+    let mutable private swEnabled = true
+    let setStopwatchEnabled(enabled:bool) =
+        swEnabled <- enabled
 
     /// Use for basic timing measurements.  If you create it with a "use" statement, it will print the
     /// elapsed time to the log when it goes out of scope.  Otherwise you can manually print the elapsed time
     /// with StopAndPrint().
     type StopwatchTracker(name) =
         let sw = new Stopwatch()
-        do sw.Start()
+        do 
+            if swEnabled then
+                sw.Start()
 
         let log = Logging.getLogger("SW:" + name)
 

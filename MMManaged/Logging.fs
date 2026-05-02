@@ -67,6 +67,13 @@ module Logging =
                 logger
         logger
 
+    let getNullLogger() =
+        { new ILog with
+            member x.Info format = Printf.ksprintf (fun _ -> ()) format
+            member x.Warn format = Printf.ksprintf (fun _ -> ()) format
+            member x.Error format = Printf.ksprintf (fun _ -> ()) format
+        }
+
     type logOnceFn = (string -> unit)
 
     type private LogOnceEntry = {
