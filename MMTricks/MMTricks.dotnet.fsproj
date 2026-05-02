@@ -26,6 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Util.fs" />
+    <Compile Include="CacheMods.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -42,9 +44,29 @@
     <ProjectReference Include="..\MMManaged\MMManaged.dotnet.fsproj" />
   </ItemGroup>
 
-  <!-- YamlDotNet is needed because we parse ModIndex.yaml directly using the
-       ModelMod.Yaml helpers (which surface YamlDotNet types in their API). -->
+  <!-- Package dependencies via HintPath into the existing packages folder.
+       Same pattern as you used for MMManaged.dotnet.fsproj after the PackageReference
+       attempt didn't pull these in via Paket. FsPickler is referenced because
+       the shell uses it for serialization across the shell/engine boundary. -->
   <ItemGroup>
+    <Reference Include="FsPickler">
+      <HintPath>..\packages\FsPickler.5.3.2\lib\net45\FsPickler.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D9">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D9.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D11">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D11.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.DXGI">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.DXGI.dll</HintPath>
+    </Reference>
     <Reference Include="YamlDotNet">
       <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
     </Reference>

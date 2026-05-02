@@ -24,8 +24,7 @@ running game's vertex layout and cannot be produced offline.
 
 IMPORTANT: MMTricks.exe must be run under the SAME .NET runtime the game
 will use to consume the cache.  The on-disk cache format is sensitive to
-which runtime serialized it (FsPickler binds to specific FSharp.Core /
-runtime versions), so cache files written by one runtime are unusable by
+which runtime serialized it, so cache files written by one runtime are unusable by
 another and vice versa.
 
   - Native Windows game:  run MMTricks.exe natively on Windows.
@@ -35,6 +34,12 @@ another and vice versa.
                           produce caches that proton's CLR cannot read,
                           and will fail to recognize caches the game has
                           already written.
+
+   - Sample proton run (Replace appid and GAMEBASENAME with actual values)
+
+   APPID=123456
+   GAMEBASENAME=mygame
+   protontricks-launch --appid $APPID ./ModelMod/Release/MMTricks.exe  -- cachemods /MMData/$GAMEBASENAME testmodload.txt --output-dir /users/steamuser/AppData/Local/ModelMod/BinCache/$GAMEBASENAME
 
 Arguments:
   <gameDataDir>      Directory containing the game's ModIndex.yaml.
