@@ -48,6 +48,7 @@ Arguments:
                      starting with '#' are ignored.  Required unless --stdin.
 
 Options:
+  --verbose          Enable verbose logging of cache hits/misses.
   --base <name>      Cache lands in
                      %LOCALAPPDATA%/ModelMod/BinCache/<name>.
                      Must match the game's exe basename (e.g. DragonsDogma)
@@ -62,6 +63,8 @@ Options:
   --stdin            Read mod list from stdin instead of <listFile>.
   --threads <N>      Parallelism for the meshrelation build phase
                      (default: 1).
+  --timing           Print modelmod stopwatch timings.
+
 """
 
 type private Args = {
@@ -71,6 +74,8 @@ type private Args = {
     BaseName: string option
     OutputDir: string option
     Threads: int
+    Verbose: bool
+    Timing: bool
 }
 
 let private parseArgs (argv: string[]) : Args =
@@ -78,7 +83,9 @@ let private parseArgs (argv: string[]) : Args =
     let mutable useStdin = false
     let mutable baseName : string option = None
     let mutable outputDir : string option = None
+    let mutable verbose = false
     let mutable threads = 1
+    let mutable timing = false
 
     let mutable i = 1
     while i < argv.Length do
@@ -94,6 +101,12 @@ let private parseArgs (argv: string[]) : Args =
             i <- i + 2
         | "--stdin" ->
             useStdin <- true
+            i <- i + 1
+        | "--verbose" ->
+            verbose <- true
+            i <- i + 1
+        | "--timing" ->
+            timing <- true
             i <- i + 1
         | "--threads" ->
             if i + 1 >= argv.Length then errorExit 2 "--threads requires a value"
@@ -139,6 +152,8 @@ let private parseArgs (argv: string[]) : Args =
         BaseName = baseName
         OutputDir = outputDir
         Threads = threads
+        Verbose = verbose
+        Timing = timing
     }
 
 let private readModNames (args: Args) : string list =
@@ -246,7 +261,14 @@ let private cachemods (args: Args) : int =
         AppSettings = None
         BinCacheDir = binCacheDir
     }
+    
+    ModelMod.Util.setStopwatchEnabled (args.Timing)
+
     let mdb = ModDB.loadModDB(conf, None)
+    ModelMod.CoreState.Context <- "tool"
+
+    MeshRelation.MeshRelDiskCache.setVerboseLog (args.Verbose)
+    ModelMod.MeshDiskCache.setVerboseLog (args.Verbose)
 
     let allMeshrels = mdb.MeshRelations |> List.toArray
     let toBuild =

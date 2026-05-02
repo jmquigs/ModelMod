@@ -446,6 +446,7 @@ module ModDB =
                     match CoreState.Context with 
                     | "d3d9" -> log().Warn "no vertex declaration found for reference and d3d9 is in use, this mod will probably not load: %A" filename
                     | "d3d11" -> ()
+                    | "tool" -> ()
                     | x -> log().Warn "Unknown run context %A and no vertex declaration found, mod may not load: %A"  CoreState.Context filename
                     None
 

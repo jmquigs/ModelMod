@@ -16,13 +16,18 @@ open CoreTypes
 /// re-parse mmobj files when nothing has changed.  Modeled on MeshRelDiskCache
 /// in MeshRelation.fs.  See comments there about FsPickler / FSharp.Core
 /// version sensitivity.
-module private MeshDiskCache =
+module MeshDiskCache =
     let private log() = Logging.getLogger("MeshDiskCache")
 
     open System.IO.Compression
     open MBrace.FsPickler
 
     open BinCacheTypes
+
+    let mutable verboseLog = Logging.getNullLogger() 
+
+    let setVerboseLog enabled = 
+        verboseLog <- if enabled then Logging.getLogger("MeshDiskCache") else Logging.getNullLogger()
 
     let private mlog = Logging.getLogger("MeshDiskCache")
     let private ser = FsPickler.CreateBinarySerializer()
@@ -46,16 +51,30 @@ module private MeshDiskCache =
 
     let tryLoad (cacheDir: string) (path: string) (modType: ModType) (flags: MeshReadFlags) : Mesh option =
         let p = relPath cacheDir path
-        if not (File.Exists(p)) then None
+        verboseLog.Info "[meshcache]: looking for cache entry: %s" p
+        if not (File.Exists(p)) 
+        then 
+            verboseLog.Info "[meshcache]: cache miss (file not found)"
+            None
         else
+            verboseLog.Info "[meshcache]: cache file found, checking freshness..."
             use fs = File.OpenRead(p)
             use gz = new GZipStream(fs, CompressionMode.Decompress)
             let e = ser.Deserialize<Entry>(gz)
 
-            if e.Version <> cacheVersion then None
+            if e.Version <> cacheVersion 
+            then 
+                verboseLog.Info "[meshcache]: cache miss (version mismatch)"
+                None
             else
                 let cur = mkSig path modType flags
-                if e.Sig = cur then Some e.Mesh else None
+                if e.Sig = cur 
+                    then 
+                        verboseLog.Info "[meshcache]: cache hit"
+                        Some e.Mesh 
+                    else
+                        verboseLog.Info "[meshcache]: cache miss (source file changed)" 
+                        None
 
     let save (cacheDir: string) (path: string) (modType: ModType) (flags: MeshReadFlags) (mesh: Mesh) =
         let dir = Path.Combine(cacheDir, "Meshes")
