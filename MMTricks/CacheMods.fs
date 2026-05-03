@@ -60,6 +60,10 @@ Options:
   --output-dir <p>   Cache lands in <p> directly.  Use this when you want
                      to point at an explicit path rather than rely on the
                      %LOCALAPPDATA% lookup.  Mutually exclusive with --base.
+  --make-out         If specified with --output-dir, will create the output
+                     directory if it does not exist.  Otherwise, the output
+                     directory must already exist.
+
   --stdin            Read mod list from stdin instead of <listFile>.
   --threads <N>      Parallelism for the meshrelation build phase
                      (default: 1).
@@ -73,6 +77,7 @@ type private Args = {
     UseStdin: bool
     BaseName: string option
     OutputDir: string option
+    MakeOutputDir: bool
     Threads: int
     Verbose: bool
     Timing: bool
@@ -86,6 +91,7 @@ let private parseArgs (argv: string[]) : Args =
     let mutable verbose = false
     let mutable threads = 1
     let mutable timing = false
+    let mutable makeOutputDir = false
 
     let mutable i = 1
     while i < argv.Length do
@@ -97,8 +103,11 @@ let private parseArgs (argv: string[]) : Args =
             i <- i + 2
         | "--output-dir" ->
             if i + 1 >= argv.Length then errorExit 2 "--output-dir requires a value"
-            outputDir <- Some argv.[i+1]
+            outputDir <- Some argv.[i+1]            
             i <- i + 2
+        |  "--make-out" ->
+            makeOutputDir <- true
+            i <- i + 1
         | "--stdin" ->
             useStdin <- true
             i <- i + 1
@@ -142,6 +151,13 @@ let private parseArgs (argv: string[]) : Args =
     | Some _, Some _ -> errorExit 2 "--base and --output-dir are mutually exclusive"
     | _ -> ()
 
+    // if the output directory does not exist, fail
+    if outputDir.IsSome && not (Directory.Exists outputDir.Value) then
+        if makeOutputDir then
+            Directory.CreateDirectory outputDir.Value |> ignore
+        else
+            errorExit 2 (sprintf "Output directory does not exist: %s; use --make-out to create it" outputDir.Value)
+
     if not (Directory.Exists gameDataDir) then
         errorExit 2 (sprintf "gameDataDir does not exist: %s" gameDataDir)
 
@@ -151,6 +167,7 @@ let private parseArgs (argv: string[]) : Args =
         UseStdin = useStdin
         BaseName = baseName
         OutputDir = outputDir
+        MakeOutputDir = makeOutputDir
         Threads = threads
         Verbose = verbose
         Timing = timing
