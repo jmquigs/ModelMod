@@ -1047,8 +1047,10 @@ module ModDBInterop =
                                 | Some bvd -> bvd
                             RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
-                    let tex1SemUnused = Logging.logOnce(0)
-                    let tex1UnormSub = Logging.logOnce(0)
+                    // lazy variants: these fire from the per-vertex hot loop, so
+                    // the message thunk avoids sprintf/%A cost on every call
+                    let tex1SemUnused = Logging.logOnceLazy(0)
+                    let tex1UnormSub = Logging.logOnceLazy(0)
                 
                     // Write part of a vertex.  The input element controls which
                     // part is written.
@@ -1117,12 +1119,13 @@ module ModDBInterop =
                                         // I don't track this data currently but write some stub bytes so the mod at least loads; if we don't
                                         // write anything the vert size check will complain about an insufficient number of bytes
                                         let stubBytes = [| byte 16; byte 128; byte 128; byte 128 |]
-                                        tex1UnormSub (
+                                        tex1UnormSub (fun () ->
                                             sprintf "warning: writing stub bytes %A for tex coord semantic index %d (format %A); no source data available" stubBytes el.SemanticIndex el.Type)
                                         bw.Write(stubBytes)
                                     | _ ->
-                                        tex1SemUnused (sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
-                                            el.SemanticIndex el.Type)
+                                        tex1SemUnused (fun () ->
+                                            sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
+                                                el.SemanticIndex el.Type)
                             
                             | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
                             | MMVertexElemSemantic.Binormal

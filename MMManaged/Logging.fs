@@ -98,6 +98,22 @@ module Logging =
     let logOnce(infoWarnOrError:int): logOnceFn =
         (logOnceEntry infoWarnOrError).Fn
 
+    /// Thunk-taking variant of logOnce.  The message function is only invoked
+    /// the first time the log fires, so callers in hot loops avoid paying
+    /// sprintf/%A reflection cost on every call.
+    type logOnceLazyFn = ((unit -> string) -> unit)
+    let logOnceLazy(infoWarnOrError:int): logOnceLazyFn =
+        let log = getLogger("LogOnce")
+        let called = ref false
+        fun msgFn ->
+            if not !called then
+                let msg = msgFn()
+                match infoWarnOrError with
+                | 0 -> log.Info "%s" msg
+                | 1 -> log.Warn "%s" msg
+                | _ -> log.Error "%s" msg
+                called := true
+
     let mutable private logOnceFnEntries = new Dictionary<string, LogOnceEntry>()
 
     /// After a hot-reload, mark any logOnceFn entries that have already fired as
