@@ -1,0 +1,104 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>Test.MMManaged</AssemblyName>
+    <RootNamespace>Test.MMManaged</RootNamespace>
+
+    <!-- Match original output layout -->
+    <OutputPath>..\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+
+    <DocumentationFile>$(OutputPath)Test.MMManaged.XML</DocumentationFile>
+
+    <!-- F# tail-call behavior, matching original per-config settings -->
+    <Tailcalls Condition="'$(Configuration)' == 'Debug'">false</Tailcalls>
+    <Tailcalls Condition="'$(Configuration)' == 'Release'">true</Tailcalls>
+
+    <!-- Required for `dotnet test` to discover and run NUnit tests -->
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="FSharp.Core">
+      <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- F# compilation order is significant - keep this list in dependency order -->
+  <ItemGroup>
+    <Compile Include="Program.fs" />
+    <Compile Include="Util.fs" />
+    <Compile Include="TestMeshTransform.fs" />
+    <Compile Include="TestModDB.fs" />
+    <Compile Include="TestYaml.fs" />
+    <Compile Include="TestMesh.fs" />
+    <Compile Include="TestModDBInterop.fs" />
+    <Compile Include="TestWriters.fs" />
+    <Compile Include="TestMeshRelation.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="App.config" />
+    <Content Include="paket.references" />
+  </ItemGroup>
+
+  <!-- Reference assemblies for net462 - required for non-Windows builds -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies"
+                      Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- Test runner integration: lets `dotnet test` discover and run the NUnit tests.
+       Original tests were authored against NUnit 2 but only use Assert.IsTrue /
+       Assert.AreEqual, which carry over unchanged to NUnit 3. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="NUnit" Version="3.*" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MMManaged\MMManaged.dotnet.fsproj">
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\MMManaged.Engine\MMManaged.Engine.dotnet.fsproj">
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!-- Package dependencies via HintPath into the existing packages folder.
+       Matches the pattern used by MMManaged.dotnet.fsproj. -->
+  <ItemGroup>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.Direct3D9">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.Direct3D9.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpDX.DXGI">
+      <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\SharpDX.DXGI.dll</HintPath>
+    </Reference>
+    <Reference Include="YamlDotNet">
+      <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
+    </Reference>
+    <!-- NUnit comes from PackageReference above (NUnit 3.x).
+         FsUnit was listed in paket.references but no test code uses it,
+         so it's intentionally omitted here. -->
+  </ItemGroup>
+
+  <!-- Paket integration: harmless if file doesn't exist. -->
+  <Import Project="..\.paket\Paket.Restore.targets"
+          Condition="Exists('..\.paket\Paket.Restore.targets')" />
+
+</Project>

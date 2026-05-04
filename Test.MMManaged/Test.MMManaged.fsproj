@@ -70,6 +70,7 @@
     <Compile Include="TestMesh.fs" />
     <Compile Include="TestModDBInterop.fs" />
     <Compile Include="TestWriters.fs" />
+    <Compile Include="TestMeshRelation.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MMManaged\MMManaged.fsproj">
