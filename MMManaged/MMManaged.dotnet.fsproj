@@ -59,17 +59,6 @@
                       Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
 
-  <!-- Package references replacing the old HintPath-style references.
-       If you keep using Paket, delete this ItemGroup and let Paket inject
-       references via the Import below. If you want to switch off Paket,
-       keep these and remove the Import. -->
-  <ItemGroup>
-    <PackageReference Include="FsPickler" Version="5.3.2" />
-    <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.*" />
-    <PackageReference Include="YamlDotNet" Version="*" />
-    <!-- SharpDX assemblies come transitively from MonoGame.Framework.WindowsDX -->
-  </ItemGroup>
-
   <ItemGroup>
     <Reference Include="MonoGame.Framework">
       <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
