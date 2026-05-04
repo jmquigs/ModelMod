@@ -1,27 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net462</TargetFramework>
     <AssemblyName>Test.MMManaged</AssemblyName>
     <RootNamespace>Test.MMManaged</RootNamespace>
-
     <!-- Match original output layout -->
     <OutputPath>..\$(Configuration)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-
     <DocumentationFile>$(OutputPath)Test.MMManaged.XML</DocumentationFile>
-
     <!-- F# tail-call behavior, matching original per-config settings -->
     <Tailcalls Condition="'$(Configuration)' == 'Debug'">false</Tailcalls>
     <Tailcalls Condition="'$(Configuration)' == 'Release'">true</Tailcalls>
-
     <!-- Required for `dotnet test` to discover and run NUnit tests -->
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>false</GenerateProgramFile>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
-
   <PropertyGroup>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
@@ -31,7 +27,6 @@
       <Private>False</Private>
     </Reference>
   </ItemGroup>
-
   <!-- F# compilation order is significant - keep this list in dependency order -->
   <ItemGroup>
     <Compile Include="Program.fs" />
@@ -44,27 +39,21 @@
     <Compile Include="TestWriters.fs" />
     <Compile Include="TestMeshRelation.fs" />
   </ItemGroup>
-
   <ItemGroup>
     <None Include="App.config" />
     <Content Include="paket.references" />
   </ItemGroup>
-
   <!-- Reference assemblies for net462 - required for non-Windows builds -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies"
-                      Version="1.0.3" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
-
   <!-- Test runner integration: lets `dotnet test` discover and run the NUnit tests.
        Original tests were authored against NUnit 2 but only use Assert.IsTrue /
        Assert.AreEqual, which carry over unchanged to NUnit 3. -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
-    <PackageReference Include="NUnit" Version="3.*" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.*" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\MMManaged\MMManaged.dotnet.fsproj">
       <Private>True</Private>
@@ -73,7 +62,6 @@
       <Private>True</Private>
     </ProjectReference>
   </ItemGroup>
-
   <!-- Package dependencies via HintPath into the existing packages folder.
        Matches the pattern used by MMManaged.dotnet.fsproj. -->
   <ItemGroup>
@@ -96,9 +84,6 @@
          FsUnit was listed in paket.references but no test code uses it,
          so it's intentionally omitted here. -->
   </ItemGroup>
-
   <!-- Paket integration: harmless if file doesn't exist. -->
-  <Import Project="..\.paket\Paket.Restore.targets"
-          Condition="Exists('..\.paket\Paket.Restore.targets')" />
-
+  <Import Project="..\.paket\Paket.Restore.targets" />
 </Project>

@@ -1,37 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net462</TargetFramework>
     <AssemblyName>MMManaged</AssemblyName>
     <RootNamespace>Library1</RootNamespace>
-
     <!-- Preserve original output layout: ..\Debug\ and ..\Release\ at solution root,
          not the SDK default of bin\<Configuration>\<TargetFramework>\ -->
     <OutputPath>..\$(Configuration)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-
     <DocumentationFile>$(OutputPath)Library1.XML</DocumentationFile>
-
     <!-- AssemblyInfo.fs is included in source, don't let SDK auto-generate one -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-
     <!-- F#-specific: keep tail-call behavior matching original per-config -->
     <Tailcalls Condition="'$(Configuration)' == 'Debug'">false</Tailcalls>
     <Tailcalls Condition="'$(Configuration)' == 'Release'">true</Tailcalls>
   </PropertyGroup>
-
-<PropertyGroup>
-  <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-</PropertyGroup>
-<ItemGroup>
-  <Reference Include="FSharp.Core">
-    <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
-    <Private>False</Private>
-  </Reference>
-</ItemGroup>
-
+  <PropertyGroup>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="FSharp.Core">
+      <HintPath>..\FSharp.Core.4.4.3.0\FSharp.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
   <!-- F# compilation order is significant - keep this list in dependency order -->
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
@@ -43,7 +37,6 @@
     <Compile Include="EngineInstance.fs" />
     <Compile Include="Interop.fs" />
   </ItemGroup>
-
   <ItemGroup>
     <Content Include="paket.references" />
     <Content Include="packages.config" />
@@ -51,14 +44,11 @@
     <None Include="TestFSI.fsx" />
     <None Include="Program.fs" />
   </ItemGroup>
-
   <!-- Reference assemblies for net462 - required for non-Windows builds.
        Harmless on Windows (where the targeting pack is also present). -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies"
-                      Version="1.0.3" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
-
   <ItemGroup>
     <Reference Include="MonoGame.Framework">
       <HintPath>..\packages\MonoGame.Framework.WindowsDX\lib\net40\MonoGame.Framework.dll</HintPath>
@@ -79,10 +69,7 @@
       <HintPath>..\packages\YamlDotNet\lib\net35\YamlDotNet.dll</HintPath>
     </Reference>
   </ItemGroup>
-
   <!-- Paket integration: this injects references from paket.references at build time.
        Path assumes .paket/ is one directory up (solution root). Adjust if different. -->
-  <Import Project="..\.paket\Paket.Restore.targets"
-          Condition="Exists('..\.paket\Paket.Restore.targets')" />
-
+  <Import Project="..\.paket\Paket.Restore.targets" />
 </Project>

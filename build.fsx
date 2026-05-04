@@ -219,12 +219,15 @@ Target "BuildTest" (fun _ ->
       |> Log "BuildTest-Output: "
 )
 
+open Fake.Testing
 Target "Test" (fun _ ->
     !! (testDir + "/Test.*.dll")
-      |> NUnit (fun p ->
-          {p with
-             DisableShadowCopy = true;
-             OutputFile = testDir + "/Test.Results.xml" })
+        |> NUnit3 (fun p ->
+            { p with
+                ToolPath = "packages/NUnit.ConsoleRunner/tools/nunit3-console.exe"
+                ShadowCopy = false
+                Labels = LabelsLevel.All
+                ResultSpecs = [testDir + "/Test.Results.xml"] })
 )
 
 Target "CopyNative" (fun _ ->
@@ -341,7 +344,7 @@ Target "SignBuild" (fun _ ->
 
     try
         File.WriteAllText(passFile,pass)
-        SignTool @"C:\Program Files\Windows Kits\8.1\bin\x64" certPath passFile files
+        SignTool @"C:\Program Files\Windows Kits\8.1\bin\x64" certPath (Some passFile) files
         File.Delete passFile
     with
         | e ->

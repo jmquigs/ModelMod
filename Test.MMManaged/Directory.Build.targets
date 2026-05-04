@@ -1,0 +1,8 @@
+<!-- workaround for paket insisting on changing this after a paket install; 
+     which generates a build warning 
+-->
+<Project>
+  <PropertyGroup>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+</Project>
