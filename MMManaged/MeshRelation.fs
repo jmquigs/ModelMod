@@ -313,34 +313,153 @@ module MeshRelation =
                 if exclusionCheckingEnabled then buildExclusionFilter()
                 else (fun _ _ -> false)
 
+            let refPositions = refMesh.Positions
+
+            // Build a uniform spatial grid over ref positions when there are
+            // enough verts to amortize the cost; otherwise fall through to the
+            // straight linear search. The grid stores ref indices per cell;
+            // queries expand outward in cubic shells around the query cell,
+            // with conservative termination once no unexplored cell can beat
+            // the current best squared distance.
+            let gridThreshold = 256
+            let findClosest : int -> Vec3F -> float32 * int =
+                if refPositions.Length < gridThreshold then
+                    // Linear search (unchanged semantics).
+                    fun modIdx (modPos:Vec3F) ->
+                        let mutable currIdx = 0
+                        let mutable closestDist = System.Single.MaxValue
+                        let mutable closestIdx = -1
+                        for refPos in refPositions do
+                            let vX = modPos.X - refPos.X
+                            let vY = modPos.Y - refPos.Y
+                            let vZ = modPos.Z - refPos.Z
+                            let lenSqrd = vX*vX + vY*vY + vZ*vZ
+                            if (lenSqrd >= closestDist) || (exclusionFilter modIdx currIdx) then ()
+                            else
+                                closestDist <- lenSqrd
+                                closestIdx <- currIdx
+                            currIdx <- currIdx + 1
+                        closestDist, closestIdx
+                else
+                    // AABB
+                    let mutable minX = System.Single.MaxValue
+                    let mutable minY = System.Single.MaxValue
+                    let mutable minZ = System.Single.MaxValue
+                    let mutable maxX = System.Single.MinValue
+                    let mutable maxY = System.Single.MinValue
+                    let mutable maxZ = System.Single.MinValue
+                    for p in refPositions do
+                        if p.X < minX then minX <- p.X
+                        if p.Y < minY then minY <- p.Y
+                        if p.Z < minZ then minZ <- p.Z
+                        if p.X > maxX then maxX <- p.X
+                        if p.Y > maxY then maxY <- p.Y
+                        if p.Z > maxZ then maxZ <- p.Z
+
+                    // Cell size targets ~1 vert per cell on average. Use a
+                    // small floor on each extent so degenerate meshes (planar
+                    // or colinear) don't produce zero-volume math.
+                    let dx = max (maxX - minX) 1e-6f
+                    let dy = max (maxY - minY) 1e-6f
+                    let dz = max (maxZ - minZ) 1e-6f
+                    let vol = float dx * float dy * float dz
+                    let cellSize =
+                        let s = System.Math.Pow(vol / float refPositions.Length, 1.0/3.0)
+                        max s 1e-6
+                    let cellSizeF = float32 cellSize
+                    let invCell = 1.0f / cellSizeF
+
+                    let extX = max 1 (int (System.Math.Ceiling(float (dx * invCell))))
+                    let extY = max 1 (int (System.Math.Ceiling(float (dy * invCell))))
+                    let extZ = max 1 (int (System.Math.Ceiling(float (dz * invCell))))
+
+                    let grid = Dictionary<struct(int*int*int), ResizeArray<int>>()
+                    for idx = 0 to refPositions.Length - 1 do
+                        let p = refPositions.[idx]
+                        let i = int (floor (float ((p.X - minX) * invCell)))
+                        let j = int (floor (float ((p.Y - minY) * invCell)))
+                        let k = int (floor (float ((p.Z - minZ) * invCell)))
+                        let key = struct(i, j, k)
+                        let bucket =
+                            let ok, b = grid.TryGetValue(key)
+                            if ok then b
+                            else
+                                let b = ResizeArray<int>()
+                                grid.[key] <- b
+                                b
+                        bucket.Add(idx)
+
+                    log.Info "MeshRel: spatial grid: %d ref verts, %d cells, cellSize=%f, extents=(%d,%d,%d)"
+                        refPositions.Length grid.Count cellSize extX extY extZ
+
+                    // probe: tests every ref vert in the cell against the
+                    // current best, updating it via byref slots. byref keeps
+                    // us from having to allocate ref cells per query;
+                    // `inline` avoids any first-class-byref-function pitfall.
+                    let inline probe (modIdx: int) (modPos: Vec3F)
+                                     (ci: int) (cj: int) (ck: int)
+                                     (closestDist: byref<float32>) (closestIdx: byref<int>) =
+                        let ok, bucket = grid.TryGetValue(struct(ci, cj, ck))
+                        if ok then
+                            for n = 0 to bucket.Count - 1 do
+                                let idx = bucket.[n]
+                                let p = refPositions.[idx]
+                                let vX = modPos.X - p.X
+                                let vY = modPos.Y - p.Y
+                                let vZ = modPos.Z - p.Z
+                                let lenSqrd = vX*vX + vY*vY + vZ*vZ
+                                if (lenSqrd >= closestDist) || (exclusionFilter modIdx idx) then ()
+                                else
+                                    closestDist <- lenSqrd
+                                    closestIdx <- idx
+
+                    fun modIdx (modPos: Vec3F) ->
+                        let qi = int (floor (float ((modPos.X - minX) * invCell)))
+                        let qj = int (floor (float ((modPos.Y - minY) * invCell)))
+                        let qk = int (floor (float ((modPos.Z - minZ) * invCell)))
+
+                        // Per-query shell bound: enough shells to cover the
+                        // whole occupied grid from this query position
+                        // (handles query points outside the bbox too).
+                        let shellX = max (abs qi) (abs (extX - 1 - qi))
+                        let shellY = max (abs qj) (abs (extY - 1 - qj))
+                        let shellZ = max (abs qk) (abs (extZ - 1 - qk))
+                        let maxShells = (max shellX (max shellY shellZ)) + 1
+
+                        let mutable closestDist = System.Single.MaxValue
+                        let mutable closestIdx = -1
+
+                        let mutable r = 0
+                        let mutable keepGoing = true
+                        while keepGoing do
+                            if r = 0 then
+                                probe modIdx modPos qi qj qk &closestDist &closestIdx
+                            else
+                                // walk shell surface: cells where max(|di|,|dj|,|dk|) = r
+                                for di = -r to r do
+                                    for dj = -r to r do
+                                        for dk = -r to r do
+                                            let m = max (abs di) (max (abs dj) (abs dk))
+                                            if m = r then
+                                                probe modIdx modPos (qi+di) (qj+dj) (qk+dk) &closestDist &closestIdx
+
+                            // After processing shell r, all unexplored cells
+                            // are at shell >= r+1. The closest possible point
+                            // in any such cell is at least r * cellSize away
+                            // from the query point (axis-aligned bound).
+                            if closestIdx >= 0 then
+                                let minPossible = float32 r * cellSizeF
+                                if minPossible * minPossible >= closestDist then
+                                    keepGoing <- false
+                            if r >= maxShells then
+                                keepGoing <- false
+                            r <- r + 1
+
+                        closestDist, closestIdx
+
             // for a single mod position index and value, find the relation data
             let getVertRel modIdx (modPos:Vec3F) =
-                let closestDist,closestIdx =
-                    let mutable currIdx = 0
-                    let mutable closestDist = System.Single.MaxValue
-                    let mutable closestIdx = -1
-
-                    // This is a straight up, bad-ass linear search through the ref positions.
-                    // This loop was pretty hot on the instrumentation profiler, but a lot of that was
-                    // because function calls like LengthSquared() only appear to be expensive because of the sheer
-                    // number of invocations. They still add up to something, so I reduced the intensity
-                    // by "inlining" the vector subtraction/distance calculations.  This saved about 12% on load times.
-                    for refPos in refMesh.Positions do
-                        let vX = modPos.X - refPos.X
-                        let vY = modPos.Y - refPos.Y
-                        let vZ = modPos.Z - refPos.Z
-                        let lenSqrd = //v.LengthSquared()
-                             (vX) * (vX) +
-                             (vY) * (vY) +
-                             (vZ) * (vZ)
-
-                        if (lenSqrd >= closestDist) || (exclusionFilter modIdx currIdx) then
-                            ()
-                        else
-                            closestDist <- lenSqrd
-                            closestIdx <- currIdx
-                        currIdx <- currIdx + 1
-                    closestDist,closestIdx
+                let closestDist, closestIdx = findClosest modIdx modPos
 
                 if closestIdx = -1 then
                     // wat
