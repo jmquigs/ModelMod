@@ -631,8 +631,6 @@ module ModDBInterop =
                 | SDXF.R32G32B32A32_Float -> writeBWF4()
                 | _ -> failwithf "Unsupported type for ref blend weight: %A" el.Type
 
-        let logBinWriteWithNorm = Logging.logOnce(0)
-
         let mutable encVec = DataEncoding.PackedVectorV1.encode
 
         /// Write a normal from the mod mesh.
@@ -1049,8 +1047,8 @@ module ModDBInterop =
 
                     // lazy variants: these fire from the per-vertex hot loop, so
                     // the message thunk avoids sprintf/%A cost on every call
-                    let tex1SemUnused = Logging.logOnceLazy(0)
-                    let tex1UnormSub = Logging.logOnceLazy(0)
+                    let tex1SemUnused = Logging.logOnce(0)
+                    let tex1UnormSub = Logging.logOnce(0)
                 
                     // Write part of a vertex.  The input element controls which
                     // part is written.

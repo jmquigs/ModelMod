@@ -206,32 +206,32 @@ module Snapshot =
                     let d = reader.ReadInt16()
 
                     if snapProfile.IsPackedVec() then 
-                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using packed decode for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (fun () -> sprintf "Using packed decode for %A" name)
                         let res = DataEncoding.PackedVectorV1.decode a b
                         outputFn res
                     else if snapProfile.IsOctaVec() then 
-                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using octa decode for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (fun () -> sprintf "Using octa decode for %A" name)
                         let res = DataEncoding.OctaV1.decode a b
                         outputFn res
                     else
                         // Unknown format, just pack the bits in to the floats.  
-                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (sprintf "No encoding specified, using bits for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (fun () -> sprintf "No encoding specified, using bits for %A" name)
                         outputFn (DataEncoding.packIntoFloat a b , DataEncoding.packIntoFloat c d, 0.0f)
 
                 | SDXF.R16G16_SInt -> 
                     let a = reader.ReadInt16()
                     let b = reader.ReadInt16()
                     if snapProfile.IsPackedVec() then 
-                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using packed decode for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (fun () ->sprintf "Using packed decode for %A" name)
                         let res = DataEncoding.PackedVectorV1.decode a b
                         outputFn res
                     else if snapProfile.IsOctaVec() then 
-                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (sprintf "Using octa decode for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 0)) (fun () -> sprintf "Using octa decode for %A" name)
                         let res = DataEncoding.OctaV1.decode a b
                         outputFn res
                     else
                         // Unknown format, just pack the bits in to the floats.  
-                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (sprintf "No encoding specified, using bits for %A" name)
+                        (Logging.getLogOnceFn (name + f.ToString(), 1)) (fun () ->sprintf "No encoding specified, using bits for %A" name)
                         outputFn (DataEncoding.packIntoFloat a b , 0.0f, 0.0f)
 
                 | SDXF.R32G32B32_Float ->
