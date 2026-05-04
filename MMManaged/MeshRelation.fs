@@ -17,6 +17,7 @@
 namespace ModelMod
 
 open System
+open System.Collections.Generic
 open System.IO
 
 open Microsoft.Xna.Framework
@@ -214,75 +215,84 @@ module MeshRelation =
                 )
             tris
 
-        let isExcluded modIdx refIdx:bool =
-            // use the vgroup annotations to determine whether a particular ref position should be included.
-            // if the ref vert has a group annotated with "Exclude" it is excluded.
-            // otherwise, if the ref vert has some annotations, and the mod vert also has annotations, they are compared as follows.
-            // if the mod vert specifies an "Exclude.GNAME" and the ref vert has "GNAME", the ref vert is excluded.
-            // if the mod vert specifies an "Include.GNAME" and the ref vert does not have "GNAME", the ref vert is excluded.
-            // otherwise the ref vert is included
-
-            // use active patterns to implement the rules; if a pattern returns Some(x), then the ref is excluded
-            let (|UnconditionalExclude|_|) (refAnnts:string list,_:string list) =
-                refAnnts |> List.tryFind (fun (s:string) ->
-                    s.ToUpperInvariant().Equals("EXCLUDE"))
-
-            let (|ModExcludesRef|_|) (refAnnts:string list,modAnnts:string list) =
-                refAnnts |> List.tryFind (fun refA ->
-                    let refA = refA.ToUpperInvariant()
-                    modAnnts
-                        |> List.tryFind (fun modA ->
-                            let modA = modA.ToUpperInvariant()
-                            modA = "EXCLUDE." + refA
-                        ) <> None
-                )
-
-            let (|ModIncludeNotFoundInRef|_|) (refAnnts:string list, modAnnts:string list) =
-                modAnnts
-                    |> List.tryFind (fun modA ->
-                        let modA = modA.ToUpperInvariant()
-
-                        if not (modA.StartsWith("Include.", StringComparison.InvariantCultureIgnoreCase)) then
-                            false
-                        else
-                            let modA = modA.ToUpperInvariant()
-                            let lonce = Logging.getLogOnceFn(md.Name + ref.Name + modA, 0)
-                            lonce(fun () -> "using inclusion group: " + modA)
-                            // search the refs for the target include
-                            refAnnts |> List.tryFind (fun refA ->
-                                let refA = refA.ToUpperInvariant()
-
-                                let amatch = (modA = "INCLUDE." + refA)
-                                if amatch then 
-                                    let lonce = Logging.getLogOnceFn(md.Name + ref.Name + refA, 0)
-                                    lonce(fun () -> "found in ref: " + refA)
-                                amatch
-                            ) = None
-                    )
-
-            let refMesh = refMesh.Value
-            let modMesh = modMesh.Value
-            if refMesh.AnnotatedVertexGroups.Length = 0 || modMesh.AnnotatedVertexGroups.Length = 0 then
-                false
+        // Build a fast exclusion filter (modIdx, refIdx) -> bool by precomputing
+        // normalized lookup tables from the per-vertex annotation lists.
+        //
+        // Equivalent behavior to the previous list/string-based isExcluded:
+        //   - Ref vert is excluded if it has a group annotated "EXCLUDE".
+        //   - Ref vert is excluded if mod has "Exclude.X" and ref has group "X".
+        //   - Ref vert is excluded if mod has "Include.X" and ref does NOT have group "X".
+        //   - Otherwise included.
+        // Comparisons are case-insensitive (uppercased once at precompute time).
+        let buildExclusionFilter () : (int -> int -> bool) =
+            let refAVG = refMesh.Value.AnnotatedVertexGroups
+            let modAVG = modMesh.Value.AnnotatedVertexGroups
+            if refAVG.Length = 0 || modAVG.Length = 0 then
+                fun _ _ -> false
             else
-                // should have warned about non-grouped verts on load; now just assume they are not excluded
-                if refIdx >= refMesh.AnnotatedVertexGroups.Length then
-                    false
-                elif modIdx >= modMesh.AnnotatedVertexGroups.Length then
-                    false
-                else
-                    let refAnnotations = refMesh.AnnotatedVertexGroups.[refIdx]
-                    let modAnnotations = modMesh.AnnotatedVertexGroups.[modIdx]
+                let refUncondExcl : bool[] = Array.zeroCreate refAVG.Length
+                let refGroups : HashSet<string>[] = Array.zeroCreate refAVG.Length
+                for i = 0 to refAVG.Length - 1 do
+                    let groups = HashSet<string>()
+                    let mutable uncond = false
+                    for s in refAVG.[i] do
+                        let u = s.ToUpperInvariant()
+                        if u = "EXCLUDE" then uncond <- true
+                        else groups.Add(u) |> ignore
+                    refUncondExcl.[i] <- uncond
+                    refGroups.[i] <- groups
 
-                    match refAnnotations,modAnnotations with
-                    | [],[] -> false
-                    | UnconditionalExclude groupName ->
+                // For mod verts, store just the X tokens of "Exclude.X" / "Include.X".
+                let modExcludeTokens : string[][] = Array.zeroCreate modAVG.Length
+                let modIncludeTokens : string[][] = Array.zeroCreate modAVG.Length
+                let allIncludeTokens = HashSet<string>()
+                for i = 0 to modAVG.Length - 1 do
+                    let exTokens = ResizeArray<string>()
+                    let inTokens = ResizeArray<string>()
+                    for s in modAVG.[i] do
+                        let u = s.ToUpperInvariant()
+                        if u.StartsWith("EXCLUDE.") then
+                            exTokens.Add(u.Substring(8))
+                        elif u.StartsWith("INCLUDE.") then
+                            let token = u.Substring(8)
+                            inTokens.Add(token)
+                            if allIncludeTokens.Add(token) then
+                                let lonce = Logging.getLogOnceFn(md.Name + ref.Name + u, 0)
+                                lonce(fun () -> "using inclusion group: " + u)
+                    modExcludeTokens.[i] <- exTokens.ToArray()
+                    modIncludeTokens.[i] <- inTokens.ToArray()
+
+                // Diagnostic: log once for each ref group that satisfies some mod include directive.
+                if allIncludeTokens.Count > 0 then
+                    let loggedRefMatches = HashSet<string>()
+                    for i = 0 to refAVG.Length - 1 do
+                        for g in refGroups.[i] do
+                            if allIncludeTokens.Contains(g) && loggedRefMatches.Add(g) then
+                                let lonce = Logging.getLogOnceFn(md.Name + ref.Name + g, 0)
+                                lonce(fun () -> "found in ref: " + g)
+
+                fun modIdx refIdx ->
+                    if refIdx >= refUncondExcl.Length || modIdx >= modExcludeTokens.Length then
+                        false
+                    elif refUncondExcl.[refIdx] then
                         true
-                    | ModExcludesRef groupName ->
-                        true
-                    | ModIncludeNotFoundInRef groupName ->
-                        true
-                    | _,_ -> false
+                    else
+                        let rgs = refGroups.[refIdx]
+                        let exTok = modExcludeTokens.[modIdx]
+                        let mutable excluded = false
+                        let mutable i = 0
+                        while not excluded && i < exTok.Length do
+                            if rgs.Contains(exTok.[i]) then excluded <- true
+                            i <- i + 1
+                        if excluded then true
+                        else
+                            let inTok = modIncludeTokens.[modIdx]
+                            let mutable miss = false
+                            let mutable i = 0
+                            while not miss && i < inTok.Length do
+                                if not (rgs.Contains(inTok.[i])) then miss <- true
+                                i <- i + 1
+                            miss
 
         let buildVertRels():VertRel[] =
             let refMesh = refMesh.Value
@@ -299,7 +309,9 @@ module MeshRelation =
 
             let exclusionCheckingEnabled = true
 
-            let exclusionFilter = if exclusionCheckingEnabled then isExcluded else (fun _ _ -> false)
+            let exclusionFilter =
+                if exclusionCheckingEnabled then buildExclusionFilter()
+                else (fun _ _ -> false)
 
             // for a single mod position index and value, find the relation data
             let getVertRel modIdx (modPos:Vec3F) =
