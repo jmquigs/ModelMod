@@ -213,6 +213,7 @@ Target "BuildFS" (fun _ ->
 
 Target "BuildTest" (fun _ ->
     !! "**/Test.*.fsproj"
+      -- "**/*dotnet.fsproj"
       -- "**/Test.ManagedLaunch.fsproj"
       |> MSBuildRelease testDir "Build"
       |> Log "BuildTest-Output: "
