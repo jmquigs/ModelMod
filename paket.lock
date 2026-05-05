@@ -13,4 +13,4 @@ NUGET
     MonoGame.Framework.WindowsDX (3.3) - restriction: >= net45
     NUnit (2.6.4) - restriction: >= net45
     NUnit.Runners (2.6.4)
-    YamlDotNet (3.5.1) - restriction: >= net45
+    YamlDotNet (5.1) - restriction: >= net45
