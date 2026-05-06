@@ -32,4 +32,11 @@ else
     DEST=d3d11.dll
 fi
 
-$BCMD && cp -v target/release/hook_core.dll "$GPATH/$DEST" && RUST_BACKTRACE=1 "$GPATH/Gw2-64.exe"
+# use ./target/release/hook_core.dll if available, otherwise try parent
+SRCDLL=target/release/hook_core.dll
+
+if [ ! -f $SRCDLL ]; then 
+    SRCDLL=../target/release/hook_core.dll
+fi
+
+$BCMD && cp -v $SRCDLL "$GPATH/$DEST" && RUST_BACKTRACE=1 "$GPATH/Gw2-64.exe"
