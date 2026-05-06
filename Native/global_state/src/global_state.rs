@@ -257,9 +257,7 @@ pub static mut GLOBAL_STATE: HookState = HookState {
 };
 pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
 
-/// Loaded mod database, extracted from `GLOBAL_STATE` as part of the long-running
-/// effort to break up that giant `static mut`. Still a `static mut` for now —
-/// converting to a safer container is a follow-up.
+/// Loaded mod database
 pub static mut LOADED_MODS: Option<LoadedModState> = None;
 
 const TRACK_GS_PTR:bool = true;

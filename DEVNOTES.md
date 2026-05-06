@@ -46,6 +46,18 @@ Might be worth trying again with local claude code someday, but the web version 
 
 ## Code Stuff
 
+### Static mut
+
+The rust code makes heavy use of obtaining references to a global static mut (GLOBAL_STATE).  For years this was not warned 
+about by the compiler at all, but is now considered a very serious problem.  These days you can get an LLM to generate a 
+sample that will show the failure in rust playground - often only shows up in release build there, since it stems from LLVM
+optimization.  
+
+I haven't seen any cases where this causes problems in modelmod, and I do try to lock around GLOBAL_STATE with GLOBAL_STATE_LOCK, except in the draw indexed path where I thought it would be too slow.  However I'm in the process of slowly untangling and fixing this.
+
+For now the warning is disabled in most places, but it still comes up now and again.  As I fix areas in the code that have 
+this problem I plan to remove the warning.
+
 ### MeshRelation building
 
 This was slow for a long time but I had claude put in an optimization which speeds it up pretty dramatically (c9a8fd2).  

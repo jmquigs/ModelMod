@@ -361,12 +361,6 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
 
         let elapsed = elapsed.unwrap_or_else(|| Duration::from_secs(0));
 
-        let (total_frames, loaded_mods) = unsafe {
-            // this is the one place where I currently allow this warning, but it is pervasive in the code until I do 
-            // something about it - unfortunately seems to be not an easy thing to fix.
-            (GLOBAL_STATE.metrics.total_frames, LOADED_MODS.as_ref())
-        };
-
         let send_thread_cmd = |lt:&Option<LogThread>,cmd:ThreadCommand| {
             if let Some(log_thread) = lt {
                 if log_thread.thread.is_finished() {
@@ -381,7 +375,8 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
         // descend into the insane loaded mods structure to find active mods
         let mut new_active = 0_u32;
         let mut total_active = 0_u32;
-        loaded_mods
+        let total_frames = unsafe { GLOBAL_STATE.metrics.total_frames };
+        unsafe { LOADED_MODS.as_ref() }
             .map(|m|  m.mods.values() )
             .map(|mlist| mlist.map(|m|
                 m.iter().filter(|nmd| {
