@@ -27,7 +27,7 @@ use std;
 use std::ptr::null_mut;
 use shared_dx::util::*;
 use device_state::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LoadedModState};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LOADED_MODS, LoadedModState};
 use types::interop;
 use types::native_mod;
 
@@ -67,7 +67,7 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     // get device ref count prior to adding everything
     let pre_rc = device.get_ref_count();
 
-    let mods = GLOBAL_STATE.loaded_mods.take();
+    let mods = LOADED_MODS.take();
     let mut cnt = 0;
     mods.map(|mods| {
         for (_key, modvec) in mods.mods.into_iter() {
@@ -77,7 +77,7 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
             }
         }
     });
-    GLOBAL_STATE.loaded_mods = None;
+    LOADED_MODS = None;
     GLOBAL_STATE.load_on_next_frame.as_mut().map(|hs| hs.clear());
 
     let post_rc = (device).get_ref_count();
@@ -719,7 +719,7 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     let mut selected_variant = global_state::new_fnv_map(16);
     mod_prefs::load_and_apply_variants(&loaded_mods, &mut selected_variant);
 
-    GLOBAL_STATE.loaded_mods = Some(LoadedModState {
+    LOADED_MODS = Some(LoadedModState {
         mods: loaded_mods,
         mods_by_name: mods_by_name,
         selected_variant,
@@ -831,7 +831,7 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
 
         for nmd in to_load.iter() {
             let mut nmod =
-                get_mod_by_name(&nmd, &mut GLOBAL_STATE.loaded_mods);
+                get_mod_by_name(&nmd, &mut LOADED_MODS);
             if let Some(ref mut nmod) = nmod {
                 if nmod.fill_attempts > MAX_FILL_ATTEMPTS {
                     if nmod.fill_attempts == MAX_FILL_ATTEMPTS + 1 {

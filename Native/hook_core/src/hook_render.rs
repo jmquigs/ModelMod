@@ -25,7 +25,7 @@ use crate::debug_spam;
 use crate::input_commands;
 use crate::mod_render;
 use mod_stats::mod_stats;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LOADED_MODS};
 use device_state::dev_state;
 use hook_snapshot;
 use types::native_mod;
@@ -802,7 +802,7 @@ where
         ptr: GLOBAL_STATE.bound_vertex_buffer,
         checksums: GLOBAL_STATE.vb_checksums.as_ref(),
     };
-    let res = GLOBAL_STATE.loaded_mods.as_mut()
+    let res = LOADED_MODS.as_mut()
         .and_then(|mods| {
             profile_start!(hdip, mod_select);
 

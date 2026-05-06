@@ -4,7 +4,7 @@ use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, Duration};
 
-use global_state::{GLOBAL_STATE, METRICS_TRACK_MOD_PRIMS, HWND};
+use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
 use shared_dx::dx11rs::{DX11RenderState};
 use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
@@ -642,7 +642,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
                 // if there is a matching mod, render it
                 profile_start!(hdi, mod_precheck);
-                let quickcheck = GLOBAL_STATE.loaded_mods.as_mut().map(
+                let quickcheck = LOADED_MODS.as_mut().map(
                     |mods| mod_render::preselect(mods, prim_count, vert_count))
                     .unwrap_or(false);
                 let mod_status = if !quickcheck {
@@ -679,7 +679,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     CheckRenderModResult::Deleted => false,
                     CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
                         // setup data to begin mod load
-                        let nmod = mod_load::get_mod_by_name(name, &mut GLOBAL_STATE.loaded_mods);
+                        let nmod = mod_load::get_mod_by_name(name, &mut LOADED_MODS);
                         if let Some(nmod) = nmod {
                             // need to store current input layout in the d3d data
                             if let ModD3DState::Unloaded =  nmod.d3d_data {

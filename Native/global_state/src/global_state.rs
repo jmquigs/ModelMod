@@ -115,7 +115,6 @@ pub struct HookState {
     pub clr: ClrState,
     pub interop_state: Option<interop::InteropState>,
     //pub is_global: bool,
-    pub loaded_mods: Option<LoadedModState>,
     /// List of mod names that should have the d3d resources loaded on the next frame.
     /// Mods are added to this by `hook_draw_indexed_primitive` when it discovers that is
     /// trying to render a mod that hasn't been loaded yet.
@@ -218,7 +217,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     interop_state: None,
     //is_global: true,
     load_on_next_frame: None,
-    loaded_mods: None,
     active_texture_set: None,
     active_texture_list: None,
     dx9_update_texture_map: None,
@@ -258,6 +256,9 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     vb_checksum_targets: None,
 };
 pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
+
+/// Loaded mod database
+pub static mut LOADED_MODS: Option<LoadedModState> = None;
 
 const TRACK_GS_PTR:bool = true;
 

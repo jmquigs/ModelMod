@@ -86,3 +86,5 @@ MMManaged.Engine/obj
 MMManaged.Engine/bin
 obj/fsac.cache
 MMTricks/obj
+.paket/Paket.Restore.targets
+testmodload*.txt
