@@ -376,7 +376,10 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
         let mut new_active = 0_u32;
         let mut total_active = 0_u32;
         let total_frames = unsafe { GLOBAL_STATE.metrics.total_frames };
-        unsafe { LOADED_MODS.as_ref() }
+        let loaded_mods_guard = LOADED_MODS.lock().map_err(|e| {
+            write_log_file(&format!("mod_stats update: LOADED_MODS lock poisoned: {}", e));
+        }).ok();
+        loaded_mods_guard.as_ref().and_then(|g| g.as_ref())
             .map(|m|  m.mods.values() )
             .map(|mlist| mlist.map(|m|
                 m.iter().filter(|nmd| {
@@ -727,7 +730,8 @@ mod tests {
 
         let set_mod_rendered = |name:&str, idx:usize| {
             let frame = unsafe { GLOBAL_STATE.metrics.total_frames };
-            let lms = unsafe { LOADED_MODS.as_mut().unwrap() };
+            let mut guard = LOADED_MODS.lock().unwrap();
+            let lms = guard.as_mut().unwrap();
             let mod_key = lms.mods_by_name.get(name).expect("mod not found");
             let nmd = lms.mods.get_mut(mod_key).expect("mod not found").get_mut(idx).expect("mod not found");
             nmd.d3d_data = ModD3DState::Loaded(ModD3DData::D3D11(ModD3DData11::new()));
@@ -750,7 +754,7 @@ mod tests {
             mods_by_name: mods_by_name,
             selected_variant: global_state::new_fnv_map(16),
         };
-        unsafe { LOADED_MODS = Some(lms); };
+        *LOADED_MODS.lock().unwrap() = Some(lms);
         set_update_interval_ms(0);
         assert_eq!(update(&SystemTime::now()), Some((0,0)));
         set_mod_rendered("mod_100_200_2", 1);
@@ -776,7 +780,7 @@ mod tests {
 
         std::thread::sleep(Duration::from_secs(1));
 
-        unsafe { LOADED_MODS = None };
+        *LOADED_MODS.lock().unwrap() = None;
         super::reset();
     }
 }

@@ -331,19 +331,33 @@ fn select_next_variant() {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     let lastframe = hookstate.metrics.total_frames;
 
-    unsafe { LOADED_MODS.as_mut() }.map(|mstate| {
-        mod_render::select_next_variant(mstate, lastframe);
-        mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
-    });
+    match LOADED_MODS.lock() {
+        Ok(mut g) => {
+            g.as_mut().map(|mstate| {
+                mod_render::select_next_variant(mstate, lastframe);
+                mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
+            });
+        }
+        Err(e) => {
+            write_log_file(&format!("select_next_variant: LOADED_MODS lock poisoned: {}", e));
+        }
+    }
 }
 fn select_prev_variant() {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     let lastframe = hookstate.metrics.total_frames;
 
-    unsafe { LOADED_MODS.as_mut() }.map(|mstate| {
-        mod_render::select_prev_variant(mstate, lastframe);
-        mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
-    });
+    match LOADED_MODS.lock() {
+        Ok(mut g) => {
+            g.as_mut().map(|mstate| {
+                mod_render::select_prev_variant(mstate, lastframe);
+                mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
+            });
+        }
+        Err(e) => {
+            write_log_file(&format!("select_prev_variant: LOADED_MODS lock poisoned: {}", e));
+        }
+    }
 }
 
 fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
