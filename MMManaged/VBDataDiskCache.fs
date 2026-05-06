@@ -106,11 +106,24 @@ module VBDataDiskCache =
                 Vb = vb
             }
 
+        // this uses a seperate thread now since I observed a stack size exception in one game (apparently fspickler can consume a lot of stack space).
+        // no other thread should try to fill it; but as a hedge, create the temp file now and the other thread will fail when it tries to do the same.
         use fs = File.Create(tmp)
-        use gz = new GZipStream(fs, CompressionMode.Compress)
-        ser.Serialize(gz, e)
-        gz.Close()
-        fs.Close()
+        let tStackSize = 2 * 1024 * 1024
+        
+        let serializeIt() = 
+            try 
+                use gz = new GZipStream(fs, CompressionMode.Compress)
+                ser.Serialize(gz, e)
+                gz.Close()
+                if File.Exists(p) then File.Delete(p)
+                fs.Close()
+                // brief race here if another thread is trying to write it, but "should never happen"
+                File.Move(tmp, p)
+            with e -> 
+                log().Error "Attempted to save vbcache entry in new thread with stack size %d, but had error: %A" tStackSize e
 
-        if File.Exists(p) then File.Delete(p)
-        File.Move(tmp, p)
+        //log().Info "serializing VB Data in new thread (stacksize %A)" tStackSize
+        let t = System.Threading.Thread((serializeIt), tStackSize)
+        t.Start()
+        t.Join()
