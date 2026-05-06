@@ -25,7 +25,7 @@ use std::{
     thread,
 };
 
-use global_state::GLOBAL_STATE;
+use global_state::LOADED_MODS;
 use shared_dx::{types::DevicePointer, util::write_log_file};
 use types::{interop::ManagedCallbacks, native_mod::NativeModData};
 
@@ -189,7 +189,7 @@ fn load_resource(mut msg: LoadMsg) -> Result<(), String> {
             let (diff,new_rc) = update_ref_count(msg.device, pre_rc);
             // i don't think its necessary to lock here because this is just a read of the hash table, though 
             // we'll overwrite the value if we find it
-            if let Some(ref mut oldnmod) = get_mod_by_index(msg.nmod.midx, &mut GLOBAL_STATE.loaded_mods) {
+            if let Some(ref mut oldnmod) = get_mod_by_index(msg.nmod.midx, &mut LOADED_MODS) {
                 // TODO(safety): I haven't seen a problem with this, but it may be a possible "torn write" where the render thread could observe a partially loaded struct,
                 // if d3d_data with Loaded is copied over before the remaining stuff (copy ordering not guaranteed).
                 // not clear on fix but maybe use atomics or else don't reuse the old hash slot at all (complicated because the mod is actually

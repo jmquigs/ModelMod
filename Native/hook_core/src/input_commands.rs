@@ -9,7 +9,7 @@ use fnv::FnvHashSet;
 
 use std::ptr::null_mut;
 use shared_dx::util::*;
-use global_state::GLOBAL_STATE;
+use global_state::{GLOBAL_STATE, LOADED_MODS};
 use device_state::dev_state;
 use crate::hook_device_d3d11::apply_device_hook;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
@@ -331,7 +331,7 @@ fn select_next_variant() {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     let lastframe = hookstate.metrics.total_frames;
 
-    hookstate.loaded_mods.as_mut().map(|mstate| {
+    unsafe { LOADED_MODS.as_mut() }.map(|mstate| {
         mod_render::select_next_variant(mstate, lastframe);
         mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
     });
@@ -340,7 +340,7 @@ fn select_prev_variant() {
     let hookstate = unsafe { &mut GLOBAL_STATE };
     let lastframe = hookstate.metrics.total_frames;
 
-    hookstate.loaded_mods.as_mut().map(|mstate| {
+    unsafe { LOADED_MODS.as_mut() }.map(|mstate| {
         mod_render::select_prev_variant(mstate, lastframe);
         mod_prefs::save_variant_selections(&mstate.mods, &mstate.selected_variant);
     });
