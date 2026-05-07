@@ -801,8 +801,9 @@ module Snapshot =
                     let cur = dss.VBDS.Position
                     if cur < target then
                         (Logging.getLogOnceFn ("vbgap:" + layoutKey, 0)) (fun () ->
-                            sprintf "vertex layout has gap before %A[%d] at offset %d (stream was %d bytes into vertex); seeking to honor element offset"
-                                el.Semantic el.SemanticIndex el.Offset (cur - vertStart))
+                            let elStr = ModDBInterop.vertElsToString (dss.VertElements)
+                            sprintf "vertex layout %A has gap before %A[%d] at offset %d (stream was %d bytes into vertex); seeking to honor element offset"
+                                (elStr.GetHashCode()) el.Semantic el.SemanticIndex el.Offset (cur - vertStart))
                     ignore (dss.VBDS.Seek(target, SeekOrigin.Begin))
                     readVertElement el)
             [0..(int sd.NumVertices-1)] |> List.iter processVert

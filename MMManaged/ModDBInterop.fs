@@ -739,6 +739,8 @@ module ModDBInterop =
 
     let vertElsToString(elements:MMVertexElement[]) =
         use sw = new StringWriter()
+        // sort elements by offset
+        let elements = elements |> Array.sortBy (fun el -> el.Offset)
         for sxel in elements do
             sw.WriteLine(sprintf "  %A %A %A %A" sxel.Semantic sxel.SemanticIndex sxel.Offset sxel.Type)
         sw.Flush()
