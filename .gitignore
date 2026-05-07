@@ -78,6 +78,8 @@ Native/mod_stats/__test_process_messages_2.txt
 Native/mod_stats/__test_process_messages_3.txt
 g202*_pre.sh
 G202*
+g201*_pre.sh
+G201*
 SnapshotProfiles/TestProfile1.yaml
 SnapshotProfiles/TexFormat.txt
 BUGSBUNNY.txt

@@ -14,8 +14,13 @@ find_mm
 
 echo "MM: $MMPATH"
 
-# find the symlink to the exe
-GLINK="G2025g1"
+# $1 is the game name (used as the symlink name)
+if [ "$1" == "" ]; then
+    echo "Usage: $0 <game_name> [features]"
+    echo "  e.g.: $0 2025g1"
+    exit 1
+fi
+GLINK="G$1"
 
 GPATH="$MMPATH/$GLINK"
 if [ ! -f "$GPATH" ]; then
@@ -41,9 +46,9 @@ fi
 # possible features:
 #   profile
 #   mmdisable
-if [ "$1" != "" ]; then
-    echo "Building with features: $1"
-    BCMD="$BUILD --features=$1"
+if [ "$2" != "" ]; then
+    echo "Building with features: $2"
+    BCMD="$BUILD --features=$2"
 else
     BCMD="$BUILD"
 fi
@@ -71,9 +76,10 @@ echo "press enter to run game now or ctrl-c to abort..."
 
 read $discard
 
-if [ -f "$MMPATH/g2025g1_pre.sh" ]; then 
+PRESCRIPT="$MMPATH/${GLINK,}_pre.sh"
+if [ -f "$PRESCRIPT" ]; then 
     set +e 
-    source "$MMPATH/g2025g1_pre.sh"
+    source "$PRESCRIPT"
     if [ "$?" -ne 0 ]; then 
         echo "pre script had error, aborting"
         exit 1 
@@ -90,4 +96,3 @@ else
     export RUST_BACKTRACE=1 && "$REXE"
     echo "game has exited"
 fi
-
