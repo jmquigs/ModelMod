@@ -781,14 +781,31 @@ module Snapshot =
             // start at minIndex and write out numVerts (we only write the verts used by the DIP call)
             let vbStartOffset = int64 dss.OffsetBytes + ((int64 sd.BaseVertexIndex + int64 sd.MinVertexIndex) * int64 dss.StrideBytes)
             ignore (dss.VBDS.Seek(vbStartOffset, SeekOrigin.Begin) )
-            // walk the verts to populate data arrays.
-            // elements are sorted in offset order, so we only need to seek the reader between verts (not between elements)
-            // we do assume that each extractor reads the full
-            // amount of data for its type (for example a ubyte4 extractor should read 4 bytes even if the 4th is ignored)
+            // walk the verts to populate data arrays. We seek to each element's declared
+            // offset before reading it, so layouts with gaps or out-of-order elements are
+            // handled correctly. Elements are still iterated in offset order for locality.
+            // Each extractor is still expected to read the full natural size of its type
+            // (e.g. a ubyte4 extractor reads 4 bytes even if the 4th is ignored).
+            // We also log once per layout if the pre-read stream position is below the
+            // declared offset for any element, indicating a gap that would have been
+            // misread before this seek was added.
             let stride = dss.StrideBytes
+            let layoutKey =
+                declElements
+                |> List.map (fun el -> sprintf "%A:%d@%d" el.Type el.SemanticIndex el.Offset)
+                |> String.concat ","
             let processVert i =
-                ignore (dss.VBDS.Seek(vbStartOffset + (int64 i * int64 stride),SeekOrigin.Begin))
-                declElements |> List.iter readVertElement
+                let vertStart = vbStartOffset + (int64 i * int64 stride)
+                declElements |> List.iter (fun el ->
+                    let target = vertStart + int64 el.Offset
+                    let cur = dss.VBDS.Position
+                    if cur < target then
+                        (Logging.getLogOnceFn ("vbgap:" + layoutKey, 0)) (fun () ->
+                            let elStr = ModDBInterop.vertElsToString (dss.VertElements)
+                            sprintf "vertex layout %A has gap before %A[%d] at offset %d (stream was %d bytes into vertex); seeking to honor element offset"
+                                (elStr.GetHashCode()) el.Semantic el.SemanticIndex el.Offset (cur - vertStart))
+                    ignore (dss.VBDS.Seek(target, SeekOrigin.Begin))
+                    readVertElement el)
             [0..(int sd.NumVertices-1)] |> List.iter processVert
 
             // now write the index (primitive) data
