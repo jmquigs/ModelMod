@@ -1,4 +1,4 @@
-use device_state::dev_state_d3d11_nolock;
+use device_state::dev_state_d3d11_write;
 use global_state::HookState;
 use global_state::MAX_STAGE;
 use types::d3ddata::ModD3DData9;
@@ -26,7 +26,7 @@ use crate::input_commands;
 use crate::mod_render;
 use mod_stats::mod_stats;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LOADED_MODS};
-use device_state::dev_state;
+use device_state::{dev_state_read, dev_state_write};
 use hook_snapshot;
 use types::native_mod;
 
@@ -120,7 +120,7 @@ pub fn process_metrics(preserve_prims:bool, interval:u32) {
                     // process dx11 metrics (if any).  do this first because if we are using dx11 we
                     // want to note that since we might not log some stuff below (which is less useful
                     // in dx11)
-                    unsafe {dev_state_d3d11_nolock()}.map(|state| {
+                    dev_state_d3d11_write().map(|(_lck, state)| {
                         // don't log these in dx11 because dips fps is not set and dips not usually useful
                         report_dips_fps = false;
                         let metrics = &state.metrics;
@@ -379,12 +379,18 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
         track_set_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
     }
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_set_texture)(THIS, Stage, pTexture)
+    // Pull the real fn pointer out and drop the guard before calling, in case
+    // it re-enters our hooks on the same thread.
+    let real_set_texture = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_set_texture
+            },
+            _ => return E_FAIL,
         },
-        _ => E_FAIL
-    }
+        None => return E_FAIL,
+    };
+    real_set_texture(THIS, Stage, pTexture)
 }
 
 /// Record the pointer of the vertex buffer bound to slot `slot`. We only
@@ -405,12 +411,16 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
 ) -> HRESULT {
     track_bound_vertex_buffer(pStreamData as usize, StreamNumber, &mut GLOBAL_STATE);
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_set_stream_source)(THIS, StreamNumber, pStreamData, OffsetInBytes, Stride)
+    let real_set_stream_source = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_set_stream_source
+            },
+            _ => return E_FAIL,
         },
-        _ => E_FAIL
-    }
+        None => return E_FAIL,
+    };
+    real_set_stream_source(THIS, StreamNumber, pStreamData, OffsetInBytes, Stride)
 }
 
 /// Hook for IDirect3DDevice9::Reset.
@@ -425,12 +435,16 @@ pub (crate) unsafe extern "system" fn hook_reset(
         map.clear();
     }
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_reset)(THIS, pPresentationParameters)
+    let real_reset = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_reset
+            },
+            _ => return E_FAIL,
         },
-        _ => E_FAIL
-    }
+        None => return E_FAIL,
+    };
+    real_reset(THIS, pPresentationParameters)
 }
 
 // TODO: hook this up to device release at the proper time
@@ -447,7 +461,9 @@ unsafe fn purge_device_resources(device: DevicePointer) {
         .input
         .as_mut()
         .map(|input| input.clear_handlers());
-    dev_state().d3d_resource_count = 0;
+    if let Some((_lck, ds)) = dev_state_write() {
+        ds.d3d_resource_count = 0;
+    }
 }
 
 pub unsafe extern "system" fn hook_present(
@@ -460,18 +476,18 @@ pub unsafe extern "system" fn hook_present(
     //write_log_file("present");
 
     let call_real_present = || {
-        match (dev_state()).hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-                (dev.real_present)(
-                    THIS,
-                    pSourceRect,
-                    pDestRect,
-                    hDestWindowOverride,
-                    pDirtyRegion,
-                )
+        // Pull the real fn pointer out under a read guard, drop the guard,
+        // then call it (the call may re-enter our hooks on this thread).
+        let real_present = match dev_state_read() {
+            Some((_lck, ds)) => match &ds.hook {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                    dev.real_present
+                },
+                _ => return E_FAIL,
             },
-            _ => E_FAIL
-        }
+            None => return E_FAIL,
+        };
+        real_present(THIS, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion)
     };
     if GLOBAL_STATE.in_any_hook_fn() {
         return call_real_present();
@@ -505,10 +521,12 @@ pub unsafe extern "system" fn hook_present(
         .unwrap_or(0) as f64;
 
     let metrics = &mut GLOBAL_STATE.metrics;
-    let present_ret = dev_state()
-        .hook
-        .as_mut()
-        .map_or(S_OK, |_hdstate| {
+    let has_hook = match dev_state_read() {
+        Some((_lck, ds)) => ds.hook.is_some(),
+        None => false,
+    };
+    let present_ret = if !has_hook { S_OK } else {
+        (|| {
             metrics.frames += 1;
             metrics.total_frames += 1;
             if metrics.frames % 90 == 0 {
@@ -540,13 +558,18 @@ pub unsafe extern "system" fn hook_present(
                 }
             }
             call_real_present()
-        });
+        })()
+    };
 
     if GLOBAL_STATE.selection_texture.is_none() {
         input_commands::create_selection_texture_d3d9(THIS);
     }
 
-    if util::appwnd_is_foreground(dev_state().d3d_window) {
+    let d3d_window = match dev_state_read() {
+        Some((_lck, ds)) => ds.d3d_window,
+        None => null_mut(),
+    };
+    if util::appwnd_is_foreground(d3d_window) {
         GLOBAL_STATE.input.as_mut().map(|inp| {
             if inp.get_press_fn_count() == 0 {
                 input_commands::setup_input(DevicePointer::D3D9(THIS), inp)
@@ -576,12 +599,24 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         write_log_file(&format!("OOPS hook_release returning {} due to bad state", failret));
     };
 
-    if GLOBAL_STATE.in_hook_release {
-        return match (dev_state()).hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-                (dev.real_release)(THIS)
+    // Helper: extract the real_release fn pointer (no guard held on return).
+    use shared_dx::defs_dx9::IUnknownReleaseFn as D3D9ReleaseFn;
+    let get_real_release = || -> Option<D3D9ReleaseFn> {
+        match dev_state_read() {
+            Some((_lck, ds)) => match &ds.hook {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                    Some(dev.real_release)
+                },
+                _ => None,
             },
-            _ => {
+            None => None,
+        }
+    };
+
+    if GLOBAL_STATE.in_hook_release {
+        return match get_real_release() {
+            Some(real_release) => real_release(THIS),
+            None => {
                 oops_log_release_fail();
                 failret
             }
@@ -590,64 +625,83 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
     GLOBAL_STATE.in_hook_release = true;
 
-    // dev_state() used to return an Option, but doesn't now,
-    // so Some() it for compat with old combinator flow
-    let r = Some(dev_state())
-        .as_mut()
-        .map_or(failret, |hookds| {
-            let hookdevice = match hookds.hook {
-                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => {
-                    dev
-                },
-                _ => { return failret; } // "should never happen"
+    let real_release = match get_real_release() {
+        Some(f) => f,
+        None => {
+            GLOBAL_STATE.in_hook_release = false;
+            oops_log_release_fail();
+            return failret;
+        }
+    };
+
+    let r = (|| -> ULONG {
+        // First release.  Call without holding the lock since real_release
+        // can re-enter our hooks on the same thread.
+        let mut new_ref_count = real_release(THIS);
+
+        // Persist ref_count and read d3d_resource_count under a write guard.
+        let (destroying, mut do_final_release) = match dev_state_write() {
+            Some((_lck, ds)) => {
+                let drc = ds.d3d_resource_count;
+                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) = ds.hook.as_mut() {
+                    dev.ref_count = new_ref_count;
+                }
+                let destroying = drc > 0 && new_ref_count == (drc + 1);
+                let do_final = destroying || (drc == 0 && new_ref_count == 1);
+                (destroying, do_final)
+            },
+            None => return failret,
+        };
+
+        // could just leak everything on device destroy.  but I know that will
+        // come back to haunt me.  so make an effort to purge my stuff when the
+        // resource count gets to the expected value, this way the device can be
+        // properly disposed.
+        if destroying {
+            let drc = match dev_state_read() {
+                Some((_lck, ds)) => ds.d3d_resource_count,
+                None => 0,
             };
-            hookdevice.ref_count = (hookdevice.real_release)(THIS);
-
-            // if hookdevice.ref_count < 100 {
-            //     write_log_file(&format!(
-            //         "device {:x} refcount now {}",
-            //         THIS as usize, hookdevice.ref_count
-            //     ));
-            // }
-
-            // could just leak everything on device destroy.  but I know that will
-            // come back to haunt me.  so make an effort to purge my stuff when the
-            // resource count gets to the expected value, this way the device can be
-            // properly disposed.
-
-            let destroying = dev_state().d3d_resource_count > 0
-                && hookdevice.ref_count == (dev_state().d3d_resource_count + 1);
-            if destroying {
-                // purge my stuff
-                write_log_file(&format!(
-                    "device {:x} refcount is same as internal resource count ({}),
-                    it is being destroyed: purging resources",
-                    THIS as usize, dev_state().d3d_resource_count
-                ));
-                purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
-                // Note, hookdevice.ref_count is wrong now since we bypassed
-                // this function during unload (no re-entrancy).  however the count on the
-                // device should be 1 if I did the math right, anyway the release below
-                // will fix the count.
+            // purge my stuff
+            write_log_file(&format!(
+                "device {:x} refcount is same as internal resource count ({}),
+                it is being destroyed: purging resources",
+                THIS as usize, drc
+            ));
+            purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
+            // Note, ref_count is wrong now since we bypassed this function
+            // during unload (no re-entrancy). However the count on the device
+            // should be 1 if I did the math right; the release below will
+            // fix the count.  Re-evaluate the final-release condition after
+            // purge since d3d_resource_count may have changed.
+            if let Some((_lck, ds)) = dev_state_read() {
+                let drc = ds.d3d_resource_count;
+                do_final_release = destroying || (drc == 0 && new_ref_count == 1);
             }
+        }
 
-            if destroying || (dev_state().d3d_resource_count == 0 && hookdevice.ref_count == 1) {
-                // release again to trigger destruction of the device
-                hookdevice.ref_count = (hookdevice.real_release)(THIS);
+        if do_final_release {
+            // release again to trigger destruction of the device
+            new_ref_count = real_release(THIS);
+            write_log_file(&format!(
+                "device released: {:x}, refcount: {}",
+                THIS as usize, new_ref_count
+            ));
+            if new_ref_count != 0 {
                 write_log_file(&format!(
-                    "device released: {:x}, refcount: {}",
-                    THIS as usize, hookdevice.ref_count
+                    "WARNING: unexpected ref count of {} after supposedly final
+                    device release, device probably leaked",
+                    new_ref_count
                 ));
-                if hookdevice.ref_count != 0 {
-                    write_log_file(&format!(
-                        "WARNING: unexpected ref count of {} after supposedly final
-                        device release, device probably leaked",
-                        hookdevice.ref_count
-                    ));
+            }
+            if let Some((_lck, ds)) = dev_state_write() {
+                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) = ds.hook.as_mut() {
+                    dev.ref_count = new_ref_count;
                 }
             }
-            hookdevice.ref_count
-        });
+        }
+        new_ref_count
+    })();
     GLOBAL_STATE.in_hook_release = false;
 
     if r == failret {
@@ -910,19 +964,27 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, state_begin);
 
-    let hookdevice = match dev_state().hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => dev,
-        _ => {
+    let real_dip = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_draw_indexed_primitive
+            },
+            _ => {
+                write_log_file(&format!("DIP: No d3d9 device found"));
+                return E_FAIL;
+            }
+        },
+        None => {
             write_log_file(&format!("DIP: No d3d9 device found"));
             return E_FAIL;
-        },
+        }
     };
     profile_end!(hdip, state_begin);
 
     let metrics = &mut GLOBAL_STATE.metrics;
 
     if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
-        return (hookdevice.real_draw_indexed_primitive)(
+        return (real_dip)(
             THIS,
             PrimitiveType,
             BaseVertexIndex,
@@ -1027,7 +1089,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 None
             }
         };
-        let r = (hookdevice.real_draw_indexed_primitive)(
+        let r = (real_dip)(
             THIS,
             PrimitiveType,
             BaseVertexIndex,
