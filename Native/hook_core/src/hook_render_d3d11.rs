@@ -642,9 +642,15 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
                 // if there is a matching mod, render it
                 profile_start!(hdi, mod_precheck);
-                let quickcheck = LOADED_MODS.as_mut().map(
-                    |mods| mod_render::preselect(mods, prim_count, vert_count))
-                    .unwrap_or(false);
+                let quickcheck = match LOADED_MODS.lock() {
+                    Ok(mut g) => g.as_mut().map(
+                        |mods| mod_render::preselect(mods, prim_count, vert_count))
+                        .unwrap_or(false),
+                    Err(e) => {
+                        write_log_file(&format!("preselect: LOADED_MODS lock poisoned: {}", e));
+                        false
+                    }
+                };
                 let mod_status = if !quickcheck {
                     profile_end!(hdi, mod_precheck);
                     // this write_log_file can be used to get information about misses.
@@ -679,20 +685,27 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     CheckRenderModResult::Deleted => false,
                     CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
                         // setup data to begin mod load
-                        let nmod = mod_load::get_mod_by_name(name, &mut LOADED_MODS);
-                        if let Some(nmod) = nmod {
-                            // need to store current input layout in the d3d data
-                            if let ModD3DState::Unloaded =  nmod.d3d_data {
-                                let il = state.rs.current_input_layout;
-                                if !il.is_null() {
-                                    // we're officially keeping an extra reference to the input layout now
-                                    // so note that.
-                                    (*il).AddRef();
-                                    nmod.d3d_data = ModD3DState::Partial(
-                                        ModD3DData::D3D11(ModD3DData11::with_layout(il)));
-                                    write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
-                                    //write_log_file(&format!("current in layout is: {}", il as usize));
+                        match LOADED_MODS.lock() {
+                            Ok(mut loaded_mods_guard) => {
+                                let nmod = mod_load::get_mod_by_name(name, &mut *loaded_mods_guard);
+                                if let Some(nmod) = nmod {
+                                    // need to store current input layout in the d3d data
+                                    if let ModD3DState::Unloaded =  nmod.d3d_data {
+                                        let il = state.rs.current_input_layout;
+                                        if !il.is_null() {
+                                            // we're officially keeping an extra reference to the input layout now
+                                            // so note that.
+                                            (*il).AddRef();
+                                            nmod.d3d_data = ModD3DState::Partial(
+                                                ModD3DData::D3D11(ModD3DData11::with_layout(il)));
+                                            write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                                            //write_log_file(&format!("current in layout is: {}", il as usize));
+                                        }
+                                    }
                                 }
+                            }
+                            Err(e) => {
+                                write_log_file(&format!("NotRenderedButLoadRequested: LOADED_MODS lock poisoned: {}", e));
                             }
                         }
                         true

@@ -802,7 +802,14 @@ where
         ptr: GLOBAL_STATE.bound_vertex_buffer,
         checksums: GLOBAL_STATE.vb_checksums.as_ref(),
     };
-    let res = LOADED_MODS.as_mut()
+    let mut loaded_mods_guard = match LOADED_MODS.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            write_log_file(&format!("check_and_render_mod: LOADED_MODS lock poisoned: {}", e));
+            return CheckRenderModResult::NotRendered;
+        }
+    };
+    let res = loaded_mods_guard.as_mut()
         .and_then(|mods| {
             profile_start!(hdip, mod_select);
 

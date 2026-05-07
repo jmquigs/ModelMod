@@ -187,15 +187,18 @@ fn load_resource(mut msg: LoadMsg) -> Result<(), String> {
         }
         else if loaded {
             let (diff,new_rc) = update_ref_count(msg.device, pre_rc);
-            // i don't think its necessary to lock here because this is just a read of the hash table, though 
-            // we'll overwrite the value if we find it
-            if let Some(ref mut oldnmod) = get_mod_by_index(msg.nmod.midx, &mut LOADED_MODS) {
-                // TODO(safety): I haven't seen a problem with this, but it may be a possible "torn write" where the render thread could observe a partially loaded struct,
-                // if d3d_data with Loaded is copied over before the remaining stuff (copy ordering not guaranteed).
-                // not clear on fix but maybe use atomics or else don't reuse the old hash slot at all (complicated because the mod is actually
-                // stored in a sorted vector in the hashtable entry - replace the whole vector?)
-                // other possibility is to get the global lock but that is ugh because I don't want to slow down draw primitive.
-                **oldnmod = msg.nmod.clone();
+            // The Mutex around LOADED_MODS now also covers the render thread's reads,
+            // so the prior "torn write" concern (render thread observing a half-copied
+            // NativeModData) is resolved as long as everyone goes through the lock.
+            match LOADED_MODS.lock() {
+                Ok(mut guard) => {
+                    if let Some(ref mut oldnmod) = get_mod_by_index(msg.nmod.midx, &mut *guard) {
+                        **oldnmod = msg.nmod.clone();
+                    }
+                }
+                Err(e) => {
+                    write_log_file(&format!("load thread: LOADED_MODS lock poisoned, skipping writeback for {}: {}", id, e));
+                }
             }
             write_log_file(&format!("load thread: load_resource added {} to device rc, new rc: {}", diff, new_rc));
         }

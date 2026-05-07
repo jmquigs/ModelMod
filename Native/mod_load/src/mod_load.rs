@@ -67,7 +67,13 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     // get device ref count prior to adding everything
     let pre_rc = device.get_ref_count();
 
-    let mods = LOADED_MODS.take();
+    let mods = match LOADED_MODS.lock() {
+        Ok(mut g) => g.take(),
+        Err(e) => {
+            write_log_file(&format!("clear_loaded_mods: LOADED_MODS lock poisoned: {}", e));
+            return;
+        }
+    };
     let mut cnt = 0;
     mods.map(|mods| {
         for (_key, modvec) in mods.mods.into_iter() {
@@ -77,7 +83,6 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
             }
         }
     });
-    LOADED_MODS = None;
     GLOBAL_STATE.load_on_next_frame.as_mut().map(|hs| hs.clear());
 
     let post_rc = (device).get_ref_count();
@@ -719,11 +724,19 @@ pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedC
     let mut selected_variant = global_state::new_fnv_map(16);
     mod_prefs::load_and_apply_variants(&loaded_mods, &mut selected_variant);
 
-    LOADED_MODS = Some(LoadedModState {
-        mods: loaded_mods,
-        mods_by_name: mods_by_name,
-        selected_variant,
-    } );
+    match LOADED_MODS.lock() {
+        Ok(mut g) => {
+            *g = Some(LoadedModState {
+                mods: loaded_mods,
+                mods_by_name: mods_by_name,
+                selected_variant,
+            });
+        }
+        Err(e) => {
+            write_log_file(&format!("setup_mod_data: LOADED_MODS lock poisoned, mods will not be available: {}", e));
+            return;
+        }
+    }
 
     global_state::set_vb_checksum_targets(vb_checksum_targets);
 }
@@ -829,9 +842,16 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         let mut cnt = 0;
         let can_load_in_thread = (*DEVICE_STATE).multithreaded();
 
+        let mut loaded_mods_guard = match LOADED_MODS.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                write_log_file(&format!("load_deferred_mods: LOADED_MODS lock poisoned: {}", e));
+                return;
+            }
+        };
         for nmd in to_load.iter() {
             let mut nmod =
-                get_mod_by_name(&nmd, &mut LOADED_MODS);
+                get_mod_by_name(&nmd, &mut *loaded_mods_guard);
             if let Some(ref mut nmod) = nmod {
                 if nmod.fill_attempts > MAX_FILL_ATTEMPTS {
                     if nmod.fill_attempts == MAX_FILL_ATTEMPTS + 1 {
@@ -919,6 +939,7 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
                 }
             }
         }
+        drop(loaded_mods_guard);
 
         to_load.clear();
 

@@ -13,6 +13,7 @@ use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
 use std::time::SystemTime;
 use std::fmt;
@@ -97,6 +98,14 @@ pub struct LoadedModState {
     pub mods_by_name: ModsByNameMap,
     pub selected_variant: SelectedVariantMap,
 }
+
+// `LoadedModState` holds raw d3d resource pointers (textures, buffers) which
+// are not `Send` by default. We need `Send` so that the global `Mutex` can be
+// `Sync`, which lets multiple threads (render thread, deferred load thread)
+// access it through the lock. The same `unsafe impl Send` pattern is already
+// used for `LoadMsg` in `mod_load::load_thread`, where a cloned `NativeModData`
+// is shipped across threads.
+unsafe impl Send for LoadedModState {}
 
 pub struct ClrState {
     pub runtime_pointer: Option<u64>,
@@ -257,8 +266,13 @@ pub static mut GLOBAL_STATE: HookState = HookState {
 };
 pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::new(None);
 
-/// Loaded mod database
-pub static mut LOADED_MODS: Option<LoadedModState> = None;
+/// Loaded mod database.
+///
+/// Wrapped in a `Mutex` because the render thread reads/mutates this on every
+/// draw call while the deferred load thread writes back into it when a mod
+/// finishes loading. Callers should keep the lock for as short a span as
+/// possible — particularly on the DIP path.
+pub static LOADED_MODS: Mutex<Option<LoadedModState>> = Mutex::new(None);
 
 const TRACK_GS_PTR:bool = true;
 
