@@ -1228,11 +1228,13 @@ module ModDBInterop =
                     let mutable currTri  = 0
                     let doload() = 
                         use sw = new Util.StopwatchTracker(sprintf "fill mod: %A: " md.ModName)
+                        let progressSw = System.Diagnostics.Stopwatch.StartNew()
                         modm.Triangles |> Array.iter 
                             (fun tri 
                                 -> 
-                                if currTri % 1000 = 0 then 
-                                    log.Info "fill %A; tri %d/%d (%d%%)" md.ModName  currTri maxTri (int (float currTri / float maxTri * float 100))
+                                // don't log this unless its going slowly
+                                if currTri % 1000 = 0 && progressSw.ElapsedMilliseconds >= 1000L then 
+                                    log.Warn "slow fill: mod %A; tri %d/%d (%d%%)" md.ModName  currTri maxTri (int (float currTri / float maxTri * float 100))
                                 currTri <- currTri + 1
                                 writeTriangle tri
                             )
