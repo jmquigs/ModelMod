@@ -6,9 +6,12 @@ use std::time::{SystemTime, Duration};
 
 use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
+use shared_dx::defs_dx11::{
+    DrawIndexedFn, IASetInputLayoutFn, IASetPrimitiveTopologyFn, IASetVertexBuffersFn,
+    IUnknownReleaseFn, PSSetShaderResourcesFn, QueryInterfaceFn,
+};
 use shared_dx::dx11rs::{DX11RenderState};
 use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
-use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::{write_log_file, ReleaseOnDrop};
 use types::TexPtr;
 use types::d3ddata::ModD3DData11;
@@ -38,17 +41,28 @@ use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 use fnv::FnvHashMap;
 
-/// Return the d3d11 context hooks.
-fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
-    let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(ref mut rs)) => &mut rs.hooks,
-        _ => {
-            write_log_file("draw: No d3d11 context found");
-            return Err(shared_dx::error::HookError::D3D11NoContext);
-        },
+/// Generate a function that returns a copy of one of the d3d11 context fn pointers.
+/// Returning the pointer by value means the borrow on device state ends as soon as the
+/// getter returns, avoiding long-lived `&mut` borrows that would otherwise span the
+/// entire hook body.
+macro_rules! context_fn_getter {
+    ($name:ident, $field:ident, $ty:ty) => {
+        fn $name() -> Result<$ty> {
+            match dev_state().hook {
+                Some(HookDeviceState::D3D11(ref rs)) => Ok(rs.hooks.context.$field),
+                _ => Err(HookError::D3D11NoContext),
+            }
+        }
     };
-    Ok(&mut hooks.context)
 }
+
+context_fn_getter!(get_context_real_query_interface, real_query_interface, QueryInterfaceFn);
+context_fn_getter!(get_context_real_release, real_release, IUnknownReleaseFn);
+context_fn_getter!(get_context_real_ia_set_primitive_topology, real_ia_set_primitive_topology, IASetPrimitiveTopologyFn);
+context_fn_getter!(get_context_real_ia_set_vertex_buffers, real_ia_set_vertex_buffers, IASetVertexBuffersFn);
+context_fn_getter!(get_context_real_ia_set_input_layout, real_ia_set_input_layout, IASetInputLayoutFn);
+context_fn_getter!(get_context_real_ps_set_shader_resources, real_ps_set_shader_resources, PSSetShaderResourcesFn);
+context_fn_getter!(get_context_real_draw_indexed, real_draw_indexed, DrawIndexedFn);
 
 pub fn u8_slice_to_hex_string(slice: &[u8]) -> String {
     let mut s = String::new();
@@ -66,12 +80,12 @@ pub unsafe extern "system" fn hook_context_QueryInterface(
     write_log_file(&format!("Context: hook_context_QueryInterface: for id {:x} {:x} {:x} {}",
         (*riid).Data1, (*riid).Data2, (*riid).Data3, u8_slice_to_hex_string(&(*riid).Data4)));
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_query_interface = match get_context_real_query_interface() {
+        Ok(f) => f,
         Err(_) => return E_NOINTERFACE,
     };
 
-    let hr = (hook_context.real_query_interface)(THIS, riid, ppvObject);
+    let hr = (real_query_interface)(THIS, riid, ppvObject);
     write_log_file(&format!("Context: hook_context_QueryInterface: hr {:x}", hr));
     hr
 }
@@ -92,8 +106,8 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         write_log_file(&format!("OOPS hook_release returning {} due to bad state", failret));
     };
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_release = match get_context_real_release() {
+        Ok(f) => f,
         Err(_) => {
             oops_log_release_fail();
             return failret;
@@ -118,10 +132,10 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
 
     if GLOBAL_STATE.in_hook_release {
         //write_log_file(&format!("warn: re-entrant hook release"));
-        return (hook_context.real_release)(THIS);
+        return (real_release)(THIS);
     }
     GLOBAL_STATE.in_hook_release = true;
-    let rc = (hook_context.real_release)(THIS);
+    let rc = (real_release)(THIS);
     // if >= 1 then this spams when Discord is running, wonder what its doing
     if rc < 1 {
         write_log_file(&format!("context hook release: rc now {}", rc));
@@ -193,8 +207,8 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
 ) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetPrimitiveTopology, THIS as usize);
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_ia_set_primitive_topology = match get_context_real_ia_set_primitive_topology() {
+        Ok(f) => f,
         Err(_) => return,
     };
 
@@ -210,7 +224,7 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
         None => {}
     };
 
-    (hook_context.real_ia_set_primitive_topology)(THIS, Topology);
+    (real_ia_set_primitive_topology)(THIS, Topology);
 }
 pub unsafe extern "system" fn hook_IASetVertexBuffers(
     THIS: *mut ID3D11DeviceContext,
@@ -222,8 +236,8 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
 ) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetVertexBuffers, THIS as usize);
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_ia_set_vertex_buffers = match get_context_real_ia_set_vertex_buffers() {
+        Ok(f) => f,
         Err(_) => return,
     };
 
@@ -278,7 +292,7 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
         None => {}
     };
 
-    (hook_context.real_ia_set_vertex_buffers)(
+    (real_ia_set_vertex_buffers)(
         THIS,
         StartSlot,
         NumBuffers,
@@ -300,8 +314,8 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
         }
     }
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_ia_set_input_layout = match get_context_real_ia_set_input_layout() {
+        Ok(f) => f,
         Err(_) => return,
     };
 
@@ -319,7 +333,7 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
         }
     });
 
-    (hook_context.real_ia_set_input_layout)(
+    (real_ia_set_input_layout)(
         THIS,
         pInputLayout
     )
@@ -420,8 +434,8 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
     NumViews: UINT,
     ppShaderResourceViews: *const *mut ID3D11ShaderResourceView,
 ) -> () {
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_ps_set_shader_resources = match get_context_real_ps_set_shader_resources() {
+        Ok(f) => f,
         Err(_) => return,
     };
 
@@ -441,7 +455,7 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
         }
     }
 
-    (hook_context.real_ps_set_shader_resources)(
+    (real_ps_set_shader_resources)(
         THIS,
         StartSlot,
         NumViews,
@@ -474,9 +488,9 @@ pub unsafe extern "system" fn hook_draw_indexed(
     BaseVertexLocation: INT,
 ) {
     if MM_DISABLE {
-        match get_hook_context() {
-            Ok(ctx) => {
-                (ctx.real_draw_indexed)(
+        match get_context_real_draw_indexed() {
+            Ok(real_draw_indexed) => {
+                (real_draw_indexed)(
                     THIS,
                     IndexCount,
                     StartIndexLocation,
@@ -526,8 +540,16 @@ pub unsafe extern "system" fn hook_draw_indexed(
     profile_start!(hdi, start);
     debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed, THIS as usize);
 
-    let hook_context = match get_hook_context() {
-        Ok(ctx) => ctx,
+    let real_draw_indexed = match get_context_real_draw_indexed() {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let real_ps_set_shader_resources = match get_context_real_ps_set_shader_resources() {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let real_ia_set_vertex_buffers = match get_context_real_ia_set_vertex_buffers() {
+        Ok(f) => f,
         Err(_) => return,
     };
 
@@ -538,7 +560,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         periodic(); // need to do this so that input processes
 
         profile_start!(hdi, draw_input);
-        (hook_context.real_draw_indexed)(
+        (real_draw_indexed)(
             THIS,
             IndexCount,
             StartIndexLocation,
@@ -665,7 +687,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
                         |d3dd,nmod| {
                             profile_start!(hdi, mod_render);
                             let res = if let ModD3DData::D3D11(d3d11d) = d3dd {
-                                render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                                render_mod_d3d11(THIS, real_ia_set_vertex_buffers, real_ps_set_shader_resources,
+                                    d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
                             } else {
                                 false
                             };
@@ -732,7 +755,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
             let save_srv = srvs[0];
             let srvs = [override_texture];
             // bypass our hook
-            (hook_context.real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
+            (real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
             if save_srv != null_mut() {
                 Some(ReleaseOnDrop::new(save_srv))
             } else {
@@ -743,7 +766,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         };
         profile_end!(hdi, draw_ovtex_check);
         profile_start!(hdi, draw_input);
-        (hook_context.real_draw_indexed)(
+        (real_draw_indexed)(
             THIS,
             IndexCount,
             StartIndexLocation,
@@ -754,7 +777,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         save_srv.as_mut().map(|srv| {
             let srv_p = *srv.as_mut();
             let srvs = [srv_p];
-            (hook_context.real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
+            (real_ps_set_shader_resources)(THIS, sel_stage, 1, srvs.as_ptr());
         });
         profile_end!(hdi, draw_ovtex_reset);
     }
@@ -1095,7 +1118,9 @@ fn draw_periodic(context:*mut ID3D11DeviceContext) {
     }
 }
 
-unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut HookDirect3D11Context,
+unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext,
+     real_ia_set_vertex_buffers: IASetVertexBuffersFn,
+     real_ps_set_shader_resources: PSSetShaderResourcesFn,
      d3dd:&ModD3DData11, _nmod:&NativeModData,
     override_texture: *mut ID3D11ShaderResourceView, override_stage:u32,
     _primVerts:(u32,u32)) -> bool {
@@ -1130,7 +1155,7 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
     let vbuffer_offset = [0 as UINT];
 
     // call direct to avoid entering our hook function
-    (hook_context.real_ia_set_vertex_buffers)(
+    (real_ia_set_vertex_buffers)(
         context,
         0,
         1,
@@ -1173,7 +1198,7 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
         }
 
         // set the modded srvs, bypass our hook
-        (hook_context.real_ps_set_shader_resources)(context, 0, 16, mod_srvs.as_ptr());
+        (real_ps_set_shader_resources)(context, 0, 16, mod_srvs.as_ptr());
     }
 
     // if there is an override texture (usually the selection texture), set it.  if the mod has
@@ -1186,7 +1211,7 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
         let save_srv = srvs[0];
         let srvs = [override_texture];
         // bypass our hook
-        (hook_context.real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
+        (real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
         if save_srv != null_mut() {
             Some(ReleaseOnDrop::new(save_srv))
         } else {
@@ -1203,12 +1228,12 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
     override_save_srv.as_mut().map(|srv| {
         let srv_p = *srv.as_mut();
         let srvs = [srv_p];
-        (hook_context.real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
+        (real_ps_set_shader_resources)(context, override_stage, 1, srvs.as_ptr());
     });
 
     // restore srvs
     if d3dd.has_textures {
-        (hook_context.real_ps_set_shader_resources)(context, 0, 16, orig_srvs.as_ptr());
+        (real_ps_set_shader_resources)(context, 0, 16, orig_srvs.as_ptr());
     }
 
     // restore index buffer
@@ -1219,7 +1244,7 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut 
     let first_null = curr_vbuffers.iter()
         .position(|&x| x.is_null()).unwrap_or(0);
 
-    (hook_context.real_ia_set_vertex_buffers)(
+    (real_ia_set_vertex_buffers)(
         context,
         0,
         first_null as UINT,
