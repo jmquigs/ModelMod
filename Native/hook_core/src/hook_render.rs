@@ -38,9 +38,42 @@ use std::time::SystemTime;
 use shared_dx::util::*;
 use shared_dx::error::*;
 use shared_dx::types::*;
+use shared_dx::defs_dx9::{
+    DrawIndexedPrimitiveFn, IUnknownReleaseFn, PresentFn, ResetFn, SetStreamSourceFn,
+    SetTextureFn,
+};
 
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
+
+/// Generate a function that returns a copy of one of the d3d9 device fn pointers.
+/// Returning the pointer by value means the borrow on device state ends as soon as the
+/// getter returns, avoiding long-lived `&mut` borrows that would otherwise span the
+/// entire hook body.
+macro_rules! device_fn_getter {
+    ($name:ident, $field:ident, $ty:ty) => {
+        fn $name() -> Option<$ty> {
+            match dev_state().hook {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => Some(dev.$field),
+                _ => None,
+            }
+        }
+    };
+}
+
+device_fn_getter!(get_device_real_release, real_release, IUnknownReleaseFn);
+device_fn_getter!(get_device_real_present, real_present, PresentFn);
+device_fn_getter!(get_device_real_set_texture, real_set_texture, SetTextureFn);
+device_fn_getter!(get_device_real_set_stream_source, real_set_stream_source, SetStreamSourceFn);
+device_fn_getter!(get_device_real_reset, real_reset, ResetFn);
+device_fn_getter!(get_device_real_draw_indexed_primitive, real_draw_indexed_primitive, DrawIndexedPrimitiveFn);
+
+/// Update the cached device ref count.  Brief `&mut` borrow that ends on return.
+fn set_device_ref_count(rc: ULONG) {
+    if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) = dev_state().hook {
+        dev.ref_count = rc;
+    }
+}
 
 fn get_current_texture() -> usize {
     unsafe {
@@ -379,11 +412,9 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
         track_set_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
     }
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_set_texture)(THIS, Stage, pTexture)
-        },
-        _ => E_FAIL
+    match get_device_real_set_texture() {
+        Some(real_set_texture) => (real_set_texture)(THIS, Stage, pTexture),
+        None => E_FAIL,
     }
 }
 
@@ -405,11 +436,11 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
 ) -> HRESULT {
     track_bound_vertex_buffer(pStreamData as usize, StreamNumber, &mut GLOBAL_STATE);
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_set_stream_source)(THIS, StreamNumber, pStreamData, OffsetInBytes, Stride)
+    match get_device_real_set_stream_source() {
+        Some(real_set_stream_source) => {
+            (real_set_stream_source)(THIS, StreamNumber, pStreamData, OffsetInBytes, Stride)
         },
-        _ => E_FAIL
+        None => E_FAIL,
     }
 }
 
@@ -425,11 +456,9 @@ pub (crate) unsafe extern "system" fn hook_reset(
         map.clear();
     }
 
-    match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            (dev.real_reset)(THIS, pPresentationParameters)
-        },
-        _ => E_FAIL
+    match get_device_real_reset() {
+        Some(real_reset) => (real_reset)(THIS, pPresentationParameters),
+        None => E_FAIL,
     }
 }
 
@@ -460,9 +489,9 @@ pub unsafe extern "system" fn hook_present(
     //write_log_file("present");
 
     let call_real_present = || {
-        match (dev_state()).hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-                (dev.real_present)(
+        match get_device_real_present() {
+            Some(real_present) => {
+                (real_present)(
                     THIS,
                     pSourceRect,
                     pDestRect,
@@ -470,7 +499,7 @@ pub unsafe extern "system" fn hook_present(
                     pDirtyRegion,
                 )
             },
-            _ => E_FAIL
+            None => E_FAIL,
         }
     };
     if GLOBAL_STATE.in_any_hook_fn() {
@@ -576,84 +605,70 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         write_log_file(&format!("OOPS hook_release returning {} due to bad state", failret));
     };
 
+    let real_release = match get_device_real_release() {
+        Some(f) => f,
+        None => {
+            oops_log_release_fail();
+            return failret;
+        }
+    };
+
     if GLOBAL_STATE.in_hook_release {
-        return match (dev_state()).hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-                (dev.real_release)(THIS)
-            },
-            _ => {
-                oops_log_release_fail();
-                failret
-            }
-        };
+        return (real_release)(THIS);
     }
 
     GLOBAL_STATE.in_hook_release = true;
 
-    // dev_state() used to return an Option, but doesn't now,
-    // so Some() it for compat with old combinator flow
-    let r = Some(dev_state())
-        .as_mut()
-        .map_or(failret, |hookds| {
-            let hookdevice = match hookds.hook {
-                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => {
-                    dev
-                },
-                _ => { return failret; } // "should never happen"
-            };
-            hookdevice.ref_count = (hookdevice.real_release)(THIS);
+    let mut ref_count = (real_release)(THIS);
+    set_device_ref_count(ref_count);
 
-            // if hookdevice.ref_count < 100 {
-            //     write_log_file(&format!(
-            //         "device {:x} refcount now {}",
-            //         THIS as usize, hookdevice.ref_count
-            //     ));
-            // }
+    // if ref_count < 100 {
+    //     write_log_file(&format!(
+    //         "device {:x} refcount now {}",
+    //         THIS as usize, ref_count
+    //     ));
+    // }
 
-            // could just leak everything on device destroy.  but I know that will
-            // come back to haunt me.  so make an effort to purge my stuff when the
-            // resource count gets to the expected value, this way the device can be
-            // properly disposed.
+    // could just leak everything on device destroy.  but I know that will
+    // come back to haunt me.  so make an effort to purge my stuff when the
+    // resource count gets to the expected value, this way the device can be
+    // properly disposed.
 
-            let destroying = dev_state().d3d_resource_count > 0
-                && hookdevice.ref_count == (dev_state().d3d_resource_count + 1);
-            if destroying {
-                // purge my stuff
-                write_log_file(&format!(
-                    "device {:x} refcount is same as internal resource count ({}),
-                    it is being destroyed: purging resources",
-                    THIS as usize, dev_state().d3d_resource_count
-                ));
-                purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
-                // Note, hookdevice.ref_count is wrong now since we bypassed
-                // this function during unload (no re-entrancy).  however the count on the
-                // device should be 1 if I did the math right, anyway the release below
-                // will fix the count.
-            }
-
-            if destroying || (dev_state().d3d_resource_count == 0 && hookdevice.ref_count == 1) {
-                // release again to trigger destruction of the device
-                hookdevice.ref_count = (hookdevice.real_release)(THIS);
-                write_log_file(&format!(
-                    "device released: {:x}, refcount: {}",
-                    THIS as usize, hookdevice.ref_count
-                ));
-                if hookdevice.ref_count != 0 {
-                    write_log_file(&format!(
-                        "WARNING: unexpected ref count of {} after supposedly final
-                        device release, device probably leaked",
-                        hookdevice.ref_count
-                    ));
-                }
-            }
-            hookdevice.ref_count
-        });
-    GLOBAL_STATE.in_hook_release = false;
-
-    if r == failret {
-        oops_log_release_fail();
+    let destroying = dev_state().d3d_resource_count > 0
+        && ref_count == (dev_state().d3d_resource_count + 1);
+    if destroying {
+        // purge my stuff
+        write_log_file(&format!(
+            "device {:x} refcount is same as internal resource count ({}),
+            it is being destroyed: purging resources",
+            THIS as usize, dev_state().d3d_resource_count
+        ));
+        purge_device_resources(DevicePointer::D3D9(THIS as *mut IDirect3DDevice9));
+        // Note, the cached ref_count is wrong now since we bypassed
+        // this function during unload (no re-entrancy).  however the count on the
+        // device should be 1 if I did the math right, anyway the release below
+        // will fix the count.
     }
-    r
+
+    if destroying || (dev_state().d3d_resource_count == 0 && ref_count == 1) {
+        // release again to trigger destruction of the device
+        ref_count = (real_release)(THIS);
+        set_device_ref_count(ref_count);
+        write_log_file(&format!(
+            "device released: {:x}, refcount: {}",
+            THIS as usize, ref_count
+        ));
+        if ref_count != 0 {
+            write_log_file(&format!(
+                "WARNING: unexpected ref count of {} after supposedly final
+                device release, device probably leaked",
+                ref_count
+            ));
+        }
+    }
+
+    GLOBAL_STATE.in_hook_release = false;
+    ref_count
 }
 
 // TODO: maybe remove if not needed
@@ -910,9 +925,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, state_begin);
 
-    let hookdevice = match dev_state().hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref mut dev) })) => dev,
-        _ => {
+    let real_draw_indexed_primitive = match get_device_real_draw_indexed_primitive() {
+        Some(f) => f,
+        None => {
             write_log_file(&format!("DIP: No d3d9 device found"));
             return E_FAIL;
         },
@@ -922,7 +937,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     let metrics = &mut GLOBAL_STATE.metrics;
 
     if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
-        return (hookdevice.real_draw_indexed_primitive)(
+        return (real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
             BaseVertexIndex,
@@ -1027,7 +1042,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
                 None
             }
         };
-        let r = (hookdevice.real_draw_indexed_primitive)(
+        let r = (real_draw_indexed_primitive)(
             THIS,
             PrimitiveType,
             BaseVertexIndex,
