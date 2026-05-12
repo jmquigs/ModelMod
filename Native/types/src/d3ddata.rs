@@ -1,6 +1,7 @@
 
 use winapi::shared::d3d9::*;
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, ID3D11Texture2D, ID3D11Resource, ID3D11ShaderResourceView};
+use shared_dx::dx11rs::SemanticMask;
 
 pub struct ModD3DData9 {
     pub vb: *mut IDirect3DVertexBuffer9,
@@ -73,6 +74,10 @@ impl Drop for ModD3DData9 {
 pub struct ModD3DData11 {
     pub vb: *mut ID3D11Buffer,
     pub vlayout: *mut ID3D11InputLayout,
+    /// Semantic-name/index bitmask of the layout that was used to fill `vb`.
+    /// Zero means "not tracked" — the refill check treats that as "don't
+    /// refill".
+    pub vlayout_semantic_mask: SemanticMask,
     pub textures: [*mut ID3D11Texture2D; 4],
     pub has_textures: bool,
     pub srvs: [*mut ID3D11ShaderResourceView; 4],
@@ -106,6 +111,7 @@ impl Clone for ModD3DData11 {
         Self {
             vb: self.vb,
             vlayout: self.vlayout,
+            vlayout_semantic_mask: self.vlayout_semantic_mask,
             textures: self.textures,
             has_textures: self.has_textures,
             srvs: self.srvs,
@@ -122,6 +128,7 @@ impl ModD3DData11 {
         Self {
             vb: null_mut(),
             vlayout: null_mut(),
+            vlayout_semantic_mask: 0,
             textures: [null_mut(); 4],
             has_textures: false,
             srvs: [null_mut(); 4],
@@ -136,6 +143,7 @@ impl ModD3DData11 {
         Self {
             vb: null_mut(),
             vlayout: layout,
+            vlayout_semantic_mask: 0,
             textures: [null_mut(); 4],
             has_textures: false,
             srvs: [null_mut(); 4],
@@ -156,6 +164,7 @@ impl ModD3DData11 {
                 //if rc == 0 { util::write_log_file("releasing vlayout on d3d11 data");}
                 self.vlayout = std::ptr::null_mut();
             }
+            self.vlayout_semantic_mask = 0;
             for srv in self.srvs.iter_mut() {
                 if !srv.is_null() {
                     let bsrv = *srv as *mut ID3D11Resource;
