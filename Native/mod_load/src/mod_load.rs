@@ -52,6 +52,20 @@ fn clear_d3d_data(nmd:&mut NativeModData) {
         nmd.d3d_data = native_mod::ModD3DState::Unloaded;
 }
 
+/// If the mod is currently `Loaded`, release its d3d resources and transition
+/// to `Unloaded`. The standard "render an unloaded mod" path then primes the
+/// reload using the current input layout on the next frame.
+///
+/// Used when something about the current draw makes the existing fill stale
+/// (e.g. the layout in use exposes semantics the original fill didn't see).
+pub unsafe fn reset_for_reload(nmd: &mut NativeModData) {
+    if let native_mod::ModD3DState::Loaded(ref mut d3dd) = nmd.d3d_data {
+        write_log_file(&format!("resetting mod {} for reload", nmd.name));
+        d3dd.release();
+        nmd.d3d_data = native_mod::ModD3DState::Unloaded;
+    }
+}
+
 pub unsafe fn clear_loaded_mods(device: DevicePointer) {
     let lock = GLOBAL_STATE_LOCK.lock();
     if let Err(_e) = lock {
@@ -411,6 +425,10 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
     d3d_data.vb = vertex_buffer;
     d3d_data.vert_size = vert_size as u32;
     d3d_data.vert_count = vert_count as u32;
+    // Remember which semantics the fill layout exposed, so we can detect later
+    // draws that use a richer layout (e.g. depth-only pass filled the VB, then
+    // a color pass with NORMAL shows up) and trigger a refill.
+    d3d_data.vlayout_semantic_mask = vlayout.semantic_mask();
 
     // load textures, if any
     let dp = DevicePointer::D3D11(device);
