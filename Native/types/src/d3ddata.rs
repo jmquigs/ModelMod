@@ -76,8 +76,7 @@ pub struct ModD3DData11 {
     pub vlayout: *mut ID3D11InputLayout,
     /// Semantic-name/index bitmask of the layout that was used to fill `vb`.
     /// Zero means "not tracked" — the refill check treats that as "don't
-    /// refill" so any code path that forgets to set this remains compatible
-    /// with the pre-refill behavior.
+    /// refill".
     pub vlayout_semantic_mask: SemanticMask,
     pub textures: [*mut ID3D11Texture2D; 4],
     pub has_textures: bool,
