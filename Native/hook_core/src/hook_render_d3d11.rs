@@ -6,7 +6,7 @@ use std::time::{SystemTime, Duration};
 
 use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
-use shared_dx::dx11rs::{DX11RenderState};
+use shared_dx::dx11rs::{DX11RenderState, VertexFormat};
 use shared_dx::types::{DevicePointer, DX11Metrics, D3D11Tex};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::{write_log_file, ReleaseOnDrop};
@@ -384,6 +384,33 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
     Some((prim_count,vert_count))
 }
 
+/// True if `current_layout_ptr` declares any semantic that wasn't present in
+/// the layout used to fill `d3d11d.vb`. When that happens, the existing fill
+/// is missing data (e.g. NORMAL bytes are zero because the fill layout was a
+/// depth-only pass), and the mod needs to be released and refilled.
+///
+/// Returns false if the mask wasn't recorded at fill time (mask == 0), if the
+/// current layout pointer is null, or if the layout isn't in the context's
+/// layout map. All of those preserve pre-refill behavior.
+unsafe fn needs_refill_for_layout(
+    d3d11d: &ModD3DData11,
+    current_layout_ptr: *mut ID3D11InputLayout,
+    current_layout_mask: Option<shared_dx::dx11rs::SemanticMask>,
+) -> bool {
+    if current_layout_ptr.is_null() {
+        return false;
+    }
+    let old_mask = d3d11d.vlayout_semantic_mask;
+    if old_mask == 0 {
+        return false;
+    }
+    let new_mask = match current_layout_mask {
+        Some(m) => m,
+        None => return false,
+    };
+    VertexFormat::has_extra_semantics(old_mask, new_mask)
+}
+
 fn update_drawn_recently(metrics:&mut DX11Metrics, prim_count:u32, vert_count: u32, checkres:&CheckRenderModResult) {
     if METRICS_TRACK_MOD_PRIMS {
         use shared_dx::types::MetricsDrawStatus::*;
@@ -684,11 +711,44 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     } else {
                         profile_end!(hdi, mod_precheck);
                         profile_start!(hdi, mod_check);
+                        // Precompute the current input layout pointer and its
+                        // semantic mask via a brief read lock so the closure
+                        // can detect "needs refill" without holding the
+                        // dev_state lock across the check_and_render_mod call.
+                        let (current_layout_ptr, current_layout_mask) = match dev_state_d3d11_read() {
+                            Some((_lck, state)) => {
+                                let il = state.rs.current_input_layout;
+                                let mask = if il.is_null() {
+                                    None
+                                } else {
+                                    state.rs.context_input_layouts_by_ptr
+                                        .get(&(il as usize))
+                                        .map(|vf| vf.semantic_mask())
+                                };
+                                (il, mask)
+                            },
+                            None => (null_mut(), None),
+                        };
+                        // If a draw needs the mod refilled (current layout has
+                        // semantics the original fill didn't see), the closure
+                        // can't mutate the mod directly — it has only an immutable
+                        // ref. Stash the request here and let the post-check
+                        // block handle release + reload.
+                        let mut override_mod_status = None;
                         let mod_status = check_and_render_mod(prim_count, vert_count,
                             |d3dd,nmod| {
                                 profile_start!(hdi, mod_render);
                                 let res = if let ModD3DData::D3D11(d3d11d) = d3dd {
-                                    render_mod_d3d11(THIS, &hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                                    if needs_refill_for_layout(d3d11d,
+                                            current_layout_ptr,
+                                            current_layout_mask) {
+                                        override_mod_status = Some(
+                                            CheckRenderModResult::NotRenderedButLoadRequested(
+                                                nmod.name.clone()));
+                                        false
+                                    } else {
+                                        render_mod_d3d11(THIS, &hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                                    }
                                 } else {
                                     false
                                 };
@@ -696,7 +756,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                                 res
                             });
                         profile_end!(hdi, mod_check);
-                        mod_status
+                        override_mod_status.unwrap_or(mod_status)
                     };
 
                     profile_start!(hdi, post_mod_check);
@@ -720,6 +780,12 @@ pub unsafe extern "system" fn hook_draw_indexed(
                                 Ok(mut loaded_mods_guard) => {
                                     let nmod = mod_load::get_mod_by_name(name, &mut *loaded_mods_guard);
                                     if let Some(nmod) = nmod {
+                                        // If the mod is already loaded but we
+                                        // need a refill (semantics-mismatch
+                                        // path), drop the stale d3d data so
+                                        // the Unloaded path below can prime a
+                                        // fresh load.
+                                        mod_load::reset_for_reload(nmod);
                                         // need to store current input layout in the d3d data
                                         if let ModD3DState::Unloaded = nmod.d3d_data {
                                             if !il.is_null() {

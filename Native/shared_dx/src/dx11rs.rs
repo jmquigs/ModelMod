@@ -18,6 +18,58 @@ pub struct VertexFormat {
     pub size: u32,
 }
 
+/// Packed bitmask of (semantic, semantic_index) pairs declared by a vertex
+/// layout, restricted to the semantics ModelMod knows how to fill.
+///
+/// Two distinct layouts that declare the same set of supported semantics
+/// produce equal masks. The hot-path refill check is `(new & !old) != 0`.
+pub type SemanticMask = u128;
+
+/// Subset of D3D semantic names ModelMod fills. Anything not listed here
+/// (custom engine semantics, etc.) is silently dropped from the mask, which
+/// matches the existing fill behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Semantic {
+    Position     = 0,
+    Normal       = 1,
+    TexCoord     = 2,
+    Binormal     = 3,
+    Bitangent    = 4,
+    Color        = 5,
+    Tangent      = 6,
+    BlendIndices = 7,
+    BlendWeight  = 8,
+}
+
+/// Number of distinct semantic indices per semantic that fit in the mask.
+/// 9 semantics * 14 indices = 126 bits, fits in u128 with 2 spare. Indices
+/// at or above this value get clamped to the top slot (extremely rare in
+/// practice; ModelMod would not be filling them anyway).
+const SEM_INDEX_SLOTS: u32 = 14;
+
+impl Semantic {
+    /// D3D treats semantic names as case-insensitive; match that here.
+    fn from_name_bytes(name: &[u8]) -> Option<Self> {
+        if      name.eq_ignore_ascii_case(b"POSITION")     { Some(Semantic::Position) }
+        else if name.eq_ignore_ascii_case(b"NORMAL")       { Some(Semantic::Normal) }
+        else if name.eq_ignore_ascii_case(b"TEXCOORD")     { Some(Semantic::TexCoord) }
+        else if name.eq_ignore_ascii_case(b"BINORMAL")     { Some(Semantic::Binormal) }
+        else if name.eq_ignore_ascii_case(b"BITANGENT")    { Some(Semantic::Bitangent) }
+        else if name.eq_ignore_ascii_case(b"COLOR")        { Some(Semantic::Color) }
+        else if name.eq_ignore_ascii_case(b"TANGENT")      { Some(Semantic::Tangent) }
+        else if name.eq_ignore_ascii_case(b"BLENDINDICES") { Some(Semantic::BlendIndices) }
+        else if name.eq_ignore_ascii_case(b"BLENDWEIGHT")  { Some(Semantic::BlendWeight) }
+        else { None }
+    }
+
+    #[inline]
+    fn mask_bit(self, index: u32) -> SemanticMask {
+        let idx = index.min(SEM_INDEX_SLOTS - 1);
+        1u128 << ((self as u32) * SEM_INDEX_SLOTS + idx)
+    }
+}
+
 impl VertexFormat {
     /// Create a shallow copy of the vertex format.  This will copy the layout vector, but the
     /// pointers in the vector elements will still point to the same strings as the original.
@@ -27,6 +79,29 @@ impl VertexFormat {
             size: self.size,
         }
     }
+
+    /// Compute a bitmask of the (semantic, semantic_index) pairs declared by
+    /// this layout, restricted to semantics ModelMod fills. Cheap enough to
+    /// recompute on each modded draw (CStr scan over typically <=16 elements).
+    pub fn semantic_mask(&self) -> SemanticMask {
+        let mut mask: SemanticMask = 0;
+        for elem in &self.layout {
+            if elem.SemanticName.is_null() {
+                continue;
+            }
+            let name_bytes = unsafe { CStr::from_ptr(elem.SemanticName) }.to_bytes();
+            if let Some(sem) = Semantic::from_name_bytes(name_bytes) {
+                mask |= sem.mask_bit(elem.SemanticIndex);
+            }
+        }
+        mask
+    }
+
+    /// True if `new` declares any (semantic, index) pair not present in `old`.
+    #[inline]
+    pub fn has_extra_semantics(old: SemanticMask, new: SemanticMask) -> bool {
+        (new & !old) != 0
+    }
 }
 
 impl Display for VertexFormat {
@@ -35,7 +110,7 @@ impl Display for VertexFormat {
         for i in 0..self.layout.len() {
             let bytename = unsafe { CStr::from_ptr(self.layout[i].SemanticName) }.to_str();
 
-            write!(f, "{:?}",  bytename)?;
+            write!(f, "{:?}/{}",  bytename, self.layout[i].SemanticIndex)?;
             if i < self.layout.len() - 1 {
                 write!(f, ", ")?;
             }
