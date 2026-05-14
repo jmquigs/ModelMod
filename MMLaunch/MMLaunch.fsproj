@@ -14,6 +14,18 @@
     <NoWarn>$(NoWarn);FS0020;FS0025;FS0026;FS0040;FS0044;FS0046;FS0049;FS0052;FS0064;FS0067;FS0086;FS0760;FS0988;FS3370;FS3391;FS3559</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- uncomment these out to remove output build size -->
+    <!--
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    -->
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.2" />
     <PackageReference Include="Avalonia.Desktop" Version="11.2.2" />
