@@ -7,7 +7,7 @@ namespace ModelMod
 
 open System.IO
 
-open CoreTypes
+open ConfigTypes
 
 module State =
     let private defaultDataDir = "Data"

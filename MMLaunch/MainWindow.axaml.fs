@@ -25,6 +25,7 @@ open Avalonia.Media.Imaging
 open Avalonia.Threading
 
 open ModelMod
+open ModelMod.ConfigTypes
 
 // Helper module for using parameterized loc strings with failwith, etc
 module Formatters =
@@ -120,13 +121,13 @@ module IconLoader =
 
 /// Mutable wrapper around an immutable RunConfig.
 [<AllowNullLiteral>] // ListBox bindings need a reference type that supports null
-type ProfileModel(config: CoreTypes.RunConfig) =
+type ProfileModel(config: ConfigTypes.RunConfig) =
     let mutable config = config
 
     // set defaults for empty profile values
     let mutable config =
         if config.SnapshotProfile.Trim() = "" then
-            { config with SnapshotProfile = SnapshotProfile.DefaultProfileName }
+            { config with SnapshotProfile = ConfigTypes.DefaultSnapProfileName }
         else config
 
     let mutable config =
@@ -339,7 +340,7 @@ type MainViewModel() as self =
 
     let snapshotProfileDefs, snapshotProfileNames =
         try
-            let defs = SnapshotProfile.GetAll(ProcessUtil.getMMRoot ())
+            let defs = SnapshotProfileLoad.GetAll(ProcessUtil.getMMRoot ())
             let names = defs |> Map.toList |> List.map fst
             defs, names
         with _ -> Map.ofList [], []
@@ -456,12 +457,12 @@ type MainViewModel() as self =
         and set (value: string) = setSelectedProfileField (fun p -> p.ExePath <- value)
 
     member x.SelectedProfileLoadModsOnStart
-        with get () = getSelectedProfileField (fun p -> p.LoadModsOnStart) CoreTypes.DefaultRunConfig.LoadModsOnStart
+        with get () = getSelectedProfileField (fun p -> p.LoadModsOnStart) ConfigTypes.DefaultRunConfig.LoadModsOnStart
         and set (value: bool) = setSelectedProfileField (fun p -> p.LoadModsOnStart <- value)
 
     member x.SelectedProfileLaunchWindow
         with get () =
-            let time = getSelectedProfileField (fun p -> p.LaunchWindow) CoreTypes.DefaultRunConfig.LaunchWindow
+            let time = getSelectedProfileField (fun p -> p.LaunchWindow) ConfigTypes.DefaultRunConfig.LaunchWindow
 
             match launchWindows |> List.tryFind (fun lt -> lt.Time = time) with
             | None -> launchWindows.Head.Time
@@ -469,13 +470,13 @@ type MainViewModel() as self =
         and set (value: int) = setSelectedProfileField (fun p -> p.LaunchWindow <- value)
 
     member x.SelectedInputProfile
-        with get () = getSelectedProfileField (fun p -> p.InputProfile) CoreTypes.DefaultRunConfig.InputProfile
+        with get () = getSelectedProfileField (fun p -> p.InputProfile) ConfigTypes.DefaultRunConfig.InputProfile
         and set (value: string) =
             setSelectedProfileField (fun p -> p.InputProfile <- value)
             x.RaisePropertyChanged "ProfileDescription"
 
     member x.SelectedSnapshotProfile
-        with get () = getSelectedProfileField (fun p -> p.SnapshotProfile) CoreTypes.DefaultRunConfig.SnapshotProfile
+        with get () = getSelectedProfileField (fun p -> p.SnapshotProfile) ConfigTypes.DefaultRunConfig.SnapshotProfile
         and set (value: string) =
             setSelectedProfileField (fun p -> p.SnapshotProfile <- value)
             x.RaisePropertyChanged "ProfileDescription"

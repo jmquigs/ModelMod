@@ -39,6 +39,7 @@ type Device11 = SharpDX.Direct3D11.Device
 open YamlDotNet.Serialization
 open YamlDotNet.Serialization.NamingConventions
 
+open ConfigTypes
 open CoreTypes
 
 open FSharp.Core
@@ -150,7 +151,7 @@ module Snapshot =
     }
 
     type SnapMeta() =
-        let mutable profile:CoreTypes.SnapProfile = SnapshotProfile.EmptyProfile
+        let mutable profile:ConfigTypes.SnapProfile = ConfigTypes.EmptySnapProfile
         let mutable context:string = ""
         let mutable vbChecksumAlgo:string = ""
         let mutable vbChecksum:string = ""
@@ -173,7 +174,7 @@ module Snapshot =
 
     /// Reads a vertex element.  Uses the read output functions to pipe the data to an appropriate handler
     /// function, depending on the type.
-    let private readElement (snapProfile:CoreTypes.SnapProfile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
+    let private readElement (snapProfile:ConfigTypes.SnapProfile) (fns:ReadOutputFunctions) (ignoreFns:ReadOutputFunctions) reader (el:VertexTypes.MMVertexElement) =
         let outputFns = fns // keep reference to real output functions
         let fns =
             if el.SemanticIndex = 0 then
@@ -718,7 +719,7 @@ module Snapshot =
                 |> function
                     | None ->
                         log.Warn "No snap profile found for: '%A', using empty profile (no transforms)" State.Data.Conf.SnapshotProfile
-                        SnapshotProfile.EmptyProfile
+                        ConfigTypes.EmptySnapProfile
                     | Some s ->
                         log.Info "Applying snap profile: %A" s
                         s

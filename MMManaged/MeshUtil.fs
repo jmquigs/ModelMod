@@ -127,7 +127,7 @@ module MeshUtil =
 
         let shouldAdjustBlendWeights =
             let abw = flags.AdjustBlendWeights.Trim().ToLowerInvariant()
-            abw = "" || abw = AdjustBlendWeightsDefault
+            abw = "" || abw = ConfigTypes.AdjustBlendWeightsDefault
 
         let makeBlendVectors (components:(int32 * float32)[] option) =
             match components with

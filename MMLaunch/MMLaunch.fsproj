@@ -39,8 +39,7 @@
   <!-- Domain layer: a slim subset of MMManaged is linked in directly so MMLaunch
        can build standalone on net8.0 without the .NET Framework 4.6.2 / MonoGame /
        SharpDX dependencies that the original MMManaged.fsproj pulls in.
-       Local Domain.fs provides the slim CoreTypes (RunConfig, GameProfile, etc.) that
-       the linked RegConfig.fs depends on. Order matters - F# compilation is sequential. -->
+ -->
   <ItemGroup>
     <Compile Include="..\MMManaged\Logging.fs">
       <Link>Domain\Logging.fs</Link>
@@ -49,9 +48,16 @@
       <Link>Domain\Util.fs</Link>
     </Compile>
     <Compile Include="Domain.fs" />
+    <Compile Include="..\MMManaged\ConfigTypes.fs">
+      <Link>Domain\ConfigTypes.fs</Link>
+    </Compile>
     <Compile Include="..\MMManaged\Yaml.fs">
       <Link>Domain\Yaml.fs</Link>
     </Compile>
+    <Compile Include="..\MMManaged\SnapshotProfileLoad.fs">
+      <Link>Domain\SnapshotProfileLoad.fs</Link>
+    </Compile>    
+
     <Compile Include="..\MMManaged\RegConfig.fs">
       <Link>Domain\RegConfig.fs</Link>
     </Compile>

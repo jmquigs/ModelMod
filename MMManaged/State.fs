@@ -18,7 +18,7 @@ namespace ModelMod
 
 open System.IO
 
-open CoreTypes
+open ConfigTypes
 
 /// Contains mutable state, including the current configuration and data for all loaded mods.
 /// This is stored here so that we don't have to pass it all over the interop barrier, which
@@ -90,10 +90,10 @@ module State =
     // various muties
     let mutable private _moddb = new ModDB.ModDB([],[],[])
     let mutable private _rootDir = "."
-    let mutable private _conf = CoreTypes.DefaultRunConfig
+    let mutable private _conf = ConfigTypes.DefaultRunConfig
     let mutable private _locator = DirLocator(_rootDir,_conf)
     let mutable private _loadState = InteropTypes.AsyncLoadState.NotStarted
-    let mutable private _snapProfiles:Map<string,CoreTypes.SnapProfile> = Map.ofList []
+    let mutable private _snapProfiles:Map<string,ConfigTypes.SnapProfile> = Map.ofList []
 
     // access to the muties out side of the module goes through this, via the "Data" field below.
     type StateDateAccessor() =
@@ -113,7 +113,7 @@ module State =
 
     /// Verify the specified confiuration and install it in state.  Does not load the Moddb.
     /// Throws exception if confiuration is invalid.
-    let validateAndSetConf (rootDir:string) (conf:CoreTypes.RunConfig): CoreTypes.RunConfig =
+    let validateAndSetConf (rootDir:string) (conf:ConfigTypes.RunConfig): ConfigTypes.RunConfig =
         if not (Directory.Exists rootDir) then
             failwithf "Root directory does not exist: %s" rootDir
 
@@ -123,7 +123,7 @@ module State =
 
         let snapProfile =
             try
-                let sprofiles = SnapshotProfile.GetAll(_rootDir)
+                let sprofiles = SnapshotProfileLoad.GetAll(_rootDir)
                 _snapProfiles <- sprofiles
                 snapProfileVal <- sprofiles |> Map.tryFind conf.SnapshotProfile
 
@@ -153,7 +153,7 @@ module State =
     /// Reload snapshot profiles from disk, using the current root dir and conf.
     let reloadSnapshotProfiles() =
         try
-            let sprofiles = SnapshotProfile.GetAll(_rootDir)
+            let sprofiles = SnapshotProfileLoad.GetAll(_rootDir)
             _snapProfiles <- sprofiles
             let snapProfileVal = sprofiles |> Map.tryFind _conf.SnapshotProfile
 
@@ -167,7 +167,7 @@ module State =
             log().Error "Error reloading snapshot profiles: %A" e
 
     /// For use by tets
-    let testSetConf(c:CoreTypes.RunConfig) =
+    let testSetConf(c:ConfigTypes.RunConfig) =
         _conf <- c
         _locator <- DirLocator(_rootDir,_conf)
 

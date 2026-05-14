@@ -20,7 +20,7 @@ open System
 open System.IO
 open Microsoft.Win32
 
-open CoreTypes
+open ConfigTypes
 
 /// List of all the reg value names that we set (in HKCU/Software/ModelMod)
 module RegKeys =
@@ -231,7 +231,7 @@ module RegConfig =
             ({
                 ProfileKeyName = profKey
                 ProfileName = profSave RegKeys.ProfName conf.ProfileName
-                CoreTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath
+                ConfigTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath
                 RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
                 LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
                 InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile
@@ -293,7 +293,7 @@ module RegConfig =
 
             ProfileKeyName = profileKeyName
             ProfileName = regget(profPath,RegKeys.ProfName,DefaultRunConfig.ProfileName) :?> string
-            CoreTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
+            ConfigTypes.RunConfig.ExePath = regget(profPath,RegKeys.ProfExePath,DefaultRunConfig.ExePath) :?> string
             RunModeFull = dwordAsBool ( regget(profPath,RegKeys.ProfRunModeFull, (boolAsDword DefaultRunConfig.RunModeFull)) :?> int )
             LoadModsOnStart = dwordAsBool ( regget(profPath,RegKeys.ProfLoadModsOnStart, (boolAsDword DefaultRunConfig.LoadModsOnStart)) :?> int)
             InputProfile = regget(profPath,RegKeys.ProfInputProfile, DefaultRunConfig.InputProfile) :?> string

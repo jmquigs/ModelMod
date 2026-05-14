@@ -5,7 +5,7 @@ open System
 open Avalonia.Controls
 open Avalonia.Markup.Xaml
 
-open ModelMod.CoreTypes
+open ModelMod.ConfigTypes
 
 type GameProfileViewModel() =
     inherit ViewModelBase()

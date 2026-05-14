@@ -62,6 +62,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Logging.fs" />
+    <Compile Include="ConfigTypes.fs" />
     <Compile Include="CoreTypes.fs" />
     <Compile Include="InteropTypes.fs" />
     <Compile Include="RegConfig.fs" />
