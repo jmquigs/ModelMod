@@ -63,7 +63,7 @@ module BlenderUtil =
             if key = null then failwith "can't open reg key"
 
             let bKey = key.OpenSubKey SubKey
-            if bKey = null then failwith "can't open blender key"
+            if bKey = null then failwith "can't open blender registry key"
 
             let v = bKey.GetValue(name,defVal)
             if v = null then failwith "name not found"

@@ -61,7 +61,8 @@ module LocStrings =
 
     module Misc =
         let NewProfileName = "New Profile"
-        let ConfirmRecycle = Formatters.StringAnyRetString("Remove files in %s?\n%A")
+        let PermanentRemove:Formatters.StringAnyRetString<string> = Formatters.StringAnyRetString("Permanently remove files (no recycle bin) in %s?\n\nFiles:\n%s")
+        //let ConfirmRecycle = Formatters.StringAnyRetString("Remove files in %s?\n%A")
         let ConfirmProfileRemove = Formatters.AnyRetString("Remove profile '%s'?\n\nNote: mod & snapshot files that are associated with this profile will not be removed.")
         let RecycleMoar = Formatters.StringAnyRetString("%s\n...and %d more")
         let LoaderNotStarted = "Not Started"
@@ -262,12 +263,13 @@ module MainViewUtil =
             if files.Length = 0 then
                 ViewModelUtil.pushDialog (sprintf LocStrings.Errors.NoFilesInDir snapdir)
             else
-                let display = 5
+                let display = 10
                 let take = Math.Min(files.Length, display)
                 let moar = files.Length - take
                 let preview = files |> Seq.take take |> Array.ofSeq
+                let preview = String.Join("\n", preview)
 
-                let baseMsg = sprintf LocStrings.Misc.ConfirmRecycle snapdir preview
+                let baseMsg = sprintf LocStrings.Misc.PermanentRemove snapdir preview
                 let msg = if moar = 0 then baseMsg else sprintf LocStrings.Misc.RecycleMoar baseMsg moar
 
                 let view, vm = makeConfirmDialog mainWin
@@ -556,6 +558,7 @@ type MainViewModel() as self =
         x.RaisePropertyChanged "ViewModelModLog"
 
     member x.UpdateProfileButtons() =
+        x.RaisePropertyChanged "DeleteProfile"
         x.RaisePropertyChanged "RemoveSnapshots"
         x.RaisePropertyChanged "CreateMod"
         x.RaisePropertyChanged "OpenMods"
