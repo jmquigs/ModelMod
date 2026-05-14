@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MMLaunch"
+        x:Class="MMLaunch.GameProfileWindow"
+        x:DataType="vm:GameProfileViewModel"
+        Title="Game Profile"
+        Width="320" Height="251"
+        CanResize="False">
+    <StackPanel Margin="10" Spacing="8">
+        <CheckBox IsChecked="{Binding ReverseNormals}"
+                  Content="Reverse Normal Components"
+                  ToolTip.Tip="If the lighting looks wrong on your exported models, try checking this." />
+        <CheckBox IsChecked="{Binding UpdateTangentSpace}"
+                  Content="Update Tangents"
+                  ToolTip.Tip="If the lighting looks wrong on your exported models, try checking this." />
+        <TextBlock Text="Command line arguments:" />
+        <TextBox Text="{Binding CommandLineArguments}"
+                 ToolTip.Tip="Enter command line arguments that should be passed to the game here." />
+        <TextBlock Text="Data Path Name:" />
+        <TextBox Text="{Binding DataPathName}"
+                 ToolTip.Tip="If the game's data directory differs from the base name of the executable, you can enter the data directory name here. Can also be an absolute path." />
+    </StackPanel>
+</Window>

@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MMLaunch"
+        xmlns:local="using:MMLaunch"
+        x:Class="MMLaunch.CreateModWindow"
+        x:DataType="vm:CreateModViewModel"
+        Title="Create Mod"
+        Width="806" Height="498"
+        CanResize="False">
+    <Grid Margin="10" ColumnDefinitions="320,*">
+        <DockPanel Grid.Column="0" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Use Different File..." Command="{Binding BrowseFile}" Width="160" />
+                    <Button Content="Remove Snapshots" Command="{Binding RemoveSnapshots}" Width="135" />
+                </StackPanel>
+                <TextBlock Text="Mod Name:" />
+                <TextBox Name="ModName" Text="{Binding ModName, Mode=TwoWay}" Width="306" HorizontalAlignment="Left" />
+                <TextBlock Text="Mod will be created in:" />
+                <TextBlock Text="{Binding ModDest}" />
+                <CheckBox IsChecked="{Binding AddToModIndex}" Content="Add to Mod Index" />
+                <CheckBox IsChecked="{Binding ConvertTextures}"
+                          Content="Convert Textures"
+                          ToolTip.Tip="If needed, convert textures into d3d9 format readable by blender 2.79b" />
+                <Button Content="Create" Command="{Binding Create}" Width="75" HorizontalAlignment="Left" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding Files}"
+                     SelectedItem="{Binding SelectedFile, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:MMObjFileModel">
+                        <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+        <local:MeshPreviewControl Name="ModelPreview" Grid.Column="1" Margin="10,0,0,0" />
+    </Grid>
+</Window>

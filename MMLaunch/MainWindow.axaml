@@ -1,0 +1,91 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MMLaunch"
+        x:Class="MMLaunch.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Name="MainWindow"
+        Title="ModelMod Launcher"
+        Width="772" Height="607"
+        Icon="/ModelMod.ico"
+        CanResize="False">
+
+    <Grid ColumnDefinitions="170,*" Margin="10">
+        <!-- Profile list column -->
+        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto,Auto">
+            <ListBox Grid.Row="0"
+                     Name="ProfilesListBox"
+                     ItemsSource="{Binding Profiles}"
+                     SelectedItem="{Binding SelectedProfileRaw, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:ProfileModel">
+                        <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                <Button Content="New" Command="{Binding NewProfile}" CommandParameter="{Binding $parent[Window]}" Width="68" />
+                <Button Content="Delete" Command="{Binding DeleteProfile}" Width="68" />
+            </StackPanel>
+            <Button Grid.Row="2" Content="Setup Blender" Command="{Binding SetupBlender}" CommandParameter="{Binding $parent[Window]}" Margin="0,4,0,0" />
+            <Button Grid.Row="3" Content="Preferences" Command="{Binding OpenPreferences}" CommandParameter="{Binding $parent[Window]}" Margin="0,4,0,0" />
+        </Grid>
+
+        <!-- Profile editor + launcher column -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="10,0,0,0">
+            <Grid Grid.Row="0" IsVisible="{Binding ProfileAreaVisible}" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                <Grid Grid.Row="0" ColumnDefinitions="120,*,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="Profile Name" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1" Text="{Binding SelectedProfileName, Mode=TwoWay}" />
+                </Grid>
+                <Grid Grid.Row="1" ColumnDefinitions="120,*,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="ExePath" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="{Binding SelectedProfileExePath}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="2" Content="Browse" Command="{Binding BrowseExe}" CommandParameter="{Binding $parent[Window]}" Width="75" />
+                </Grid>
+                <Grid Grid.Row="2" ColumnDefinitions="120,150,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="Input Profile" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{Binding InputProfiles}"
+                              DisplayMemberBinding="{Binding Name}"
+                              SelectedValueBinding="{Binding Name}"
+                              SelectedValue="{Binding SelectedInputProfile, Mode=TwoWay}" />
+                </Grid>
+                <Grid Grid.Row="3" ColumnDefinitions="120,150,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="Snapshot Profile" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{Binding SnapshotProfiles}"
+                              DisplayMemberBinding="{Binding Name}"
+                              SelectedValueBinding="{Binding Name}"
+                              SelectedValue="{Binding SelectedSnapshotProfile, Mode=TwoWay}" />
+                    <Button Grid.Column="2"
+                            Content="Game Profile..."
+                            Command="{Binding OpenGameProfile}"
+                            CommandParameter="{Binding $parent[Window]}"
+                            Width="120"
+                            Margin="8,0,0,0" />
+                </Grid>
+                <CheckBox Grid.Row="4"
+                          IsChecked="{Binding SelectedProfileLoadModsOnStart, Mode=TwoWay}"
+                          Content="Load Mods On Start" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" Margin="0,8,0,8" IsVisible="{Binding ProfileAreaVisible}">
+                <TextBlock Text="{Binding ProfileDescription}" TextWrapping="Wrap" />
+            </ScrollViewer>
+
+            <Grid Grid.Row="2" RowDefinitions="Auto,Auto" IsVisible="{Binding ProfileAreaVisible}">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                    <Button Content="Remove Snapshots" Command="{Binding RemoveSnapshots}" CommandParameter="{Binding $parent[Window]}" />
+                    <Button Content="Create Mod" Command="{Binding CreateMod}" CommandParameter="{Binding $parent[Window]}" />
+                    <Button Content="Open Mods Folder" Command="{Binding OpenMods}" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Start" Command="{Binding StartInSnapshotMode}" CommandParameter="{Binding $parent[Window]}" Width="102" />
+                    <Button Content="Start (Debug)" Command="{Binding StartInDebugMode}" CommandParameter="{Binding $parent[Window]}" Width="102" />
+                    <Button Content="View ModelMod Log" Command="{Binding ViewModelModLog}" />
+                    <Image Source="{Binding LauncherProfileIcon}" Width="32" Height="32" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

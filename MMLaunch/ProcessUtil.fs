@@ -225,7 +225,7 @@ module ProcessUtil =
     /// the `Copied` value as a result.  Otherwise return `UnknownExe`.  If a problem happens
     /// return the exception.  This function also checks if any existing target d3d dlls
     /// belong to modelmod, if not, it does not overwrite them (and returns an exception).
-    let preStartCopy(exePath): Result<PreStartCopyResult,System.Exception> =
+    let preStartCopy(exePath:string): Result<PreStartCopyResult,System.Exception> =
         try
             let fileName = Path.GetFileNameWithoutExtension(exePath)
             let mmRoot = getMMRoot()
@@ -263,7 +263,7 @@ module ProcessUtil =
                     | None -> failwithf "Can't find source files for copy (root %A, looked in %A)" mmRoot dirs
                     | Some(sd) -> sd
 
-                let copyD11 outpath =
+                let copyD11 (outpath:string) =
                     let baseDllName = Path.GetFileName(outpath)
                     File.Copy(Path.Combine(sourceDir, baseDllName), outpath, true)
 
