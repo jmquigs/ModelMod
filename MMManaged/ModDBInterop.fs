@@ -1104,6 +1104,10 @@ module ModDBInterop =
                                         let srcTC = srcTex.[v.Tex]
                                         bw.Write(srcTC.X)
                                         bw.Write(srcTC.Y)
+                                    | MMET.Format(f) when f = SDXF.R16G16_Float -> 
+                                        let srcTC = srcTex.[v.Tex]
+                                        bw.Write(SharpDX.Half(srcTC.X).RawValue)
+                                        bw.Write(SharpDX.Half(srcTC.Y).RawValue)
                                     | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
                                         let srcTC = srcTex.[v.Tex]
                                         bw.Write(int16(srcTC.X * 32767.f))
