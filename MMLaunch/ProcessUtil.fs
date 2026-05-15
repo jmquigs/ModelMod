@@ -37,6 +37,8 @@ module ProcessUtil =
 
     let LoaderName = "MMLoader.exe"
 
+    let mutable lastRoot:string option = None
+
     let getMMRoot() =
         // MMRoot by convention its where one of the files/directories below lives.
         // This value is also stored in the registry (PeriodicUpdate puts it there)
@@ -49,6 +51,8 @@ module ProcessUtil =
         ]
         let rootFiles = [
             "MMDotNet.sln"; // for dev runs
+            "TPLib"
+            "Logs"
             "Bin"]
 
         let root =
@@ -57,12 +61,19 @@ module ProcessUtil =
                 rootFiles
                 |> List.map (fun filepath -> Path.Combine(rootpath, filepath))
                 |> List.tryPick (fun filepath ->
-                    eprintfn "try %A" (Path.GetFullPath(filepath))
+                    //printfn "try %A" (Path.GetFullPath(filepath))
                     if (Directory.Exists(filepath) || File.Exists(filepath)) then Some(filepath) else None)
             )
-        match root with
-        | None -> failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
-        | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
+        
+        let fullRoot = 
+            match root with
+            | None -> failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
+            | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
+
+        if lastRoot <> Some(fullRoot) then 
+            lastRoot <- Some(fullRoot)
+            printfn "MM root changed: %A" root
+        fullRoot
 
     /// Loader isn't used anymore so this is just a placeholder until I remove the related code.
     let getLoaderPath() =
@@ -217,6 +228,22 @@ module ProcessUtil =
     let openModelModLog (exePath:string): Result<unit,System.Exception> =
         getModelModLog exePath |> openTextFile
 
+    open System.IO
+    open System.Reflection.PortableExecutable
+
+    let getBitness (path: string) =
+        use stream = File.OpenRead(path)
+        use pe = new PEReader(stream)
+        let header = pe.PEHeaders.CoffHeader
+
+        match header.Machine with
+        | Machine.I386  -> (32, "32-bit (x86)")
+        | Machine.Amd64 -> (64, "64-bit (x64)")
+        | Machine.Arm64 -> (64, "64-bit (ARM64)")
+        | Machine.Arm   -> (32, "32-bit (ARM)")
+        | Machine.IA64  -> (64, "64-bit (Itanium)")
+        | m             -> (0, sprintf "unknown (%A)" m)
+
     type PreStartCopyResult =
     | Copied
     | UnknownExe
@@ -225,7 +252,7 @@ module ProcessUtil =
     /// the `Copied` value as a result.  Otherwise return `UnknownExe`.  If a problem happens
     /// return the exception.  This function also checks if any existing target d3d dlls
     /// belong to modelmod, if not, it does not overwrite them (and returns an exception).
-    let preStartCopy(exePath): Result<PreStartCopyResult,System.Exception> =
+    let preStartCopy(exePath:string): Result<PreStartCopyResult,System.Exception> =
         try
             let fileName = Path.GetFileNameWithoutExtension(exePath)
             let mmRoot = getMMRoot()
@@ -252,20 +279,57 @@ module ProcessUtil =
                             failwithf "Can't overwrite file that doesn't belong to modelmod: %A is %A" targFile fvi.FileDescription
                 toCheck |> List.iter (function | D3D11(somefile) | D3D9(somefile) -> checkIsMM somefile)
 
+                let (bitness,bitStr) = getBitness exePath
+                if bitness = 0 then 
+                    failwithf "Can't determine exe type for target: %A (%A)" exePath bitStr
+                let is64 = (bitness = 64)
+                printfn "target %A bitness: %A" exePath bitness
+
                 // if we get here then one or both paths are ok to overwrite
                 // source files could be in either of these dirs depending on where we are running from
-                let srcBits = if prof.Is64Bit then "modelmod_64" else "modelmod_32"
-                let dirs = ["Bin"; "Release"]
-                let dirs = dirs |> List.map (fun d -> Path.Combine(mmRoot, d, srcBits))
+                let bitDirs = 
+                    [
+                        if is64 then "modelmod_64" else "modelmod_32";
+                        ""
+                    ]
+
+                // copy from working dir if we are running from there, otherwise use release package folders
+                let workDirOut = @"Native\target\release"
+                let dirs = [ workDirOut; "Bin"; "Release";]
+                let dirs = bitDirs |> List.map (fun srcBits -> 
+                        dirs |> List.map (fun d -> Path.Combine(mmRoot, d, srcBits)))
+                        |> List.concat
+                
                 let sourceDir = dirs |> List.tryFind(fun d -> Directory.Exists(d))
                 let sourceDir =
                     match sourceDir with
                     | None -> failwithf "Can't find source files for copy (root %A, looked in %A)" mmRoot dirs
                     | Some(sd) -> sd
 
-                let copyD11 outpath =
+                let copyD11 (outpath:string) =
+
                     let baseDllName = Path.GetFileName(outpath)
-                    File.Copy(Path.Combine(sourceDir, baseDllName), outpath, true)
+                    let src = Path.Combine(sourceDir, baseDllName)
+                    let src = 
+                        if not (File.Exists src) && src.ToLowerInvariant().Contains(workDirOut.ToLowerInvariant()) then 
+                            
+                            
+                            let hookCore = Path.Combine(sourceDir, "hook_core.dll")
+                            if File.Exists(hookCore) then 
+                                // make sure bitness on hook core matches as it can be 32 or 64
+                                let hcBitness = fst (getBitness hookCore)
+                                if hcBitness <> bitness then 
+                                    failwithf "built hook_core.dll %A (%d) does not match target bitness %A (%d)"
+                                        hookCore hcBitness exePath  bitness 
+                                else 
+                                    hookCore
+                            else 
+                                failwithf "cannot find source file for copy: %A" src
+                        else 
+                            src
+
+                    printfn "copy %A => %A" src outpath
+                    File.Copy(src, outpath, true)
 
                 toCheck |> List.iter (function | D3D9(outpath) | D3D11(outpath) -> copyD11 outpath)
                 Ok(Copied)

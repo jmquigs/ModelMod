@@ -140,13 +140,8 @@ Target "BuildNative" (fun _ ->
 
 Target "UpdateAssembyInfo" (fun _ ->
     printfn "version is %A" version
-    CreateFSharpAssemblyInfo "./MMLaunch/AssemblyInfo.fs"
-        [Attribute.Title "ModelMod launcher application"
-         Attribute.Description ""
-         Attribute.Guid "2ce8e338-7143-4f97-ab39-3e90ca50bdf2"
-         Attribute.Product "ModelMod"
-         Attribute.Version version
-         Attribute.FileVersion version]
+    // MMLaunch is now SDK-style; the SDK auto-generates assembly attributes
+    // from <Version> in the .fsproj, so no AssemblyInfo.fs is needed/wanted.
 
     CreateFSharpAssemblyInfo "./MMManaged/AssemblyInfo.fs"
         [Attribute.Title "ModelMod managed code library"
@@ -207,8 +202,31 @@ Target "BuildFS" (fun _ ->
     !! "**/*.fsproj"
       -- "**/*dotnet.fsproj"
       -- "**/Test.*"
+      // MMLaunch is now an SDK-style net8.0 / Avalonia project, built by
+      // BuildMMLaunch via `dotnet build`. The legacy MSBuildRelease toolchain
+      // here only knows how to build .NET Framework projects.
+      -- "MMLaunch/MMLaunch.fsproj"
       |> MSBuildRelease buildBin "Build"
       |> Log "BuildFS-Output: "
+)
+
+Target "BuildMMLaunch" (fun _ ->
+    let proj = "MMLaunch/MMLaunch.fsproj"
+    let result = Shell.Exec("dotnet", sprintf "build -c Release \"%s\"" proj)
+    if result <> 0 then failwithf "dotnet build failed for %s (exit %d)" proj result
+
+    // Drop the build output into the standard buildBin so CopyStuff/Zip pick it up.
+    if not (Directory.Exists buildBin) then Directory.CreateDirectory buildBin |> ignore
+    let mmLaunchOut = "MMLaunch/bin/Release/net8.0"
+    if Directory.Exists mmLaunchOut then
+        !! (mmLaunchOut + "/*.*")
+            -- "**/*.xml"
+            -- "**/*.pdb"
+            |> CopyFiles buildBin
+        // Bring along the `runtimes/` folder for native bits like SkiaSharp/HarfBuzz/ANGLE.
+        if Directory.Exists (mmLaunchOut + "/runtimes") then
+            let files = !! (mmLaunchOut + "/runtimes/**/*.*")
+            CopyWithSubfoldersTo buildBin [files]
 )
 
 Target "BuildTest" (fun _ ->
@@ -315,8 +333,8 @@ Target "SignBuild" (fun _ ->
             "Bin\ModelMod.dll";
             //"Bin\MMLoader.exe";
             "Bin\MeshView.exe";
-            "Bin\WpfInteropSample.exe";
             "Bin\MMLaunch.exe";
+            "Bin\MMLaunch.dll";
             "Bin\MMManaged.dll";
             "Bin\MMManaged.Engine.dll";
             //"Bin\ModelModCLRAppDomain.dll";
@@ -392,6 +410,7 @@ Target "CheckConf" ignore
     ==> "Clean"
     ==> "BuildCS"
     ==> "BuildFS"
+    ==> "BuildMMLaunch"
     ==> "BuildNative"
     ==> "AppveyorBuild"
 
@@ -478,7 +497,7 @@ let doCISetup() =
         let usePath = vspath @@ msbuildFSTargets
 
         let updateList = [
-            "MMLaunch/MMLaunch.fsproj"
+            // MMLaunch is SDK-style now and doesn't need the FSharpTargetsPath rewrite.
             "MMManaged/MMManaged.fsproj"
             "MMManaged.Engine/MMManaged.Engine.fsproj"
             "MMView/MMView.fsproj"

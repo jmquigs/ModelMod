@@ -53,6 +53,7 @@ Test.MMManaged/obj
 Native/.vscode/settings.json
 Native/.ionide/symbolCache.db
 MMLaunch/obj
+MMLaunch/bin
 .ionide/symbolCache.db
 .rustc_info.json
 Native/snaplib/target

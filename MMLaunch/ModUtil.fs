@@ -22,6 +22,7 @@ open System.IO
 open YamlDotNet.RepresentationModel
 open YamlDotNet.Serialization
 
+open ModelMod.ConfigTypes
 open ViewModelUtil
 
 /// Helper for DDS files, mostly LLM generated
@@ -193,7 +194,7 @@ module ModUtil =
         VertDeclPath: string
         ExpectedPrimCount: int
         ExpectedVertCount: int
-        Profile: ModelMod.CoreTypes.SnapProfile
+        Profile: ModelMod.ConfigTypes.SnapProfile
     }
 
     type YamlMod = {
@@ -201,7 +202,7 @@ module ModUtil =
         Ref: string
         ModType: string // subtype of the mod (gpureplacement, etc)
         MeshPath: string
-        Profile: ModelMod.CoreTypes.SnapProfile
+        Profile: ModelMod.ConfigTypes.SnapProfile
     }
 
     let getOutputPath modRoot modName = Path.GetFullPath(Path.Combine(modRoot, modName))
@@ -361,7 +362,7 @@ mods:"""
                     let p = sd.Deserialize<ModelMod.Snapshot.SnapMeta>(f)
                     p.Profile
                 else
-                    ModelMod.SnapshotProfile.EmptyProfile
+                    ModelMod.ConfigTypes.EmptySnapProfile
 
             // generate ref yaml
             let refYamlFile =

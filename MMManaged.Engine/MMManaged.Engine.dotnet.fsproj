@@ -59,9 +59,13 @@
     <Compile Include="..\MMManaged\MemoryCache.fs">
       <Link>MemoryCache.fs</Link>
     </Compile>
-    <Compile Include="..\MMManaged\SnapshotProfile.fs">
-      <Link>SnapshotProfile.fs</Link>
-    </Compile>
+
+    <Compile Include="..\MMManaged\SnapshotProfileLoad.fs">
+      <Link>SnapshotProfileLoad.fs</Link>
+    </Compile>    
+    <Compile Include="..\MMManaged\SnapshotProfileInterop.fs">
+      <Link>SnapshotProfileInterop.fs</Link>
+    </Compile>    
     <Compile Include="..\MMManaged\MeshDiskCache.fs">
       <Link>MeshDiskCache.fs</Link>
     </Compile>

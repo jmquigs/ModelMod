@@ -15,7 +15,7 @@ module KnownGames =
     let AllKnownGames = [
         { 
             KnownGame.ExeBaseName = "gw2-64"
-            D3DPaths = [D3D9(@"bin64"); D3D11(@"")]
+            D3DPaths = [D3D11(@"")]
             Is64Bit = true
         }
         { 

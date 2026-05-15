@@ -31,7 +31,7 @@ open StartConf
 open CoreTypes
 open InteropTypes
 open VertexTypes
-open SnapshotProfile
+open SnapshotProfileInterop
 
 /// Contains the "Mod Database"; functions for reading yaml, mmobj, and other files and storing them in memory.
 module ModDB =
@@ -199,13 +199,13 @@ module ModDB =
         // load profile early so it can influence mesh read flags
         let profile =
             match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with
-            | Some(profile) -> Some(loadSingleProfile "" profile)
+            | Some(profile) -> Some(SnapshotProfileLoad.loadSingleProfile "" profile)
             | None -> None
 
         let mutable numOverrideTextures = 0
         let mutable fullMeshPath = ""
         let meshReadFlags =
-            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
+            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> ConfigTypes.AdjustBlendWeightsDefault
             { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
         let mesh,modType,weightMode,attrs =
             let sType = (node |> Yaml.getFirstValue ["modtype"; "meshtype"] |> Yaml.toString).ToLower().Trim()
@@ -418,11 +418,11 @@ module ModDB =
 
         let profile =
             match node |> Yaml.getOptionalValue "Profile" |> Yaml.toOptionalMapping with
-            | Some(profile) -> Some(loadSingleProfile "" profile)
+            | Some(profile) -> Some(SnapshotProfileLoad.loadSingleProfile "" profile)
             | None -> None
 
         let meshReadFlags =
-            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> AdjustBlendWeightsDefault
+            let abw = match profile with Some(p) -> p.AdjustBlendWeights | None -> ConfigTypes.AdjustBlendWeightsDefault
             { CoreTypes.DefaultReadFlags with AdjustBlendWeights = abw }
         let doMeshLoad() =
             let mesh = MeshDiskCache.loadMesh (meshFullPath,ModType.Reference,meshReadFlags,binCacheDir)

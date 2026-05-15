@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MMLaunch"
+        x:Class="MMLaunch.PreferencesWindow"
+        x:DataType="vm:PreferencesViewModel"
+        Title="Preferences"
+        Width="621" Height="224"
+        CanResize="False">
+    <Grid Margin="10">
+        <StackPanel Spacing="6">
+            <TextBlock Text="Mod Data Directory:" />
+            <TextBox Text="{Binding DocRoot, Mode=TwoWay}" Width="561" HorizontalAlignment="Left" />
+            <Button Content="Browse" Command="{Binding Browse}" Width="75" HorizontalAlignment="Left" />
+            <TextBlock Text="Note: if you change this, you must move any mod files manually." Margin="0,16,0,0" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -110,10 +110,10 @@ module ModDBInterop =
         | e ->
             log.Error "%A" e
             {
-                RunModeFull = CoreTypes.DefaultRunConfig.RunModeFull
-                LoadModsOnStart = CoreTypes.DefaultRunConfig.LoadModsOnStart
-                InputProfile = CoreTypes.DefaultRunConfig.InputProfile
-                MinimumFPS = CoreTypes.DefaultRunConfig.MinimumFPS
+                RunModeFull = ConfigTypes.DefaultRunConfig.RunModeFull
+                LoadModsOnStart = ConfigTypes.DefaultRunConfig.LoadModsOnStart
+                InputProfile = ConfigTypes.DefaultRunConfig.InputProfile
+                MinimumFPS = ConfigTypes.DefaultRunConfig.MinimumFPS
                 ProfileKey = ""
             }
 
@@ -263,7 +263,7 @@ module ModDBInterop =
         let profile =
             match meshrel.DBMod.Profile with
             | None -> EmptyModSnapProfile
-            | Some(p) -> SnapshotProfile.toInteropStruct p
+            | Some(p) -> SnapshotProfileInterop.toInteropStruct p
 
         let vbChecksum,vbChecksumSet =
             match meshrel.DBMod.VBChecksum with

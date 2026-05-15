@@ -255,7 +255,7 @@ module Main =
                 ({ 
                     AppSettings.Window = winSettings
                     CamPosition = camPos 
-                    MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = transform; AdjustBlendWeights = AdjustBlendWeightsDefault }
+                    MeshReadFlags = { ReadMaterialFile = true; ReverseTransform = transform; AdjustBlendWeights = ConfigTypes.AdjustBlendWeightsDefault }
                 })
     
     let run(argv:string[]) =

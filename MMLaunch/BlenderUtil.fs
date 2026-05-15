@@ -63,7 +63,7 @@ module BlenderUtil =
             if key = null then failwith "can't open reg key"
 
             let bKey = key.OpenSubKey SubKey
-            if bKey = null then failwith "can't open blender key"
+            if bKey = null then failwith "can't open blender registry key"
 
             let v = bKey.GetValue(name,defVal)
             if v = null then failwith "name not found"
@@ -163,9 +163,14 @@ module BlenderUtil =
                 let rawMsg = sprintf "\n\nTried to run: %s\n\nStdout:\n%s\n\nStderr:\n%s" cmd rawOut "<unknown>"
                 failwithf "No addon paths detected; install script may not be compatible with this version of blender:%s" rawMsg
 
-            let isWritable (p:string) = 
+            let isWritable (p:string) =
+                // Try to write a probe file. Directory.GetAccessControl from
+                // .NET Framework no longer ships in core; this is a portable
+                // equivalent.
                 try
-                    Directory.GetAccessControl(p) |> ignore
+                    let probe = Path.Combine(p, ".mmlaunch_probe_" + System.Guid.NewGuid().ToString("N"))
+                    File.WriteAllText(probe, "")
+                    File.Delete(probe)
                     true
                 with
                     | _ -> false
