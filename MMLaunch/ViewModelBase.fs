@@ -9,6 +9,7 @@ open System
 open System.ComponentModel
 open System.Windows.Input
 
+[<AllowNullLiteral>]
 type ViewModelBase() =
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
 
