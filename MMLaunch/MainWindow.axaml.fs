@@ -137,7 +137,7 @@ type ProfileModel(config: ConfigTypes.RunConfig) =
         else config
 
     let save () =
-        try RegConfig.saveProfile config
+        try config <- RegConfig.saveProfile config
         with e -> ViewModelUtil.pushDialog (sprintf "%s" e.Message)
 
     let mutable iconSource: Bitmap option =

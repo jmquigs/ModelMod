@@ -207,8 +207,11 @@ module RegConfig =
         pName
 
     /// Save a profile using the values from the supplied config.  At a minimum,
-    /// ExePath must be set in the config.
-    let saveProfile (conf:RunConfig) =
+    /// ExePath must be set in the config.  Returns the updated config with
+    /// ProfileKeyName populated, so callers holding a stale in-memory copy
+    /// can stay in sync with the registry after the first save creates a
+    /// new subkey.
+    let saveProfile (conf:RunConfig):RunConfig =
         if not (File.Exists conf.ExePath) then
             failwithf "Exe path does not exist, cannot save profile: %A" conf.ExePath
 
@@ -226,28 +229,29 @@ module RegConfig =
 
         let profSave k v = setProfileValue profKey k v
 
-        // this is a syntactic trick to make sure I get a compiler error if I forget to save a field
-        ignore
-            ({
-                ProfileKeyName = profKey
-                ProfileName = profSave RegKeys.ProfName conf.ProfileName
-                ConfigTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath
-                RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
-                LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
-                InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile
-                SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile
+        // Store the bare subkey name (e.g. "Profile0000") to match loadFromProfileKey.
+        // The full path would cause the `regLoc.ProfRoot @@ conf.ProfileKeyName` branch
+        // above to double-prefix on subsequent saves.
+        {
+            ProfileKeyName = Path.GetFileName profKey
+            ProfileName = profSave RegKeys.ProfName conf.ProfileName
+            ConfigTypes.RunConfig.ExePath = profSave RegKeys.ProfExePath conf.ExePath
+            RunModeFull = profSave RegKeys.ProfRunModeFull (boolAsDword conf.RunModeFull) |> dwordAsBool
+            LoadModsOnStart = profSave RegKeys.ProfLoadModsOnStart (boolAsDword conf.LoadModsOnStart) |> dwordAsBool
+            InputProfile = profSave RegKeys.ProfInputProfile conf.InputProfile
+            SnapshotProfile = profSave RegKeys.ProfSnapshotProfile conf.SnapshotProfile
 
-                DocRoot = "" // custom doc root not yet supported
-                LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
-                MinimumFPS = profSave RegKeys.ProfMinimumFPS conf.MinimumFPS
-                GameProfile =
-                    {
-                        ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
-                        UpdateTangentSpace = profSave RegKeys.ProfGPUpdateTangentSpace (boolAsDword conf.GameProfile.UpdateTangentSpace) |> dwordAsBool
-                        CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
-                        DataPathName = profSave RegKeys.ProfGPDataPathName conf.GameProfile.DataPathName
-                    }
-            })
+            DocRoot = "" // custom doc root not yet supported
+            LaunchWindow = profSave RegKeys.ProfLaunchWindow conf.LaunchWindow
+            MinimumFPS = profSave RegKeys.ProfMinimumFPS conf.MinimumFPS
+            GameProfile =
+                {
+                    ReverseNormals = profSave RegKeys.ProfGPReverseNormals (boolAsDword conf.GameProfile.ReverseNormals) |> dwordAsBool
+                    UpdateTangentSpace = profSave RegKeys.ProfGPUpdateTangentSpace (boolAsDword conf.GameProfile.UpdateTangentSpace) |> dwordAsBool
+                    CommandLineArguments = profSave RegKeys.ProfGPCommandLineArguments conf.GameProfile.CommandLineArguments
+                    DataPathName = profSave RegKeys.ProfGPDataPathName conf.GameProfile.DataPathName
+                }
+        }
 
     /// Remove a profile.  Uses the profile key name in the config to locate the
     /// profile.  Does not require ExePath to be set.
