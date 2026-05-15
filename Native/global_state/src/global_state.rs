@@ -10,7 +10,6 @@ pub use winapi::shared::windef::{HWND, RECT};
 pub use winapi::shared::winerror::{E_FAIL, S_OK};
 pub use winapi::um::winnt::{HRESULT, LPCWSTR};
 use std::cell::UnsafeCell;
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::sync::Mutex;
@@ -132,28 +131,6 @@ pub struct HookState {
     // these are simply compared against the selection texture, never dereferenced.
     pub active_texture_set: Option<FnvHashSet<usize>>,
     pub active_texture_list: Option<Vec<usize>>,
-    /// DX9 only: mapping of destination texture pointer (usize) to source texture
-    /// pointer (usize), as observed in calls to IDirect3DDevice9::UpdateTexture.
-    /// Used during snapshotting to find a lockable (SYSTEMMEM/MANAGED) source
-    /// texture for a given DEFAULT-pool destination texture. The map is populated
-    /// by `hook_update_texture` and read by `d3dx::save_texture`. The most recent
-    /// mapping for a given destination wins. Entries are only removed when the
-    /// GC pass (`dx9_update_texture_gc`) discovers a source texture has been
-    /// fully released (refcount reached zero).
-    pub dx9_update_texture_map: Option<FnvHashMap<usize, usize>>,
-    /// DX9 only: set of source texture pointers (as usize) on which we currently
-    /// own a single AddRef'd reference (taken in `hook_update_texture`). Used to
-    /// deduplicate AddRefs so that no matter how many times a given source shows
-    /// up in an UpdateTexture call, we only hold one extra ref on it. The
-    /// `dx9_update_texture_gc` pass periodically releases these references.
-    pub dx9_update_texture_tracked_srcs: Option<FnvHashSet<usize>>,
-    /// DX9 only: ordered queue of (source pointer, time-of-AddRef) entries for
-    /// the GC pass. Each entry corresponds to one owned ref in
-    /// `dx9_update_texture_tracked_srcs`. Front is oldest. Consumed by
-    /// `dx9_update_texture_gc`.
-    pub dx9_update_texture_deque: Option<VecDeque<(usize, SystemTime)>>,
-    /// DX9 only: the last time the GC pass was run (from `hook_present`).
-    pub dx9_update_texture_last_gc: SystemTime,
     pub making_selection: bool,
     pub in_dip: bool,
     pub in_hook_release: bool,
@@ -228,10 +205,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     load_on_next_frame: None,
     active_texture_set: None,
     active_texture_list: None,
-    dx9_update_texture_map: None,
-    dx9_update_texture_tracked_srcs: None,
-    dx9_update_texture_deque: None,
-    dx9_update_texture_last_gc: std::time::UNIX_EPOCH,
     making_selection: false,
     in_dip: false,
     in_hook_release: false,

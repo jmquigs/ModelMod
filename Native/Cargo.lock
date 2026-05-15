@@ -81,6 +81,7 @@ dependencies = [
 name = "d3dx"
 version = "0.1.0"
 dependencies = [
+ "device_state",
  "global_state",
  "shared_dx",
  "types",

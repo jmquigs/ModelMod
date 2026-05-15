@@ -17,7 +17,7 @@ use util;
 use util::*;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
 
-use device_state::{DEVICE_STATE, dev_state_read, dev_state_write};
+use device_state::{DEVICE_STATE, dev_state_read, dev_state_write, dev_state_d3d9_write};
 use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_reset, hook_set_stream_source};
 use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
@@ -169,7 +169,7 @@ unsafe extern "system" fn hook_create_texture(
 ) -> HRESULT {
     let real_fn = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                 dev.real_create_texture
             },
             _ => {
@@ -216,14 +216,14 @@ unsafe extern "system" fn hook_create_texture(
 }
 
 /// Hook for IDirect3DDevice9::UpdateTexture.
-/// Records the (destination -> source) mapping in GLOBAL_STATE so that
-/// snapshotting code can locate a lockable source texture when asked to
-/// save a DEFAULT-pool destination texture. The most recent mapping for a
-/// given destination wins.
+/// Records the (destination -> source) mapping in the d3d9 device state so
+/// that snapshotting code can locate a lockable source texture when asked
+/// to save a DEFAULT-pool destination texture. The most recent mapping for
+/// a given destination wins.
 ///
 /// Because the game may Release the source before we get a chance to
 /// snapshot it, we AddRef the source the first time we see it and record
-/// it in `dx9_update_texture_tracked_srcs` + `dx9_update_texture_deque`.
+/// it in `update_texture_tracked_srcs` + `update_texture_deque`.
 /// Subsequent UpdateTexture calls with a source we already track skip the
 /// AddRef (so we only ever own a single ref per unique source, which lets
 /// us later detect when the game has dropped its own refs by observing a
@@ -234,52 +234,33 @@ unsafe extern "system" fn hook_update_texture(
     pSourceTexture: *mut IDirect3DBaseTexture9,
     pDestinationTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT {
-    let real_fn = match dev_state_read() {
-        Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
-                dev.real_update_texture
-            },
-            _ => {
-                write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
-                return E_FAIL;
+    let real_fn = match dev_state_d3d9_write() {
+        Some((_lck, h)) => {
+            let real_fn = match h.device.as_ref() {
+                Some(dev) => dev.real_update_texture,
+                None => {
+                    write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
+                    return E_FAIL;
+                }
+            };
+            if !pSourceTexture.is_null() && !pDestinationTexture.is_null() {
+                let dest_key = pDestinationTexture as usize;
+                let src_key = pSourceTexture as usize;
+                h.update_texture_map.insert(dest_key, src_key);
+                // Only AddRef the first time we see this source pointer;
+                // subsequent references are deduped by the tracked-srcs set.
+                if h.update_texture_tracked_srcs.insert(src_key) {
+                    (*pSourceTexture).AddRef();
+                    h.update_texture_deque.push_back((src_key, std::time::SystemTime::now()));
+                }
             }
-        },
+            real_fn
+        }
         None => {
             write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
             return E_FAIL;
         }
     };
-
-    if !pSourceTexture.is_null() && !pDestinationTexture.is_null() {
-        if GLOBAL_STATE.dx9_update_texture_map.is_none() {
-            GLOBAL_STATE.dx9_update_texture_map = Some(fnv::FnvHashMap::default());
-        }
-        if GLOBAL_STATE.dx9_update_texture_tracked_srcs.is_none() {
-            GLOBAL_STATE.dx9_update_texture_tracked_srcs = Some(fnv::FnvHashSet::default());
-        }
-        if GLOBAL_STATE.dx9_update_texture_deque.is_none() {
-            GLOBAL_STATE.dx9_update_texture_deque = Some(std::collections::VecDeque::new());
-        }
-
-        let dest_key = pDestinationTexture as usize;
-        let src_key = pSourceTexture as usize;
-
-        if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
-            map.insert(dest_key, src_key);
-        }
-
-        // Only AddRef the first time we see this source pointer; subsequent
-        // references are deduped by the tracked-srcs set.
-        let is_new = GLOBAL_STATE.dx9_update_texture_tracked_srcs.as_mut()
-            .map(|set| set.insert(src_key))
-            .unwrap_or(false);
-        if is_new {
-            (*pSourceTexture).AddRef();
-            if let Some(deque) = GLOBAL_STATE.dx9_update_texture_deque.as_mut() {
-                deque.push_back((src_key, std::time::SystemTime::now()));
-            }
-        }
-    }
 
     (real_fn)(THIS, pSourceTexture, pDestinationTexture)
 }
@@ -347,7 +328,7 @@ pub unsafe fn ensure_vb_checksum_dx9(vb: *mut IDirect3DVertexBuffer9) {
 ///
 /// Intended to be called periodically (e.g. every ~30 seconds from
 /// `hook_present`). Pops up to `MAX_PER_PASS` entries from the front of
-/// `dx9_update_texture_deque` (the oldest tracked sources). For each entry
+/// `update_texture_deque` (the oldest tracked sources). For each entry
 /// older than `AGE_THRESHOLD`:
 ///
 /// * Release the ref we AddRef'd in `hook_update_texture`.
@@ -361,6 +342,9 @@ pub unsafe fn ensure_vb_checksum_dx9(vb: *mut IDirect3DVertexBuffer9) {
 ///
 /// If the entry at the front is not yet old enough, stop early (the deque
 /// is ordered oldest-first, so nothing behind is due either).
+///
+/// COM Release/AddRef calls happen with the d3d9 device-state lock dropped
+/// to avoid re-entry deadlocks if a destructor invokes one of our hooks.
 pub unsafe fn dx9_update_texture_gc() {
     use std::time::Duration;
     const AGE_THRESHOLD: Duration = Duration::from_mins(5);
@@ -369,9 +353,10 @@ pub unsafe fn dx9_update_texture_gc() {
 
     let start = Instant::now();
 
-    let deque_len = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
-        .map(|d| d.len())
-        .unwrap_or(0);
+    let deque_len = match dev_state_d3d9_write() {
+        Some((_lck, h)) => h.update_texture_deque.len(),
+        None => return,
+    };
     if deque_len == 0 {
         return;
     }
@@ -388,46 +373,54 @@ pub unsafe fn dx9_update_texture_gc() {
                 break;
             }
         }
-        // Peek front; if not old enough, stop the whole pass.
-        let front_due = GLOBAL_STATE.dx9_update_texture_deque.as_ref()
-            .and_then(|d| d.front().copied())
-            .map(|(_, t)| t.elapsed().map(|e| e >= AGE_THRESHOLD).unwrap_or(false))
-            .unwrap_or(false);
-        if !front_due {
-            break;
-        }
-
-        let popped = GLOBAL_STATE.dx9_update_texture_deque.as_mut()
-            .and_then(|d| d.pop_front());
+        // Peek + pop front under the lock; if not old enough, stop the
+        // whole pass without removing.
+        let popped = match dev_state_d3d9_write() {
+            Some((_lck, h)) => {
+                let due = h.update_texture_deque.front()
+                    .map(|(_, t)| t.elapsed().map(|e| e >= AGE_THRESHOLD).unwrap_or(false))
+                    .unwrap_or(false);
+                if !due {
+                    None
+                } else {
+                    h.update_texture_deque.pop_front()
+                }
+            },
+            None => return,
+        };
         let (src_key, _) = match popped {
             Some(e) => e,
             None => break,
         };
         processed += 1;
 
+        // Release/AddRef without the lock held — destructor side effects
+        // could otherwise re-enter our hooks and try to acquire it again.
         let src_ptr = src_key as *mut IDirect3DBaseTexture9;
         let remaining = (*src_ptr).Release();
         if remaining > 0 {
-            // Still alive: re-take our ref and push back with a fresh stamp.
             (*src_ptr).AddRef();
-            if let Some(deque) = GLOBAL_STATE.dx9_update_texture_deque.as_mut() {
-                deque.push_back((src_key, std::time::SystemTime::now()));
+            if let Some((_lck, h)) = dev_state_d3d9_write() {
+                h.update_texture_deque.push_back((src_key, std::time::SystemTime::now()));
             }
             refreshed += 1;
         } else {
-            // Refcount hit zero — the texture is gone. Drop our tracking.
-            if let Some(set) = GLOBAL_STATE.dx9_update_texture_tracked_srcs.as_mut() {
-                set.remove(&src_key);
+            if let Some((_lck, h)) = dev_state_d3d9_write() {
+                h.update_texture_tracked_srcs.remove(&src_key);
             }
             released_srcs.push(src_key);
         }
     }
 
-    if !released_srcs.is_empty() {
-        if let Some(map) = GLOBAL_STATE.dx9_update_texture_map.as_mut() {
-            map.retain(|_, v| !released_srcs.contains(v));
-        }
-    }
+    let final_deque_len = match dev_state_d3d9_write() {
+        Some((_lck, h)) => {
+            if !released_srcs.is_empty() {
+                h.update_texture_map.retain(|_, v| !released_srcs.contains(v));
+            }
+            h.update_texture_deque.len()
+        },
+        None => 0,
+    };
 
     if processed > 0 {
         write_log_file(&format!(
@@ -435,7 +428,7 @@ pub unsafe fn dx9_update_texture_gc() {
             processed,
             refreshed,
             released_srcs.len(),
-            GLOBAL_STATE.dx9_update_texture_deque.as_ref().map(|d| d.len()).unwrap_or(0),
+            final_deque_len,
             Instant::now().duration_since(start).as_micros()
         ));
     }
@@ -773,10 +766,10 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
 
             //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
             if let Some((_lck, ds)) = dev_state_write() {
-                ds.hook = Some(HookDeviceState::D3D9(HookD3D9State {
-                    d3d9: None,
-                    device: Some(hook_d3d9device)
-                }));
+                ds.hook = Some(HookDeviceState::D3D9(HookD3D9State::new(
+                    None,
+                    Some(hook_d3d9device),
+                )));
             }
             write_log_file(&format!(
                 "hooked device on thread {:?}",
@@ -894,10 +887,10 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         };
 
         if let Some((_lck, ds)) = dev_state_write() {
-            ds.hook = Some(HookDeviceState::D3D9(HookD3D9State {
-                d3d9: Some(hd3d9),
-                device: None
-            }));
+            ds.hook = Some(HookDeviceState::D3D9(HookD3D9State::new(
+                Some(hd3d9),
+                None,
+            )));
         }
 
         // log the (possibly null) ds pointer for debugging purposes.

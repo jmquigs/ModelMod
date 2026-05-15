@@ -1,4 +1,4 @@
-use shared_dx::types::{DeviceState, HookD3D11State, HookDeviceState};
+use shared_dx::types::{DeviceState, HookD3D9State, HookD3D11State, HookDeviceState};
 use std::{ptr::null_mut, sync::{RwLock, RwLockWriteGuard, RwLockReadGuard}};
 use shared_dx::util::write_log_file;
 
@@ -95,6 +95,28 @@ pub fn dev_state_d3d11_read<'a>() -> Option<(RwLockReadGuard<'a, DeviceStatePtr>
     let (lock, ds) = dev_state_read()?;
     match ds.hook {
         Some(HookDeviceState::D3D11(ref h)) => Some((lock, h)),
+        _ => None,
+    }
+}
+
+/// As `dev_state_write` but only returns the d3d9 state. Returns None if no
+/// state is initialized, the current state is not d3d9, or the lock is
+/// poisoned.
+pub fn dev_state_d3d9_write<'a>() -> Option<(RwLockWriteGuard<'a, DeviceStatePtr>, &'a mut HookD3D9State)> {
+    let (lock, ds) = dev_state_write()?;
+    match ds.hook {
+        Some(HookDeviceState::D3D9(ref mut h)) => Some((lock, h)),
+        _ => None,
+    }
+}
+
+/// As `dev_state_read` but only returns the d3d9 state, immutably. Returns
+/// None if no state is initialized, the current state is not d3d9, or the
+/// lock is poisoned.
+pub fn dev_state_d3d9_read<'a>() -> Option<(RwLockReadGuard<'a, DeviceStatePtr>, &'a HookD3D9State)> {
+    let (lock, ds) = dev_state_read()?;
+    match ds.hook {
+        Some(HookDeviceState::D3D9(ref h)) => Some((lock, h)),
         _ => None,
     }
 }

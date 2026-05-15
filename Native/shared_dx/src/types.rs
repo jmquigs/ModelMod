@@ -3,9 +3,10 @@ use std::ffi::c_void;
 Contains combinations of types from both DX9 and 11, most notably `HookDeviceState` which
 carries the device specific state for one or the other (but not both) at runtime.
  */
+use std::collections::VecDeque;
 use std::ptr::null_mut;
 use std::time::SystemTime;
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use winapi::shared::d3d9::LPDIRECT3DTEXTURE9;
 use winapi::shared::windef::HWND;
 use winapi::shared::d3d9::IDirect3DDevice9;
@@ -22,6 +23,39 @@ use crate::dx11rs::DX11RenderState;
 pub struct HookD3D9State {
     pub d3d9: Option<HookDirect3D9>,
     pub device: Option<HookDirect3D9Device>,
+    /// Mapping of destination texture pointer (usize) to source texture
+    /// pointer (usize), as observed in calls to IDirect3DDevice9::UpdateTexture.
+    /// Used during snapshotting to find a lockable (SYSTEMMEM/MANAGED) source
+    /// texture for a given DEFAULT-pool destination texture. Populated by
+    /// `hook_update_texture` and read by `d3dx::save_texture`. Most-recent
+    /// mapping wins. Entries are removed by `dx9_update_texture_gc` when the
+    /// source texture's refcount reaches zero.
+    pub update_texture_map: FnvHashMap<usize, usize>,
+    /// Set of source texture pointers (as usize) on which we currently own a
+    /// single AddRef'd reference (taken in `hook_update_texture`). Dedupes
+    /// AddRefs so that no matter how many times a source is used in
+    /// UpdateTexture, we hold only one extra ref. The
+    /// `dx9_update_texture_gc` pass periodically releases these references.
+    pub update_texture_tracked_srcs: FnvHashSet<usize>,
+    /// Ordered queue of (source pointer, time-of-AddRef) entries for the GC
+    /// pass. One entry per owned ref in `update_texture_tracked_srcs`. Front
+    /// is oldest. Consumed by `dx9_update_texture_gc`.
+    pub update_texture_deque: VecDeque<(usize, SystemTime)>,
+    /// Last time the GC pass was run (from `hook_present`).
+    pub update_texture_last_gc: SystemTime,
+}
+
+impl HookD3D9State {
+    pub fn new(d3d9: Option<HookDirect3D9>, device: Option<HookDirect3D9Device>) -> Self {
+        HookD3D9State {
+            d3d9,
+            device,
+            update_texture_map: FnvHashMap::default(),
+            update_texture_tracked_srcs: FnvHashSet::default(),
+            update_texture_deque: VecDeque::new(),
+            update_texture_last_gc: std::time::UNIX_EPOCH,
+        }
+    }
 }
 
 #[derive(Debug)]

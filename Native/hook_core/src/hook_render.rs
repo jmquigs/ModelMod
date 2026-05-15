@@ -383,7 +383,7 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
     // it re-enters our hooks on the same thread.
     let real_set_texture = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                 dev.real_set_texture
             },
             _ => return E_FAIL,
@@ -413,7 +413,7 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
 
     let real_set_stream_source = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                 dev.real_set_stream_source
             },
             _ => return E_FAIL,
@@ -437,7 +437,7 @@ pub (crate) unsafe extern "system" fn hook_reset(
 
     let real_reset = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                 dev.real_reset
             },
             _ => return E_FAIL,
@@ -480,7 +480,7 @@ pub unsafe extern "system" fn hook_present(
         // then call it (the call may re-enter our hooks on this thread).
         let real_present = match dev_state_read() {
             Some((_lck, ds)) => match &ds.hook {
-                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                     dev.real_present
                 },
                 _ => return E_FAIL,
@@ -506,12 +506,17 @@ pub unsafe extern "system" fn hook_present(
     // have been sitting around long enough that we no longer need them.
     if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
         let now = SystemTime::now();
-        let due = now.duration_since(GLOBAL_STATE.dx9_update_texture_last_gc)
-            .map(|d| d.as_secs() >= 30)
-            .unwrap_or(false);
+        let last_gc = device_state::dev_state_d3d9_read()
+            .map(|(_lck, h)| h.update_texture_last_gc);
+        let due = match last_gc {
+            Some(t) => now.duration_since(t).map(|d| d.as_secs() >= 30).unwrap_or(false),
+            None => false,
+        };
         if due {
             crate::hook_device::dx9_update_texture_gc();
-            GLOBAL_STATE.dx9_update_texture_last_gc = now;
+            if let Some((_lck, h)) = device_state::dev_state_d3d9_write() {
+                h.update_texture_last_gc = now;
+            }
         }
     }
 
@@ -604,7 +609,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
     let get_real_release = || -> Option<D3D9ReleaseFn> {
         match dev_state_read() {
             Some((_lck, ds)) => match &ds.hook {
-                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                     Some(dev.real_release)
                 },
                 _ => None,
@@ -643,7 +648,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         let (destroying, mut do_final_release) = match dev_state_write() {
             Some((_lck, ds)) => {
                 let drc = ds.d3d_resource_count;
-                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) = ds.hook.as_mut() {
+                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) = ds.hook.as_mut() {
                     dev.ref_count = new_ref_count;
                 }
                 let destroying = drc > 0 && new_ref_count == (drc + 1);
@@ -695,7 +700,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
                 ));
             }
             if let Some((_lck, ds)) = dev_state_write() {
-                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) = ds.hook.as_mut() {
+                if let Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) = ds.hook.as_mut() {
                     dev.ref_count = new_ref_count;
                 }
             }
@@ -966,7 +971,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     let real_dip = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev), .. })) => {
                 dev.real_draw_indexed_primitive
             },
             _ => {

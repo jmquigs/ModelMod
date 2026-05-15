@@ -255,9 +255,10 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
             // (not lockable), so the destination can't be saved directly.
             // The source is kept alive by an AddRef in hook_update_texture;
             // the dx9_update_texture_gc pass releases it when no longer needed.
-            let save_tex = match GLOBAL_STATE.dx9_update_texture_map.as_ref()
-                .and_then(|m| m.get(&(tex as usize))) {
-                Some(&src) if src != 0 => {
+            let mapped_src = device_state::dev_state_d3d9_read()
+                .and_then(|(_lck, h)| h.update_texture_map.get(&(tex as usize)).copied());
+            let save_tex = match mapped_src {
+                Some(src) if src != 0 => {
                     write_log_file(&format!(
                         "save_texture: stage {}: using UpdateTexture source {:x} for destination {:x}",
                         idx, src, tex as usize
