@@ -19,7 +19,7 @@ use std::thread::JoinHandle;
 use std::time::{SystemTime, Duration};
 use std::collections::{HashMap, HashSet};
 
-use global_state::{GLOBAL_STATE, LOADED_MODS};
+use global_state::{hook_state_read, hook_state_write, LOADED_MODS};
 use shared_dx::util::write_log_file;
 
 use util::mm_verify_load;
@@ -375,7 +375,7 @@ pub fn update(now:&SystemTime) -> Option<(u32,u32)> {
         // descend into the insane loaded mods structure to find active mods
         let mut new_active = 0_u32;
         let mut total_active = 0_u32;
-        let total_frames = unsafe { GLOBAL_STATE.metrics.total_frames };
+        let total_frames = hook_state_read().map(|(_lck, gs)| gs.metrics.total_frames).unwrap_or(0);
         let loaded_mods_guard = LOADED_MODS.lock().map_err(|e| {
             write_log_file(&format!("mod_stats update: LOADED_MODS lock poisoned: {}", e));
         }).ok();
@@ -729,7 +729,7 @@ mod tests {
         };
 
         let set_mod_rendered = |name:&str, idx:usize| {
-            let frame = unsafe { GLOBAL_STATE.metrics.total_frames };
+            let frame = hook_state_read().map(|(_lck, gs)| gs.metrics.total_frames).unwrap_or(0);
             let mut guard = LOADED_MODS.lock().unwrap();
             let lms = guard.as_mut().unwrap();
             let mod_key = lms.mods_by_name.get(name).expect("mod not found");
@@ -738,8 +738,9 @@ mod tests {
             nmd.last_frame_render = frame;
         };
         let advance_frames = |nframes:u64| {
-            let frame = unsafe { GLOBAL_STATE.metrics.total_frames };
-            unsafe { GLOBAL_STATE.metrics.total_frames = frame + nframes };
+            if let Some((_lck, gs)) = hook_state_write() {
+                gs.metrics.total_frames += nframes;
+            }
         };
 
         addmod("mod_100_200_1", 100, 200);

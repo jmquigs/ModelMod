@@ -81,8 +81,11 @@ pub unsafe extern "system" fn GetVertexBufferChecksum(vb_ptr: u64) -> u32 {
         return 0;
     }
     let key = vb_ptr as usize;
-    match global_state::GLOBAL_STATE.vb_checksums.as_ref() {
-        Some(map) => map.get(&key).and_then(|s| s.checksum()).unwrap_or(0),
+    match global_state::hook_state_read() {
+        Some((_lck, gs)) => match gs.vb_checksums.as_ref() {
+            Some(map) => map.get(&key).and_then(|s| s.checksum()).unwrap_or(0),
+            None => 0,
+        },
         None => 0,
     }
 }
@@ -92,12 +95,17 @@ pub unsafe extern "system" fn GetVertexBufferChecksum(vb_ptr: u64) -> u32 {
 #[allow(unused)]
 #[no_mangle]
 pub unsafe extern "system" fn GetBoundVertexBufferChecksum() -> u32 {
-    let ptr = global_state::GLOBAL_STATE.bound_vertex_buffer;
-    if ptr == 0 {
-        return 0;
-    }
-    match global_state::GLOBAL_STATE.vb_checksums.as_ref() {
-        Some(map) => map.get(&ptr).and_then(|s| s.checksum()).unwrap_or(0),
+    match global_state::hook_state_read() {
+        Some((_lck, gs)) => {
+            let ptr = gs.bound_vertex_buffer;
+            if ptr == 0 {
+                return 0;
+            }
+            match gs.vb_checksums.as_ref() {
+                Some(map) => map.get(&ptr).and_then(|s| s.checksum()).unwrap_or(0),
+                None => 0,
+            }
+        },
         None => 0,
     }
 }
@@ -113,24 +121,25 @@ pub unsafe extern "system" fn OnInitialized(
 
     let on_init_error_code = 666;
 
-    // reinit global state pointer.  technically we only really need to do this for the
-    // tests, where we can have multiple copies of globals (see rt.sh for details).
+    // The global state pointer is round-tripped through managed code purely
+    // as an identity-check token; we use the new HOOK_STATE accessor for any
+    // real access. The pointer values must match the boxed HookState that
+    // dnclr passed at startup.
     write_log_file(&format!(
         "OnInitialized called with global state address: {}",
         global_state_pointer
     ));
-    let gs_ref = global_state::get_global_state_ptr();
-    let local_gs_addr = gs_ref.gsp as usize;
+    let local_gs_addr = match global_state::HOOK_STATE.read() {
+        Ok(g) => g.0 as usize,
+        Err(_) => 0,
+    };
     if global_state_pointer as usize != local_gs_addr {
         write_log_file(&format!(
             "WARNING: OnInitialized's global state address {:x} differs from input param {:x}",
             local_gs_addr, global_state_pointer
         ));
     }
-
-    let global_hookstate = global_state_pointer as *mut HookState;
-
-    if global_hookstate == std::ptr::null_mut() {
+    if global_state_pointer == 0 {
         write_log_file("error: global state pointer is null");
         return 666;
     }
@@ -178,7 +187,12 @@ pub unsafe extern "system" fn OnInitialized(
         done_loading_mods: false,
     };
 
-    (*global_hookstate).interop_state = Some(is);
+    if let Some((_lck, gs)) = global_state::hook_state_write() {
+        gs.interop_state = Some(is);
+    } else {
+        write_log_file("OnInitialized: could not lock hook state to set interop_state");
+        return on_init_error_code;
+    }
 
     0
 }

@@ -9,7 +9,7 @@ use fnv::FnvHashSet;
 
 use std::ptr::null_mut;
 use shared_dx::util::*;
-use global_state::{GLOBAL_STATE, LOADED_MODS};
+use global_state::{hook_state_read, hook_state_write, LOADED_MODS};
 use device_state::dev_state_write;
 use crate::hook_device_d3d11::apply_device_hook;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
@@ -39,13 +39,14 @@ use shared_dx::types::DevicePointer::{D3D9, D3D11};
 use shared_dx::error::Result;
 
 pub fn init_selection_mode(device: DevicePointer) -> Result<()> {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    hookstate.making_selection = true;
-    hookstate.active_texture_list = Some(Vec::with_capacity(5000));
-    hookstate.active_texture_set = Some(FnvHashSet::with_capacity_and_hasher(
-        5000,
-        Default::default(),
-    ));
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.making_selection = true;
+        gs.active_texture_list = Some(Vec::with_capacity(5000));
+        gs.active_texture_set = Some(FnvHashSet::with_capacity_and_hasher(
+            5000,
+            Default::default(),
+        ));
+    }
 
     unsafe {
         // hot-patch the snapshot hook functions
@@ -72,7 +73,10 @@ pub fn init_selection_mode(device: DevicePointer) -> Result<()> {
 
 pub fn init_snapshot_mode() {
     unsafe {
-        if GLOBAL_STATE.is_snapping {
+        let already_snapping = hook_state_read()
+            .map(|(_lck, gs)| gs.is_snapping)
+            .unwrap_or(false);
+        if already_snapping {
             return;
         }
 
@@ -134,53 +138,55 @@ pub fn init_snapshot_mode() {
             *ANIM_SNAP_STATE.get_mut() = Some(anim_state);
         }
 
-        GLOBAL_STATE.is_snapping = true;
-        GLOBAL_STATE.snap_start = SystemTime::now();
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.is_snapping = true;
+            gs.snap_start = SystemTime::now();
+        }
     }
 }
 
 pub fn cmd_select_next_texture(device: DevicePointer) {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    if !hookstate.making_selection {
+    let making_selection = hook_state_read()
+        .map(|(_lck, gs)| gs.making_selection)
+        .unwrap_or(false);
+    if !making_selection {
         init_selection_mode(device)
             .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
     }
 
-    let len = hookstate
-        .active_texture_list
-        .as_mut()
-        .map(|list| list.len())
-        .unwrap_or(0);
-
-    if len == 0 {
-        return;
-    }
-
-    hookstate.curr_texture_index += 1;
-    if hookstate.curr_texture_index >= len {
-        hookstate.curr_texture_index = 0;
+    if let Some((_lck, gs)) = hook_state_write() {
+        let len = gs.active_texture_list.as_ref()
+            .map(|list: &Vec<usize>| list.len())
+            .unwrap_or(0);
+        if len == 0 {
+            return;
+        }
+        gs.curr_texture_index += 1;
+        if gs.curr_texture_index >= len {
+            gs.curr_texture_index = 0;
+        }
     }
 }
 pub fn cmd_select_prev_texture(device: DevicePointer) {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    if !hookstate.making_selection {
+    let making_selection = hook_state_read()
+        .map(|(_lck, gs)| gs.making_selection)
+        .unwrap_or(false);
+    if !making_selection {
         init_selection_mode(device)
             .unwrap_or_else(|_e| write_log_file("woops couldn't init selection mode"));
     }
 
-    let len = hookstate
-        .active_texture_list
-        .as_mut()
-        .map(|list| list.len())
-        .unwrap_or(0);
-
-    if len == 0 {
-        return;
-    }
-
-    hookstate.curr_texture_index = hookstate.curr_texture_index.wrapping_sub(1);
-    if hookstate.curr_texture_index >= len {
-        hookstate.curr_texture_index = len - 1;
+    if let Some((_lck, gs)) = hook_state_write() {
+        let len = gs.active_texture_list.as_ref()
+            .map(|list: &Vec<usize>| list.len())
+            .unwrap_or(0);
+        if len == 0 {
+            return;
+        }
+        gs.curr_texture_index = gs.curr_texture_index.wrapping_sub(1);
+        if gs.curr_texture_index >= len {
+            gs.curr_texture_index = len - 1;
+        }
     }
 }
 fn cmd_clear_texture_lists(device: DevicePointer) {
@@ -190,81 +196,76 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
 
     hook_snapshot::reset();
 
-    unsafe {
-        if !GLOBAL_STATE.run_conf.precopy_data || !GLOBAL_STATE.run_conf.force_tex_cpu_read {
-            // Since they pressed the clear texture key that signals they intend to snapshot, so
-            // enable precopy regardless of whatever is in the registry.
-            // need to set it because apply_device_hook only does createbuffer if it is true
-            GLOBAL_STATE.run_conf.precopy_data = true;
-            // query registry to get any additional changes in runconf
-            query_and_set_runconf_in_globalstate(false);
+    let (precopy, force_cpu_read) = hook_state_read()
+        .map(|(_lck, gs)| (gs.run_conf.precopy_data, gs.run_conf.force_tex_cpu_read))
+        .unwrap_or((false, false));
+    if !precopy || !force_cpu_read {
+        // Since they pressed the clear texture key that signals they intend to snapshot, so
+        // enable precopy regardless of whatever is in the registry.
+        // need to set it because apply_device_hook only does createbuffer if it is true
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.run_conf.precopy_data = true;
+        }
+        // query registry to get any additional changes in runconf
+        unsafe { query_and_set_runconf_in_globalstate(false); }
 
-            if let Some(true) = device.with_d3d11(|d3d11| {
-                apply_device_hook(d3d11).map(|_| true).map_err(|e| {
-                    write_log_file(&format!("failed to reapply device hook: {:?}", e))
-                }).unwrap_or(false)
-            }) {
-                write_log_file(&format!("==> precopy data now enabled; it was disabled, so you will need to reload game data for snapshots"));
-            }
+        if let Some(true) = device.with_d3d11(|d3d11| unsafe {
+            apply_device_hook(d3d11).map(|_| true).map_err(|e| {
+                write_log_file(&format!("failed to reapply device hook: {:?}", e))
+            }).unwrap_or(false)
+        }) {
+            write_log_file(&format!("==> precopy data now enabled; it was disabled, so you will need to reload game data for snapshots"));
+        }
 
-            // For DX9: log whether force_tex_cpu_read is enabled so the user knows
-            // if the CreateTexture hook will redirect DEFAULT pool textures to MANAGED
-            // (required for snapshotting most textures). This flag is only set via the
-            // SnapForceTexCpuRead registry value; it is not auto-enabled here.
-            if let DevicePointer::D3D9(_) = device {
-                if GLOBAL_STATE.run_conf.force_tex_cpu_read {
-                    write_log_file("==> DX9: force_tex_cpu_read is enabled; new textures will use MANAGED pool for snapshotting");
-                } else {
-                    write_log_file("==> DX9: force_tex_cpu_read is disabled; set SnapForceTexCpuRead=1 in registry to enable MANAGED pool redirection for texture snapshotting if required");
-                }
+        // For DX9: log whether force_tex_cpu_read is enabled so the user knows
+        // if the CreateTexture hook will redirect DEFAULT pool textures to MANAGED
+        // (required for snapshotting most textures). This flag is only set via the
+        // SnapForceTexCpuRead registry value; it is not auto-enabled here.
+        if let DevicePointer::D3D9(_) = device {
+            let force_cpu_read = hook_state_read()
+                .map(|(_lck, gs)| gs.run_conf.force_tex_cpu_read)
+                .unwrap_or(false);
+            if force_cpu_read {
+                write_log_file("==> DX9: force_tex_cpu_read is enabled; new textures will use MANAGED pool for snapshotting");
+            } else {
+                write_log_file("==> DX9: force_tex_cpu_read is disabled; set SnapForceTexCpuRead=1 in registry to enable MANAGED pool redirection for texture snapshotting if required");
             }
         }
-        if let Some(list) = GLOBAL_STATE
-            .active_texture_list
-            .as_mut() { list.clear() }
-        if let Some(list) = GLOBAL_STATE
-            .active_texture_set
-            .as_mut() { list.clear() }
-        GLOBAL_STATE.curr_texture_index = 0;
+    }
+    if let Some((_lck, gs)) = hook_state_write() {
+        if let Some(list) = gs.active_texture_list.as_mut() { list.clear() }
+        if let Some(set) = gs.active_texture_set.as_mut() { set.clear() }
+        gs.curr_texture_index = 0;
         for i in 0..MAX_STAGE {
-            GLOBAL_STATE.selected_on_stage[i] = false;
+            gs.selected_on_stage[i] = false;
         }
-        GLOBAL_STATE.making_selection = false;
-
-        // TODO: this was an attempt to fix the issue with the selection
-        // texture getting clobbered after alt-tab, but it didn't work.
-        // for now I just use windowed mode in the affected game.  Doesn't happen with all games.
-        // if GLOBAL_STATE.selection_texture != null_mut() {
-        //     let mut tex: *mut IDirect3DTexture9 = GLOBAL_STATE.selection_texture;
-        //     if tex != null_mut() {
-        //         (*tex).Release();
-        //     }
-        //     GLOBAL_STATE.selection_texture = null_mut();
-        //     create_selection_texture(device);
-        // }
+        gs.making_selection = false;
     }
 }
 pub fn cmd_toggle_show_mods() {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    hookstate.show_mods = !hookstate.show_mods;
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.show_mods = !gs.show_mods;
+    }
 }
 pub fn cmd_take_snapshot() {
     init_snapshot_mode();
 }
 
 pub fn is_loading_mods() -> bool {
-    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-    let loading = interop_state.as_mut().map(|is| {
-        if is.loading_mods {
-            return true;
-        }
-        let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
-        if loadstate == AsyncLoadState::InProgress as i32 {
-            return true;
-        }
-        false
-    }).unwrap_or(false);
-    loading
+    // Pull out the bits we need from interop_state under a brief read lock,
+    // then drop the lock before calling the managed callback (which can
+    // re-enter our hooks).
+    let snap = hook_state_read().and_then(|(_lck, gs)| {
+        gs.interop_state.as_ref().map(|is| (is.loading_mods, is.callbacks))
+    });
+    match snap {
+        Some((true, _)) => true,
+        Some((false, callbacks)) => {
+            let loadstate = unsafe { (callbacks.GetLoadingState)() };
+            loadstate == AsyncLoadState::InProgress as i32
+        },
+        None => false,
+    }
 }
 
 pub fn cmd_clear_mods(device: DevicePointer) {
@@ -272,16 +273,20 @@ pub fn cmd_clear_mods(device: DevicePointer) {
         write_log_file("cannot reload now; mods are loading");
         return;
     }
-    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-    interop_state.as_mut().map(|is| {
-        write_log_file("clearing mods");
-        is.loading_mods = false;
-        is.done_loading_mods = true;
-
-        unsafe {
-            mod_load::clear_loaded_mods(device);
+    if let Some((_lck, gs)) = hook_state_write() {
+        if let Some(is) = gs.interop_state.as_mut() {
+            write_log_file("clearing mods");
+            is.loading_mods = false;
+            is.done_loading_mods = true;
+        } else {
+            return;
         }
-    });
+    } else {
+        return;
+    }
+    unsafe {
+        mod_load::clear_loaded_mods(device);
+    }
 }
 
 fn cmd_reload_mods(device: DevicePointer) {
@@ -290,14 +295,14 @@ fn cmd_reload_mods(device: DevicePointer) {
         return;
     }
     cmd_clear_mods(device);
-    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-    interop_state.as_mut().map(|is| {
-        write_log_file("reloading mods");
-        is.loading_mods = false;
-        is.done_loading_mods = false;
-
-        // the actual reload will be handled in per-frame operations
-    });
+    if let Some((_lck, gs)) = hook_state_write() {
+        if let Some(is) = gs.interop_state.as_mut() {
+            write_log_file("reloading mods");
+            is.loading_mods = false;
+            is.done_loading_mods = false;
+            // the actual reload will be handled in per-frame operations
+        }
+    }
 }
 
 fn cmd_reload_managed_dll(device: DevicePointer) {
@@ -308,18 +313,22 @@ fn cmd_reload_managed_dll(device: DevicePointer) {
     unsafe { mod_load::clear_loaded_mods(device) };
     // TODO: should check for active snapshotting and anything else that might be using the managed
     // code
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    match hookstate.clr.runtime_pointer {
-        Some(x) if x == CLR_OK => {
-            let ctx = &hookstate.clr.run_context;
-            let res = reload_managed_dll(&hookstate.mm_root, Some(ctx));
-            match res {
-                Ok(_) => write_log_file("managed dll reloaded"),
-                Err(e) => write_log_file(&format!("ERROR: reloading managed dll failed: {:?}", e))
-            }
-        },
-        _ => ()
-    };
+
+    // Snapshot mm_root + run_context out under a read lock; reload_managed_dll
+    // calls back into us (OnInitialized) and would deadlock under a write guard.
+    let inputs = hook_state_read().and_then(|(_lck, gs)| {
+        match gs.clr.runtime_pointer {
+            Some(x) if x == CLR_OK => Some((gs.mm_root.clone(), gs.clr.run_context.clone())),
+            _ => None,
+        }
+    });
+    if let Some((mm_root, run_context)) = inputs {
+        let res = reload_managed_dll(&mm_root, Some(&run_context));
+        match res {
+            Ok(_) => write_log_file("managed dll reloaded"),
+            Err(e) => write_log_file(&format!("ERROR: reloading managed dll failed: {:?}", e))
+        }
+    }
 }
 
 fn select_next_variant() {
@@ -328,8 +337,9 @@ fn select_next_variant() {
     // were a lot of variants of different sizes, it might be better to have multiple keybinds
     // to advance a particular size category, and then partition everything into one of those
     // buckets.  or maybe that means its time to put an imgui UI in here for this purpose.
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    let lastframe = hookstate.metrics.total_frames;
+    let lastframe = hook_state_read()
+        .map(|(_lck, gs)| gs.metrics.total_frames)
+        .unwrap_or(0);
 
     match LOADED_MODS.lock() {
         Ok(mut g) => {
@@ -344,8 +354,9 @@ fn select_next_variant() {
     }
 }
 fn select_prev_variant() {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    let lastframe = hookstate.metrics.total_frames;
+    let lastframe = hook_state_read()
+        .map(|(_lck, gs)| gs.metrics.total_frames)
+        .unwrap_or(0);
 
     match LOADED_MODS.lock() {
         Ok(mut g) => {
@@ -434,33 +445,35 @@ pub fn setup_input(device: DevicePointer, inp: &mut input::Input) -> Result<()> 
 
     // Set key bindings.  Input also assumes that CONTROL modifier is required for these as well.
     // TODO: should push this out to conf file eventually so that they can be customized without rebuild
-    let interop_state = unsafe { &GLOBAL_STATE.interop_state };
-    interop_state
-        .as_ref()
-        .ok_or(HookError::DInputCreateFailed(String::from(
+    // Copy the InputProfile bytes out of the locked HookState so we can drop
+    // the read lock before doing the input setup work.
+    let input_profile_bytes = hook_state_read()
+        .and_then(|(_lck, gs)| gs.interop_state.as_ref().map(|is| is.conf_data.InputProfile));
+    let inp_profile = match input_profile_bytes {
+        None => return Err(HookError::DInputCreateFailed(String::from(
             "no interop state: was device created?",
-        )))
-        .and_then(|is| {
-            let carr_ptr = &is.conf_data.InputProfile[0] as *const i8;
+        ))),
+        Some(bytes) => {
+            let carr_ptr = &bytes[0] as *const i8;
             unsafe { CStr::from_ptr(carr_ptr) }
                 .to_str()
-                .map_err(HookError::CStrConvertFailed)
-        })
-        .map(|inp_profile| {
-            let lwr = inp_profile.to_owned().to_lowercase();
-            if lwr.starts_with("fk") {
-                setup_fkey_input(device, inp);
-            } else if lwr.starts_with("punct") {
-                setup_punct_input(device, inp);
-            } else {
-                write_log_file(&format!(
-                    "input scheme unrecognized: {}, using FKeys",
-                    inp_profile
-                ));
-                setup_fkey_input(device, inp);
-            }
-
-        })
+                .map(|s| s.to_owned())
+                .map_err(HookError::CStrConvertFailed)?
+        }
+    };
+    let lwr = inp_profile.to_lowercase();
+    if lwr.starts_with("fk") {
+        setup_fkey_input(device, inp);
+    } else if lwr.starts_with("punct") {
+        setup_punct_input(device, inp);
+    } else {
+        write_log_file(&format!(
+            "input scheme unrecognized: {}, using FKeys",
+            inp_profile
+        ));
+        setup_fkey_input(device, inp);
+    }
+    Ok(())
 }
 
 pub (crate) fn create_selection_texture_d3d9(device: *mut IDirect3DDevice9) {
@@ -517,7 +530,9 @@ pub (crate) fn create_selection_texture_d3d9(device: *mut IDirect3DDevice9) {
             ds.d3d_resource_count += diff;
         }
 
-        GLOBAL_STATE.selection_texture = Some(TexPtr::D3D9(tex));
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.selection_texture = Some(TexPtr::D3D9(tex));
+        }
     }
 }
 

@@ -212,7 +212,7 @@ pub fn init_clr(mm_root: &Option<String>) -> Result<()> {
     }
 }
 
-pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static str>) -> Result<()> {
+pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&str>) -> Result<()> {
     if unsafe { CLR_GLOBAL_STATE.runtime_host } == null_mut() {
         return Err(HookError::CLRInitFailed("runtime host pointer is null".to_owned()))?
     }
@@ -262,13 +262,14 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
             run_context
         ));
 
-        // can only pass one argument (a string), so delimit the arguments with pipe
-        // note: intentially defeating the purpose of GSPointerRef here since we need to 
-        // pass the pointer to managed code so that it can pass it back to us in 
-        // OnInitialized
-        let global_state_ptr = global_state::get_global_state_ptr();
-        let ptr = global_state_ptr.gsp as usize;
-        drop(global_state_ptr); // to avoid the gs tracking code logging when the managed code calls OnInitialized
+        // can only pass one argument (a string), so delimit the arguments with pipe.
+        // The managed side round-trips this pointer back to us in OnInitialized;
+        // we use it as an identity-check token rather than dereferencing it
+        // (the new RwLock-backed HOOK_STATE handles all real access).
+        let ptr = match global_state::HOOK_STATE.read() {
+            Ok(g) => g.0 as usize,
+            Err(_) => 0,
+        };
         let argument = util::to_wide_str(&format!(
             "{}|{}|{}|mod_structsize={}|mod_snapprofile_structsize={}",
             ptr,

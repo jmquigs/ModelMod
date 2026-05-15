@@ -132,7 +132,6 @@ dependencies = [
  "constant_tracking",
  "fnv",
  "input",
- "lazy_static",
  "shared_dx",
  "snaplib",
  "types",

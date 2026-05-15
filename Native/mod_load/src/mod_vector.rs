@@ -22,7 +22,7 @@ use std::ptr;
 
 use shared_dx::util::*;
 
-use global_state::GLOBAL_STATE;
+use global_state::hook_state_read;
 
 use crate::data_encoding::decode_packed_vector;
 use crate::data_encoding::decode_octa_vector;
@@ -110,29 +110,33 @@ pub fn update_normals(data:*mut u8, name:&str, profile:ModSnapProfile, mod_ts_up
     }    
 
     let mut reg_profile_root = String::new();
-    // determine config and whether we should even do this
-    let res = unsafe { &GLOBAL_STATE.interop_state }
-        .as_ref()
+    // determine config and whether we should even do this. Copy the
+    // ProfileKey bytes out of the locked HookState so we don't have to
+    // hold the lock across the registry/file work below.
+    let profile_key_bytes: Option<[i8; 512]> = hook_state_read()
+        .and_then(|(_lck, gs)| gs.interop_state.as_ref().map(|is| is.conf_data.ProfileKey));
+    let res = profile_key_bytes
         .ok_or(HookError::MeshUpdateFailed(String::from(
             "no interop state: was device created?",
         )))
-        .and_then(|is| {
-            let carr_ptr = &is.conf_data.ProfileKey[0] as *const i8;
+        .and_then(|key| {
+            let carr_ptr = &key[0] as *const i8;
             unsafe { CStr::from_ptr(carr_ptr) }
-            .to_str()
-            .map_err(HookError::CStrConvertFailed)
+                .to_str()
+                .map(|s| s.to_owned())
+                .map_err(HookError::CStrConvertFailed)
         })
         .and_then(|profile_root| {
             unsafe {
-                reg_profile_root = profile_root.to_string();
-                let do_update_nrm = util::reg_query_dword(profile_root, "GameProfileUpdateNormals")
+                reg_profile_root = profile_root.clone();
+                let do_update_nrm = util::reg_query_dword(&profile_root, "GameProfileUpdateNormals")
                 .map_err(|_e| {
                     //write_log_file(&format!("normal update disabled: {:?}", e));
                 }).unwrap_or(0);
                 update_normals = do_update_nrm > 0;
 
                 let tankey = "GameProfileUpdateTangents";
-                let do_update_tan = util::reg_query_dword(profile_root, tankey)
+                let do_update_tan = util::reg_query_dword(&profile_root, tankey)
                 .map(|f| {
                     if f == 0 {
                         write_log_file(&format!("tangent update disabled by registry {}\\{}", profile_root, tankey));
@@ -144,7 +148,7 @@ pub fn update_normals(data:*mut u8, name:&str, profile:ModSnapProfile, mod_ts_up
                 }).unwrap_or(1);
                 update_tangents = do_update_tan > 0;
 
-                reverse = util::reg_query_dword(profile_root,"GameProfileReverseNormals",)
+                reverse = util::reg_query_dword(&profile_root,"GameProfileReverseNormals",)
                 .map(|f| f > 0)
                 .map_err(|e| {
                     write_log_file(&format!("using default {:?} for reverse normals: {:?}", reverse, e));
@@ -154,7 +158,7 @@ pub fn update_normals(data:*mut u8, name:&str, profile:ModSnapProfile, mod_ts_up
                     return Ok(());
                 }
                 if update_normals {
-                    flags = util::reg_query_dword(profile_root, "GameProfileUpdateNormalFlags",)
+                    flags = util::reg_query_dword(&profile_root, "GameProfileUpdateNormalFlags",)
                     .map(|f| std::mem::transmute(f))
                     .map_err(|e| {
                         write_log_file(&format!("using default {:?} for update normal flags: {:?}", flags, e));
@@ -196,8 +200,9 @@ pub fn update_normals(data:*mut u8, name:&str, profile:ModSnapProfile, mod_ts_up
     write_log_file(&format!("mod '{}': updating {}; reverse: {}", name, what, reverse));
     write_log_file(&format!("enc_vec_octa: {}", enc_vec_octa));
 
-    let mut dllpath = unsafe { &GLOBAL_STATE.mm_root.as_ref() }.ok_or_else (||
-        HookError::MeshUpdateFailed(String::from("no mmroot")))?.to_owned();
+    let mut dllpath = hook_state_read()
+        .and_then(|(_lck, gs)| gs.mm_root.clone())
+        .ok_or_else(|| HookError::MeshUpdateFailed(String::from("no mmroot")))?;
     dllpath.push('\\');
     dllpath.push_str(DXMESH_DLL);
     let lib = util::load_lib(&dllpath)?;

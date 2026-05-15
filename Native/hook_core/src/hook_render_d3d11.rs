@@ -4,7 +4,7 @@ use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, Duration};
 
-use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
+use global_state::{hook_state_read, hook_state_write, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
 use shared_dx::dx11rs::{DX11RenderState, VertexFormat};
 use shared_dx::types::{DevicePointer, DX11Metrics, D3D11Tex};
@@ -233,50 +233,52 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     //     let _func_hooked = apply_context_hooks(THIS, false);
     // }
 
-    // TODO11 use the lock function here or switch to thread local for RS
-    match dev_state_d3d11_write() {
-        Some((_lck, state)) => {
-            if NumBuffers > 0 && ppVertexBuffers != null_mut() {
-                for idx in 0..NumBuffers {
-                    let pbuf = (*ppVertexBuffers).offset(idx as isize);
+    // Compute the bound_vertex_buffer change first (no lock needed for the
+    // raw pointer reads), then update both DEVICE_STATE (rs.vb_state) and
+    // HOOK_STATE (bound_vertex_buffer) under their respective locks.
+    let new_bound_vb_slot0: Option<usize> = if NumBuffers > 0 && ppVertexBuffers != null_mut() {
+        // Find the buffer that lands at absolute slot 0, if any.
+        let mut new_ptr: Option<usize> = None;
+        for idx in 0..NumBuffers {
+            if StartSlot + idx == 0 {
+                let pbuf = (*ppVertexBuffers).offset(idx as isize);
+                new_ptr = Some(if pbuf.is_null() { 0 } else { pbuf as usize });
+                break;
+            }
+        }
+        new_ptr
+    } else if NumBuffers == 0 && StartSlot == 0 {
+        Some(0)
+    } else {
+        None
+    };
+    if let Some(new_ptr) = new_bound_vb_slot0 {
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.bound_vertex_buffer = new_ptr;
+        }
+    }
 
-                    if pbuf != null_mut() {
-                        // clear on first add of a valid buffer, the game appears to be calling this
-                        // with 1 null buffer sometimes (and then calling draw) and I don't know why its
-                        // doing that.
-                        if idx == 0 {
-                            state.rs.vb_state.clear();
-                        }
-                        // Track slot-0 pointer for the VB-checksum mesh identifier.
-                        // `StartSlot` is the absolute slot of the first buffer in
-                        // `ppVertexBuffers`, so a buffer at index `i` is at slot
-                        // `StartSlot + i`.
-                        if StartSlot + idx == 0 {
-                            GLOBAL_STATE.bound_vertex_buffer = pbuf as usize;
-                        }
-                        let mut desc:D3D11_BUFFER_DESC = std::mem::zeroed();
-                        (*pbuf).GetDesc(&mut desc);
-                        let bw = desc.ByteWidth;
-                        let stride = desc.StructureByteStride;
-                        let vbinfo = (idx,bw,stride);
-                        state.rs.vb_state.push(vbinfo);
-                    } else if StartSlot + idx == 0 {
-                        // null rebind of slot 0 clears our tracked pointer
-                        GLOBAL_STATE.bound_vertex_buffer = 0;
+    // TODO11 use the lock function here or switch to thread local for RS
+    if let Some((_lck, state)) = dev_state_d3d11_write() {
+        if NumBuffers > 0 && ppVertexBuffers != null_mut() {
+            for idx in 0..NumBuffers {
+                let pbuf = (*ppVertexBuffers).offset(idx as isize);
+                if pbuf != null_mut() {
+                    if idx == 0 {
+                        state.rs.vb_state.clear();
                     }
-                }
-                // if GLOBAL_STATE.metrics.dip_calls % 10000 == 0 {
-                //     write_log_file(&format!("hook_IASetVertexBuffers: {}, added {}", NumBuffers, GLOBAL_STATE.dx11rs.vb_state.len()));
-                // }
-            } else if NumBuffers == 0 {
-                state.rs.vb_state.clear();
-                if StartSlot == 0 {
-                    GLOBAL_STATE.bound_vertex_buffer = 0;
+                    let mut desc:D3D11_BUFFER_DESC = std::mem::zeroed();
+                    (*pbuf).GetDesc(&mut desc);
+                    let bw = desc.ByteWidth;
+                    let stride = desc.StructureByteStride;
+                    let vbinfo = (idx,bw,stride);
+                    state.rs.vb_state.push(vbinfo);
                 }
             }
-        },
-        None => {}
-    };
+        } else if NumBuffers == 0 {
+            state.rs.vb_state.clear();
+        }
+    }
 
     (hook_context.real_ia_set_vertex_buffers)(
         THIS,
@@ -452,17 +454,24 @@ pub unsafe extern "system" fn hook_PSSetShaderResources(
         Err(_) => return,
     };
 
-    if GLOBAL_STATE.making_selection {
-        // need to iterate the srvs and track any that are 2d textures
-        for i in 0..NumViews {
-            let srv = *ppShaderResourceViews.offset(i as isize);
-            if !srv.is_null() {
-                let mut desc = MaybeUninit::uninit();
-                (*srv).GetDesc(desc.as_mut_ptr());
-                let desc = desc.assume_init();
-                if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
-                    let stage = StartSlot + i;
-                    track_set_texture(srv as usize, stage, &mut GLOBAL_STATE);
+    // Skip the selection-tracking work when we're already inside our own
+    // DIP path (where the hook-state lock is held). See the matching d3d9
+    // skip in hook_set_texture / hook_set_stream_source.
+    if !global_state::IN_DIP.load(std::sync::atomic::Ordering::Acquire) {
+        if let Some((_lck, gs)) = hook_state_write() {
+            if gs.making_selection {
+                // need to iterate the srvs and track any that are 2d textures
+                for i in 0..NumViews {
+                    let srv = *ppShaderResourceViews.offset(i as isize);
+                    if !srv.is_null() {
+                        let mut desc = MaybeUninit::uninit();
+                        (*srv).GetDesc(desc.as_mut_ptr());
+                        let desc = desc.assume_init();
+                        if desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D {
+                            let stage = StartSlot + i;
+                            track_set_texture(srv as usize, stage, gs);
+                        }
+                    }
                 }
             }
         }
@@ -519,24 +528,31 @@ pub unsafe extern "system" fn hook_draw_indexed(
     let periodic = || {
         profile_start!(hdi, periodic);
 
-        if GLOBAL_STATE.is_snapping {
+        let (is_snapping, dip_calls) = match hook_state_read() {
+            Some((_lck, gs)) => (gs.is_snapping, gs.metrics.dip_calls),
+            None => (false, 0),
+        };
+
+        if is_snapping {
             // this may set is_snapping = false if the snapshot is done
             hook_snapshot::present_process();
         }
 
-        if GLOBAL_STATE.metrics.dip_calls % HOOK_DRAW_PERIODIC_CALLS == 0 {
+        if dip_calls % HOOK_DRAW_PERIODIC_CALLS == 0 {
             draw_periodic(THIS);
         }
 
         // input needs faster processing but it won't update faster than 1 per 16ms
         let fore = dev_state_d3d11_read().map(|(_lck, state)| state.app_foreground).unwrap_or(false);
-        if GLOBAL_STATE.metrics.dip_calls % 250 == 0 && fore {
-            GLOBAL_STATE.input.as_mut().map(|inp| {
-                if inp.get_press_fn_count() > 0 {
-                    inp.process()
-                    .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
+        if dip_calls % 250 == 0 && fore {
+            if let Some((_lck, gs)) = hook_state_write() {
+                if let Some(inp) = gs.input.as_mut() {
+                    if inp.get_press_fn_count() > 0 {
+                        inp.process()
+                        .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
+                    }
                 }
-            });
+            }
         }
 
         process_metrics(true, 250000);
@@ -561,9 +577,15 @@ pub unsafe extern "system" fn hook_draw_indexed(
         Err(_) => return,
     };
 
-    GLOBAL_STATE.metrics.dip_calls += 1;
+    let (is_snapping, show_mods) = match hook_state_write() {
+        Some((_lck, gs)) => {
+            gs.metrics.dip_calls += 1;
+            (gs.is_snapping, gs.show_mods)
+        },
+        None => (false, true),
+    };
 
-    if !GLOBAL_STATE.is_snapping && (!GLOBAL_STATE.show_mods) {
+    if !is_snapping && !show_mods {
         profile_end!(hdi, start);
         periodic(); // need to do this so that input processes
 
@@ -582,8 +604,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     profile_end!(hdi, start);
     profile_start!(hdi, sel_tex_snap);
-    let (override_texture, sel_stage, this_is_selected) = {
-        get_override_tex_if_selected(|tp:&TexPtr| {
+    let (override_texture, sel_stage, this_is_selected) = match hook_state_read() {
+        Some((_lck, gs)) => get_override_tex_if_selected(gs, |tp:&TexPtr| {
             match tp {
                 &TexPtr::D3D11(D3D11Tex::TexSrv
                     (_tex,srv)) => srv as *mut _,
@@ -592,16 +614,21 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     null_mut()
                 }
             }
-        }).unwrap_or((null_mut(), 0, false))
+        }).unwrap_or((null_mut(), 0, false)),
+        None => (null_mut(), 0, false),
     };
 
-    if GLOBAL_STATE.is_snapping {
+    let (snap_now, bound_vb_for_snap) = match hook_state_read() {
+        Some((_lck, gs)) => (gs.is_snapping, gs.bound_vertex_buffer),
+        None => (false, 0),
+    };
+    if snap_now {
         // Ensure the bound VB's CRC32 is computed before `hook_snapshot::take`
         // so that the snapshot meta can record it via
         // `GetBoundVertexBufferChecksum`.
-        if GLOBAL_STATE.bound_vertex_buffer != 0 {
+        if bound_vb_for_snap != 0 {
             crate::hook_device_d3d11::ensure_vb_checksum_dx11(
-                GLOBAL_STATE.bound_vertex_buffer,
+                bound_vb_for_snap,
             );
         }
         // Snapshot scalar state needed for the snapshot under a brief read
@@ -676,25 +703,29 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     // if primitive tracking is enabled, log just the primcount,vertcount if we were able
                     // to compute it, otherwise log whatever we have
                     if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
-                        if vert_count > 0 {
-                            use global_state::RenderedPrimType::PrimVertCount;
-                            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
-                        } else {
-                            use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
-                            GLOBAL_STATE.metrics.rendered_prims.push(
-                            PrimCountVertSizeAndVBs(prim_count, vert_count, vb_state_clone));
+                        if let Some((_lck, gs)) = hook_state_write() {
+                            if vert_count > 0 {
+                                use global_state::RenderedPrimType::PrimVertCount;
+                                gs.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
+                            } else {
+                                use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
+                                gs.metrics.rendered_prims.push(
+                                PrimCountVertSizeAndVBs(prim_count, vert_count, vb_state_clone));
+                            }
                         }
                     }
 
                     // Compute the VB Crc if snapping or if the bound vb matches this prim/vert count.
-                    // No dev_state guard is held here so this is safe to call.
-                    if !GLOBAL_STATE.is_snapping
-                        && GLOBAL_STATE.bound_vertex_buffer != 0
-                        && global_state::vb_checksum_target_matches(prim_count, vert_count)
-                    {
-                        crate::hook_device_d3d11::ensure_vb_checksum_dx11(
-                            GLOBAL_STATE.bound_vertex_buffer,
-                        );
+                    let (is_snap, bound_vb, vb_match) = match hook_state_read() {
+                        Some((_lck, gs)) => (
+                            gs.is_snapping,
+                            gs.bound_vertex_buffer,
+                            global_state::vb_checksum_target_matches_with(gs, prim_count, vert_count),
+                        ),
+                        None => (false, 0, false),
+                    };
+                    if !is_snap && bound_vb != 0 && vb_match {
+                        crate::hook_device_d3d11::ensure_vb_checksum_dx11(bound_vb);
                     }
 
                     // if there is a matching mod, render it
@@ -1058,7 +1089,9 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
         }
         // keep the frame counter rolling even though we don't know when the frames end.  some
         // mod loading selection features rely on this to see if a mod has been rendered recently.
-        GLOBAL_STATE.metrics.total_frames += ((mselapsed as f32 / 1000.0) * 60.0) as u64;
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.metrics.total_frames += ((mselapsed as f32 / 1000.0) * 60.0) as u64;
+        }
 
         mod_stats::update(&now);
 
@@ -1099,7 +1132,10 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 }
             });
         } else {
-            if GLOBAL_STATE.run_conf.precopy_data {
+            let precopy = hook_state_read()
+                .map(|(_lck, gs)| gs.run_conf.precopy_data)
+                .unwrap_or(false);
+            if precopy {
                 check_expire_thread(&now);
             }
         }
@@ -1124,11 +1160,16 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
             }
         }
 
-        if GLOBAL_STATE.input.is_none() {
+        let input_missing = hook_state_read()
+            .map(|(_lck, gs)| gs.input.is_none())
+            .unwrap_or(true);
+        if input_missing {
             // init input if needed
             input::Input::new()
             .map(|inp| {
-                GLOBAL_STATE.input = Some(inp);
+                if let Some((_lck, gs)) = hook_state_write() {
+                    gs.input = Some(inp);
+                }
             })
             .unwrap_or_else(|e| {
                 write_log_file(&format!(
@@ -1155,18 +1196,23 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
 
         // finish input setup if needed and app is foreground
         if app_foreground {
-            GLOBAL_STATE.input.as_mut().map(|inp| {
-                if inp.get_press_fn_count() == 0 {
-                    with_dev_ptr(|devptr| {
-                        input_commands::setup_input(devptr, inp)
-                        .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
-                    })
+            if let Some((_lck, gs)) = hook_state_write() {
+                if let Some(inp) = gs.input.as_mut() {
+                    if inp.get_press_fn_count() == 0 {
+                        with_dev_ptr(|devptr| {
+                            input_commands::setup_input(devptr, inp)
+                            .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
+                        })
+                    }
                 }
-            });
+            }
         }
 
         if app_foreground {
-            if GLOBAL_STATE.selection_texture.is_none() {
+            let need_seltex = hook_state_read()
+                .map(|(_lck, gs)| gs.selection_texture.is_none())
+                .unwrap_or(true);
+            if need_seltex {
                 let _ = create_selection_texture_dx11()
                     .map_err(|e| write_log_file(&format!("create_selection_texture_dx11 error: {:?}", e)));
             }
@@ -1330,7 +1376,10 @@ unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &Hook
 }
 
 fn create_selection_texture_dx11() -> Result<()> {
-    if unsafe { GLOBAL_STATE.selection_texture.is_some() } {
+    let already_set = hook_state_read()
+        .map(|(_lck, gs)| gs.selection_texture.is_some())
+        .unwrap_or(false);
+    if already_set {
         return Ok(());
     }
     let tex_desc = D3D11_TEXTURE2D_DESC {
@@ -1391,7 +1440,9 @@ fn create_selection_texture_dx11() -> Result<()> {
             return Err(HookError::D3D11Unsupported(format!("Failed to create selection texture SRV: {}", hr)));
         }
 
-        GLOBAL_STATE.selection_texture = Some(TexPtr::D3D11(D3D11Tex::TexSrv(tex as *mut ID3D11Resource, srv)));
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.selection_texture = Some(TexPtr::D3D11(D3D11Tex::TexSrv(tex as *mut ID3D11Resource, srv)));
+        }
         write_log_file("created selection texture");
     };
 

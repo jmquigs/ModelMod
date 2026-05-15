@@ -15,7 +15,7 @@ use shared_dx::error::*;
 use input;
 use util;
 use util::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
+use global_state::{hook_state_read, hook_state_write, HookState, VBChecksumStatus};
 
 use device_state::{DEVICE_STATE, dev_state_read, dev_state_write, dev_state_d3d9_write};
 use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_reset, hook_set_stream_source};
@@ -29,7 +29,6 @@ that we want to hook and override.  So its probably stuck here.
 
 unsafe fn hook_d3d9_device(
     device: *mut IDirect3DDevice9,
-    _guard: &std::sync::MutexGuard<()>,
 ) -> Result<HookDirect3D9Device> {
     //write_log_file(&format!("gs hook_direct3d9device is some: {}", GLOBAL_STATE.hook_direct3d9device.is_some()));
     write_log_file(&format!("hooking new device: {:x}", device as usize));
@@ -105,7 +104,10 @@ unsafe fn hook_d3d9_device(
     // else that might be invalidated by reset.
     (*vtbl).Reset = hook_reset;
 
-    if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
+    let snap_use_sysmem = hook_state_read()
+        .map(|(_lck, gs)| gs.run_conf.profile.snap_use_sysmemtexturetracking)
+        .unwrap_or(false);
+    if snap_use_sysmem {
         // hook UpdateTexture to track source->destination mappings so that
         // during snapshotting we can reach back to the lockable source texture.
         (*vtbl).UpdateTexture = hook_update_texture;
@@ -118,8 +120,10 @@ unsafe fn hook_d3d9_device(
 
     // shader constants init
     if constant_tracking::is_enabled() {
-        GLOBAL_STATE.vertex_constants = Some(constant_tracking::ConstantGroup::new());
-        GLOBAL_STATE.pixel_constants = Some(constant_tracking::ConstantGroup::new());
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.vertex_constants = Some(constant_tracking::ConstantGroup::new());
+            gs.pixel_constants = Some(constant_tracking::ConstantGroup::new());
+        }
 
         // (*vtbl).SetVertexShaderConstantF = dev_constant_tracking::hook_set_vertex_sc_f;
         // (*vtbl).SetVertexShaderConstantI = dev_constant_tracking::hook_set_vertex_sc_i;
@@ -186,7 +190,10 @@ unsafe extern "system" fn hook_create_texture(
     let mut actual_pool = Pool;
     let mut changed = false;
 
-    if GLOBAL_STATE.run_conf.force_tex_cpu_read && Pool == D3DPOOL_DEFAULT {
+    let force_tex_cpu_read = hook_state_read()
+        .map(|(_lck, gs)| gs.run_conf.force_tex_cpu_read)
+        .unwrap_or(false);
+    if force_tex_cpu_read && Pool == D3DPOOL_DEFAULT {
         // Only change pool for textures without special usage flags that require DEFAULT pool
         let special_usage = D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL | D3DUSAGE_DYNAMIC;
         if (Usage & special_usage) == 0 {
@@ -293,12 +300,15 @@ unsafe fn try_checksum_dx9_vb(vb: *mut IDirect3DVertexBuffer9, length: u32) -> O
 /// store `Checksum(crc)`, and if it fails (e.g. `D3DPOOL_DEFAULT`
 /// without `D3DUSAGE_DYNAMIC`) we store `NotPossible` so we don't keep
 /// retrying.
-pub unsafe fn ensure_vb_checksum_dx9(vb: *mut IDirect3DVertexBuffer9) {
+///
+/// Caller must already hold the hook-state write guard; use this from the
+/// DIP hot path where the guard is held for the duration of the draw.
+pub unsafe fn ensure_vb_checksum_dx9(gs: &mut HookState, vb: *mut IDirect3DVertexBuffer9) {
     if vb.is_null() {
         return;
     }
     let key = vb as usize;
-    let already_resolved = GLOBAL_STATE.vb_checksums.as_ref()
+    let already_resolved = gs.vb_checksums.as_ref()
         .map(|m| m.contains_key(&key))
         .unwrap_or(false);
     if already_resolved {
@@ -316,10 +326,10 @@ pub unsafe fn ensure_vb_checksum_dx9(vb: *mut IDirect3DVertexBuffer9) {
             None => VBChecksumStatus::NotPossible,
         }
     };
-    if GLOBAL_STATE.vb_checksums.is_none() {
-        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
+    if gs.vb_checksums.is_none() {
+        gs.vb_checksums = Some(fnv::FnvHashMap::default());
     }
-    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
+    if let Some(map) = gs.vb_checksums.as_mut() {
         map.insert(key, new_status);
     }
 }
@@ -444,22 +454,6 @@ unsafe fn create_and_hook_device(
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
     ppReturnedDeviceInterface: *mut *mut IDirect3DDevice9,
 ) -> Result<()> {
-    {
-        let trylock = GLOBAL_STATE_LOCK.try_lock();
-        match trylock {
-            Ok(_) => {
-                //write_log_file("create_and_hook_device: lock is free (normal)");
-            },
-            Err(_) => {
-                write_log_file("create_and_hook_device: error: lock is already held, will deadlock");
-            }
-        }
-    }
-
-    let lock = GLOBAL_STATE_LOCK
-        .lock()
-        .map_err(|_err| HookError::GlobalLockError)?;
-
     // Query run configuration (e.g. force_tex_cpu_read) so DX9 hooks can use it
     query_and_set_runconf_in_globalstate(true);
 
@@ -501,7 +495,7 @@ unsafe fn create_and_hook_device(
         if let Some((_lck, ds)) = dev_state_write() {
             ds.d3d_window = hFocusWindow;
         }
-        let hook_d3d9device = hook_d3d9_device(*ppReturnedDeviceInterface, &lock)?;
+        let hook_d3d9device = hook_d3d9_device(*ppReturnedDeviceInterface)?;
         if let Some((_lck, ds)) = dev_state_write() {
             if let Some(HookDeviceState::D3D9(ref mut d3d9)) = ds.hook {
                 d3d9.device = Some(hook_d3d9device);
@@ -546,7 +540,9 @@ pub unsafe extern "system" fn hook_create_device(
     // create input, but don't fail everything if we can't (may be able to still use read-only mode)
     input::Input::new()
         .map(|inp| {
-            GLOBAL_STATE.input = Some(inp);
+            if let Some((_lck, gs)) = hook_state_write() {
+                gs.input = Some(inp);
+            }
         })
         .unwrap_or_else(|e| {
             write_log_file(&format!(
@@ -734,6 +730,7 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
     return 0;
 
     init_device_state_once();
+    global_state::init_hook_state();
     let mm_root = match mm_verify_load() {
         Some(dir) => dir,
         None => {
@@ -741,8 +738,8 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
         }
     };
     init_log(&mm_root);
-    unsafe {
-        GLOBAL_STATE.mm_root = Some(mm_root);
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.mm_root = Some(mm_root);
     }
 
     if deviceptr == 0 {
@@ -758,11 +755,7 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
         let device:LPDIRECT3DDEVICE9 = std::ptr::with_exposed_provenance_mut::<global_state::IDirect3DDevice9>(praw as usize);
 
         let hookit = || -> Result<()> {
-            let lock = GLOBAL_STATE_LOCK
-            .lock()
-            .map_err(|_err| HookError::GlobalLockError)?;
-
-            let hook_d3d9device = hook_d3d9_device(device, &lock)?;
+            let hook_d3d9device = hook_d3d9_device(device)?;
 
             //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
             if let Some((_lck, ds)) = dev_state_write() {
@@ -806,6 +799,7 @@ pub fn load_d3d_lib(name:&str) -> Result<*mut HINSTANCE__> {
 
 pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
     init_device_state_once();
+    global_state::init_hook_state();
 
     // load d3d9 lib.  do this before trying to load managed lib, because if we can't load d3d9
     // there is no point in loading the managed stuff.  however this means that if this fails,
@@ -841,11 +835,6 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         // let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);
         // write_log_file(&format!("vtbl: {:x}", vtbl as usize));
 
-        // don't hook more than once
-        let _lock = GLOBAL_STATE_LOCK
-            .lock()
-            .map_err(|_err| HookError::D3D9HookFailed)?;
-
         let already_hooked = match dev_state_read() {
             Some((_lck, ds)) => matches!(ds.hook, Some(HookDeviceState::D3D9(HookD3D9State { d3d9: Some(_), .. }))),
             None => false,
@@ -854,7 +843,9 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             return Ok(direct3d9);
         }
 
-        GLOBAL_STATE.mm_root = Some(mm_root);
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.mm_root = Some(mm_root);
+        }
 
         // get pointer to original vtable
         let vtbl: *mut IDirect3D9Vtbl = std::mem::transmute((*direct3d9).lpVtbl);

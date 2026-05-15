@@ -1,7 +1,7 @@
 use shared_dx::error::*;
 use shared_dx::types::DevicePointer;
 use shared_dx::util;
-use global_state::GLOBAL_STATE;
+use global_state::hook_state_read;
 
 use shared_dx::util::ReleaseOnDrop;
 
@@ -50,17 +50,17 @@ macro_rules! impl_save_shader {
             file.write_all(&out_buf)?;
             util::write_log_file(&format!("wrote {} shader bytes to {}", out_buf.len(), fout));
 
-            // disassemble
-            let d3dx_fn = GLOBAL_STATE
-                .d3dx_fn
-                .as_ref()
-                .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
-
-            match d3dx_fn {
-                D3DXFn::DX9(d3dx_fn) => {
+            // disassemble: extract just the d3d9 disassemble fn pointer from
+            // global state, then drop the lock before calling it.
+            let disasm_fn = hook_state_read().and_then(|(_lck, gs)| match gs.d3dx_fn.as_ref() {
+                Some(D3DXFn::DX9(f)) => Some(f.D3DXDisassembleShader),
+                _ => None,
+            });
+            match disasm_fn {
+                Some(disasm) => {
                     let mut buf: *mut ID3DXBuffer = null_mut();
                     let out_ptr = out_ptr as *const DWORD;
-                    check_hr( (d3dx_fn.D3DXDisassembleShader)(out_ptr, FALSE, null_mut(), &mut buf), "disassemble")?;
+                    check_hr( (disasm)(out_ptr, FALSE, null_mut(), &mut buf), "disassemble")?;
                     let _rod = ReleaseOnDrop::new(buf);
                     let bptr = (*buf).GetBufferPointer() as *mut u8;
                     let bsize = ((*buf).GetBufferSize() - 1) as usize; // last byte is null/garbage, whatev
@@ -70,7 +70,7 @@ macro_rules! impl_save_shader {
                     file.write_all(wslice)?;
                     util::write_log_file(&format!("wrote shader disassembly to {}", fout));
                 },
-                _ => {
+                None => {
                     util::write_log_file(&format!("Warning: this d3dx cannot disassemble shaders"));
                 },
             }

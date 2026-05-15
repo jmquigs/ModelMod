@@ -27,7 +27,7 @@ use std;
 use std::ptr::null_mut;
 use shared_dx::util::*;
 use device_state::*;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LOADED_MODS, LoadedModState};
+use global_state::{hook_state_read, hook_state_write, LOADED_MODS, LoadedModState};
 use types::interop;
 use types::native_mod;
 
@@ -67,12 +67,6 @@ pub unsafe fn reset_for_reload(nmd: &mut NativeModData) {
 }
 
 pub unsafe fn clear_loaded_mods(device: DevicePointer) {
-    let lock = GLOBAL_STATE_LOCK.lock();
-    if let Err(_e) = lock {
-        write_log_file("failed to lock global state to clear mod data");
-        return;
-    }
-
     match reinit_load_thread_table() {
         Ok(_) => {},
         Err(x) => write_log_file(&format!("error: problem reloading thread load database: {}", x)),
@@ -97,7 +91,9 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
             }
         }
     });
-    GLOBAL_STATE.load_on_next_frame.as_mut().map(|hs| hs.clear());
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.load_on_next_frame.as_mut().map(|hs| hs.clear());
+    }
 
     let post_rc = (device).get_ref_count();
     let diff = pre_rc - post_rc;
@@ -514,12 +510,6 @@ pub fn sort_mods(loaded_mods:&mut FnvHashMap<u32, Vec<native_mod::NativeModData>
 pub unsafe fn setup_mod_data(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
     clear_loaded_mods(device);
 
-    let lock = GLOBAL_STATE_LOCK.lock();
-    if let Err(_e) = lock {
-        write_log_file("failed to lock global state to setup mod data");
-        return;
-    }
-
     let mod_count = (callbacks.GetModCount)();
     if mod_count <= 0 {
         // No mods are loaded, so there are no VB-checksum targets either.
@@ -826,34 +816,38 @@ pub unsafe fn update_ref_count(device:DevicePointer, pre_rc:u32) -> (u32,u32) {
 }
 
 pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::ManagedCallbacks) {
-        let lock = GLOBAL_STATE_LOCK.lock();
-        if let Err(_e) = lock {
-            write_log_file("failed to lock global state to setup mod data");
-            return;
-        }
+        // First pass: under the write lock, set up `device`, lazily load
+        // d3dx if needed, and pull out the list of mods to load (clearing
+        // it as we go so the next frame won't re-process them).
+        let to_load: Vec<String> = {
+            let (_gs_lck, gs) = match hook_state_write() {
+                Some(p) => p,
+                None => {
+                    write_log_file("failed to lock global state to setup mod data");
+                    return;
+                }
+            };
 
-        // ensure d3dx is loaded in case we need to load mod textures
-        match device {
-            DevicePointer::D3D9(_dev) => {
-                GLOBAL_STATE.device = Some(device);
-            },
-            DevicePointer::D3D11(_dev) => {}, // dx11 doesn't need this skip
-        }
-        if GLOBAL_STATE.d3dx_fn.is_none() {
-            GLOBAL_STATE.d3dx_fn = d3dx::load_lib(&GLOBAL_STATE.mm_root, &device)
-                .map_err(|e| {
-                    write_log_file(&format!(
-                    "failed to load d3dx: texture loading and snapping not available: {:?}",
+            // ensure d3dx is loaded in case we need to load mod textures
+            if let DevicePointer::D3D9(_dev) = device {
+                gs.device = Some(device);
+            }
+            if gs.d3dx_fn.is_none() {
+                gs.d3dx_fn = d3dx::load_lib(&gs.mm_root, &device)
+                    .map_err(|e| {
+                        write_log_file(&format!(
+                        "failed to load d3dx: texture loading and snapping not available: {:?}",
+                            e
+                        ));
                         e
-                    ));
-                    e
-                })
-                .ok();
-        }
+                    })
+                    .ok();
+            }
 
-        let to_load = match GLOBAL_STATE.load_on_next_frame {
-            Some(ref mut hs) if hs.len() > 0 => hs,
-            _ => { return; }
+            match gs.load_on_next_frame.as_mut() {
+                Some(hs) if !hs.is_empty() => hs.drain().collect(),
+                _ => { return; }
+            }
         };
 
         let ml_start = std::time::SystemTime::now();
@@ -965,8 +959,6 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
             }
         }
         drop(loaded_mods_guard);
-
-        to_load.clear();
 
         // get new ref count
         let (rc_diff, new_rc) = update_ref_count(device, pre_rc);

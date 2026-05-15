@@ -1,5 +1,5 @@
 use device_state::dev_state_d3d11_read;
-use global_state::get_global_state_ptr;
+use global_state::hook_state_write;
 use global_state::HookState;
 use global_state::ANIM_SNAP_STATE;
 use shared_dx::types::DevicePointer;
@@ -17,7 +17,7 @@ use winapi::shared::minwindef::{DWORD, UINT, BOOL};
 
 use constant_tracking;
 use d3dx;
-use global_state::GLOBAL_STATE;
+use global_state::hook_state_read;
 use winapi::um::{d3d11::{D3D11_BIND_RENDER_TARGET, D3D11_BUFFER_DESC, D3D11_INPUT_ELEMENT_DESC,
     D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC, ID3D11Buffer, ID3D11Device,
     ID3D11DeviceContext, ID3D11Resource, ID3D11ShaderResourceView,
@@ -128,8 +128,17 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
             Ok(c) => c.clone()
         };
 
-    let gs_ptr = get_global_state_ptr();
-    let gs = gs_ptr.gsp;
+    // Hold the write guard across the entire snapshot operation; this
+    // serializes against the deferred mod-load thread and lets us hand a
+    // raw `*mut HookState` to subsidiary helpers that still take one.
+    // The DIP re-entry guard (IN_DIP) is held by the caller, so any d3d
+    // call that would re-enter our hooks short-circuits before trying to
+    // re-acquire the lock.
+    let (_gs_lck, gs_ref) = match hook_state_write() {
+        Some(p) => p,
+        None => return,
+    };
+    let gs: *mut HookState = gs_ref as *mut HookState;
     let autosnap = if let Some(Some(_)) = unsafe {ANIM_SNAP_STATE.get().as_ref()} {
         auto_snap_anim(devptr, sd, gs, &snap_conf)
     } else {
@@ -152,15 +161,17 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
         (*gs).device = Some(*devptr);
 
         if (*gs).d3dx_fn.is_none() {
-            d3dx::load_and_set_in_gs(&(*gs).mm_root, &devptr)
-                .map_err(|e| {
+            // load_and_set_in_gs would re-acquire hook_state_write and
+            // deadlock; load directly and set on `gs` instead.
+            match d3dx::load_lib(&(*gs).mm_root, &devptr) {
+                Ok(d3dx_fn) => { (*gs).d3dx_fn = Some(d3dx_fn); }
+                Err(e) => {
                     write_log_file(&format!(
                         "failed to load d3dx: texture snapping not available: {:?}",
                         e
                     ));
-                    e
-                })
-                .ok();
+                }
+            }
         }
 
         save_constants(devptr, gs, &snap_conf);
@@ -170,7 +181,7 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
         match set_buffers(devptr, sd) {
             Ok(bufs) => {
                 write_log_file(&format!("snapshot data size is: {}", sd.sd_size));
-                GLOBAL_STATE.interop_state.as_mut().map(|is| {
+                (*gs).interop_state.as_mut().map(|is| {
                     // If the snapshot state was reset set that flag in sd and clear WAS_RESET
                     sd.clear_sd_on_reset = snap_conf.clear_sd_on_reset;
                     sd.was_reset = WAS_RESET.load(Ordering::Relaxed);
@@ -220,7 +231,7 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
                         // write_log_file(&format!("snap save dir: {}", dir));
                         // write_log_file(&format!("snap prefix: {}", sprefix));
 
-                        let _ = save_textures(devptr, &bufs, &dir, &sprefix).map_err(|e| {
+                        let _ = save_textures(devptr, &bufs, &dir, &sprefix, gs).map_err(|e| {
                             write_log_file(&format!("failed to save textures: {:?}", e));
                         });
 
@@ -278,13 +289,13 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
     }
 }
 
-unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuffers>, snap_dir:&str, snap_prefix:&str) -> Result<()> {
+unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuffers>, snap_dir:&str, snap_prefix:&str, gs:*mut HookState) -> Result<()> {
     // in d3d9 the managed code already did this
     let device = match devtr {
         DevicePointer::D3D11(d) => *d,
         _ => return Ok(()),
     };
-    let d3dx_fn = GLOBAL_STATE
+    let d3dx_fn = (*gs)
         .d3dx_fn
         .as_ref()
         .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
@@ -901,18 +912,20 @@ pub unsafe fn present_process() {
         Ok(c) => c.snap_ms
     };
 
-    let gs_ptr = get_global_state_ptr();
-    let gs = gs_ptr.gsp;
+    let (_gs_lck, gs) = match hook_state_write() {
+        Some(p) => p,
+        None => return,
+    };
 
-    if (*gs).is_snapping {
+    if gs.is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(snap_ms as u64);
         let elapsed = now
-            .duration_since((*gs).snap_start)
+            .duration_since(gs.snap_start)
             .unwrap_or(max_dur);
         if elapsed >= max_dur {
             write_log_file("ending snapshot");
-            if let Some(dir) = &(*gs).last_snapshot_dir {
+            if let Some(dir) = &gs.last_snapshot_dir {
                 let out_file = format!("{}/MMSnapshotComplete.txt", dir);
                 let out_file = &out_file;
                 let write_ss_complete = || -> std::io::Result<()> {
@@ -920,11 +933,11 @@ pub unsafe fn present_process() {
                     let mut file = std::fs::File::create(out_file)?;
                     file.write_all(format!("Snap duration: {:?}. This file is updated at the end of each snapshot.", elapsed).as_bytes())
                 };
-                write_ss_complete().unwrap_or_else(|e| 
+                write_ss_complete().unwrap_or_else(|e|
                     write_log_file(&format!("failed to write {}: {:?}", out_file, e)));
             }
-            (*gs).is_snapping = false;
-            
+            gs.is_snapping = false;
+
             let o = ANIM_SNAP_STATE.get();
             (*o).as_ref().map(|ass| {
                 let duration = now.duration_since(ass.sequence_start_time).unwrap_or_default();

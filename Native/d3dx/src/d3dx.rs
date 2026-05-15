@@ -3,7 +3,7 @@ use shared_dx::defs_dx9::*;
 use shared_dx::types::D3D11Tex;
 use shared_dx::types::DevicePointer;
 
-use global_state::{ GLOBAL_STATE };
+use global_state::{hook_state_read, hook_state_write};
 use shared_dx::types::TexPtr;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Resource;
@@ -29,7 +29,9 @@ pub fn deviceptr_from_d3d11(ptr:*mut ID3D11Device) -> Option<DevicePointer> {
 /// call load lib and store the lib in global state
 pub fn load_and_set_in_gs(mm_root: &Option<String>, device: &DevicePointer) -> Result<()> {
     let d3dx_fn = load_lib(mm_root, device)?;
-    unsafe { GLOBAL_STATE.d3dx_fn = Some(d3dx_fn); };
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.d3dx_fn = Some(d3dx_fn);
+    }
     Ok(())
 }
 
@@ -142,9 +144,12 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
 }
 
 pub fn load_lib_and_set_in_globalstate(mm_root: &Option<String>, device: &DevicePointer) -> Result<()> {
-    if unsafe { GLOBAL_STATE.d3dx_fn.is_none() } {
+    let already_loaded = hook_state_read().map(|(_lck, gs)| gs.d3dx_fn.is_some()).unwrap_or(false);
+    if !already_loaded {
         let d3dx_fn = load_lib(mm_root, device)?;
-        unsafe { GLOBAL_STATE.d3dx_fn = Some(d3dx_fn); }
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.d3dx_fn = Some(d3dx_fn);
+        }
     }
     Ok(())
 }
@@ -159,33 +164,38 @@ pub unsafe fn load_texture_strpath(device: DevicePointer, path: &str) -> Result<
 }
 
 pub unsafe fn load_texture(device:DevicePointer, path:*const u16) -> Result<TexPtr> {
-    let d3dx_fn = GLOBAL_STATE
-        .d3dx_fn
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
+    // Extract just the fn pointer we need under the read lock; d3dx fn
+    // pointers are Copy so we can drop the lock before calling them.
+    let create_d3d9 = hook_state_read().and_then(|(_lck, gs)| match gs.d3dx_fn.as_ref() {
+        Some(D3DXFn::DX9(f)) => Some(f.D3DXCreateTextureFromFileW),
+        _ => None,
+    });
+    let create_d3d11 = hook_state_read().and_then(|(_lck, gs)| match gs.d3dx_fn.as_ref() {
+        Some(D3DXFn::DX11(f)) => Some(f.D3DX11CreateTextureFromFileW),
+        _ => None,
+    });
 
-    match (device,d3dx_fn) {
-        (DevicePointer::D3D9(device), D3DXFn::DX9(d3dx_fn)) => {
+    match device {
+        DevicePointer::D3D9(device) => {
+            let f = create_d3d9.ok_or(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned()))?;
             let mut tex: LPDIRECT3DTEXTURE9 = null_mut();
             let ptext: *mut LPDIRECT3DTEXTURE9 = &mut tex;
-            let hr = (d3dx_fn.D3DXCreateTextureFromFileW)(device, path, ptext);
+            let hr = (f)(device, path, ptext);
             if hr != 0 {
                 return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
             }
-
             Ok(TexPtr::D3D9(tex))
         },
-        (DevicePointer::D3D11(device), D3DXFn::DX11(d3dx_fn)) => {
+        DevicePointer::D3D11(device) => {
+            let f = create_d3d11.ok_or(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned()))?;
             let mut tex: *mut ID3D11Resource = null_mut();
             let ptext: *mut *mut ID3D11Resource = &mut tex;
-            let hr = (d3dx_fn.D3DX11CreateTextureFromFileW)(device, path, null_mut(), null_mut(), ptext, null_mut());
+            let hr = (f)(device, path, null_mut(), null_mut(), ptext, null_mut());
             if hr != 0 {
                 return Err(HookError::SnapshotFailed("failed to create texture from path".to_owned()));
             }
-
             Ok(TexPtr::D3D11(D3D11Tex::Tex(tex)))
         },
-        _ => Err(HookError::SnapshotFailed("d3dx device/fn mismatch".to_owned())),
     }
 }
 
@@ -220,21 +230,27 @@ pub unsafe fn create_d3d11_srv_from_tex(device:DevicePointer, p_tex:*mut ID3D11T
 pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
     const D3DXIFF_DDS: i32 = 4;
 
-    let d3dx_fn = GLOBAL_STATE
-        .d3dx_fn
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("d3dx not found".to_owned()))?;
-
-    let device_ptr = GLOBAL_STATE
-        .device
-        .as_ref()
-        .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+    // Extract the bits we need from HookState under a read lock, then drop
+    // it before any D3D calls.
+    let (save_d3d9, device_ptr, sel_tex_usize) = match hook_state_read() {
+        Some((_lck, gs)) => {
+            let save_d3d9 = match gs.d3dx_fn.as_ref() {
+                Some(D3DXFn::DX9(f)) => Some(f.D3DXSaveTextureToFileW),
+                _ => None,
+            };
+            let device_ptr = gs.device
+                .ok_or(HookError::SnapshotFailed("device not found".to_owned()))?;
+            let sel = gs.selection_texture.as_ref().map(|t| t.as_usize()).unwrap_or(0);
+            (save_d3d9, device_ptr, sel)
+        }
+        None => return Err(HookError::SnapshotFailed("d3dx not found".to_owned())),
+    };
 
     match device_ptr {
         DevicePointer::D3D9(device) => {
             let mut tex: *mut IDirect3DBaseTexture9 = null_mut();
 
-            let hr = (**device).GetTexture(idx as u32, &mut tex);
+            let hr = (*device).GetTexture(idx as u32, &mut tex);
             if hr != 0 {
                 return Err(HookError::SnapshotFailed(format!(
                     "failed to get texture on stage {} for snapshotting: {:x}",
@@ -242,7 +258,7 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
                 )));
             }
             let _tex_rod = ReleaseOnDrop::new(tex);
-            if tex as usize == GLOBAL_STATE.selection_texture.as_ref().map(|t| t.as_usize()).unwrap_or(0) {
+            if tex as usize == sel_tex_usize {
                 return Err(HookError::SnapshotFailed(format!(
                     "not snapshotting texture on stage {} because it is the selection texture",
                     idx
@@ -268,19 +284,15 @@ pub unsafe fn save_texture(idx: i32, path: *const u16) -> Result<()> {
                 _ => tex,
             };
 
-            match d3dx_fn {
-                D3DXFn::DX9(d3dx_fn) => {
-                    let hr = (d3dx_fn.D3DXSaveTextureToFileW)(path, D3DXIFF_DDS, save_tex, null_mut());
-                    if hr != 0 {
-                        return Err(HookError::SnapshotFailed(format!(
-                            "failed to save snapshot texture on stage {}: {:x}",
-                            idx, hr
-                        )));
-                    }
-                    Ok(())
-                },
-                _ => Err(HookError::SnapshotFailed("d3dx fn not found".to_owned())),
+            let save_d3d9 = save_d3d9.ok_or(HookError::SnapshotFailed("d3dx fn not found".to_owned()))?;
+            let hr = (save_d3d9)(path, D3DXIFF_DDS, save_tex, null_mut());
+            if hr != 0 {
+                return Err(HookError::SnapshotFailed(format!(
+                    "failed to save snapshot texture on stage {}: {:x}",
+                    idx, hr
+                )));
             }
+            Ok(())
         },
         DevicePointer::D3D11(_device) => {
             return Err(HookError::SnapshotFailed("d3dx11 save texture not yet implemented".to_owned()));

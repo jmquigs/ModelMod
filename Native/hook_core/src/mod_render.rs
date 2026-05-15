@@ -1,27 +1,26 @@
 use std::collections::HashMap;
 
-use fnv::FnvHashMap;
-use global_state::{LoadedModState, VBChecksumStatus};
+use global_state::LoadedModState;
 use types::native_mod::NativeModData;
 use shared_dx::util::*;
 
 /// The vertex buffer bound to stream 0 at the time of the current draw,
-/// plus a reference to the checksum map so we can look up the CRC without
-/// holding a mutable borrow on `GLOBAL_STATE`.
+/// plus its pre-resolved checksum if available.
 ///
-/// `ptr == 0`, `checksums.is_none()`, a missing map entry, or a
-/// `NotPossible` status for the bound VB are all treated as "unknown"
-/// for filtering purposes (constrained mods are skipped).
-pub struct BoundVB<'a> {
+/// `ptr == 0` or `checksum.is_none()` are both treated as "unknown" for
+/// filtering purposes (constrained mods are skipped). The caller looks up
+/// the checksum once before calling `select` so the hot path doesn't have
+/// to clone the full vb_checksums map across the hook-state lock boundary.
+pub struct BoundVB {
     pub ptr: usize,
-    pub checksums: Option<&'a FnvHashMap<usize, VBChecksumStatus>>,
+    pub checksum: Option<u32>,
 }
 
-impl<'a> BoundVB<'a> {
+impl BoundVB {
     /// An "unknown" bound VB, used by tests and by paths that don't yet
     /// have VB information wired in.
     pub fn empty() -> Self {
-        Self { ptr: 0, checksums: None }
+        Self { ptr: 0, checksum: None }
     }
 
     /// Look up the CRC32 of the currently bound VB, if a successful hash
@@ -30,9 +29,7 @@ impl<'a> BoundVB<'a> {
         if self.ptr == 0 {
             return None;
         }
-        self.checksums
-            .and_then(|m| m.get(&self.ptr))
-            .and_then(|s| s.checksum())
+        self.checksum
     }
 }
 
@@ -470,7 +467,8 @@ pub fn select_prev_variant(mstate: &mut LoadedModState, lastframe:u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use global_state::new_fnv_map;
+    use fnv::FnvHashMap;
+    use global_state::{new_fnv_map, VBChecksumStatus};
     use global_state::{LoadedModState,LoadedModsMap,ModsByNameMap};
     use mod_load::sort_mods;
     use types::native_mod::{NativeModData, MAX_RECENT_RENDER_PARENT_THRESH};
@@ -797,9 +795,10 @@ mod tests {
 
     }
 
-    /// Build a BoundVB that answers `checksum_for(ptr) == Some(crc)`.
-    fn make_bound<'a>(ptr: usize, map: &'a FnvHashMap<usize, VBChecksumStatus>) -> BoundVB<'a> {
-        BoundVB { ptr, checksums: Some(map) }
+    /// Build a BoundVB with a pre-resolved checksum.
+    fn make_bound(ptr: usize, map: &FnvHashMap<usize, VBChecksumStatus>) -> BoundVB {
+        let checksum = map.get(&ptr).and_then(|s| s.checksum());
+        BoundVB { ptr, checksum }
     }
 
     /// Build a new mod that carries a VB-checksum constraint.

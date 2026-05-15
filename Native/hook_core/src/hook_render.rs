@@ -25,13 +25,12 @@ use crate::debug_spam;
 use crate::input_commands;
 use crate::mod_render;
 use mod_stats::mod_stats;
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, LOADED_MODS};
+use global_state::{hook_state_read, hook_state_write, LOADED_MODS};
 use device_state::{dev_state_read, dev_state_write};
 use hook_snapshot;
 use types::native_mod;
 
 use std;
-use std::ptr::addr_of_mut;
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -42,21 +41,18 @@ use shared_dx::types::*;
 pub (crate) const CLR_OK:u64 = 1;
 pub (crate) const CLR_FAIL:u64 = 666;
 
-fn get_current_texture() -> usize {
-    unsafe {
-        let idx = GLOBAL_STATE.curr_texture_index;
-        GLOBAL_STATE
-            .active_texture_list
-            .as_ref()
-            .map(|list| {
-                if idx >= list.len() {
-                    0
-                } else {
-                    list[idx]
-                }
-            })
-            .unwrap_or(0)
-    }
+fn get_current_texture(gs: &HookState) -> usize {
+    let idx = gs.curr_texture_index;
+    gs.active_texture_list
+        .as_ref()
+        .map(|list| {
+            if idx >= list.len() {
+                0
+            } else {
+                list[idx]
+            }
+        })
+        .unwrap_or(0)
 }
 
 #[inline]
@@ -65,12 +61,15 @@ fn get_current_texture() -> usize {
 /// "selection texture") as well as the stage it should be set on.  For D3D9 this is the actual stage,
 /// for D3D11 it is the index into the current pixel shader resource array.  If the current texture,
 /// is not selected, returns None.
-pub unsafe fn get_override_tex_if_selected<'a, T, F>(extract_ptr:F) -> Option<(*mut T, DWORD, bool)>
+///
+/// Takes `&HookState` so callers on the DIP hot path can pass through the
+/// guard they already hold rather than re-acquiring.
+pub unsafe fn get_override_tex_if_selected<'a, T, F>(gs: &HookState, extract_ptr:F) -> Option<(*mut T, DWORD, bool)>
 where F: FnOnce(&TexPtr) -> *mut T {
-    if GLOBAL_STATE.making_selection {
-        get_selected_texture_stage()
+    if gs.making_selection {
+        get_selected_texture_stage(gs)
             .map(|stage| {
-                GLOBAL_STATE.selection_texture.as_ref()
+                gs.selection_texture.as_ref()
                 .and_then(|seltext| {
                     Some((
                         extract_ptr(seltext),
@@ -84,15 +83,13 @@ where F: FnOnce(&TexPtr) -> *mut T {
         None
     }
 }
-fn get_selected_texture_stage() -> Option<DWORD> {
-    unsafe {
-        for i in 0..MAX_STAGE {
-            if GLOBAL_STATE.selected_on_stage[i] {
-                return Some(i as DWORD);
-            }
+fn get_selected_texture_stage(gs: &HookState) -> Option<DWORD> {
+    for i in 0..MAX_STAGE {
+        if gs.selected_on_stage[i] {
+            return Some(i as DWORD);
         }
-        None
     }
+    None
 }
 
 /// Controls how often `process_metrics` reports stats (regardless of how frequently it is called)
@@ -106,7 +103,11 @@ const METRICS_MIN_INTERVAL_SECS:f64 = 10.0;
 /// If global_state::METRICS_TRACK_PRIMS
 /// is false there shouldn't be any primitives in the list anyway.
 pub fn process_metrics(preserve_prims:bool, interval:u32) {
-    let metrics = unsafe { &mut (*(addr_of_mut!(GLOBAL_STATE))).metrics };
+    let (_gs_lck, gs) = match hook_state_write() {
+        Some(p) => p,
+        None => return,
+    };
+    let metrics = &mut gs.metrics;
     if metrics.dip_calls > interval {
         let mut report_dips_fps = true;
 
@@ -164,7 +165,7 @@ pub fn process_metrics(preserve_prims:bool, interval:u32) {
                             metrics.dip_calls, 2, secs, 2, dipsec, 2, metrics.last_fps
                         ));
                     }
-                    unsafe {&mut GLOBAL_STATE}.active_texture_set.as_ref().map(|set| {
+                    gs.active_texture_set.as_ref().map(|set| {
                         if set.len() > 0 {
                             write_log_file(&format!(
                                 "active texture set contains: {} textures",
@@ -241,88 +242,110 @@ pub fn process_metrics(preserve_prims:bool, interval:u32) {
 /// CLR is already loaded.  Should not be cpu-intensive to call this unless the CLR does need to
 /// be loaded, in which case its at least a few hundred ms, but it only happens once.
 pub fn frame_init_clr(run_context:&'static str) -> Result<()> {
-    let hookstate = unsafe { &mut GLOBAL_STATE };
-    if hookstate.clr.runtime_pointer.is_none() {
-        let lock = GLOBAL_STATE_LOCK.lock();
-        match lock {
-            Ok(_ignored) => {
-                if hookstate.clr.runtime_pointer.is_none() {
-                    // store something in clr_pointer even if it create fails,
-                    // so that we don't keep trying to create it.  clr_pointer is
-                    // really just a bool right now, it remains to be
-                    // seen whether storing anything related to clr in
-                    // global state is actually useful.
-                    write_log_file("creating CLR");
-                    init_clr(&hookstate.mm_root)
-                        .and_then(|_x| {
-                            reload_managed_dll(&hookstate.mm_root, Some(run_context))
-                        })
-                        .and_then(|_x| {
-                            hookstate.clr.runtime_pointer = Some(CLR_OK);
-                            hookstate.clr.run_context = run_context.to_owned();
-                            Ok(_x)
-                        })
-                        .map_err(|e| {
-                            write_log_file(&format!("Error creating CLR: {:?}", e));
-                            hookstate.clr.runtime_pointer = Some(CLR_FAIL);
-                            e
-                        })?;
-                }
-            }
-            Err(e) => write_log_file(&format!("{:?} should never happen", e)),
-        };
+    // Quick read-only check first; CLR init is a one-shot.
+    let needs_init = hook_state_read()
+        .map(|(_lck, gs)| gs.clr.runtime_pointer.is_none())
+        .unwrap_or(false);
+    if !needs_init {
+        return Ok(());
     }
-    Ok(())
+    // mm_root is needed by both init_clr and reload_managed_dll. Clone it
+    // out so we can drop the lock before the (long) CLR init, which itself
+    // calls back into us via the OnInitialized callback and would deadlock
+    // if we held the write guard.
+    let mm_root: Option<String> = hook_state_read()
+        .and_then(|(_lck, gs)| gs.mm_root.clone());
+    write_log_file("creating CLR");
+    let result = init_clr(&mm_root)
+        .and_then(|_x| reload_managed_dll(&mm_root, Some(run_context)));
+    if let Some((_lck, gs)) = hook_state_write() {
+        match result {
+            Ok(_) => {
+                gs.clr.runtime_pointer = Some(CLR_OK);
+                gs.clr.run_context = run_context.to_owned();
+            }
+            Err(ref e) => {
+                write_log_file(&format!("Error creating CLR: {:?}", e));
+                gs.clr.runtime_pointer = Some(CLR_FAIL);
+            }
+        }
+    }
+    result.map(|_| ())
 }
 
 pub fn frame_load_mods(deviceptr: DevicePointer) {
-    let interop_state = unsafe { &mut GLOBAL_STATE.interop_state };
-    interop_state.as_mut().map(|is| {
-        if !is.loading_mods && !is.done_loading_mods && is.conf_data.LoadModsOnStart {
-            let loadstate = unsafe { (is.callbacks.GetLoadingState)() };
-            if loadstate == AsyncLoadState::InProgress as i32 {
-                is.loading_mods = true;
-                is.done_loading_mods = false;
-            } else if loadstate != AsyncLoadState::Pending as i32 {
-                let r = unsafe { (is.callbacks.LoadModDB)() };
-                if r == AsyncLoadState::Pending as i32 {
-                    is.loading_mods = true;
-                    is.done_loading_mods = false;
-                }
-                if r == AsyncLoadState::Complete as i32 {
-                    is.loading_mods = false;
-                    is.done_loading_mods = true;
-                }
-                write_log_file(&format!("mod db load returned: {}", r));
+    // Snapshot the bits of interop state we need to make decisions, then
+    // drop the read lock so the managed callbacks (which can call back into
+    // our hooks) don't deadlock.
+    let snap = match hook_state_read() {
+        Some((_lck, gs)) => match gs.interop_state.as_ref() {
+            Some(is) => Some((
+                is.loading_mods,
+                is.done_loading_mods,
+                is.conf_data.LoadModsOnStart,
+                is.callbacks,
+            )),
+            None => None,
+        },
+        None => None,
+    };
+    let (mut loading_mods, mut done_loading_mods, load_on_start, callbacks) = match snap {
+        Some(s) => s,
+        None => return,
+    };
+
+    if !loading_mods && !done_loading_mods && load_on_start {
+        let loadstate = unsafe { (callbacks.GetLoadingState)() };
+        if loadstate == AsyncLoadState::InProgress as i32 {
+            loading_mods = true;
+            done_loading_mods = false;
+        } else if loadstate != AsyncLoadState::Pending as i32 {
+            let r = unsafe { (callbacks.LoadModDB)() };
+            if r == AsyncLoadState::Pending as i32 {
+                loading_mods = true;
+                done_loading_mods = false;
             }
-        }
-
-        if is.loading_mods
-            && unsafe { (is.callbacks.GetLoadingState)() } == AsyncLoadState::Complete as i32
-        {
-            write_log_file("mod loading complete");
-            is.loading_mods = false;
-            is.done_loading_mods = true;
-
-            match deviceptr {
-                DevicePointer::D3D11(_)
-                | DevicePointer::D3D9(_) =>
-                    unsafe { mod_load::setup_mod_data(deviceptr, is.callbacks) },
+            if r == AsyncLoadState::Complete as i32 {
+                loading_mods = false;
+                done_loading_mods = true;
             }
+            write_log_file(&format!("mod db load returned: {}", r));
         }
+    }
 
-        let has_pending_mods =
-            unsafe {&GLOBAL_STATE}.load_on_next_frame
-                .as_ref().map_or(false, |hs| hs.len() > 0);
+    if loading_mods
+        && unsafe { (callbacks.GetLoadingState)() } == AsyncLoadState::Complete as i32
+    {
+        write_log_file("mod loading complete");
+        loading_mods = false;
+        done_loading_mods = true;
 
-        if has_pending_mods && is.done_loading_mods && !is.loading_mods {
-            match deviceptr {
-                DevicePointer::D3D11(_)
-                | DevicePointer::D3D9(_) =>
-                    unsafe { mod_load::load_deferred_mods(deviceptr, is.callbacks) },
-            }
+        match deviceptr {
+            DevicePointer::D3D11(_)
+            | DevicePointer::D3D9(_) =>
+                unsafe { mod_load::setup_mod_data(deviceptr, callbacks) },
         }
-    });
+    }
+
+    // Persist any state changes back into the interop state.
+    if let Some((_lck, gs)) = hook_state_write() {
+        if let Some(is) = gs.interop_state.as_mut() {
+            is.loading_mods = loading_mods;
+            is.done_loading_mods = done_loading_mods;
+        }
+    }
+
+    let has_pending_mods = hook_state_read()
+        .and_then(|(_lck, gs)| gs.load_on_next_frame.as_ref().map(|hs| !hs.is_empty()))
+        .unwrap_or(false);
+
+    if has_pending_mods && done_loading_mods && !loading_mods {
+        match deviceptr {
+            DevicePointer::D3D11(_)
+            | DevicePointer::D3D9(_) =>
+                unsafe { mod_load::load_deferred_mods(deviceptr, callbacks) },
+        }
+    }
 }
 pub fn do_per_frame_operations(device: *mut IDirect3DDevice9) -> Result<()> {
     // write_log_file(&format!("performing per-scene ops on thread {:?}",
@@ -359,7 +382,7 @@ pub fn track_set_texture(tex_as_int:usize, tex_stage:u32, global_state:&mut Hook
     }
 
     if tex_stage < MAX_STAGE as u32 {
-        let curr = get_current_texture();
+        let curr = get_current_texture(global_state);
         if curr != 0 && tex_as_int == curr {
             global_state.selected_on_stage[tex_stage as usize] = true;
         } else if global_state.selected_on_stage[tex_stage as usize] {
@@ -375,8 +398,17 @@ pub (crate) unsafe extern "system" fn hook_set_texture(
     Stage: DWORD,
     pTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT {
-    if GLOBAL_STATE.making_selection {
-        track_set_texture(pTexture as usize, Stage, &mut GLOBAL_STATE);
+    // Skip selection tracking when the call comes from inside our own DIP
+    // path (e.g. render_mod_d3d9 setting mod/override textures). In that
+    // case the DIP guard holds the hook-state lock and we'd deadlock; the
+    // synthetic SetTexture is also not a "natural" game binding, so we
+    // don't want to track it as selected anyway.
+    if !global_state::IN_DIP.load(std::sync::atomic::Ordering::Acquire) {
+        if let Some((_lck, gs)) = hook_state_write() {
+            if gs.making_selection {
+                track_set_texture(pTexture as usize, Stage, gs);
+            }
+        }
     }
 
     // Pull the real fn pointer out and drop the guard before calling, in case
@@ -409,7 +441,14 @@ pub (crate) unsafe extern "system" fn hook_set_stream_source(
     OffsetInBytes: UINT,
     Stride: UINT,
 ) -> HRESULT {
-    track_bound_vertex_buffer(pStreamData as usize, StreamNumber, &mut GLOBAL_STATE);
+    // Same re-entry skip as in hook_set_texture: render_mod_d3d9 invokes
+    // SetStreamSource as part of mod rendering while the DIP guard holds
+    // the hook-state lock.
+    if !global_state::IN_DIP.load(std::sync::atomic::Ordering::Acquire) {
+        if let Some((_lck, gs)) = hook_state_write() {
+            track_bound_vertex_buffer(pStreamData as usize, StreamNumber, gs);
+        }
+    }
 
     let real_set_stream_source = match dev_state_read() {
         Some((_lck, ds)) => match &ds.hook {
@@ -430,9 +469,11 @@ pub (crate) unsafe extern "system" fn hook_reset(
     THIS: *mut IDirect3DDevice9,
     pPresentationParameters: *mut D3DPRESENT_PARAMETERS,
 ) -> HRESULT {
-    GLOBAL_STATE.bound_vertex_buffer = 0;
-    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
-        map.clear();
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.bound_vertex_buffer = 0;
+        if let Some(map) = gs.vb_checksums.as_mut() {
+            map.clear();
+        }
     }
 
     let real_reset = match dev_state_read() {
@@ -454,13 +495,12 @@ unsafe fn purge_device_resources(device: DevicePointer) {
         return;
     }
     mod_load::clear_loaded_mods(device);
-    let seltext = GLOBAL_STATE.selection_texture.take();
+    let seltext = hook_state_write().and_then(|(_lck, gs)| gs.selection_texture.take());
     seltext.map(|t| t.release());
 
-    GLOBAL_STATE
-        .input
-        .as_mut()
-        .map(|input| input.clear_handlers());
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.input.as_mut().map(|input| input.clear_handlers());
+    }
     if let Some((_lck, ds)) = dev_state_write() {
         ds.d3d_resource_count = 0;
     }
@@ -501,10 +541,20 @@ pub unsafe extern "system" fn hook_present(
         return call_real_present()
     }
 
+    // Pull a snapshot of the bits of HookState we need for this present
+    // pass under a short read lock.
+    let (snap_use_sysmem, min_fps, has_seltex, is_snapping) = match hook_state_read() {
+        Some((_lck, gs)) => (
+            gs.run_conf.profile.snap_use_sysmemtexturetracking,
+            gs.interop_state.map(|is| is.conf_data.MinimumFPS).unwrap_or(0) as f64,
+            gs.selection_texture.is_some(),
+            gs.is_snapping,
+        ),
+        None => (false, 0.0, false, false),
+    };
+
     // Periodically GC the DX9 UpdateTexture source-tracking state.
-    // This releases refs we took on sources in `hook_update_texture` that
-    // have been sitting around long enough that we no longer need them.
-    if GLOBAL_STATE.run_conf.profile.snap_use_sysmemtexturetracking {
+    if snap_use_sysmem {
         let now = SystemTime::now();
         let last_gc = device_state::dev_state_d3d9_read()
             .map(|(_lck, h)| h.update_texture_last_gc);
@@ -520,25 +570,19 @@ pub unsafe extern "system" fn hook_present(
         }
     }
 
-    let min_fps = GLOBAL_STATE
-        .interop_state
-        .map(|is| is.conf_data.MinimumFPS)
-        .unwrap_or(0) as f64;
-
-    let metrics = &mut GLOBAL_STATE.metrics;
     let has_hook = match dev_state_read() {
         Some((_lck, ds)) => ds.hook.is_some(),
         None => false,
     };
     let present_ret = if !has_hook { S_OK } else {
-        (|| {
+        // Update frame metrics under a write guard, then drop it before
+        // calling into the real present.
+        if let Some((_lck, gs)) = hook_state_write() {
+            let metrics = &mut gs.metrics;
             metrics.frames += 1;
             metrics.total_frames += 1;
             if metrics.frames % 90 == 0 {
                 // enforce min fps
-                // NOTE: when low, it just sets a boolean flag to disable mod rendering,
-                // but we could also use virtual protect to temporarily swap out the hook functions
-                // (except for present)
                 let now = SystemTime::now();
                 let elapsed = now.duration_since(metrics.last_fps_update);
                 if let Ok(d) = elapsed {
@@ -554,19 +598,15 @@ pub unsafe extern "system" fn hook_present(
                     else if metrics.low_framerate && smooth_fps > (min_off * 1.1) {
                         metrics.low_framerate = false;
                     }
-                    // write_log_file(&format!(
-                    //     "{} frames in {} secs ({} instant, {} smooth) (low: {})",
-                    //     hookdevice.frames, secs, fps, smooth_fps, hookdevice.low_framerate
-                    // ));
                     metrics.last_fps_update = now;
                     metrics.frames = 0;
                 }
             }
-            call_real_present()
-        })()
+        }
+        call_real_present()
     };
 
-    if GLOBAL_STATE.selection_texture.is_none() {
+    if !has_seltex {
         input_commands::create_selection_texture_d3d9(THIS);
     }
 
@@ -575,17 +615,22 @@ pub unsafe extern "system" fn hook_present(
         None => null_mut(),
     };
     if util::appwnd_is_foreground(d3d_window) {
-        GLOBAL_STATE.input.as_mut().map(|inp| {
-            if inp.get_press_fn_count() == 0 {
-                input_commands::setup_input(DevicePointer::D3D9(THIS), inp)
-                    .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
+        // Process input under the write guard. Input processing can fire
+        // press handlers but those are user code (key bindings) that
+        // should not re-enter our hooks.
+        if let Some((_lck, gs)) = hook_state_write() {
+            if let Some(inp) = gs.input.as_mut() {
+                if inp.get_press_fn_count() == 0 {
+                    input_commands::setup_input(DevicePointer::D3D9(THIS), inp)
+                        .unwrap_or_else(|e| write_log_file(&format!("input setup error: {:?}", e)));
+                }
+                inp.process()
+                    .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
             }
-            inp.process()
-                .unwrap_or_else(|e| write_log_file(&format!("input error: {:?}", e)));
-        });
+        }
     }
 
-    if GLOBAL_STATE.is_snapping {
+    if is_snapping {
         // this may set is_snapping = false if the snapshot is done
         hook_snapshot::present_process();
     }
@@ -850,16 +895,31 @@ pub enum CheckRenderModResult {
 }
 /// Check for a mod to render, and if one is found, render it using the supplied function `F`.
 /// Returns `CheckRenderModResult` to indicate to result of this check.
+///
+/// Acquires the hook-state lock internally for short windows; drops it
+/// before invoking `rfunc` (which calls into hooked d3d functions like
+/// SetTexture/SetStreamSource that would otherwise deadlock).
 pub unsafe fn check_and_render_mod<F>(primCount:u32, NumVertices: u32, mut rfunc:F) -> CheckRenderModResult
 where
     F: FnMut(&ModD3DData,&NativeModData) -> bool {
 
     let mut loading_mod_name = None;
-    // Build a view of the currently-bound stream-0 VB so that `select` can
-    // apply the optional VB-checksum secondary mesh identifier.
+    // Snapshot the bits of HookState we need to call mod_render::select.
+    // Pre-resolve the bound VB's checksum so we don't have to clone the
+    // whole vb_checksums map across the lock boundary on every draw call.
+    let (bound_vb_ptr, bound_vb_checksum, total_frames) = match hook_state_read() {
+        Some((_lck, gs)) => {
+            let ptr = gs.bound_vertex_buffer;
+            let cksum = gs.vb_checksums.as_ref()
+                .and_then(|m| m.get(&ptr))
+                .and_then(|s| s.checksum());
+            (ptr, cksum, gs.metrics.total_frames)
+        },
+        None => return CheckRenderModResult::NotRendered,
+    };
     let bound_vb = mod_render::BoundVB {
-        ptr: GLOBAL_STATE.bound_vertex_buffer,
-        checksums: GLOBAL_STATE.vb_checksums.as_ref(),
+        ptr: bound_vb_ptr,
+        checksum: bound_vb_checksum,
     };
     let mut loaded_mods_guard = match LOADED_MODS.lock() {
         Ok(g) => g,
@@ -874,17 +934,17 @@ where
 
             let r = mod_render::select(mods,
                 primCount, NumVertices,
-                GLOBAL_STATE.metrics.total_frames,
+                total_frames,
                 &bound_vb);
             profile_end!(hdip, mod_select);
             r
         })
         .and_then(|nmods| {
-            
+
             let modslice = nmods.as_slice();
             let nmodlen = modslice.len();
 
-            debug_spam!(|| format!("select returned {} mods, first: {}", nmodlen, if nmodlen > 0 { 
+            debug_spam!(|| format!("select returned {} mods, first: {}", nmodlen, if nmodlen > 0 {
                 &modslice[0].name
             } else {
                 "none"
@@ -902,14 +962,18 @@ where
                     native_mod::ModD3DState::Partial(_)
                     | native_mod::ModD3DState::Unloaded => {
                         debug_spam!(|| format!("starting load of requested mod: {}", nmod.name));
-                        // tried to render an unloaded mod, make a note that it should be loaded
-                        let load_next_hs = GLOBAL_STATE.load_on_next_frame.get_or_insert_with(
-                            || fnv::FnvHashSet::with_capacity_and_hasher(
-                                100,
-                                Default::default(),
-                            ));
-                        loading_mod_name = Some(nmod.name.to_owned());
-                        load_next_hs.insert(nmod.name.to_owned());
+                        // tried to render an unloaded mod, make a note that it should be loaded.
+                        // Acquire the write lock briefly to update load_on_next_frame.
+                        let name = nmod.name.to_owned();
+                        if let Some((_lck, gs)) = hook_state_write() {
+                            let load_next_hs = gs.load_on_next_frame.get_or_insert_with(
+                                || fnv::FnvHashSet::with_capacity_and_hasher(
+                                    100,
+                                    Default::default(),
+                                ));
+                            load_next_hs.insert(name.clone());
+                        }
+                        loading_mod_name = Some(name);
                         return None;
                     }
                 };
@@ -989,9 +1053,20 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, state_begin);
 
-    let metrics = &mut GLOBAL_STATE.metrics;
+    // Snapshot the hot-path scalars under a brief read lock.
+    let (is_snapping, low_framerate, show_mods, bound_vb_ptr, vb_checksum_match, making_selection) = match hook_state_read() {
+        Some((_lck, gs)) => (
+            gs.is_snapping,
+            gs.metrics.low_framerate,
+            gs.show_mods,
+            gs.bound_vertex_buffer,
+            global_state::vb_checksum_target_matches_with(gs, primCount, NumVertices),
+            gs.making_selection,
+        ),
+        None => return E_FAIL,
+    };
 
-    if !GLOBAL_STATE.is_snapping && (metrics.low_framerate || !GLOBAL_STATE.show_mods || force_modding_off) {
+    if !is_snapping && (low_framerate || !show_mods || force_modding_off) {
         return (real_dip)(
             THIS,
             PrimitiveType,
@@ -1005,32 +1080,37 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     // for snapshot selection, check to see if current selected texture is being rendered, and if
     // so obtain the override (selection) texture pointer
-    let (override_texture, sel_stage, this_is_selected) = {
-        get_override_tex_if_selected(|tp:&TexPtr| {
-            match tp {
-                &TexPtr::D3D9(ref tex) => *tex as *mut IDirect3DBaseTexture9,
-                x => {
-                    write_log_file(&format!("ERROR: unexpected texture type in snapshot selection: {:?}", x));
-                    null_mut()
+    let (override_texture, sel_stage, this_is_selected) = if making_selection {
+        match hook_state_read() {
+            Some((_lck, gs)) => get_override_tex_if_selected(gs, |tp:&TexPtr| {
+                match tp {
+                    &TexPtr::D3D9(ref tex) => *tex as *mut IDirect3DBaseTexture9,
+                    x => {
+                        write_log_file(&format!("ERROR: unexpected texture type in snapshot selection: {:?}", x));
+                        null_mut()
+                    }
                 }
-            }
-        }).unwrap_or((null_mut(), 0, false))
+            }).unwrap_or((null_mut(), 0, false)),
+            None => (null_mut(), 0, false),
+        }
+    } else {
+        (null_mut(), 0, false)
     };
 
     // Compute a CRC for the currently bound VB if we haven't already, but
     // only when we actually need it: during a snapshot (so the CRC is
     // available to the snapshot meta) or when a loaded mod has a
     // VB-checksum constraint for this draw's (prim,vert) counts.
-    if GLOBAL_STATE.bound_vertex_buffer != 0
-        && (GLOBAL_STATE.is_snapping
-            || global_state::vb_checksum_target_matches(primCount, NumVertices))
-    {
-        crate::hook_device::ensure_vb_checksum_dx9(
-            GLOBAL_STATE.bound_vertex_buffer as *mut IDirect3DVertexBuffer9,
-        );
+    if bound_vb_ptr != 0 && (is_snapping || vb_checksum_match) {
+        if let Some((_lck, gs)) = hook_state_write() {
+            crate::hook_device::ensure_vb_checksum_dx9(
+                gs,
+                bound_vb_ptr as *mut IDirect3DVertexBuffer9,
+            );
+        }
     }
 
-    if GLOBAL_STATE.is_snapping {
+    if is_snapping {
         let mut sd = types::interop::SnapshotData {
             sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
             was_reset: false,
@@ -1054,7 +1134,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS {
-        metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
+        }
     }
 
     // if there is a matching mod, render it
@@ -1113,7 +1195,9 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
     };
     profile_end!(hdip, real_dip);
 
-    metrics.dip_calls += 1;
+    if let Some((_lck, gs)) = hook_state_write() {
+        gs.metrics.dip_calls += 1;
+    }
 
     // _dip_guard drops here, clearing IN_DIP.
     profile_end!(hdip, hook_dip);

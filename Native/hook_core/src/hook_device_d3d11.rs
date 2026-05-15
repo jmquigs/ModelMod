@@ -80,7 +80,7 @@ use crate::hook_render_d3d11::*;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
 
-use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK};
+use global_state::{hook_state_read, hook_state_write};
 
 type D3D11CreateDeviceFN = extern "system" fn (
     pAdapter: *mut IDXGIAdapter,
@@ -589,11 +589,14 @@ pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
     // we don't copy the vtable.
     let old_prot = util::unprotect_memory(vtbl as *mut c_void, vsize)?;
     (*vtbl).CreateInputLayout = hook_CreateInputLayoutFn;
+    let (precopy, force_cpu_read) = hook_state_read()
+        .map(|(_lck, gs)| (gs.run_conf.precopy_data, gs.run_conf.force_tex_cpu_read))
+        .unwrap_or((false, false));
     // don't need to hook create buffer if we aren't precoping data
-    if GLOBAL_STATE.run_conf.precopy_data {
+    if precopy {
         (*vtbl).CreateBuffer = hook_CreateBuffer;
     }
-    if GLOBAL_STATE.run_conf.force_tex_cpu_read {
+    if force_cpu_read {
         (*vtbl).CreateTexture2D = hook_CreateTexture2D;
     }
     (*vtbl).parent.QueryInterface = hook_device_QueryInterface;
@@ -691,48 +694,54 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
     let mut changed = false;
 
     // Look up the game profile for the current exe so that profile settings
-    // are available before hooks are installed.
-    if GLOBAL_STATE.run_conf.profile.profile_key.is_empty() {
-        let profile = util::game_profile::load_for_current_exe();
-        if !profile.profile_key.is_empty() {
-            GLOBAL_STATE.run_conf.profile = profile;
-        }
-    }
+    // are available before hooks are installed. The registry queries below
+    // are independent of the lock, so do them first then update under one
+    // write guard.
+    let new_profile = if hook_state_read()
+        .map(|(_lck, gs)| gs.run_conf.profile.profile_key.is_empty())
+        .unwrap_or(true)
+    {
+        let p = util::game_profile::load_for_current_exe();
+        if !p.profile_key.is_empty() { Some(p) } else { None }
+    } else {
+        None
+    };
 
-    if check_precopy {
-        let precopy = util::reg_query_root_dword("SnapPreCopyData");
+    let new_precopy = if check_precopy {
+        Some(util::reg_query_root_dword("SnapPreCopyData").map(|v| v > 0).unwrap_or(false))
+    } else {
+        None
+    };
+    let new_force_cpu_read = util::reg_query_root_dword("SnapForceTexCpuRead").map(|v| v > 0).unwrap_or(false);
 
-        let old_precopy = GLOBAL_STATE.run_conf.precopy_data;
-        if let Ok(precopy) = precopy {
-            GLOBAL_STATE.run_conf.precopy_data = precopy > 0;
-        } else {
-            GLOBAL_STATE.run_conf.precopy_data = false;
+    if let Some((_lck, gs)) = hook_state_write() {
+        if let Some(p) = new_profile {
+            gs.run_conf.profile = p;
         }
-        if old_precopy != GLOBAL_STATE.run_conf.precopy_data {
+        if let Some(precopy) = new_precopy {
+            let old_precopy = gs.run_conf.precopy_data;
+            gs.run_conf.precopy_data = precopy;
+            if old_precopy != precopy {
+                changed = true;
+            }
+        }
+        let old_force = gs.run_conf.force_tex_cpu_read;
+        gs.run_conf.force_tex_cpu_read = new_force_cpu_read;
+        if old_force != new_force_cpu_read {
             changed = true;
         }
+        write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
+            gs.run_conf.precopy_data, gs.run_conf.force_tex_cpu_read,
+            changed,
+        ));
+        write_log_file(&format!("runconf: game profile: {:?}", gs.run_conf.profile));
     }
-
-    let force_tex_cpu_read = util::reg_query_root_dword("SnapForceTexCpuRead");
-    let old_force_tex_cpu_read = GLOBAL_STATE.run_conf.force_tex_cpu_read;
-    if let Ok(force_tex_cpu_read) = force_tex_cpu_read {
-        GLOBAL_STATE.run_conf.force_tex_cpu_read = force_tex_cpu_read > 0;
-    } else {
-        GLOBAL_STATE.run_conf.force_tex_cpu_read = false;
-    }
-    if old_force_tex_cpu_read != GLOBAL_STATE.run_conf.force_tex_cpu_read {
-        changed = true;
-    }
-    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
-        GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read,
-        changed,
-    ));
-    write_log_file(&format!("runconf: game profile: {:?}", GLOBAL_STATE.run_conf.profile));
     changed
 }
 
 fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*mut ID3D11DeviceContext) -> Result<()> {
     let was_init = init_device_state_once();
+    global_state::init_hook_state();
     let mm_root = match mm_verify_load() {
         Some(dir) => dir,
         None => {
@@ -745,11 +754,9 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
     init_log(&mm_root);
     debugmode::check_init(&mm_root);
     unsafe {
-        GLOBAL_STATE.mm_root = Some(mm_root);
-
-        let _lock = GLOBAL_STATE_LOCK
-        .lock()
-        .map_err(|_err| HookError::GlobalLockError)?;
+        if let Some((_lck, gs)) = hook_state_write() {
+            gs.mm_root = Some(mm_root);
+        }
 
         query_and_set_runconf_in_globalstate(true);
 
@@ -1059,10 +1066,8 @@ pub unsafe fn ensure_vb_checksum_dx11(vb_ptr: usize) {
     if vb_ptr == 0 {
         return;
     }
-    let already_resolved = GLOBAL_STATE
-        .vb_checksums
-        .as_ref()
-        .map(|m| m.contains_key(&vb_ptr))
+    let already_resolved = hook_state_read()
+        .map(|(_lck, gs)| gs.vb_checksums.as_ref().map(|m| m.contains_key(&vb_ptr)).unwrap_or(false))
         .unwrap_or(false);
     if already_resolved {
         return;
@@ -1077,11 +1082,13 @@ pub unsafe fn ensure_vb_checksum_dx11(vb_ptr: usize) {
         },
         None => global_state::VBChecksumStatus::NotPossible,
     };
-    if GLOBAL_STATE.vb_checksums.is_none() {
-        GLOBAL_STATE.vb_checksums = Some(fnv::FnvHashMap::default());
-    }
-    if let Some(map) = GLOBAL_STATE.vb_checksums.as_mut() {
-        map.insert(vb_ptr, status);
+    if let Some((_lck, gs)) = hook_state_write() {
+        if gs.vb_checksums.is_none() {
+            gs.vb_checksums = Some(fnv::FnvHashMap::default());
+        }
+        if let Some(map) = gs.vb_checksums.as_mut() {
+            map.insert(vb_ptr, status);
+        }
     }
 }
 
@@ -1130,7 +1137,10 @@ unsafe extern "system" fn hook_CreateTexture2D(
         std::ptr::copy_nonoverlapping::<u8>(pDesc as *const u8, &mut ov_desc as *mut _ as *mut u8,
             std::mem::size_of::<D3D11_TEXTURE2D_DESC>());
 
-        if GLOBAL_STATE.run_conf.force_tex_cpu_read {
+        let force_cpu_read = hook_state_read()
+            .map(|(_lck, gs)| gs.run_conf.force_tex_cpu_read)
+            .unwrap_or(false);
+        if force_cpu_read {
             ov_desc.CPUAccessFlags |= D3D11_CPU_ACCESS_READ;
             changed_desc = true;
         }
@@ -1732,16 +1742,22 @@ pub mod tests {
             });
 
             // after some dip calls, draw will trigger first periodic call which does nothing
-            GLOBAL_STATE.metrics.dip_calls = HOOK_DRAW_PERIODIC_CALLS - 1;
+            if let Some((_lck, gs)) = hook_state_write() {
+                gs.metrics.dip_calls = HOOK_DRAW_PERIODIC_CALLS - 1;
+            }
             (*context).DrawIndexed(12, 0, 0);
-            assert_eq!(GLOBAL_STATE.metrics.dip_calls, HOOK_DRAW_PERIODIC_CALLS);
+            let dip_calls = hook_state_read().map(|(_lck, gs)| gs.metrics.dip_calls).unwrap_or(0);
+            assert_eq!(dip_calls, HOOK_DRAW_PERIODIC_CALLS);
             // the func we are interested is called on a time basis so need to let some go by...
             std::thread::sleep(std::time::Duration::from_secs(1));
-            GLOBAL_STATE.clr.runtime_pointer = Some(1); // this will prevent the clr from initting
-            // this should trigger the second periodic call which copies layouts amongst other things
-            GLOBAL_STATE.metrics.dip_calls += HOOK_DRAW_PERIODIC_CALLS - 1;
+            if let Some((_lck, gs)) = hook_state_write() {
+                gs.clr.runtime_pointer = Some(1); // this will prevent the clr from initting
+                // this should trigger the second periodic call which copies layouts amongst other things
+                gs.metrics.dip_calls += HOOK_DRAW_PERIODIC_CALLS - 1;
+            }
             (*context).DrawIndexed(12, 0, 0);
-            assert_eq!(GLOBAL_STATE.metrics.dip_calls, 2 * HOOK_DRAW_PERIODIC_CALLS);
+            let dip_calls = hook_state_read().map(|(_lck, gs)| gs.metrics.dip_calls).unwrap_or(0);
+            assert_eq!(dip_calls, 2 * HOOK_DRAW_PERIODIC_CALLS);
             dev_state_d3d11_write().map(|(_lck, ds)| {
                 assert_eq!(ds.rs.num_input_layouts.load(Ordering::Relaxed), 0);
                 assert_eq!(ds.rs.device_input_layouts_by_ptr.len(), 0);
@@ -1751,7 +1767,9 @@ pub mod tests {
                 ds.rs = DX11RenderState::new();
             });
 
-            GLOBAL_STATE.clr.runtime_pointer = None;
+            if let Some((_lck, gs)) = hook_state_write() {
+                gs.clr.runtime_pointer = None;
+            }
             let rc = (*context).Release();
             assert_eq!(rc, 0);
         }
