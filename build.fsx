@@ -225,8 +225,8 @@ Target "BuildMMLaunch" (fun _ ->
             |> CopyFiles buildBin
         // Bring along the `runtimes/` folder for native bits like SkiaSharp/HarfBuzz/ANGLE.
         if Directory.Exists (mmLaunchOut + "/runtimes") then
-            !! (mmLaunchOut + "/runtimes/**/*.*")
-                |> CopyWithSubfoldersTo buildBin
+            let files = !! (mmLaunchOut + "/runtimes/**/*.*")
+            CopyWithSubfoldersTo buildBin [files]
 )
 
 Target "BuildTest" (fun _ ->
