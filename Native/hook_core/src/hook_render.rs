@@ -489,7 +489,7 @@ pub unsafe extern "system" fn hook_present(
         };
         real_present(THIS, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion)
     };
-    if GLOBAL_STATE.in_any_hook_fn() {
+    if global_state::in_any_hook_fn() {
         return call_real_present();
     }
 
@@ -618,22 +618,22 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         }
     };
 
-    if GLOBAL_STATE.in_hook_release {
-        return match get_real_release() {
-            Some(real_release) => real_release(THIS),
-            None => {
-                oops_log_release_fail();
-                failret
-            }
-        };
-    }
-
-    GLOBAL_STATE.in_hook_release = true;
+    let _release_guard = match global_state::ReentryGuard::try_enter(&global_state::IN_HOOK_RELEASE) {
+        Some(g) => g,
+        None => {
+            return match get_real_release() {
+                Some(real_release) => real_release(THIS),
+                None => {
+                    oops_log_release_fail();
+                    failret
+                }
+            };
+        }
+    };
 
     let real_release = match get_real_release() {
         Some(f) => f,
         None => {
-            GLOBAL_STATE.in_hook_release = false;
             oops_log_release_fail();
             return failret;
         }
@@ -707,7 +707,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         }
         new_ref_count
     })();
-    GLOBAL_STATE.in_hook_release = false;
+    // _release_guard drops here, clearing IN_HOOK_RELEASE.
 
     if r == failret {
         oops_log_release_fail();
@@ -961,10 +961,13 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     // no re-entry please
     profile_start!(hdip, dip_check);
-    if GLOBAL_STATE.in_dip {
-        write_log_file(&format!("ERROR: i'm in DIP already!"));
-        return S_OK;
-    }
+    let _dip_guard = match global_state::ReentryGuard::try_enter(&global_state::IN_DIP) {
+        Some(g) => g,
+        None => {
+            write_log_file(&format!("ERROR: i'm in DIP already!"));
+            return S_OK;
+        }
+    };
     profile_end!(hdip, dip_check);
 
     profile_start!(hdip, state_begin);
@@ -1049,8 +1052,6 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     profile_start!(hdip, main_combinator);
 
-    GLOBAL_STATE.in_dip = true;
-
     use global_state::RenderedPrimType::PrimVertCount;
     if global_state::METRICS_TRACK_PRIMS {
         metrics.rendered_prims.push(PrimVertCount(primCount, NumVertices));
@@ -1114,8 +1115,7 @@ pub unsafe extern "system" fn hook_draw_indexed_primitive(
 
     metrics.dip_calls += 1;
 
-
-    GLOBAL_STATE.in_dip = false;
+    // _dip_guard drops here, clearing IN_DIP.
     profile_end!(hdip, hook_dip);
 
     profile_summarize!(hdip, 10.0);

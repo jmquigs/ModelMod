@@ -118,11 +118,13 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         }
     });
 
-    if GLOBAL_STATE.in_hook_release {
-        //write_log_file(&format!("warn: re-entrant hook release"));
-        return (hook_context.real_release)(THIS);
-    }
-    GLOBAL_STATE.in_hook_release = true;
+    let _release_guard = match global_state::ReentryGuard::try_enter(&global_state::IN_HOOK_RELEASE) {
+        Some(g) => g,
+        None => {
+            //write_log_file(&format!("warn: re-entrant hook release"));
+            return (hook_context.real_release)(THIS);
+        }
+    };
     let rc = (hook_context.real_release)(THIS);
     // if >= 1 then this spams when Discord is running, wonder what its doing
     if rc < 1 {
@@ -131,7 +133,7 @@ pub unsafe extern "system" fn hook_release(THIS: *mut IUnknown) -> ULONG {
         debugmode::log("context hook release: obj not deleted, replaced hook vtable");
         (*THIS).lpVtbl = save_table;
     }
-    GLOBAL_STATE.in_hook_release = false;
+    // _release_guard drops here, clearing IN_HOOK_RELEASE.
 
     rc
 }
@@ -543,10 +545,13 @@ pub unsafe extern "system" fn hook_draw_indexed(
     };
 
     profile_start!(hdi, total);
-    if GLOBAL_STATE.in_dip {
-        write_log_file("ERROR: i'm in DIP already!");
-        return;
-    }
+    let _dip_guard = match global_state::ReentryGuard::try_enter(&global_state::IN_DIP) {
+        Some(g) => g,
+        None => {
+            write_log_file("ERROR: i'm in DIP already!");
+            return;
+        }
+    };
 
     profile_start!(hdi, start);
     debugmode::note_called(DebugModeCalledFns::Hook_ContextDrawIndexed, THIS as usize);
@@ -574,8 +579,6 @@ pub unsafe extern "system" fn hook_draw_indexed(
         profile_end!(hdi, total);
         return;
     }
-
-    GLOBAL_STATE.in_dip = true;
 
     profile_end!(hdi, start);
     profile_start!(hdi, sel_tex_snap);
@@ -859,8 +862,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
     periodic();
 
-    GLOBAL_STATE.in_dip = false;
-
+    // _dip_guard drops here, clearing IN_DIP.
     profile_end!(hdi, total);
     profile_summarize!(hdi, 10.0);
 }

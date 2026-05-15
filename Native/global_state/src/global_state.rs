@@ -13,7 +13,7 @@ use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::SystemTime;
 use std::fmt;
 use fnv::FnvHashMap;
@@ -132,9 +132,6 @@ pub struct HookState {
     pub active_texture_set: Option<FnvHashSet<usize>>,
     pub active_texture_list: Option<Vec<usize>>,
     pub making_selection: bool,
-    pub in_dip: bool,
-    pub in_hook_release: bool,
-    pub in_beginend_scene: bool,
     pub show_mods: bool,
     pub mm_root: Option<String>,
     pub input: Option<input::Input>,
@@ -165,9 +162,39 @@ pub struct HookState {
     pub vb_checksum_targets: Option<FnvHashSet<(u32, u32)>>,
 }
 
-impl HookState {
-    pub fn in_any_hook_fn(&self) -> bool {
-        self.in_dip || self.in_hook_release || self.in_beginend_scene
+/// Re-entry guard flags. These live outside the locked HookState so that
+/// the very first thing a hot-path hook does (the re-entry check) is
+/// lock-free, and so a re-entrant call into our hooks cannot deadlock on
+/// the global state lock.
+pub static IN_DIP: AtomicBool = AtomicBool::new(false);
+pub static IN_HOOK_RELEASE: AtomicBool = AtomicBool::new(false);
+pub static IN_BEGINEND_SCENE: AtomicBool = AtomicBool::new(false);
+
+pub fn in_any_hook_fn() -> bool {
+    IN_DIP.load(Ordering::Acquire)
+        || IN_HOOK_RELEASE.load(Ordering::Acquire)
+        || IN_BEGINEND_SCENE.load(Ordering::Acquire)
+}
+
+/// RAII guard for an `AtomicBool` reentry flag. Calls `swap(true)` on
+/// entry; if the flag was already `true` returns `None` (re-entry
+/// detected). On drop, sets the flag back to `false`. This guarantees we
+/// can't leak the flag on early-return paths.
+pub struct ReentryGuard(&'static AtomicBool);
+
+impl ReentryGuard {
+    pub fn try_enter(flag: &'static AtomicBool) -> Option<Self> {
+        if flag.swap(true, Ordering::Acquire) {
+            None
+        } else {
+            Some(ReentryGuard(flag))
+        }
+    }
+}
+
+impl Drop for ReentryGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 impl fmt::Display for HookState {
@@ -206,9 +233,6 @@ pub static mut GLOBAL_STATE: HookState = HookState {
     active_texture_set: None,
     active_texture_list: None,
     making_selection: false,
-    in_dip: false,
-    in_hook_release: false,
-    in_beginend_scene: false,
     show_mods: true,
     mm_root: None,
     input: None,
