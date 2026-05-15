@@ -122,6 +122,7 @@ module IconLoader =
 /// Mutable wrapper around an immutable RunConfig.
 [<AllowNullLiteral>] // ListBox bindings need a reference type that supports null
 type ProfileModel(config: ConfigTypes.RunConfig) =
+    inherit ViewModelBase()
     let mutable config = config
 
     // set defaults for empty profile values
@@ -160,6 +161,7 @@ type ProfileModel(config: ConfigTypes.RunConfig) =
             else
                 config <- { config with ProfileName = value }
                 save ()
+                x.RaisePropertyChanged "Name"
 
     member x.ExePath
         with get () = config.ExePath
