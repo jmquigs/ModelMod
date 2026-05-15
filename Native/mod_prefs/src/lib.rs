@@ -60,6 +60,12 @@ fn prefs_dir_base() -> Option<PathBuf> {
         .unwrap_or("unknown_test")
         .replace("::", "_");
 
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
     let fnopath = file!().replace("\\", "_").replace("/", "_").replace("..", "_");
     path.push(format!("test_run_{}_{}", fnopath, test_name)); // Uses the line number as a simple unique ID
     path.push(PREFS_SUBDIR);
