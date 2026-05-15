@@ -7,7 +7,7 @@ use std::time::{SystemTime, Duration};
 use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
 use mod_stats::mod_stats;
 use shared_dx::dx11rs::{DX11RenderState, VertexFormat};
-use shared_dx::types::{HookDeviceState, DevicePointer, DX11Metrics, D3D11Tex};
+use shared_dx::types::{DevicePointer, DX11Metrics, D3D11Tex};
 use shared_dx::types_dx11::{HookDirect3D11Context};
 use shared_dx::util::{write_log_file, ReleaseOnDrop};
 use types::TexPtr;
@@ -29,7 +29,7 @@ use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, GetParent, GetDesktopWindow, GetForegroundWindow};
 use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
-use device_state::{dev_state, dev_state_d3d11_nolock, dev_state_d3d11_write};
+use device_state::{dev_state_d3d11_read, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
 use crate::hook_device_d3d11::apply_context_hooks;
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
@@ -38,16 +38,18 @@ use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 use fnv::FnvHashMap;
 
-/// Return the d3d11 context hooks.
-fn get_hook_context<'a>() -> Result<&'a mut HookDirect3D11Context> {
-    let hooks = match dev_state().hook {
-        Some(HookDeviceState::D3D11(ref mut rs)) => &mut rs.hooks,
-        _ => {
+/// Return the d3d11 context hooks.  Returns a Copy of the hook fn pointers
+/// so that callers do not need to hold the device-state lock while invoking
+/// the real fns (which can re-enter our hooks on the same thread and would
+/// otherwise deadlock).
+fn get_hook_context() -> Result<HookDirect3D11Context> {
+    match dev_state_d3d11_read() {
+        Some((_lck, state)) => Ok(state.hooks.context),
+        None => {
             write_log_file("draw: No d3d11 context found");
-            return Err(shared_dx::error::HookError::D3D11NoContext);
-        },
-    };
-    Ok(&mut hooks.context)
+            Err(shared_dx::error::HookError::D3D11NoContext)
+        }
+    }
 }
 
 pub fn u8_slice_to_hex_string(slice: &[u8]) -> String {
@@ -203,12 +205,9 @@ pub unsafe extern "system" fn hook_IASetPrimitiveTopology (
     //     let _func_hooked = apply_context_hooks(THIS, false);
     // }
 
-    match dev_state_d3d11_nolock() {
-        Some(state) => {
-            state.rs.prim_topology = Topology;
-        },
-        None => {}
-    };
+    if let Some((_lck, state)) = dev_state_d3d11_write() {
+        state.rs.prim_topology = Topology;
+    }
 
     (hook_context.real_ia_set_primitive_topology)(THIS, Topology);
 }
@@ -233,9 +232,8 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     // }
 
     // TODO11 use the lock function here or switch to thread local for RS
-    let state = dev_state_d3d11_nolock();
-    match state {
-        Some(state) => {
+    match dev_state_d3d11_write() {
+        Some((_lck, state)) => {
             if NumBuffers > 0 && ppVertexBuffers != null_mut() {
                 for idx in 0..NumBuffers {
                     let pbuf = (*ppVertexBuffers).offset(idx as isize);
@@ -311,13 +309,13 @@ pub unsafe extern "system" fn hook_IASetInputLayout(
     // }
 
     // TODO11 use the lock function here or switch to thread local for RS
-    dev_state_d3d11_nolock().map(|state| {
+    if let Some((_lck, state)) = dev_state_d3d11_write() {
         if pInputLayout != null_mut() {
             state.rs.current_input_layout = pInputLayout;
         } else {
             state.rs.current_input_layout = null_mut();
         }
-    });
+    }
 
     (hook_context.real_ia_set_input_layout)(
         THIS,
@@ -397,7 +395,7 @@ fn compute_prim_vert_count(index_count: UINT, rs:&DX11RenderState) -> Option<(u3
 unsafe fn needs_refill_for_layout(
     d3d11d: &ModD3DData11,
     current_layout_ptr: *mut ID3D11InputLayout,
-    layouts: &FnvHashMap<usize, VertexFormat>,
+    current_layout_mask: Option<shared_dx::dx11rs::SemanticMask>,
 ) -> bool {
     if current_layout_ptr.is_null() {
         return false;
@@ -406,8 +404,8 @@ unsafe fn needs_refill_for_layout(
     if old_mask == 0 {
         return false;
     }
-    let new_mask = match layouts.get(&(current_layout_ptr as usize)) {
-        Some(vf) => vf.semantic_mask(),
+    let new_mask = match current_layout_mask {
+        Some(m) => m,
         None => return false,
     };
     VertexFormat::has_extra_semantics(old_mask, new_mask)
@@ -529,7 +527,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
         }
 
         // input needs faster processing but it won't update faster than 1 per 16ms
-        let fore = dev_state_d3d11_nolock().map(|state| state.app_foreground).unwrap_or(false);
+        let fore = dev_state_d3d11_read().map(|(_lck, state)| state.app_foreground).unwrap_or(false);
         if GLOBAL_STATE.metrics.dip_calls % 250 == 0 && fore {
             GLOBAL_STATE.input.as_mut().map(|inp| {
                 if inp.get_press_fn_count() > 0 {
@@ -603,14 +601,23 @@ pub unsafe extern "system" fn hook_draw_indexed(
                 GLOBAL_STATE.bound_vertex_buffer,
             );
         }
-        dev_state_d3d11_nolock().map(|state| {
-            let checkres = compute_prim_vert_count(IndexCount, &state.rs);
-            let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
+        // Snapshot scalar state needed for the snapshot under a brief read
+        // guard, then drop it before calling hook_snapshot::take which
+        // internally re-acquires the device-state lock.
+        let snap_inputs = match dev_state_d3d11_read() {
+            Some((_lck, state)) => {
+                let checkres = compute_prim_vert_count(IndexCount, &state.rs);
+                let (prim_count, vert_count) = checkres.unwrap_or_else(|| (0,0));
+                Some((state.rs.prim_topology, prim_count, vert_count, state.devptr))
+            },
+            None => None,
+        };
+        if let Some((prim_topology, prim_count, vert_count, mut devptr)) = snap_inputs {
             let mut sd = types::interop::SnapshotData {
                 sd_size: std::mem::size_of::<types::interop::SnapshotData>() as u32,
                 was_reset: false,
                 clear_sd_on_reset: false,
-                prim_type: state.rs.prim_topology as i32,
+                prim_type: prim_topology as i32,
                 base_vertex_index: BaseVertexLocation,
                 min_vertex_index: 0,
                 num_vertices: vert_count,
@@ -621,8 +628,8 @@ pub unsafe extern "system" fn hook_draw_indexed(
                     d3d11: D3D11SnapshotRendData::new(),
                 },
             };
-            hook_snapshot::take(&mut state.devptr, &mut sd, this_is_selected);
-        });
+            hook_snapshot::take(&mut devptr, &mut sd, this_is_selected);
+        }
 
     }
 
@@ -630,146 +637,190 @@ pub unsafe extern "system" fn hook_draw_indexed(
 
 
     profile_start!(hdi, geom_check);
-    // TODO11 use the lock function here or switch to thread local for RS
-    let state = dev_state_d3d11_nolock();
-    let draw_input = state.map(|state| {
-        // this is the only prim type I support but don't log if it is something else since
-        // it would be spammy (maybe log if trying to take a snapshot)
-        if state.rs.prim_topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST {
+    // Snapshot just enough state to drive the geom/mod check, then drop the
+    // device-state read guard before calling code that may itself re-acquire
+    // it (ensure_vb_checksum_dx11, hook_snapshot::take, etc).
+    let geom = match dev_state_d3d11_read() {
+        Some((_lck, state)) => {
+            if state.rs.prim_topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST {
+                profile_end!(hdi, geom_check);
+                None
+            } else {
+                Some((compute_prim_vert_count(IndexCount, &state.rs), state.rs.vb_state.clone()))
+            }
+        },
+        None => {
             profile_end!(hdi, geom_check);
-            return true;
+            // No state -- behave as if no triangle list available, so just
+            // draw the input.
+            let _: Option<()> = None;
+            // signal "no mod state" by returning early from the surrounding
+            // logic; we emulate the previous `state.map(...).unwrap_or(true)`
+            // behavior of returning draw_input=true.
+            None
         }
-        let checkres = compute_prim_vert_count(IndexCount, &state.rs);
-        profile_end!(hdi, geom_check);
+    };
+    let draw_input = match geom {
+        None => {
+            // either prim_topology mismatch or no state -- just draw the input
+            true
+        },
+        Some((checkres, vb_state_clone)) => {
+            profile_end!(hdi, geom_check);
 
-        match checkres {
-            Some((prim_count,vert_count)) if vert_count > 2  => {
-                // if primitive tracking is enabled, log just the primcount,vertcount if we were able
-                // to compute it, otherwise log whatever we have
-                if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
-                    if vert_count > 0 {
-                        use global_state::RenderedPrimType::PrimVertCount;
-                        GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
+            match checkres {
+                Some((prim_count,vert_count)) if vert_count > 2 => {
+                    // if primitive tracking is enabled, log just the primcount,vertcount if we were able
+                    // to compute it, otherwise log whatever we have
+                    if global_state::METRICS_TRACK_PRIMS && prim_count > 2 { // filter out some spammy useless stuff
+                        if vert_count > 0 {
+                            use global_state::RenderedPrimType::PrimVertCount;
+                            GLOBAL_STATE.metrics.rendered_prims.push(PrimVertCount(prim_count, vert_count))
+                        } else {
+                            use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
+                            GLOBAL_STATE.metrics.rendered_prims.push(
+                            PrimCountVertSizeAndVBs(prim_count, vert_count, vb_state_clone));
+                        }
+                    }
+
+                    // Compute the VB Crc if snapping or if the bound vb matches this prim/vert count.
+                    // No dev_state guard is held here so this is safe to call.
+                    if !GLOBAL_STATE.is_snapping
+                        && GLOBAL_STATE.bound_vertex_buffer != 0
+                        && global_state::vb_checksum_target_matches(prim_count, vert_count)
+                    {
+                        crate::hook_device_d3d11::ensure_vb_checksum_dx11(
+                            GLOBAL_STATE.bound_vertex_buffer,
+                        );
+                    }
+
+                    // if there is a matching mod, render it
+                    profile_start!(hdi, mod_precheck);
+                    let quickcheck = match LOADED_MODS.lock() {
+                        Ok(mut g) => g.as_mut().map(
+                            |mods| mod_render::preselect(mods, prim_count, vert_count))
+                            .unwrap_or(false),
+                        Err(e) => {
+                            write_log_file(&format!("preselect: LOADED_MODS lock poisoned: {}", e));
+                            false
+                        }
+                    };
+                    let mod_status = if !quickcheck {
+                        profile_end!(hdi, mod_precheck);
+                        CheckRenderModResult::NotRendered
                     } else {
-                        use global_state::RenderedPrimType::PrimCountVertSizeAndVBs;
-                        GLOBAL_STATE.metrics.rendered_prims.push(
-                        PrimCountVertSizeAndVBs(prim_count, vert_count, state.rs.vb_state.clone()));
-                    }
-                }
-
-                // Compute the VB Crc if snapping or if the bound vb matches this prim/vert count
-                if !GLOBAL_STATE.is_snapping
-                    && GLOBAL_STATE.bound_vertex_buffer != 0
-                    && global_state::vb_checksum_target_matches(prim_count, vert_count)
-                {
-                    crate::hook_device_d3d11::ensure_vb_checksum_dx11(
-                        GLOBAL_STATE.bound_vertex_buffer,
-                    );
-                }
-
-                // if there is a matching mod, render it
-                profile_start!(hdi, mod_precheck);
-                let quickcheck = match LOADED_MODS.lock() {
-                    Ok(mut g) => g.as_mut().map(
-                        |mods| mod_render::preselect(mods, prim_count, vert_count))
-                        .unwrap_or(false),
-                    Err(e) => {
-                        write_log_file(&format!("preselect: LOADED_MODS lock poisoned: {}", e));
-                        false
-                    }
-                };
-                let mod_status = if !quickcheck {
-                    profile_end!(hdi, mod_precheck);
-                    // this write_log_file can be used to get information about misses.
-                    // consider lowing the log LOG_LIMIT counts in util.rs before uncommenting this, as it will be incredibly 
-                    // spammy.  wait until it stabilizes and then try to produce the event which makes the draw you are interested in.
-                    //write_log_file(&format!("miss: {}p/{}v;s={};b={}", prim_count,vert_count, StartIndexLocation, BaseVertexLocation));
-                    CheckRenderModResult::NotRendered
-                } else {
-                    profile_end!(hdi, mod_precheck);
-                    profile_start!(hdi, mod_check);
-                    // If a draw needs the mod refilled (current layout has
-                    // semantics the original fill didn't see), the closure
-                    // can't mutate the mod directly — it has only an immutable
-                    // ref. Stash the request here and let the post-check
-                    // block handle release + reload.
-                    let mut override_mod_status = None;
-                    let mod_status = check_and_render_mod(prim_count, vert_count,
-                        |d3dd,nmod| {
-                            profile_start!(hdi, mod_render);
-                            let res = if let ModD3DData::D3D11(d3d11d) = d3dd {
-                                if needs_refill_for_layout(d3d11d,
-                                        state.rs.current_input_layout,
-                                        &state.rs.context_input_layouts_by_ptr) {
-                                    override_mod_status = Some(
-                                        CheckRenderModResult::NotRenderedButLoadRequested(
-                                            nmod.name.clone()));
-                                    false
+                        profile_end!(hdi, mod_precheck);
+                        profile_start!(hdi, mod_check);
+                        // Precompute the current input layout pointer and its
+                        // semantic mask via a brief read lock so the closure
+                        // can detect "needs refill" without holding the
+                        // dev_state lock across the check_and_render_mod call.
+                        let (current_layout_ptr, current_layout_mask) = match dev_state_d3d11_read() {
+                            Some((_lck, state)) => {
+                                let il = state.rs.current_input_layout;
+                                let mask = if il.is_null() {
+                                    None
                                 } else {
-                                    render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
-                                }
-                            } else {
-                                false
-                            };
-                            profile_end!(hdi, mod_render);
-                            res
-                        });
-                    profile_end!(hdi, mod_check);
-                    override_mod_status.unwrap_or(mod_status)
-                };
+                                    state.rs.context_input_layouts_by_ptr
+                                        .get(&(il as usize))
+                                        .map(|vf| vf.semantic_mask())
+                                };
+                                (il, mask)
+                            },
+                            None => (null_mut(), None),
+                        };
+                        // If a draw needs the mod refilled (current layout has
+                        // semantics the original fill didn't see), the closure
+                        // can't mutate the mod directly — it has only an immutable
+                        // ref. Stash the request here and let the post-check
+                        // block handle release + reload.
+                        let mut override_mod_status = None;
+                        let mod_status = check_and_render_mod(prim_count, vert_count,
+                            |d3dd,nmod| {
+                                profile_start!(hdi, mod_render);
+                                let res = if let ModD3DData::D3D11(d3d11d) = d3dd {
+                                    if needs_refill_for_layout(d3d11d,
+                                            current_layout_ptr,
+                                            current_layout_mask) {
+                                        override_mod_status = Some(
+                                            CheckRenderModResult::NotRenderedButLoadRequested(
+                                                nmod.name.clone()));
+                                        false
+                                    } else {
+                                        render_mod_d3d11(THIS, &hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                                    }
+                                } else {
+                                    false
+                                };
+                                profile_end!(hdi, mod_render);
+                                res
+                            });
+                        profile_end!(hdi, mod_check);
+                        override_mod_status.unwrap_or(mod_status)
+                    };
 
-                profile_start!(hdi, post_mod_check);
-                use types::interop::ModType::GPUAdditive;
-                let draw_input = match mod_status {
-                    CheckRenderModResult::NotRendered => true,
-                    CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
-                    CheckRenderModResult::Rendered(_) => false, // non-additive mod was rendered
-                    CheckRenderModResult::Deleted => false,
-                    CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
-                        // setup data to begin mod load
-                        match LOADED_MODS.lock() {
-                            Ok(mut loaded_mods_guard) => {
-                                let nmod = mod_load::get_mod_by_name(name, &mut *loaded_mods_guard);
-                                if let Some(nmod) = nmod {
-                                    // If the mod is already loaded but we need
-                                    // a refill (semantics-mismatch path), drop
-                                    // the stale d3d data so the Unloaded path
-                                    // below can prime a fresh load.
-                                    mod_load::reset_for_reload(nmod);
-                                    // need to store current input layout in the d3d data
-                                    if let ModD3DState::Unloaded =  nmod.d3d_data {
-                                        let il = state.rs.current_input_layout;
-                                        if !il.is_null() {
-                                            // we're officially keeping an extra reference to the input layout now
-                                            // so note that.
-                                            (*il).AddRef();
-                                            nmod.d3d_data = ModD3DState::Partial(
-                                                ModD3DData::D3D11(ModD3DData11::with_layout(il)));
-                                            write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
-                                            //write_log_file(&format!("current in layout is: {}", il as usize));
+                    profile_start!(hdi, post_mod_check);
+                    use types::interop::ModType::GPUAdditive;
+                    let draw_input = match mod_status {
+                        CheckRenderModResult::NotRendered => true,
+                        CheckRenderModResult::Rendered(mtype) if GPUAdditive as i32 == mtype => true,
+                        CheckRenderModResult::Rendered(_) => false, // non-additive mod was rendered
+                        CheckRenderModResult::Deleted => false,
+                        CheckRenderModResult::NotRenderedButLoadRequested(ref name) => {
+                            // setup data to begin mod load.  Read the
+                            // current input layout pointer briefly under the
+                            // dev_state lock; LOADED_MODS is a separate
+                            // mutex so it is safe to take it inside the
+                            // dev_state guard.
+                            let il = match dev_state_d3d11_read() {
+                                Some((_lck, state)) => state.rs.current_input_layout,
+                                None => null_mut(),
+                            };
+                            match LOADED_MODS.lock() {
+                                Ok(mut loaded_mods_guard) => {
+                                    let nmod = mod_load::get_mod_by_name(name, &mut *loaded_mods_guard);
+                                    if let Some(nmod) = nmod {
+                                        // If the mod is already loaded but we
+                                        // need a refill (semantics-mismatch
+                                        // path), drop the stale d3d data so
+                                        // the Unloaded path below can prime a
+                                        // fresh load.
+                                        mod_load::reset_for_reload(nmod);
+                                        // need to store current input layout in the d3d data
+                                        if let ModD3DState::Unloaded = nmod.d3d_data {
+                                            if !il.is_null() {
+                                                // we're officially keeping an extra reference to the input layout now
+                                                // so note that.
+                                                (*il).AddRef();
+                                                nmod.d3d_data = ModD3DState::Partial(
+                                                    ModD3DData::D3D11(ModD3DData11::with_layout(il)));
+                                                write_log_file(&format!("created partial mod load state for mod {}", nmod.name));
+                                            }
                                         }
                                     }
                                 }
+                                Err(e) => {
+                                    write_log_file(&format!("NotRenderedButLoadRequested: LOADED_MODS lock poisoned: {}", e));
+                                }
                             }
-                            Err(e) => {
-                                write_log_file(&format!("NotRenderedButLoadRequested: LOADED_MODS lock poisoned: {}", e));
-                            }
+                            true
+                        },
+                    };
+
+                    //  update metrics
+                    if METRICS_TRACK_MOD_PRIMS {
+                        if let Some((_lck, state)) = dev_state_d3d11_write() {
+                            update_drawn_recently(&mut state.metrics, prim_count, vert_count, &mod_status);
                         }
-                        true
-                    },
-                };
+                    }
+                    profile_end!(hdi, post_mod_check);
 
-                //  update metrics
-                if METRICS_TRACK_MOD_PRIMS {
-                    update_drawn_recently(&mut state.metrics, prim_count, vert_count, &mod_status);
-                }
-                profile_end!(hdi, post_mod_check);
-
-                draw_input
-            },
-            _ => true
+                    draw_input
+                },
+                _ => true
+            }
         }
-    }).unwrap_or(true);
+    };
 
     if draw_input {
         profile_start!(hdi, draw_ovtex_check);
@@ -815,36 +866,36 @@ pub unsafe extern "system" fn hook_draw_indexed(
 }
 
 /// Call a function with the d3d11 device pointer if it's available.  If pointer is a different,
-/// type or is null, does nothing.
+/// type or is null, does nothing.  The dev_state guard is dropped before the
+/// closure runs so it can re-acquire the lock without deadlocking.
 fn with_dev_ptr<F>(f: F) where F: FnOnce(DevicePointer) {
-    match dev_state().hook {
-        Some(HookDeviceState::D3D11(ref dev)) => {
-            if !dev.devptr.is_null() {
-                f(dev.devptr);
-            }
-        }
-        _ => {},
+    let devptr = match dev_state_d3d11_read() {
+        Some((_lck, state)) if !state.devptr.is_null() => Some(state.devptr),
+        _ => None,
     };
+    if let Some(dp) = devptr {
+        f(dp);
+    }
 }
 
 use winapi::shared::minwindef::BOOL;
 use winapi::shared::minwindef::TRUE;
 unsafe extern "system" fn enum_windows_proc(hwnd:HWND, lparam:isize) -> BOOL {
 
-    dev_state_d3d11_nolock().map(|state| {
+    if let Some((_lck, state)) = dev_state_d3d11_write() {
         // get the process id that owns the window
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
         if pid == lparam as u32 {
             state.app_hwnds.push(hwnd);
         }
-    });
+    }
 
     TRUE
 }
 /// Enumerate application top level windows amd return their handles in a vector.
 unsafe fn find_app_windows() {
-    if let Some(state) = dev_state_d3d11_nolock() { state.app_hwnds.clear(); }
+    if let Some((_lck, state)) = dev_state_d3d11_write() { state.app_hwnds.clear(); }
 
     // get my process id
     let my_pid = GetCurrentProcessId();
@@ -911,8 +962,7 @@ fn expire_data(now:&SystemTime, last_data_expire:&SystemTime, clear_list:&mut Ve
     if elapsed > min {
         let start = SystemTime::now();
         let mut cleartype = "";
-        let (expired_els,total_els) = unsafe {
-            dev_state_d3d11_write()}.map(|(_lock,state)| {
+        let (expired_els,total_els) = dev_state_d3d11_write().map(|(_lock,state)| {
             state.last_data_expire = *now;
             checked = true;
             let expire_dur = Duration::from_secs(DEF_EXPIRE_DUR_SECS);
@@ -1001,7 +1051,7 @@ fn expire_data(now:&SystemTime, last_data_expire:&SystemTime, clear_list:&mut Ve
 
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
-        if let Some(state) = dev_state_d3d11_nolock() {
+        if let Some((_lck, state)) = dev_state_d3d11_write() {
             state.last_timebased_update = now;
         }
         // keep the frame counter rolling even though we don't know when the frames end.  some
@@ -1017,20 +1067,20 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
         let mut devptr = null_mut();
         (*context).GetDevice(&mut devptr);
         if !devptr.is_null() {
-            dev_state_d3d11_nolock().map(|state| {
+            if let Some((_lck, state)) = dev_state_d3d11_write() {
                 if state.devptr.maybe_update(devptr) {
                     // a bit weird so log it
                     write_log_file("Warning: device pointer changed");
                 }
-            });
+            }
             (*devptr).Release();
         }
 
-        let need_layout_copy = unsafe {dev_state_d3d11_nolock()}.map(|state| {
+        let need_layout_copy = dev_state_d3d11_read().map(|(_lck, state)| {
             state.rs.num_input_layouts.load(Ordering::Relaxed) > 0
         }).unwrap_or(false);
         if need_layout_copy {
-            unsafe {dev_state_d3d11_write()}.map(|(_lock,state)| {
+            dev_state_d3d11_write().map(|(_lock,state)| {
                 // copy new layouts.  note currently we don't clear the context layouts ever.
                 // maybe hook release on them at some point so we can dispose of those entries.
                 state.rs.context_input_layouts_by_ptr.extend(
@@ -1056,20 +1106,20 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
             frame_load_mods(deviceptr);
         });
 
-        let wnd_count = dev_state_d3d11_nolock().map(|state| {
+        let wnd_count = dev_state_d3d11_read().map(|(_lck, state)| {
             state.app_hwnds.len()
         }).unwrap_or(0);
         if wnd_count == 0 {
             find_app_windows();
             let dw = GetDesktopWindow();
-            dev_state_d3d11_nolock().map(|state| {
+            if let Some((_lck, state)) = dev_state_d3d11_write() {
                 //let ocount = state.app_hwnds.len();
                 let wnds:Vec<HWND> = state.app_hwnds.iter().filter(|wnd| {
                     **wnd != dw && GetParent(**wnd).is_null()
                 }).copied().collect();
                 state.app_hwnds = wnds;
                 //write_log_file(&format!("found {} app windows, filtered to: {:?}", ocount, state.app_hwnds));
-            });
+            }
         }
 
         if GLOBAL_STATE.input.is_none() {
@@ -1088,7 +1138,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
 
         // find the app main foreground window
         let fwnd = GetForegroundWindow();
-        let appfwnd = dev_state_d3d11_nolock().and_then(|state| {
+        let appfwnd = dev_state_d3d11_read().and_then(|(_lck, state)| {
             state.app_hwnds.iter().find(|wnd| {
                 **wnd == fwnd
             }).copied()
@@ -1099,7 +1149,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
             util::appwnd_is_foreground(hwnd)
         }).unwrap_or(false);
 
-        if let Some(state) = dev_state_d3d11_nolock() { state.app_foreground = app_foreground; }
+        if let Some((_lck, state)) = dev_state_d3d11_write() { state.app_foreground = app_foreground; }
 
         // finish input setup if needed and app is foreground
         if app_foreground {
@@ -1127,7 +1177,7 @@ fn draw_periodic(context:*mut ID3D11DeviceContext) {
     unsafe {
         let now = SystemTime::now();
         let (el_sec,el_ms) =
-            dev_state_d3d11_nolock().map(|state| {
+            dev_state_d3d11_read().map(|(_lck, state)| {
                 let elapsed = now.duration_since(state.last_timebased_update);
 
                 match elapsed {
@@ -1142,7 +1192,7 @@ fn draw_periodic(context:*mut ID3D11DeviceContext) {
     }
 }
 
-unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &mut HookDirect3D11Context,
+unsafe fn render_mod_d3d11(context:*mut ID3D11DeviceContext, hook_context: &HookDirect3D11Context,
      d3dd:&ModD3DData11, _nmod:&NativeModData,
     override_texture: *mut ID3D11ShaderResourceView, override_stage:u32,
     _primVerts:(u32,u32)) -> bool {
@@ -1311,11 +1361,17 @@ fn create_selection_texture_dx11() -> Result<()> {
     let mut srv: *mut ID3D11ShaderResourceView = null_mut();
 
     unsafe {
-        let dp = dev_state_d3d11_nolock().map(|ds| &mut ds.devptr);
-
-        let device = match dp {
-            Some(DevicePointer::D3D11(dev)) => *dev,
-            _ => return Err(HookError::D3D11NoContext),
+        // Pull the device pointer out and drop the dev_state guard before
+        // invoking CreateTexture2D, which is itself hooked.
+        let device = {
+            let dp = match dev_state_d3d11_read() {
+                Some((_lck, ds)) => Some(ds.devptr),
+                None => None,
+            };
+            match dp {
+                Some(DevicePointer::D3D11(dev)) => dev,
+                _ => return Err(HookError::D3D11NoContext),
+            }
         };
 
         let hr = (*device).CreateTexture2D(

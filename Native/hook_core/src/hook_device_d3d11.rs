@@ -73,7 +73,9 @@ use shared_dx::{util::write_log_file,
     types::{HookDeviceState, HookD3D11State, DX11Metrics, DevicePointer},
     error::*, dx11rs::{DX11RenderState, VertexFormat}};
 use util::mm_verify_load;
-use device_state::{DEVICE_STATE, dev_state_d3d11_nolock, dev_state_d3d11_write};
+use device_state::{dev_state_d3d11_read, dev_state_d3d11_write, dev_state_write};
+#[allow(unused_imports)]
+use device_state::DEVICE_STATE;
 use crate::hook_render_d3d11::*;
 
 static mut DEVICE_REALFN: RwLock<Option<HookDirect3D11Device>> = RwLock::new(None);
@@ -389,7 +391,7 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
             rehook_start.unwrap_or(SystemTime::UNIX_EPOCH));
         let _ = elapsed.map(|dur| {
             let nanos = dur.subsec_nanos() as u64 + dur.as_secs() * 1_000_000_000;
-            dev_state_d3d11_nolock().map(|state| {
+            dev_state_d3d11_write().map(|(_lck, state)| {
                 state.metrics.rehook_time_nanos += nanos;
                 state.metrics.rehook_calls += 1;
             })
@@ -756,18 +758,20 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
         let multithreaded = ((*device).GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) == 0;
 
 
-        (*DEVICE_STATE).hook = Some(HookDeviceState::D3D11(HookD3D11State {
-            hooks,
-            devptr: DevicePointer::D3D11(device),
-            metrics: DX11Metrics::new(),
-            rs: DX11RenderState::new(),
-            app_hwnds: Vec::new(),
-            last_timebased_update: SystemTime::now(),
-            app_foreground: false,
-            last_data_expire: SystemTime::now(),
-            last_data_expire_type_flip: false,
-            multithreaded,
-        }));
+        if let Some((_lck, ds)) = dev_state_write() {
+            ds.hook = Some(HookDeviceState::D3D11(HookD3D11State {
+                hooks,
+                devptr: DevicePointer::D3D11(device),
+                metrics: DX11Metrics::new(),
+                rs: DX11RenderState::new(),
+                app_hwnds: Vec::new(),
+                last_timebased_update: SystemTime::now(),
+                app_foreground: false,
+                last_data_expire: SystemTime::now(),
+                last_data_expire_type_flip: false,
+                multithreaded,
+            }));
+        }
 
         // TODO11: d3d9 also has: d3d_resource_count: 0,
 
@@ -1063,8 +1067,8 @@ pub unsafe fn ensure_vb_checksum_dx11(vb_ptr: usize) {
     if already_resolved {
         return;
     }
-    let status = match dev_state_d3d11_nolock() {
-        Some(state) => match state.rs.device_vertex_buffer_data.get(&vb_ptr) {
+    let status = match dev_state_d3d11_read() {
+        Some((_lck, state)) => match state.rs.device_vertex_buffer_data.get(&vb_ptr) {
             Some(bytes) => {
                 let crc = util::vb_checksum::compute(bytes);
                 global_state::VBChecksumStatus::Checksum(crc)
@@ -1253,8 +1257,12 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
 /// Most of these tests can't be run simulataneously, however as they poke at the device globals,
 /// so they lock at the start, since cargo will normally run them threaded.
 pub mod tests {
-    use std::{sync::{Arc}, thread::JoinHandle};
-    use device_state::DEVICE_STATE_LOCK;
+    use std::{sync::{Arc, Mutex}, thread::JoinHandle};
+    // Tests serialize on this separate mutex rather than on DEVICE_STATE
+    // itself, because functions invoked inside the tests (such as
+    // `init_device_state_once`) take the DEVICE_STATE write lock internally;
+    // holding that lock across a test body would deadlock with them.
+    static TEST_DEV_STATE_LOCK: Mutex<()> = Mutex::new(());
     use shared_dx::util::{LOG_EXCL_LOCK};
     use util::{prep_log_file, prep_log_file_nolock};
     use winapi::{um::{unknwnbase::{IUnknown, IUnknownVtbl},
@@ -1318,8 +1326,12 @@ pub mod tests {
                 (*device).Release();
             }
 
-            let _unbox = Box::from_raw(DEVICE_STATE);
-            DEVICE_STATE = null_mut();
+            let mut lock = DEVICE_STATE.write().expect(&format!("{}: dev state lock failed", testcontext));
+            if !lock.0.is_null() {
+                let _unbox = Box::from_raw(lock.0);
+                lock.0 = null_mut();
+            }
+            drop(lock);
             DEVICE_REALFN.write().expect(&format!("{}: device hooks clear failed", testcontext)).take();
         }
     }
@@ -1342,14 +1354,16 @@ pub mod tests {
 
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_query_interface.txt").expect("doh");
 
-        let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.write().unwrap();
-            if DEVICE_STATE != null_mut() {
-                panic!("DEVICE_STATE already initialized");
+        let _lock = TEST_DEV_STATE_LOCK.lock().unwrap();
+        unsafe {
+            {
+                let g = DEVICE_STATE.read().unwrap();
+                if !g.0.is_null() {
+                    panic!("DEVICE_STATE already initialized");
+                }
             }
             init_device_state_once();
-            lock
-        };
+        }
 
         let iunkvtbl = IUnknownVtbl {
             QueryInterface: hook_device_QueryInterface,
@@ -1458,13 +1472,13 @@ pub mod tests {
 
         let testlog = prep_log_file(&_loglock, "__testhd3d11__test_create_device.txt").expect("doh");
 
-        let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.write().unwrap();
-            if DEVICE_STATE != null_mut() {
+        let _lock = TEST_DEV_STATE_LOCK.lock().unwrap();
+        unsafe {
+            let g = DEVICE_STATE.read().unwrap();
+            if !g.0.is_null() {
                 panic!("DEVICE_STATE already initialized");
             }
-            lock
-        };
+        }
 
         let mut device = std::ptr::null_mut();
         let mut context = std::ptr::null_mut();
@@ -1548,13 +1562,13 @@ pub mod tests {
     fn test_create_device_thread() {
         let _loglock = LOG_EXCL_LOCK.lock().unwrap();
 
-        let _lock = unsafe {
-            let lock = DEVICE_STATE_LOCK.write().unwrap();
-            if DEVICE_STATE != null_mut() {
+        let _lock = TEST_DEV_STATE_LOCK.lock().unwrap();
+        unsafe {
+            let g = DEVICE_STATE.read().unwrap();
+            if !g.0.is_null() {
                 panic!("DEVICE_STATE already initialized");
             }
-            lock
-        };
+        }
 
         // we only support one log file so prep it first to remove/clear it, then
         // each thread will reprep without clearing to set its thread local status that it was
@@ -1706,7 +1720,7 @@ pub mod tests {
             assert_eq!(ret, 0);
             assert!(!pLayout.is_null()); // don't deref this, its garbage
 
-            dev_state_d3d11_nolock().map(|ds| {
+            dev_state_d3d11_read().map(|(_lck, ds)| {
                 assert_eq!(ds.rs.num_input_layouts.load(Ordering::Relaxed), 1);
                 assert_eq!(ds.rs.device_input_layouts_by_ptr.len(), 1);
                 assert!(ds.rs.device_input_layouts_by_ptr.contains_key(&(pLayout as usize)));
@@ -1728,7 +1742,7 @@ pub mod tests {
             GLOBAL_STATE.metrics.dip_calls += HOOK_DRAW_PERIODIC_CALLS - 1;
             (*context).DrawIndexed(12, 0, 0);
             assert_eq!(GLOBAL_STATE.metrics.dip_calls, 2 * HOOK_DRAW_PERIODIC_CALLS);
-            dev_state_d3d11_nolock().map(|ds| {
+            dev_state_d3d11_write().map(|(_lck, ds)| {
                 assert_eq!(ds.rs.num_input_layouts.load(Ordering::Relaxed), 0);
                 assert_eq!(ds.rs.device_input_layouts_by_ptr.len(), 0);
                 assert_eq!(ds.rs.context_input_layouts_by_ptr.len(), 1);

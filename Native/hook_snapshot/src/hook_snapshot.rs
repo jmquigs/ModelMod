@@ -1,4 +1,3 @@
-use device_state::dev_state_d3d11_nolock;
 use device_state::dev_state_d3d11_read;
 use global_state::get_global_state_ptr;
 use global_state::HookState;
@@ -654,7 +653,10 @@ impl SnapDeviceBuffers for D3D11SnapDeviceBuffers{
 }
 
 unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::SnapshotData) -> Result<Box<dyn SnapDeviceBuffers>> {
-    if let Some(state) = dev_state_d3d11_nolock() {
+    // Hold a single read guard for the duration so that we don't acquire the
+    // device-state lock multiple times (which can deadlock on RwLock if a
+    // writer queues up between two reads on the same thread).
+    if let Some((_state_lck, state)) = dev_state_d3d11_read() {
         let vf = state.rs.get_current_vertex_format().ok_or_else(|| {
             HookError::SnapshotFailed("no current input layout, cannot snap".to_string())
         })?;
@@ -698,10 +700,9 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
 
         // determine if we have the data for the buffer since at this time we can't read it
         // directly via Map
-        let ib_copy = dev_state_d3d11_read()
-            .map(|(_lock,ds)| {
-                ds.rs.device_index_buffer_data.get(&(curr_ibuffer as usize)).map(|v| v.clone())
-            }).flatten()
+        let ib_copy = state.rs.device_index_buffer_data
+            .get(&(curr_ibuffer as usize))
+            .map(|v| v.clone())
             .ok_or_else(|| {
                 HookError::SnapshotFailed("failed to get index buffer data, was not previously saved".to_string())
             })?;
@@ -744,11 +745,10 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
             return Err(HookError::SnapshotFailed(format!("more than 1 vertex buffer not supported (got {})", curr_vbuffers.len())));
         }
         // copy the data
-        let vb_copy = dev_state_d3d11_read()
-            .map(|(_lock,ds)| {
-                let vb_usize = *curr_vbuffers[0] as usize;
-                ds.rs.device_vertex_buffer_data.get(&vb_usize).map(|v| v.clone())
-            }).flatten()
+        let vb_copy = {
+            let vb_usize = *curr_vbuffers[0] as usize;
+            state.rs.device_vertex_buffer_data.get(&vb_usize).map(|v| v.clone())
+        }
             .ok_or_else(|| {
                 HookError::SnapshotFailed("failed to get vertex buffer data, was not previously saved".to_string())
             })?;

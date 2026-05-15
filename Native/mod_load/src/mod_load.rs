@@ -101,13 +101,15 @@ pub unsafe fn clear_loaded_mods(device: DevicePointer) {
 
     let post_rc = (device).get_ref_count();
     let diff = pre_rc - post_rc;
-    if (dev_state().d3d_resource_count as i64 - diff as i64) < 0 {
-        write_log_file(&format!(
-            "DOH resource count would go below zero (curr: {}, removed {}),",
-            dev_state().d3d_resource_count, diff
-        ));
-    } else {
-        dev_state().d3d_resource_count -= diff;
+    if let Some((_lck, ds)) = dev_state_write() {
+        if (ds.d3d_resource_count as i64 - diff as i64) < 0 {
+            write_log_file(&format!(
+                "DOH resource count would go below zero (curr: {}, removed {}),",
+                ds.d3d_resource_count, diff
+            ));
+        } else {
+            ds.d3d_resource_count -= diff;
+        }
     }
 
     write_log_file(&format!("unloaded {} mods", cnt));
@@ -300,10 +302,12 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
             write_log_file(&format!("Error, d3d11 data for mod {} has not been partially loaded", nmd.name));
             return false;
         };
-    // lookup actual layout data in render state using the pointer
+    // lookup actual layout data in render state using the pointer.  Clone out
+    // what we need so the read guard does not have to be held across the
+    // (potentially callback-heavy) work below.
     let vlayout = {
-        match dev_state_d3d11_nolock() {
-            Some(state) => {
+        match dev_state_d3d11_read() {
+            Some((_lck, state)) => {
                 let layout_usize = vlayout as usize;
                 let res = state.rs.context_input_layouts_by_ptr
                     .get(&layout_usize);
@@ -315,7 +319,7 @@ pub unsafe fn load_d3d_data11(device: *mut ID3D11Device, callbacks: interop::Man
                         ));
                         return false;
                     },
-                    Some(vf) => vf,
+                    Some(vf) => vf.shallow_copy(),
                 }
             },
             _ => {
@@ -792,7 +796,7 @@ pub fn get_mod_by_index<'a>(midx: i32, loaded_mods: &'a mut Option<LoadedModStat
 }
 
 pub unsafe fn get_dev_ref_count(device:DevicePointer) -> u32 {
-    match dev_state_d3d11_write() {
+    match dev_state_d3d11_read() {
         Some((_lck, _state)) => {
             device.get_ref_count()
         },
@@ -806,10 +810,10 @@ pub unsafe fn update_ref_count(device:DevicePointer, pre_rc:u32) -> (u32,u32) {
     let post_rc = get_dev_ref_count(device);
     let diff = post_rc.saturating_sub(pre_rc);
     if diff > 0 {
-        match dev_state_d3d11_write() {
-            Some((_lck, _state)) => {
-                (*DEVICE_STATE).d3d_resource_count += diff;
-                (diff,(*DEVICE_STATE).d3d_resource_count)
+        match dev_state_write() {
+            Some((_lck, ds)) => {
+                ds.d3d_resource_count += diff;
+                (diff, ds.d3d_resource_count)
             },
             None => {
                 (0,0)
@@ -858,7 +862,10 @@ pub unsafe fn load_deferred_mods(device: DevicePointer, callbacks: interop::Mana
         let pre_rc = device.get_ref_count();
 
         let mut cnt = 0;
-        let can_load_in_thread = (*DEVICE_STATE).multithreaded();
+        let can_load_in_thread = match dev_state_read() {
+            Some((_lck, ds)) => ds.multithreaded(),
+            None => false,
+        };
 
         let mut loaded_mods_guard = match LOADED_MODS.lock() {
             Ok(g) => g,

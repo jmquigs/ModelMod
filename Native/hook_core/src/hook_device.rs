@@ -17,7 +17,7 @@ use util;
 use util::*;
 use global_state::{GLOBAL_STATE, GLOBAL_STATE_LOCK, VBChecksumStatus};
 
-use device_state::{DEVICE_STATE, dev_state};
+use device_state::{DEVICE_STATE, dev_state_read, dev_state_write};
 use crate::hook_render::{hook_present, hook_draw_indexed_primitive, hook_release, hook_reset, hook_set_stream_source};
 use crate::hook_render_d3d11::HOOK_DRAW_PERIODIC_CALLS;
 use crate::hook_device_d3d11::query_and_set_runconf_in_globalstate;
@@ -167,11 +167,17 @@ unsafe extern "system" fn hook_create_texture(
     ppTexture: *mut *mut IDirect3DTexture9,
     pSharedHandle: *mut winapi::um::winnt::HANDLE,
 ) -> HRESULT {
-    let real_fn = match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            dev.real_create_texture
+    let real_fn = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_create_texture
+            },
+            _ => {
+                write_log_file("hook_CreateTexture: no device state, returning E_FAIL");
+                return E_FAIL;
+            }
         },
-        _ => {
+        None => {
             write_log_file("hook_CreateTexture: no device state, returning E_FAIL");
             return E_FAIL;
         }
@@ -228,11 +234,17 @@ unsafe extern "system" fn hook_update_texture(
     pSourceTexture: *mut IDirect3DBaseTexture9,
     pDestinationTexture: *mut IDirect3DBaseTexture9,
 ) -> HRESULT {
-    let real_fn = match (dev_state()).hook {
-        Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(ref dev) })) => {
-            dev.real_update_texture
+    let real_fn = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: _, device: Some(dev) })) => {
+                dev.real_update_texture
+            },
+            _ => {
+                write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
+                return E_FAIL;
+            }
         },
-        _ => {
+        None => {
             write_log_file("hook_UpdateTexture: no device state, returning E_FAIL");
             return E_FAIL;
         }
@@ -455,64 +467,67 @@ unsafe fn create_and_hook_device(
         .lock()
         .map_err(|_err| HookError::GlobalLockError)?;
 
-    if DEVICE_STATE == null_mut() {
-        return Err(HookError::BadStateError("no device state pointer??".to_owned()));
-    }
-
     // Query run configuration (e.g. force_tex_cpu_read) so DX9 hooks can use it
     query_and_set_runconf_in_globalstate(true);
 
-    (*DEVICE_STATE)
-        .hook
-        .as_mut()
-        .ok_or(HookError::Direct3D9InstanceNotFound)
-        .and_then(|hook| {
-            match hook {
-                HookDeviceState::D3D9(ds) if ds.d3d9.is_some() => Ok(ds),
-                _ => Err(HookError::D3D9HookFailed)
+    // Pull the real_create_device fn ptr out under a read guard, then drop
+    // the guard before calling it.  hook_d3d9_device and the post-write also
+    // need their own guards since they can require write access.
+    let real_create_device = match dev_state_read() {
+        Some((_lck, ds)) => match &ds.hook {
+            Some(HookDeviceState::D3D9(d3d9)) if d3d9.d3d9.is_some() => {
+                d3d9.d3d9.as_ref().unwrap().real_create_device
+            },
+            None => return Err(HookError::Direct3D9InstanceNotFound),
+            _ => return Err(HookError::D3D9HookFailed),
+        },
+        None => return Err(HookError::BadStateError("no device state pointer??".to_owned())),
+    };
+
+    write_log_file(&format!("calling real create device"));
+    if BehaviorFlags & D3DCREATE_MULTITHREADED == D3DCREATE_MULTITHREADED {
+        write_log_file(&format!(
+            "Notice: device being created with D3DCREATE_MULTITHREADED"
+        ));
+    }
+    let result = (real_create_device)(
+        THIS,
+        Adapter,
+        DeviceType,
+        hFocusWindow,
+        BehaviorFlags,
+        pPresentationParameters,
+        ppReturnedDeviceInterface,
+    );
+    if result != S_OK {
+        write_log_file(&format!("create device FAILED: {}", result));
+        return Err(HookError::CreateDeviceFailed(result));
+    }
+
+    let hook_result: Result<()> = (|| {
+        if let Some((_lck, ds)) = dev_state_write() {
+            ds.d3d_window = hFocusWindow;
+        }
+        let hook_d3d9device = hook_d3d9_device(*ppReturnedDeviceInterface, &lock)?;
+        if let Some((_lck, ds)) = dev_state_write() {
+            if let Some(HookDeviceState::D3D9(ref mut d3d9)) = ds.hook {
+                d3d9.device = Some(hook_d3d9device);
             }
-        })
-        .and_then(|hd3d9| {
-            write_log_file(&format!("calling real create device"));
-            if BehaviorFlags & D3DCREATE_MULTITHREADED == D3DCREATE_MULTITHREADED {
-                write_log_file(&format!(
-                    "Notice: device being created with D3DCREATE_MULTITHREADED"
-                ));
-            }
-            // option is_some() checked earlier
-            let result = (hd3d9.d3d9.as_ref().unwrap().real_create_device)(
-                THIS,
-                Adapter,
-                DeviceType,
-                hFocusWindow,
-                BehaviorFlags,
-                pPresentationParameters,
-                ppReturnedDeviceInterface,
-            );
-            if result != S_OK {
-                write_log_file(&format!("create device FAILED: {}", result));
-                return Err(HookError::CreateDeviceFailed(result));
-            }
-            (*DEVICE_STATE).d3d_window = hFocusWindow;
-            hook_d3d9_device(*ppReturnedDeviceInterface, &lock)
-        })
-        .and_then(|hook_d3d9device| {
-            match (*DEVICE_STATE).hook {
-                Some(HookDeviceState::D3D9(ref mut d3d9)) => d3d9.device = Some(hook_d3d9device),
-                _ => ()
-            };
-            write_log_file(&format!(
-                "hooked device on thread {:?}",
-                std::thread::current().id()
-            ));
-            Ok(())
-        })
-        .or_else(|err| {
-            if ppReturnedDeviceInterface != null_mut() && *ppReturnedDeviceInterface != null_mut() {
-                (*(*ppReturnedDeviceInterface)).Release();
-            }
-            Err(err)
-        })
+        }
+        write_log_file(&format!(
+            "hooked device on thread {:?}",
+            std::thread::current().id()
+        ));
+        Ok(())
+    })();
+
+    if let Err(err) = hook_result {
+        if ppReturnedDeviceInterface != null_mut() && *ppReturnedDeviceInterface != null_mut() {
+            (*(*ppReturnedDeviceInterface)).Release();
+        }
+        return Err(err);
+    }
+    Ok(())
 }
 
 pub unsafe extern "system" fn hook_create_device(
@@ -618,33 +633,39 @@ pub extern "system" fn Direct3DCreate9(SDKVersion: u32) -> *mut u64 {
 /// out, as we would need to do in a new allocation, would lose
 /// the addresses of any "real" functions such as create device.
 pub fn init_device_state_once() -> bool {
-    unsafe {
-        // its possible to get in here more than once in same process
-        // (if it creates multiple devices).  leak the previous
-        // pointer to avoided crashes; if the game is creating devices
-        // in a tight loop we've got bigger problems than a memory leak.
-        // note: in a single threaded env nothing else should be
-        // using the state right now so we could free it.
-        let was_init = DEVICE_STATE != null_mut();
-        let has_hook = DEVICE_STATE != null_mut() && (*DEVICE_STATE).hook.is_some();
-
-        // allow it be created if it doesn't exist yet or if there is no hook yet
-        if !was_init || !has_hook {
-            DEVICE_STATE = Box::into_raw(Box::new(DeviceState {
-                hook: None,
-                d3d_window: null_mut(),
-                d3d_resource_count: 0,
-            }));
-
-            write_log_file(&format!("initted new device state instance: {}; was initted: {}", DEVICE_STATE as usize, was_init));
+    // its possible to get in here more than once in same process
+    // (if it creates multiple devices).  leak the previous
+    // pointer to avoided crashes; if the game is creating devices
+    // in a tight loop we've got bigger problems than a memory leak.
+    // note: in a single threaded env nothing else should be
+    // using the state right now so we could free it.
+    let mut guard = match DEVICE_STATE.write() {
+        Ok(g) => g,
+        Err(e) => {
+            write_log_file(&format!("init_device_state_once: lock poisoned: {}", e));
+            return false;
         }
-        // but if there is a hook already don't replace it since we might lose the real hook fn addresses if we do that
-        else if has_hook {
-            write_log_file(&format!("not creating new device state because it already has a hook"));
-        }
+    };
+    let was_init = !guard.0.is_null();
+    let has_hook = !guard.0.is_null() && unsafe { (*guard.0).hook.is_some() };
 
-        was_init
+    // allow it be created if it doesn't exist yet or if there is no hook yet
+    if !was_init || !has_hook {
+        let new_ptr = Box::into_raw(Box::new(DeviceState {
+            hook: None,
+            d3d_window: null_mut(),
+            d3d_resource_count: 0,
+        }));
+        guard.0 = new_ptr;
+
+        write_log_file(&format!("initted new device state instance: {}; was initted: {}", new_ptr as usize, was_init));
     }
+    // but if there is a hook already don't replace it since we might lose the real hook fn addresses if we do that
+    else if has_hook {
+        write_log_file(&format!("not creating new device state because it already has a hook"));
+    }
+
+    was_init
 }
 
 pub fn init_log(mm_root:&str) {
@@ -751,10 +772,12 @@ pub fn late_hook_device(deviceptr: u64) -> i32 {
             let hook_d3d9device = hook_d3d9_device(device, &lock)?;
 
             //(*DEVICE_STATE).d3d_window = hFocusWindow; // TODO: need to get this in late hook API
-            (*DEVICE_STATE).hook = Some(HookDeviceState::D3D9(HookD3D9State {
-                d3d9: None,
-                device: Some(hook_d3d9device)
-            }));
+            if let Some((_lck, ds)) = dev_state_write() {
+                ds.hook = Some(HookDeviceState::D3D9(HookD3D9State {
+                    d3d9: None,
+                    device: Some(hook_d3d9device)
+                }));
+            }
             write_log_file(&format!(
                 "hooked device on thread {:?}",
                 std::thread::current().id()
@@ -830,13 +853,13 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             .lock()
             .map_err(|_err| HookError::D3D9HookFailed)?;
 
-        match (*DEVICE_STATE).hook {
-            Some(HookDeviceState::D3D9(HookD3D9State { d3d9: ref what, device: _ })) => {
-                let _ = what;
-                return Ok(direct3d9);
-            },
-            _ => {}
+        let already_hooked = match dev_state_read() {
+            Some((_lck, ds)) => matches!(ds.hook, Some(HookDeviceState::D3D9(HookD3D9State { d3d9: Some(_), .. }))),
+            None => false,
         };
+        if already_hooked {
+            return Ok(direct3d9);
+        }
 
         GLOBAL_STATE.mm_root = Some(mm_root);
 
@@ -870,13 +893,19 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
             real_create_device: real_create_device,
         };
 
-        (*DEVICE_STATE).hook =
-            Some(HookDeviceState::D3D9(HookD3D9State {
+        if let Some((_lck, ds)) = dev_state_write() {
+            ds.hook = Some(HookDeviceState::D3D9(HookD3D9State {
                 d3d9: Some(hd3d9),
                 device: None
             }));
+        }
 
-        write_log_file(&format!("device state set with hook on ds instance: {}", DEVICE_STATE as u64));
+        // log the (possibly null) ds pointer for debugging purposes.
+        let ds_addr = match DEVICE_STATE.read() {
+            Ok(g) => g.0 as u64,
+            Err(_) => 0,
+        };
+        write_log_file(&format!("device state set with hook on ds instance: {}", ds_addr));
         Ok(direct3d9)
     }
 }
