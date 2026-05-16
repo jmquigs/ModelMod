@@ -1299,7 +1299,7 @@ unsafe fn runapp() -> anyhow::Result<()> {
                                 missPPVertexBuffers.as_ptr(), pStrides.as_ptr(), pOffsets.as_ptr());
                             miss_prims as usize
                         } else {
-                            rand::random::<usize>() % max_prims
+                            rand::random_range(0..max_prims)
                         }
                     }
                 } else {
@@ -1345,7 +1345,92 @@ unsafe fn runapp() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_pointer_width = "64")]
+const EXE_BITNESS: Bitness = Bitness::X64;
+#[cfg(target_pointer_width = "32")]
+const EXE_BITNESS: Bitness = Bitness::X86;
+
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
+use anyhow::{anyhow, Result};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bitness {
+    X86, // PE32  (32-bit)
+    X64, // PE32+ (64-bit)
+}
+
+pub fn dll_bitness<P: AsRef<Path>>(path: P) -> Result<Bitness> {
+    let mut f = File::open(path)?;
+
+    // DOS header: must start with "MZ"
+    let mut mz = [0u8; 2];
+    f.read_exact(&mut mz)?;
+    if &mz != b"MZ" {
+        return Err(anyhow!("not a PE file (missing MZ)"));
+    }
+
+    // e_lfanew at 0x3C -> offset of PE header
+    f.seek(SeekFrom::Start(0x3C))?;
+    let mut lfanew = [0u8; 4];
+    f.read_exact(&mut lfanew)?;
+    let pe_off = u32::from_le_bytes(lfanew) as u64;
+
+    // "PE\0\0" signature
+    f.seek(SeekFrom::Start(pe_off))?;
+    let mut sig = [0u8; 4];
+    f.read_exact(&mut sig)?;
+    if &sig != b"PE\0\0" {
+        return Err(anyhow!("not a PE file (missing PE signature)"));
+    }
+
+    // Skip the 20-byte COFF file header; next 2 bytes are the Optional Header magic
+    f.seek(SeekFrom::Start(pe_off + 4 + 20))?;
+    let mut magic = [0u8; 2];
+    f.read_exact(&mut magic)?;
+
+    match u16::from_le_bytes(magic) {
+        0x10B => Ok(Bitness::X86),
+        0x20B => Ok(Bitness::X64),
+        0x107 => Err(anyhow!("ROM image, not a normal DLL")),
+        other => Err(anyhow!("unknown optional header magic: 0x{:04X}", other)),
+    }
+}
+
+pub fn check_bitness() -> Result<()> {
+    let exe_path = std::env::current_exe()?;
+    let dll_path: PathBuf = exe_path
+        .parent()
+        .ok_or_else(|| anyhow!("exe has no parent directory"))?
+        .join("d3d11.dll");
+
+    if !dll_path.exists() {
+        // No d3d11.dll alongside the exe — nothing to verify.
+        return Ok(());
+    }
+
+    let dll_b = dll_bitness(&dll_path)?;
+    if dll_b != EXE_BITNESS {
+        return Err(anyhow!(
+            "bitness mismatch: exe is {:?} but {} is {:?}",
+            EXE_BITNESS,
+            dll_path.display(),
+            dll_b
+        ));
+    }
+
+    Ok(())
+}
+
 fn main() {
+    // I sometimes have a directory override to build modelmod in 32 bit and it silently fails to inject
+    // if it doesn't match the bitness of this exe.  This catches that.
+    if let Err(x) = check_bitness() {
+        eprintln!("{}", x);
+        return;
+    }
+
     // use env to figure out mode, default is run d3d app
     let mode = std::env::var("MODE").unwrap_or("d3d".to_string());
     if mode == "mmobj" {
