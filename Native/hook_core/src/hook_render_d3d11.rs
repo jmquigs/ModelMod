@@ -935,12 +935,17 @@ fn check_expire_thread(now:&SystemTime) {
         let mut clear_list:Vec<Vec<u8>> = Vec::new();
         loop {
             let now = SystemTime::now();
+            let _ed_start = SystemTime::now();
             let checked = expire_data(&now,&last_check, &mut clear_list);
+            let _ed_us = SystemTime::now().duration_since(_ed_start)
+                .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
             let mut sleep_secs = 10;
             if checked {
                 last_check = now;
                 sleep_secs = DEF_EXPIRE_CHECK_SECS+1;
             }
+            write_log_file(&format!("expire_data checked={} took {} us, next sleep {}s",
+                checked, _ed_us, sleep_secs));
             std::thread::sleep(Duration::from_secs(sleep_secs));
         }
     });
@@ -1051,6 +1056,9 @@ fn expire_data(now:&SystemTime, last_data_expire:&SystemTime, clear_list:&mut Ve
 
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
+        let _tbu_start = SystemTime::now();
+        write_log_file(&format!("time_based_update: ENTER mselapsed={} dip_calls={}",
+            mselapsed, GLOBAL_STATE.metrics.dip_calls));
         if let Some((_lck, state)) = dev_state_d3d11_write() {
             state.last_timebased_update = now;
         }
@@ -1058,7 +1066,13 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
         // mod loading selection features rely on this to see if a mod has been rendered recently.
         GLOBAL_STATE.metrics.total_frames += ((mselapsed as f32 / 1000.0) * 60.0) as u64;
 
+        let _ms_start = SystemTime::now();
         mod_stats::update(&now);
+        let _ms_us = SystemTime::now().duration_since(_ms_start)
+            .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
+        if _ms_us > 1000 {
+            write_log_file(&format!("mod_stats::update took {} us", _ms_us));
+        }
 
         frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
             write_log_file(&format!("init clr failed: {:?}", e)));
@@ -1102,15 +1116,25 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
             }
         }
 
+        let _flm_start = SystemTime::now();
         with_dev_ptr(|deviceptr| {
             frame_load_mods(deviceptr);
         });
+        let _flm_us = SystemTime::now().duration_since(_flm_start)
+            .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
+        if _flm_us > 1000 {
+            write_log_file(&format!("frame_load_mods took {} us", _flm_us));
+        }
 
         let wnd_count = dev_state_d3d11_read().map(|(_lck, state)| {
             state.app_hwnds.len()
         }).unwrap_or(0);
         if wnd_count == 0 {
+            let _fw_start = SystemTime::now();
             find_app_windows();
+            write_log_file(&format!("find_app_windows took {} us",
+                SystemTime::now().duration_since(_fw_start)
+                    .unwrap_or_else(|_| Duration::from_secs(0)).as_micros()));
             let dw = GetDesktopWindow();
             if let Some((_lck, state)) = dev_state_d3d11_write() {
                 //let ocount = state.app_hwnds.len();
@@ -1169,6 +1193,10 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                     .map_err(|e| write_log_file(&format!("create_selection_texture_dx11 error: {:?}", e)));
             }
         }
+
+        let _tbu_us = SystemTime::now().duration_since(_tbu_start)
+            .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
+        write_log_file(&format!("time_based_update: EXIT took {} us", _tbu_us));
     }
 }
 
