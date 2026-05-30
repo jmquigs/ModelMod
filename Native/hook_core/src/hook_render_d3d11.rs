@@ -1057,25 +1057,28 @@ fn expire_data(now:&SystemTime, last_data_expire:&SystemTime, clear_list:&mut Ve
 unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11DeviceContext) {
     if mselapsed > 500 {
         let _tbu_start = SystemTime::now();
-        write_log_file(&format!("time_based_update: ENTER mselapsed={} dip_calls={}",
-            mselapsed, GLOBAL_STATE.metrics.dip_calls));
+        let mut _t = _tbu_start;
+        let mut _lap = || {
+            let n = SystemTime::now();
+            let us = n.duration_since(_t).unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
+            _t = n;
+            us
+        };
+
         if let Some((_lck, state)) = dev_state_d3d11_write() {
             state.last_timebased_update = now;
         }
         // keep the frame counter rolling even though we don't know when the frames end.  some
         // mod loading selection features rely on this to see if a mod has been rendered recently.
         GLOBAL_STATE.metrics.total_frames += ((mselapsed as f32 / 1000.0) * 60.0) as u64;
+        let _us_last_upd = _lap();
 
-        let _ms_start = SystemTime::now();
         mod_stats::update(&now);
-        let _ms_us = SystemTime::now().duration_since(_ms_start)
-            .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
-        if _ms_us > 1000 {
-            write_log_file(&format!("mod_stats::update took {} us", _ms_us));
-        }
+        let _us_mod_stats = _lap();
 
         frame_init_clr(dnclr::RUN_CONTEXT_D3D11).unwrap_or_else(|e|
             write_log_file(&format!("init clr failed: {:?}", e)));
+        let _us_init_clr = _lap();
 
         // make sure the device referenced by this context matches the one in our hook state
         let mut devptr = null_mut();
@@ -1089,6 +1092,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
             }
             (*devptr).Release();
         }
+        let _us_devptr = _lap();
 
         let need_layout_copy = dev_state_d3d11_read().map(|(_lck, state)| {
             state.rs.num_input_layouts.load(Ordering::Relaxed) > 0
@@ -1115,26 +1119,19 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 check_expire_thread(&now);
             }
         }
+        let _us_layout_expire = _lap();
 
-        let _flm_start = SystemTime::now();
         with_dev_ptr(|deviceptr| {
             frame_load_mods(deviceptr);
         });
-        let _flm_us = SystemTime::now().duration_since(_flm_start)
-            .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
-        if _flm_us > 1000 {
-            write_log_file(&format!("frame_load_mods took {} us", _flm_us));
-        }
+        let _us_frame_load_mods = _lap();
 
         let wnd_count = dev_state_d3d11_read().map(|(_lck, state)| {
             state.app_hwnds.len()
         }).unwrap_or(0);
+        let mut _us_find_windows = 0u128;
         if wnd_count == 0 {
-            let _fw_start = SystemTime::now();
             find_app_windows();
-            write_log_file(&format!("find_app_windows took {} us",
-                SystemTime::now().duration_since(_fw_start)
-                    .unwrap_or_else(|_| Duration::from_secs(0)).as_micros()));
             let dw = GetDesktopWindow();
             if let Some((_lck, state)) = dev_state_d3d11_write() {
                 //let ocount = state.app_hwnds.len();
@@ -1144,6 +1141,9 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 state.app_hwnds = wnds;
                 //write_log_file(&format!("found {} app windows, filtered to: {:?}", ocount, state.app_hwnds));
             }
+            _us_find_windows = _lap();
+        } else {
+            let _ = _lap();
         }
 
         if GLOBAL_STATE.input.is_none() {
@@ -1159,6 +1159,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 ))
             });
         }
+        let _us_input_init = _lap();
 
         // find the app main foreground window
         let fwnd = GetForegroundWindow();
@@ -1174,6 +1175,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
         }).unwrap_or(false);
 
         if let Some((_lck, state)) = dev_state_d3d11_write() { state.app_foreground = app_foreground; }
+        let _us_fg_check = _lap();
 
         // finish input setup if needed and app is foreground
         if app_foreground {
@@ -1186,6 +1188,7 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                 }
             });
         }
+        let _us_input_setup = _lap();
 
         if app_foreground {
             if GLOBAL_STATE.selection_texture.is_none() {
@@ -1193,10 +1196,16 @@ unsafe fn time_based_update(mselapsed:u128, now:SystemTime, context:*mut ID3D11D
                     .map_err(|e| write_log_file(&format!("create_selection_texture_dx11 error: {:?}", e)));
             }
         }
+        let _us_sel_tex = _lap();
 
         let _tbu_us = SystemTime::now().duration_since(_tbu_start)
             .unwrap_or_else(|_| Duration::from_secs(0)).as_micros();
-        write_log_file(&format!("time_based_update: EXIT took {} us", _tbu_us));
+        write_log_file(&format!(
+            "time_based_update: EXIT took {} us (mselapsed={} dip_calls={}) [last_upd={} mod_stats={} init_clr={} devptr={} layout_expire={} frame_load_mods={} find_windows={} input_init={} fg_check={} input_setup={} sel_tex={}]",
+            _tbu_us, mselapsed, GLOBAL_STATE.metrics.dip_calls,
+            _us_last_upd, _us_mod_stats, _us_init_clr, _us_devptr,
+            _us_layout_expire, _us_frame_load_mods, _us_find_windows,
+            _us_input_init, _us_fg_check, _us_input_setup, _us_sel_tex));
     }
 }
 
