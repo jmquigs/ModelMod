@@ -108,7 +108,14 @@ impl SnapConfig {
 
         use std::path::PathBuf;
         let mut pb = PathBuf::from(&rootdir);
-        pb.push("\\snapconfig.yaml");
+        // try two paths to account for rust's weird push semantics with absolute paths (hurts on linux/proton)
+        let mut trypb = pb.clone();
+        trypb.push("snapconfig.yaml");
+        if !trypb.is_file() {
+            trypb = pb.clone();
+            trypb.push("\\snapconfig.yaml");
+        }
+        let pb = trypb;
 
         if !pb.is_file() {
             write_log_file(&format!("Snap confile does not exist: {:?}", pb));
