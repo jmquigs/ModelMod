@@ -92,3 +92,4 @@ MMTricks/obj
 .paket/Paket.Restore.targets
 testmodload*.txt
 TODO2026.txt
+snapconfig.yaml
