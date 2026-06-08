@@ -334,6 +334,11 @@ def write_file(filepath, objects, scene,
     # Get all meshes
     for ob_main in objects:
 
+        # skip objects flagged for exclusion by name prefix
+        if ob_main.name.startswith(("EXCL_", "EXCLUDE_")):
+            print(ob_main.name, 'is marked excluded - ignoring')
+            continue
+
         # ignore dupli children
         if ob_main.parent and ob_main.parent.dupli_type in {'VERTS', 'FACES'}:
             # XXX
