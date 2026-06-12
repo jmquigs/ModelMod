@@ -376,12 +376,17 @@ type MainViewModel() as self =
         | None -> ()
         | Some p -> setter p
 
+    let mutable warnedNoRoot = false
     member x.PeriodicUpdate() =
         try
             let currentRoot = ProcessUtil.getMMRoot ()
             let regRoot = RegConfig.getMMRoot ()
             if currentRoot <> regRoot then RegConfig.setMMRoot currentRoot |> ignore
-        with _ -> ()
+        with ex -> 
+            if not warnedNoRoot then 
+                warnedNoRoot <- true
+                ViewModelUtil.pushDialog (sprintf "Unable to determine root dir: %A" ex)
+            ()
 
         x.UpdateLoaderState
         <| match loaderState with

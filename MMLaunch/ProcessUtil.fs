@@ -24,6 +24,8 @@ open System.Runtime.InteropServices
 
 open KnownGames
 
+open ModelMod
+
 module ProcessUtil =
     let LoaderExitReasons =
         Map.ofList
@@ -67,7 +69,15 @@ module ProcessUtil =
         
         let fullRoot = 
             match root with
-            | None -> failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
+            | None -> 
+                let regRoot = RegConfig.getMMRoot ()
+                if Directory.Exists(regRoot) 
+                    then regRoot 
+                    else 
+                        failwithf "Unable to find MM Root in filesystem from working dir %A, and reg root not set in register or does not exist: %A" 
+                            (System.Environment.CurrentDirectory) regRoot
+            
+                //failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
             | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
 
         if lastRoot <> Some(fullRoot) then 
