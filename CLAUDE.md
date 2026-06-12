@@ -1,5 +1,9 @@
 # ModelMod - Claude Code Notes
 
+## General notes
+
+- When creating commit messages, prefix them with "Authored by Claude", if possible include your model name and version.
+
 ## Rust Build
 
 This is a Windows-only project, but cross-compilation works from Linux, although you won't be able to run the linker as it requires MSVC.
