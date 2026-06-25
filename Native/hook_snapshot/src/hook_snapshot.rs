@@ -673,7 +673,15 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         };
         vf.layout.iter()
             .find(|l| ptr_to_str(l.SemanticName).starts_with("texcoord"))
-            .ok_or(HookError::SnapshotFailed("snap aborted, vertex layout lacks texcoord so this will not capture properly".to_owned()))?;
+            .ok_or_else(|| {
+                let available: Vec<String> = vf.layout.iter()
+                    .map(|l| format!("{}{}", ptr_to_str(l.SemanticName), l.SemanticIndex))
+                    .collect();
+                HookError::SnapshotFailed(format!(
+                    "snap aborted, vertex layout lacks texcoord so this will not capture properly; available semantics: [{}]",
+                    available.join(", ")
+                ))
+            })?;
 
         let mut ld = vf.layout.clone();
         let layout_data_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * ld.len();
