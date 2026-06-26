@@ -762,13 +762,59 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
             _ => return Err(HookError::SnapshotFailed(format!("unknown index buffer format: {:x}", curr_ibuffer_format))),
         };
 
-        // should match expected size
-        let ex_size = (sd.prim_count * 3 * index_size) as usize;
-        if ib_copy.len() != ex_size {
-            return Err(HookError::SnapshotFailed(format!("index buffer data size mismatch, expected: {}, got: {}", ex_size, ib_copy.len())));
+        let isz = index_size as usize;
+
+        // The bound buffer may be a large shared/dynamic "megabuffer" holding many meshes, so
+        // extract just the index range this draw uses: prim_count*3 indices starting at
+        // start_index (plus any byte offset baked into the bound IB).  Then find the min/max
+        // referenced vertex so we can carve out a self-contained, re-based mesh below.  This
+        // generalizes the old per-mesh assumption (start_index==0, slice==whole buffer).
+        let ib_count = (sd.prim_count as usize) * 3;
+        let ib_byte_start = curr_ibuffer_offset as usize + (sd.start_index as usize) * isz;
+        let ib_byte_end = ib_byte_start + ib_count * isz;
+        if ib_count == 0 {
+            return Err(HookError::SnapshotFailed("no indices to snap".to_string()));
+        }
+        if ib_byte_end > ib_copy.len() {
+            return Err(HookError::SnapshotFailed(format!(
+                "index range out of bounds: need bytes [{}, {}) but index buffer copy is only {} bytes (start_index {}, prim_count {}); buffer data may be stale",
+                ib_byte_start, ib_byte_end, ib_copy.len(), sd.start_index, sd.prim_count)));
+        }
+        let read_index = |i: usize| -> u32 {
+            let off = ib_byte_start + i * isz;
+            if isz == 2 {
+                u16::from_le_bytes([ib_copy[off], ib_copy[off + 1]]) as u32
+            } else {
+                u32::from_le_bytes([ib_copy[off], ib_copy[off + 1], ib_copy[off + 2], ib_copy[off + 3]])
+            }
+        };
+        let mut min_idx = u32::MAX;
+        let mut max_idx = 0u32;
+        for i in 0..ib_count {
+            let v = read_index(i);
+            if v < min_idx { min_idx = v; }
+            if v > max_idx { max_idx = v; }
+        }
+        if min_idx > max_idx {
+            return Err(HookError::SnapshotFailed("degenerate index range".to_string()));
+        }
+        let unique_verts = (max_idx - min_idx + 1) as usize;
+
+        // Re-base indices to 0 (subtract min_idx) so they index into the vertex slice carved out
+        // below; managed uses index values directly, so they must be 0-based.
+        let mut ib_slice: Vec<u8> = Vec::with_capacity(ib_count * isz);
+        for i in 0..ib_count {
+            let rebased = read_index(i) - min_idx;
+            if isz == 2 {
+                ib_slice.extend_from_slice(&(rebased as u16).to_le_bytes());
+            } else {
+                ib_slice.extend_from_slice(&rebased.to_le_bytes());
+            }
         }
 
-        write_log_file(&format!("index buffer size: {}, format: {}", ib_copy.len(), curr_ibuffer_format));
+        write_log_file(&format!(
+            "index buffer: full copy {} bytes, format {}; draw slice {} indices (start_index {}), vert range [{}, {}] -> {} unique verts",
+            ib_copy.len(), curr_ibuffer_format, ib_count, sd.start_index, min_idx, max_idx, unique_verts));
 
         // now same for vertex buffers
         const MAX_VBUFFERS: usize = 16;
@@ -782,28 +828,51 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         let _vb_rods =
             curr_vbuffers.iter().filter(|vb| !vb.is_null())
              .map(|vb| ReleaseOnDrop::new(*vb)).collect::<Vec<_>>();
-        // filter active
-        let curr_vbuffers = curr_vbuffers.iter().filter(|vb| !vb.is_null()).collect::<Vec<_>>();
-        if curr_vbuffers.is_empty() {
+        // require exactly one active vertex buffer; remember its slot so we can honor its bind offset.
+        let active_slots = (0..MAX_VBUFFERS).filter(|&i| !curr_vbuffers[i].is_null()).collect::<Vec<_>>();
+        if active_slots.is_empty() {
             return Err(HookError::SnapshotFailed("no vertex buffers".to_string()));
         }
-        if curr_vbuffers.len() > 1 {
-            return Err(HookError::SnapshotFailed(format!("more than 1 vertex buffer not supported (got {})", curr_vbuffers.len())));
+        if active_slots.len() > 1 {
+            return Err(HookError::SnapshotFailed(format!("more than 1 vertex buffer not supported (got {})", active_slots.len())));
         }
+        let vb_slot = active_slots[0];
+        let vb_ptr = curr_vbuffers[vb_slot];
         // copy the data
-        let vb_copy = {
-            let vb_usize = *curr_vbuffers[0] as usize;
-            state.rs.device_vertex_buffer_data.get(&vb_usize).map(|v| v.clone())
-        }
+        let vb_copy = state.rs.device_vertex_buffer_data.get(&(vb_ptr as usize)).map(|v| v.clone())
             .ok_or_else(|| {
                 HookError::SnapshotFailed("failed to get vertex buffer data, was not previously saved".to_string())
             })?;
-        // number of vertices should be = size / vert size
-        let num_verts = vb_copy.len() / vert_size;
-        if sd.num_vertices != num_verts as u32 {
-            return Err(HookError::SnapshotFailed(format!("vertex buffer data size mismatch, expected: {}, got: {}", sd.num_vertices, num_verts)));
+
+        // Carve out just the vertices this draw references:
+        // [base_vertex_index + min_idx .. base_vertex_index + max_idx + 1], honoring any byte
+        // offset baked into the bound VB.
+        let vb_total_verts = vb_copy.len() / vert_size;
+        let vstart_vert = sd.base_vertex_index as i64 + min_idx as i64;
+        if vstart_vert < 0 {
+            return Err(HookError::SnapshotFailed(format!(
+                "computed negative vertex start ({}); base_vertex_index {}, min_idx {}",
+                vstart_vert, sd.base_vertex_index, min_idx)));
         }
-        write_log_file(&format!("vertex buffer size: {}, num verts: {}, vertsize: {}", vb_copy.len(), num_verts, vert_size));
+        let vb_byte_start = curr_vbuffer_offsets[vb_slot] as usize + (vstart_vert as usize) * vert_size;
+        let vb_byte_end = vb_byte_start + unique_verts * vert_size;
+        if vb_byte_end > vb_copy.len() {
+            return Err(HookError::SnapshotFailed(format!(
+                "vertex range out of bounds: need bytes [{}, {}) but vertex buffer copy is only {} bytes ({} verts); buffer data may be stale",
+                vb_byte_start, vb_byte_end, vb_copy.len(), vb_total_verts)));
+        }
+        let vb_slice: Vec<u8> = vb_copy[vb_byte_start..vb_byte_end].to_vec();
+
+        write_log_file(&format!("vertex buffer: full copy {} bytes ({} verts), vertsize {}; draw slice {} verts",
+            vb_copy.len(), vb_total_verts, vert_size, unique_verts));
+
+        // Rewrite the draw params so managed reads the self-contained slice from offset 0 (its
+        // well-tested path): num_vertices is the unique-vert count, and the offsets are now baked
+        // into the slices.
+        sd.num_vertices = unique_verts as u32;
+        sd.base_vertex_index = 0;
+        sd.min_vertex_index = 0;
+        sd.start_index = 0;
 
         // now save all the srvs that might contain textures, note any that are 2D and save the
         // indexes of those so that managed code has them
@@ -828,10 +897,10 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         sd.rend_data.d3d11 = D3D11SnapshotRendData {
             layout_elems: decl_data,
             layout_size_bytes: layout_data_size as u64,
-            ib_data: ib_copy.as_ptr(),
-            vb_data: vb_copy.as_ptr(),
-            ib_size_bytes: ib_copy.len() as u64,
-            vb_size_bytes: vb_copy.len() as u64,
+            ib_data: ib_slice.as_ptr(),
+            vb_data: vb_slice.as_ptr(),
+            ib_size_bytes: ib_slice.len() as u64,
+            vb_size_bytes: vb_slice.len() as u64,
             ib_index_size_bytes: index_size as u32,
             vb_vert_size_bytes: vert_size as u32,
             act_tex_indices: tex_indices.as_ptr(),
@@ -841,8 +910,8 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         return Ok(Box::new(D3D11SnapDeviceBuffers{
             _context_rod: context_rod,
             _ld: ld,
-            _ib_data: ib_copy,
-            _vb_data: vb_copy,
+            _ib_data: ib_slice,
+            _vb_data: vb_slice,
             srvs: orig_srvs,
             srv_2d_tex: tex_indices,
             _srv_rods,

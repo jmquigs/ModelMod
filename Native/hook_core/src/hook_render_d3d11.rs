@@ -17,17 +17,19 @@ use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM};
 use winapi::shared::dxgitype::DXGI_SAMPLE_DESC;
-use winapi::shared::winerror::{E_NOINTERFACE};
+use winapi::shared::winerror::{E_NOINTERFACE, E_FAIL};
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY,
     ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA,
-    ID3D11Texture2D, ID3D11Resource};
+    ID3D11Texture2D, ID3D11Resource,
+    D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_BOX,
+    D3D11_MAP_WRITE, D3D11_MAP_WRITE_DISCARD, D3D11_MAP_WRITE_NO_OVERWRITE, D3D11_MAP_READ_WRITE};
 use winapi::shared::ntdef::ULONG;
 use winapi::um::d3dcommon::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D};
 use winapi::um::processthreadsapi::GetCurrentProcessId;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, GetParent, GetDesktopWindow, GetForegroundWindow};
-use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
+use winapi::um::{d3d11::ID3D11DeviceContext, winnt::{INT, HRESULT}};
 use winapi::shared::minwindef::UINT;
 use device_state::{dev_state_d3d11_read, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
@@ -491,6 +493,198 @@ const MM_DISABLE:bool = true;
 /// overhead.  Note that other MM hook functions aren't affected by this and will still run
 /// their logic.
 const MM_DISABLE:bool = false;
+
+/// True for map types that (may) write the buffer, i.e. those whose contents we want to capture.
+#[inline]
+fn is_write_map(map_type: D3D11_MAP) -> bool {
+    map_type == D3D11_MAP_WRITE
+        || map_type == D3D11_MAP_WRITE_DISCARD
+        || map_type == D3D11_MAP_WRITE_NO_OVERWRITE
+        || map_type == D3D11_MAP_READ_WRITE
+}
+
+/// Insert/overwrite captured buffer bytes for a tracked VB/IB.
+///
+/// A `createtime` entry is pushed only when the key is new.  Pushing a duplicate `(ptr, time)`
+/// tuple on every update would let the expiry GC (see `expire_data`) remove still-live data when
+/// the oldest tuple's cutoff is reached.  With this rule, a continuously-updated buffer self-heals:
+/// after the GC eventually expires it, the next update finds the key absent and re-inserts the
+/// data plus a fresh `createtime`, so any subsequent draw/snapshot still sees current bytes.
+fn capture_buffer_data(rs: &mut DX11RenderState, is_ib: bool, buf_ptr: usize, data: Vec<u8>) {
+    if is_ib {
+        let is_new = !rs.device_index_buffer_data.contains_key(&buf_ptr);
+        rs.device_index_buffer_data.insert(buf_ptr, data);
+        if is_new {
+            rs.device_index_buffer_createtime.push((buf_ptr, SystemTime::now()));
+        }
+    } else {
+        let is_new = !rs.device_vertex_buffer_data.contains_key(&buf_ptr);
+        rs.device_vertex_buffer_data.insert(buf_ptr, data);
+        if is_new {
+            rs.device_vertex_buffer_createtime.push((buf_ptr, SystemTime::now()));
+        }
+    }
+}
+
+/// Patch a sub-range of a tracked VB/IB's captured bytes (used for boxed UpdateSubresource).
+/// Ensures a full-size (`byte_width`) zero-filled copy exists first, then overwrites
+/// `[offset, offset+src.len())`.
+fn patch_captured_buffer(rs: &mut DX11RenderState, is_ib: bool, buf_ptr: usize,
+    byte_width: usize, offset: usize, src: &[u8]) {
+    let (map, ctlist) = if is_ib {
+        (&mut rs.device_index_buffer_data, &mut rs.device_index_buffer_createtime)
+    } else {
+        (&mut rs.device_vertex_buffer_data, &mut rs.device_vertex_buffer_createtime)
+    };
+    let is_new = !map.contains_key(&buf_ptr);
+    let entry = map.entry(buf_ptr).or_insert_with(|| vec![0u8; byte_width]);
+    if entry.len() < byte_width {
+        entry.resize(byte_width, 0u8);
+    }
+    let end = offset + src.len();
+    if end <= entry.len() {
+        entry[offset..end].copy_from_slice(src);
+    }
+    if is_new {
+        ctlist.push((buf_ptr, SystemTime::now()));
+    }
+}
+
+/// Hooked `ID3D11DeviceContext::Map`.  When precopy is enabled, remembers the CPU pointer of a
+/// write-mapped tracked VB/IB so `hook_Unmap` can copy its contents.  Buffers the game fills via
+/// Map (e.g. dynamic ring "megabuffers") are otherwise invisible to `hook_CreateBuffer`.
+pub unsafe extern "system" fn hook_Map(
+    THIS: *mut ID3D11DeviceContext,
+    pResource: *mut ID3D11Resource,
+    Subresource: UINT,
+    MapType: D3D11_MAP,
+    MapFlags: UINT,
+    pMappedResource: *mut D3D11_MAPPED_SUBRESOURCE,
+) -> HRESULT {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return E_FAIL,
+    };
+    let hr = (hook_context.real_map)(THIS, pResource, Subresource, MapType, MapFlags, pMappedResource);
+
+    if GLOBAL_STATE.run_conf.precopy_data
+        && hr == 0
+        && Subresource == 0
+        && !pMappedResource.is_null()
+        && is_write_map(MapType) {
+        let cpu_ptr = (*pMappedResource).pData as usize;
+        if cpu_ptr != 0 {
+            let res_key = pResource as usize;
+            // read-lock to check if this is a tracked VB/IB (skips the write lock for the very
+            // common constant-buffer Map case), then write-lock only to record the pending map.
+            let meta = dev_state_d3d11_read()
+                .and_then(|(_lck, state)| state.rs.device_buffer_meta.get(&res_key).copied());
+            if let Some((is_ib, byte_width)) = meta {
+                dev_state_d3d11_write().map(|(_lock, ds)| {
+                    ds.rs.mapped_buffers.insert(res_key, (cpu_ptr, is_ib, byte_width));
+                });
+            }
+        }
+    }
+    hr
+}
+
+/// Hooked `ID3D11DeviceContext::Unmap`.  Copies a pending write-mapped VB/IB's bytes into the
+/// snapshot buffer store *before* calling the real Unmap (which invalidates the mapped pointer).
+pub unsafe extern "system" fn hook_Unmap(
+    THIS: *mut ID3D11DeviceContext,
+    pResource: *mut ID3D11Resource,
+    Subresource: UINT,
+) {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    if GLOBAL_STATE.run_conf.precopy_data && Subresource == 0 {
+        let res_key = pResource as usize;
+        // cheap read-lock membership check; only take the write lock for actually-tracked unmaps.
+        let is_pending = dev_state_d3d11_read()
+            .map(|(_lck, state)| state.rs.mapped_buffers.contains_key(&res_key))
+            .unwrap_or(false);
+        if is_pending {
+            let pending = dev_state_d3d11_write()
+                .and_then(|(_lock, ds)| ds.rs.mapped_buffers.remove(&res_key));
+            if let Some((cpu_ptr, is_ib, byte_width)) = pending {
+                if cpu_ptr != 0 && byte_width > 0 {
+                    // copy outside the lock to minimize lock hold time; cpu_ptr stays valid until
+                    // the real Unmap below.
+                    let vlen = byte_width as usize;
+                    let mut dest_v: Vec<u8> = Vec::with_capacity(vlen);
+                    std::ptr::copy_nonoverlapping::<u8>(cpu_ptr as *const u8, dest_v.as_mut_ptr(), vlen);
+                    dest_v.set_len(vlen);
+                    dev_state_d3d11_write().map(|(_lock, ds)| {
+                        capture_buffer_data(&mut ds.rs, is_ib, res_key, dest_v);
+                    });
+                }
+            }
+        }
+    }
+
+    (hook_context.real_unmap)(THIS, pResource, Subresource);
+}
+
+/// Hooked `ID3D11DeviceContext::UpdateSubresource`.  Captures bytes written to a tracked VB/IB
+/// for buffers the game updates this way instead of via Map.
+pub unsafe extern "system" fn hook_UpdateSubresource(
+    THIS: *mut ID3D11DeviceContext,
+    pDstResource: *mut ID3D11Resource,
+    DstSubresource: UINT,
+    pDstBox: *const D3D11_BOX,
+    pSrcData: *const c_void,
+    SrcRowPitch: UINT,
+    SrcDepthPitch: UINT,
+) {
+    let hook_context = match get_hook_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    if GLOBAL_STATE.run_conf.precopy_data && DstSubresource == 0 && !pSrcData.is_null() {
+        let res_key = pDstResource as usize;
+        let meta = dev_state_d3d11_read()
+            .and_then(|(_lck, state)| state.rs.device_buffer_meta.get(&res_key).copied());
+        if let Some((is_ib, byte_width)) = meta {
+            if byte_width > 0 {
+                if pDstBox.is_null() {
+                    // full-resource update.
+                    let vlen = byte_width as usize;
+                    let mut dest_v: Vec<u8> = Vec::with_capacity(vlen);
+                    std::ptr::copy_nonoverlapping::<u8>(pSrcData as *const u8, dest_v.as_mut_ptr(), vlen);
+                    dest_v.set_len(vlen);
+                    dev_state_d3d11_write().map(|(_lock, ds)| {
+                        capture_buffer_data(&mut ds.rs, is_ib, res_key, dest_v);
+                    });
+                } else {
+                    // boxed (partial) update: for a buffer, left/right are byte offsets.
+                    let left = (*pDstBox).left as usize;
+                    let right = (*pDstBox).right as usize;
+                    let bw = byte_width as usize;
+                    if right > left && right <= bw {
+                        let span = right - left;
+                        let mut src_copy: Vec<u8> = Vec::with_capacity(span);
+                        std::ptr::copy_nonoverlapping::<u8>(pSrcData as *const u8, src_copy.as_mut_ptr(), span);
+                        src_copy.set_len(span);
+                        dev_state_d3d11_write().map(|(_lock, ds)| {
+                            patch_captured_buffer(&mut ds.rs, is_ib, res_key, bw, left, &src_copy);
+                        });
+                    } else {
+                        write_log_file(&format!(
+                            "hook_UpdateSubresource: ignoring out-of-range box update (left {}, right {}, byte_width {})",
+                            left, right, bw));
+                    }
+                }
+            }
+        }
+    }
+
+    (hook_context.real_update_subresource)(THIS, pDstResource, DstSubresource, pDstBox, pSrcData, SrcRowPitch, SrcDepthPitch);
+}
 
 pub unsafe extern "system" fn hook_draw_indexed(
     THIS: *mut ID3D11DeviceContext,
