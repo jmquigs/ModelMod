@@ -154,6 +154,17 @@ pub struct DX11RenderState {
     /// Controls when vertex data is removed
     pub device_vertex_buffer_createtime: Vec<(usize,SystemTime)>,
     pub device_vertex_buffer_totalsize_nextlog: (usize,usize),
+    /// Metadata for every index/vertex buffer created while precopy is enabled, keyed by buffer
+    /// pointer.  The tuple is `(is_index_buffer, byte_width)`.  This lets the Map/Unmap/
+    /// UpdateSubresource hooks identify whether a resource being updated is a tracked VB/IB (and
+    /// its size) without a `GetDesc` call on the hot path.  Needed because the game may create a
+    /// buffer empty and fill it later via Map or UpdateSubresource, in which case
+    /// `device_*_buffer_data` won't have an entry yet.
+    pub device_buffer_meta: FnvHashMap<usize, (bool, u32)>,
+    /// Pending Map->Unmap records keyed by resource pointer.  The CPU pointer returned by Map is
+    /// only known at Map time, but the data must be copied at Unmap (before the real Unmap
+    /// invalidates the pointer).  Tuple is `(cpu_ptr, is_index_buffer, byte_width)`.
+    pub mapped_buffers: FnvHashMap<usize, (usize, bool, u32)>,
 }
 
 impl DX11RenderState {
@@ -172,6 +183,8 @@ impl DX11RenderState {
             device_vertex_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
             device_vertex_buffer_createtime: Vec::new(),
             device_vertex_buffer_totalsize_nextlog: (0,0),
+            device_buffer_meta: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
+            mapped_buffers: FnvHashMap::with_capacity_and_hasher(16, Default::default()),
         }
     }
 
