@@ -147,6 +147,23 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
     unsafe {
         write_log_file(&format!("==> New snap started: prims: {}, verts: {}, basevert: {}, startindex: {}", sd.prim_count, sd.num_vertices, sd.base_vertex_index, sd.start_index));
 
+        // For an indexed triangle list, the most unique verts a draw can touch is prim_count * 3
+        // (no shared indices). If num_vertices exceeds that, it most likely came from
+        // vb_size / vert_size (the whole bound VB) rather than this draw's range -- see
+        // compute_prim_vert_count in hook_render_d3d11.rs. That's a strong hint that either the
+        // VB is shared across many draws, or the geometry is CPU/software-animated and not
+        // usefully snapshottable, and may also explain a subsequent missing-index-buffer error.
+        let implied_max_verts = sd.prim_count.saturating_mul(3);
+        if sd.num_vertices > implied_max_verts {
+            write_log_file(&format!(
+                "WARNING: snapshot vert count {} exceeds the upper bound implied by DrawIndexed \
+                 parameters ({} = prim_count * 3). num_vertices likely reflects the full bound \
+                 vertex buffer rather than this draw's range. If this geometry is CPU/software \
+                 animated it will not be modable; the snapshot may also fail with a missing \
+                 index buffer or produce a mismatched mesh.",
+                sd.num_vertices, implied_max_verts));
+        }
+
         pre_rc = devptr.get_ref_count();
 
         (*gs).device = Some(*devptr);
