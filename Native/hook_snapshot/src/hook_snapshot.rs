@@ -664,24 +664,24 @@ unsafe fn set_buffers_d3d11(device:*mut ID3D11Device, sd:&mut types::interop::Sn
         if vert_size == 0 {
             return Err(HookError::SnapshotFailed("vertex size is 0".to_string()));
         }
-        // abort if it lacks a texture coordinate semantic, this won't snap properly ATM (might
-        // be a python importer error in mmobj, not sure)
+        // warn if it lacks a texture coordinate semantic; historically this aborted the snap
+        // because the python importer in mmobj may not handle it, but proceed anyway so the
+        // user can still capture geometry-only meshes (e.g. layouts with only position/blend
+        // semantics).
         let ptr_to_str = |ptr:*const i8| -> String {
             let cstr = unsafe { CStr::from_ptr(ptr) };
             let s = cstr.to_string_lossy().to_ascii_lowercase().to_string();
             s
         };
-        vf.layout.iter()
-            .find(|l| ptr_to_str(l.SemanticName).starts_with("texcoord"))
-            .ok_or_else(|| {
-                let available: Vec<String> = vf.layout.iter()
-                    .map(|l| format!("{}{}", ptr_to_str(l.SemanticName), l.SemanticIndex))
-                    .collect();
-                HookError::SnapshotFailed(format!(
-                    "snap aborted, vertex layout lacks texcoord so this will not capture properly; available semantics: [{}]",
-                    available.join(", ")
-                ))
-            })?;
+        if !vf.layout.iter().any(|l| ptr_to_str(l.SemanticName).starts_with("texcoord")) {
+            let available: Vec<String> = vf.layout.iter()
+                .map(|l| format!("{}{}", ptr_to_str(l.SemanticName), l.SemanticIndex))
+                .collect();
+            write_log_file(&format!(
+                "warning: vertex layout lacks texcoord, snapshot may not import correctly; available semantics: [{}]",
+                available.join(", ")
+            ));
+        }
 
         let mut ld = vf.layout.clone();
         let layout_data_size = std::mem::size_of::<D3D11_INPUT_ELEMENT_DESC>() * ld.len();
