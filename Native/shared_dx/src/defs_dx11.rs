@@ -5,7 +5,8 @@ use winapi::shared::minwindef::{UINT, INT, ULONG};
 
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_INPUT_ELEMENT_DESC,
     ID3D11Device, D3D11_PRIMITIVE_TOPOLOGY, ID3D11ShaderResourceView, D3D11_BUFFER_DESC,
-    D3D11_SUBRESOURCE_DATA, ID3D11Resource, D3D11_TEXTURE2D_DESC, ID3D11Texture2D};
+    D3D11_SUBRESOURCE_DATA, ID3D11Resource, D3D11_TEXTURE2D_DESC, ID3D11Texture2D,
+    D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_BOX};
 use winapi::um::d3d11::ID3D11DeviceContext;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnt::HRESULT;
@@ -76,6 +77,28 @@ pub type DrawIndexedFn = unsafe extern "system" fn (
     IndexCount: UINT,
     StartIndexLocation: UINT,
     BaseVertexLocation: INT,
+) -> ();
+pub type MapFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    pResource: *mut ID3D11Resource,
+    Subresource: UINT,
+    MapType: D3D11_MAP,
+    MapFlags: UINT,
+    pMappedResource: *mut D3D11_MAPPED_SUBRESOURCE,
+) -> HRESULT;
+pub type UnmapFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    pResource: *mut ID3D11Resource,
+    Subresource: UINT,
+) -> ();
+pub type UpdateSubresourceFn = unsafe extern "system" fn (
+    THIS: *mut ID3D11DeviceContext,
+    pDstResource: *mut ID3D11Resource,
+    DstSubresource: UINT,
+    pDstBox: *const D3D11_BOX,
+    pSrcData: *const c_void,
+    SrcRowPitch: UINT,
+    SrcDepthPitch: UINT,
 ) -> ();
 pub type DrawFn = unsafe extern "system" fn (
     THIS: *mut ID3D11DeviceContext,

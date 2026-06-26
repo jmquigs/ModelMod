@@ -23,6 +23,9 @@ pub struct HookDirect3D11Context {
     pub real_ia_set_input_layout: IASetInputLayoutFn,
     pub real_ia_set_primitive_topology: IASetPrimitiveTopologyFn,
     pub real_ps_set_shader_resources: PSSetShaderResourcesFn,
+    pub real_map: MapFn,
+    pub real_unmap: UnmapFn,
+    pub real_update_subresource: UpdateSubresourceFn,
 }
 #[derive(Clone, Copy)]
 pub struct HookDirect3D11 {

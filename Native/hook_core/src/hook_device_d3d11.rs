@@ -384,6 +384,23 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         (*vtbl).PSSetShaderResources = hook_PSSetShaderResources;
         func_hooked += 1;
     }
+    // Map/Unmap/UpdateSubresource are hooked so that buffers the game fills *after* creation
+    // (e.g. dynamic "megabuffers" updated via Map/WRITE_NO_OVERWRITE or UpdateSubresource) can be
+    // copied for snapshotting.  Installed unconditionally like the draw hooks; the hook bodies are
+    // no-ops unless precopy_data is enabled, so the runtime precopy toggle works without rehooking
+    // the (already-copied) context vtable.
+    if (*vtbl).Map as usize != hook_Map as usize {
+        (*vtbl).Map = hook_Map;
+        func_hooked += 1;
+    }
+    if (*vtbl).Unmap as usize != hook_Unmap as usize {
+        (*vtbl).Unmap = hook_Unmap;
+        func_hooked += 1;
+    }
+    if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as usize {
+        (*vtbl).UpdateSubresource = hook_UpdateSubresource;
+        func_hooked += 1;
+    }
 
     if TRACK_REHOOK_TIME {
         let now = SystemTime::now();
@@ -636,6 +653,9 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
     let real_ps_set_shader_resources = (*vtbl).PSSetShaderResources;
+    let real_map = (*vtbl).Map;
+    let real_unmap = (*vtbl).Unmap;
+    let real_update_subresource = (*vtbl).UpdateSubresource;
 
     // since we always make a copy of the vtable in the context at the moment, we don't search
     // for the real functions as we do in the device case, since a new context should always have
@@ -672,6 +692,9 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_ia_set_input_layout,
         real_ia_set_primitive_topology,
         real_ps_set_shader_resources,
+        real_map,
+        real_unmap,
+        real_update_subresource,
     };
 
     Ok(HookDirect3D11 { context: hook_context })
@@ -1017,31 +1040,47 @@ unsafe extern "system" fn hook_CreateBuffer(
         ppBuffer
     );
 
-    if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() {
-        // if its an index buffer with data, we need to copy it out
+    if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() && !pDesc.is_null() {
+        // For index/vertex buffers, record metadata (type + size) so the Map/Unmap/
+        // UpdateSubresource hooks can identify this buffer later -- even if it is created empty
+        // and filled afterwards (the "megabuffer" case).  If initial data was supplied we also
+        // copy it out now, since DX11 offers no way to read the buffer back from the CPU later.
         let is_ib = (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0;
         let is_vb = (*pDesc).BindFlags & D3D11_BIND_VERTEX_BUFFER != 0;
-        if !pDesc.is_null() && (is_ib || is_vb)
-            && !pInitialData.is_null() && !(*pInitialData).pSysMem.is_null() {
-            if (*pInitialData).SysMemPitch != 0 || (*pInitialData).SysMemSlicePitch != 0 {
-                write_log_file(&format!("WARNING: hook_CreateBuffer: index or vertex buffer created with pitch or slice pitch, copy unimplemented"));
-            } else {
-                let vlen = (*pDesc).ByteWidth as usize;
-                let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
-                std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
-                dest_v.set_len(vlen);
-                dev_state_d3d11_write()
-                .map(|(_lock,ds)| {
+        if is_ib || is_vb {
+            let buf_ptr = *ppBuffer as usize;
+            let byte_width = (*pDesc).ByteWidth;
+
+            let has_pitch = !pInitialData.is_null()
+                && ((*pInitialData).SysMemPitch != 0 || (*pInitialData).SysMemSlicePitch != 0);
+            if has_pitch {
+                write_log_file("WARNING: hook_CreateBuffer: index or vertex buffer created with pitch or slice pitch, copy unimplemented");
+            }
+            let initial_copy: Option<Vec<u8>> =
+                if !pInitialData.is_null() && !(*pInitialData).pSysMem.is_null() && !has_pitch {
+                    let vlen = byte_width as usize;
+                    let mut dest_v:Vec<u8> = Vec::with_capacity(vlen);
+                    std::ptr::copy_nonoverlapping::<u8>((*pInitialData).pSysMem as *const u8, dest_v.as_mut_ptr(), vlen);
+                    dest_v.set_len(vlen);
+                    Some(dest_v)
+                } else {
+                    None
+                };
+
+            dev_state_d3d11_write()
+            .map(|(_lock,ds)| {
+                ds.rs.device_buffer_meta.insert(buf_ptr, (is_ib, byte_width));
+                if let Some(dest_v) = initial_copy {
                     if is_ib {
-                        ds.rs.device_index_buffer_data.insert(*ppBuffer as usize, dest_v);
-                        ds.rs.device_index_buffer_createtime.push((*ppBuffer as usize, SystemTime::now()));
+                        ds.rs.device_index_buffer_data.insert(buf_ptr, dest_v);
+                        ds.rs.device_index_buffer_createtime.push((buf_ptr, SystemTime::now()));
                     }
                     else if is_vb {
-                        ds.rs.device_vertex_buffer_data.insert(*ppBuffer as usize, dest_v);
-                        ds.rs.device_vertex_buffer_createtime.push((*ppBuffer as usize, SystemTime::now()));
+                        ds.rs.device_vertex_buffer_data.insert(buf_ptr, dest_v);
+                        ds.rs.device_vertex_buffer_createtime.push((buf_ptr, SystemTime::now()));
                     }
-                });
-            }
+                }
+            });
         }
     }
 
