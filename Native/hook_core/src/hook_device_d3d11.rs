@@ -384,22 +384,26 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         (*vtbl).PSSetShaderResources = hook_PSSetShaderResources;
         func_hooked += 1;
     }
-    // Map/Unmap/UpdateSubresource are hooked so that buffers the game fills *after* creation
-    // (e.g. dynamic "megabuffers" updated via Map/WRITE_NO_OVERWRITE or UpdateSubresource) can be
-    // copied for snapshotting.  Installed unconditionally like the draw hooks; the hook bodies are
-    // no-ops unless precopy_data is enabled, so the runtime precopy toggle works without rehooking
-    // the (already-copied) context vtable.
-    if (*vtbl).Map as usize != hook_Map as usize {
-        (*vtbl).Map = hook_Map;
-        func_hooked += 1;
-    }
-    if (*vtbl).Unmap as usize != hook_Unmap as usize {
-        (*vtbl).Unmap = hook_Unmap;
-        func_hooked += 1;
-    }
-    if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as usize {
-        (*vtbl).UpdateSubresource = hook_UpdateSubresource;
-        func_hooked += 1;
+    // Map/Unmap/UpdateSubresource are hooked (only with the `snapshot-dynamic-buffers` feature) so
+    // that buffers the game fills *after* creation (e.g. dynamic "megabuffers" updated via
+    // Map/WRITE_NO_OVERWRITE or UpdateSubresource) can be copied for snapshotting.  The hook bodies
+    // are still no-ops unless precopy_data is enabled, so the runtime precopy toggle works without
+    // rehooking the (already-copied) context vtable.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    {
+        use crate::hook_dynamic_buffers::{hook_Map, hook_Unmap, hook_UpdateSubresource};
+        if (*vtbl).Map as usize != hook_Map as usize {
+            (*vtbl).Map = hook_Map;
+            func_hooked += 1;
+        }
+        if (*vtbl).Unmap as usize != hook_Unmap as usize {
+            (*vtbl).Unmap = hook_Unmap;
+            func_hooked += 1;
+        }
+        if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as usize {
+            (*vtbl).UpdateSubresource = hook_UpdateSubresource;
+            func_hooked += 1;
+        }
     }
 
     if TRACK_REHOOK_TIME {
@@ -1041,10 +1045,11 @@ unsafe extern "system" fn hook_CreateBuffer(
     );
 
     if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() && !pDesc.is_null() {
-        // For index/vertex buffers, record metadata (type + size) so the Map/Unmap/
-        // UpdateSubresource hooks can identify this buffer later -- even if it is created empty
-        // and filled afterwards (the "megabuffer" case).  If initial data was supplied we also
-        // copy it out now, since DX11 offers no way to read the buffer back from the CPU later.
+        // For index/vertex buffers, if initial data was supplied, copy it out now since DX11
+        // offers no way to read the buffer back from the CPU later (original behavior). With the
+        // `snapshot-dynamic-buffers` feature we additionally record metadata (type + size) so the
+        // Map/Unmap/UpdateSubresource hooks can identify this buffer even if it was created empty
+        // and filled afterwards (the "megabuffer" case).
         let is_ib = (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0;
         let is_vb = (*pDesc).BindFlags & D3D11_BIND_VERTEX_BUFFER != 0;
         if is_ib || is_vb {
@@ -1067,10 +1072,17 @@ unsafe extern "system" fn hook_CreateBuffer(
                     None
                 };
 
-            dev_state_d3d11_write()
-            .map(|(_lock,ds)| {
-                ds.rs.device_buffer_meta.insert(buf_ptr, (is_ib, byte_width));
-                if let Some(dest_v) = initial_copy {
+            #[cfg(feature = "snapshot-dynamic-buffers")]
+            {
+                dev_state_d3d11_write().map(|(_lock,ds)| {
+                    ds.rs.device_buffer_meta.insert(buf_ptr, (is_ib, byte_width));
+                });
+            }
+
+            // take the write lock only when there's data to store (matches original behavior).
+            if let Some(dest_v) = initial_copy {
+                dev_state_d3d11_write()
+                .map(|(_lock,ds)| {
                     if is_ib {
                         ds.rs.device_index_buffer_data.insert(buf_ptr, dest_v);
                         ds.rs.device_index_buffer_createtime.push((buf_ptr, SystemTime::now()));
@@ -1079,8 +1091,8 @@ unsafe extern "system" fn hook_CreateBuffer(
                         ds.rs.device_vertex_buffer_data.insert(buf_ptr, dest_v);
                         ds.rs.device_vertex_buffer_createtime.push((buf_ptr, SystemTime::now()));
                     }
-                }
-            });
+                });
+            }
         }
     }
 

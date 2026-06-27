@@ -183,8 +183,10 @@ impl DX11RenderState {
             device_vertex_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
             device_vertex_buffer_createtime: Vec::new(),
             device_vertex_buffer_totalsize_nextlog: (0,0),
-            device_buffer_meta: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
-            mapped_buffers: FnvHashMap::with_capacity_and_hasher(16, Default::default()),
+            // Allocate lazily (no capacity): these stay empty unless the snapshot-dynamic-buffers
+            // feature is enabled and actively capturing, so this keeps the default build zero-cost.
+            device_buffer_meta: FnvHashMap::default(),
+            mapped_buffers: FnvHashMap::default(),
         }
     }
 
