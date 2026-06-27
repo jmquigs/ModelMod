@@ -26,3 +26,8 @@ lazy_static = "1.1.0"
 winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput"] }
+
+[features]
+# See hook_core's snapshot-dynamic-buffers feature; this gates the snapshot-time sub-region
+# slicing/re-basing in set_buffers_d3d11. Enabled transitively by hook_core's feature of the same name.
+snapshot-dynamic-buffers = []
