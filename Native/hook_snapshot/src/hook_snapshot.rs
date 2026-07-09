@@ -278,6 +278,28 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
     }
 }
 
+/// Human-readable name for the DXGI formats we care about when logging texture snapshots.
+/// Covers the block-compressed range (the formats that fail to save under Wine's d3dx11)
+/// plus a few common uncompressed ones; anything else is reported as "?".
+fn dxgi_format_name(fmt: DXGI_FORMAT) -> &'static str {
+    match fmt {
+        0 => "UNKNOWN",
+        2 => "R32G32B32A32_FLOAT",
+        10 => "R16G16B16A16_FLOAT",
+        28 => "R8G8B8A8_UNORM",
+        29 => "R8G8B8A8_UNORM_SRGB",
+        70 => "BC1_TYPELESS",  71 => "BC1_UNORM", 72 => "BC1_UNORM_SRGB",
+        73 => "BC2_TYPELESS",  74 => "BC2_UNORM", 75 => "BC2_UNORM_SRGB",
+        76 => "BC3_TYPELESS",  77 => "BC3_UNORM", 78 => "BC3_UNORM_SRGB",
+        79 => "BC4_TYPELESS",  80 => "BC4_UNORM", 81 => "BC4_SNORM",
+        82 => "BC5_TYPELESS",  83 => "BC5_UNORM", 84 => "BC5_SNORM",
+        87 => "B8G8R8A8_UNORM", 88 => "B8G8R8X8_UNORM", 91 => "B8G8R8A8_UNORM_SRGB",
+        94 => "BC6H_TYPELESS", 95 => "BC6H_UF16", 96 => "BC6H_SF16",
+        97 => "BC7_TYPELESS",  98 => "BC7_UNORM", 99 => "BC7_UNORM_SRGB",
+        _ => "?",
+    }
+}
+
 unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuffers>, snap_dir:&str, snap_prefix:&str) -> Result<()> {
     // in d3d9 the managed code already did this
     let device = match devtr {
@@ -308,6 +330,8 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
     // find the srvs that are 2d textures, try to save them
     let mut num_saved = 0;
     let mut num_skipped = 0;
+    // diagnostic: only run the "save as PNG" probe once per snapshot (see failure branch below)
+    let mut png_probe_done = false;
     for idx in d3d11bufs.srv_2d_tex.iter() {
         if *idx as usize >= d3d11bufs.srvs.len() {
             return Err(HookError::SnapshotFailed(format!("invalid srv index {} of {}", idx, d3d11bufs.srvs.len())));
@@ -345,12 +369,33 @@ unsafe fn save_textures(devtr:&mut DevicePointer, buffers:&Box<dyn SnapDeviceBuf
                 idx, heightwidth_format, desc.Usage, desc.CPUAccessFlags, desc.BindFlags, desc.MiscFlags, desc.Format));
 
             let out = format!("{}/{}_texture{}.dds", snap_dir, snap_prefix, idx);
-            let out = util::to_wide_str(&out);
+            let outw = util::to_wide_str(&out);
             const D3DX11_IFF_DDS: u32 = 4;
-            let hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_DDS, out.as_ptr());
+            const D3DX11_IFF_PNG: u32 = 3;
+            const E_NOTIMPL: i32 = 0x80004001u32 as i32;
+            let hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_DDS, outw.as_ptr());
             if hr != 0 {
-                // write out an error but keep going to see if we can get others
-                write_log_file(&format!("failed to save texture from srv {}: {}", idx, hr));
+                // write out an error but keep going to see if we can get others.
+                // print the HRESULT in hex (easier to recognize than signed decimal) and the format.
+                let extra = if hr == E_NOTIMPL {
+                    " -- E_NOTIMPL: this d3dx11 does not implement the save; under Proton this is likely Wine's built-in stub (see 'loaded d3dx11 from' line above)"
+                } else {
+                    ""
+                };
+                write_log_file(&format!("failed to save texture from srv {}: {:#010x} (format {} {}){}",
+                    idx, hr as u32, desc.Format, dxgi_format_name(desc.Format), extra));
+
+                // On the first failure only, probe whether the same resource saves as PNG.
+                // This separates "d3dx11 save is a total stub" (PNG also fails, likely E_NOTIMPL)
+                // from "only the DDS/block-compressed path is unimplemented" (PNG behaves differently).
+                if !png_probe_done {
+                    png_probe_done = true;
+                    let png_out = format!("{}/{}_texture{}_probe.png", snap_dir, snap_prefix, idx);
+                    let png_outw = util::to_wide_str(&png_out);
+                    let png_hr = (d3dx_fn.D3DX11SaveTextureToFileW)(context, resptr, D3DX11_IFF_PNG, png_outw.as_ptr());
+                    write_log_file(&format!("  png-probe: saving srv {} as PNG returned {:#010x} ({})",
+                        idx, png_hr as u32, if png_hr == 0 { "OK" } else if png_hr == E_NOTIMPL { "E_NOTIMPL" } else { "other error" }));
+                }
             } else {
                 num_saved += 1;
             }

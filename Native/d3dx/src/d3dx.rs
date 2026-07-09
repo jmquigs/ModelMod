@@ -119,6 +119,14 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
             match handle {
                 None => return Err(HookError::LoadLibFailed(format!("D3DX11 not found in system or {:?}", searched))),
                 Some(handle) => {
+                    // Log exactly which d3dx11 DLL the loader resolved.  Under Proton this is
+                    // typically Wine's built-in copy (in the windows system dir), whose
+                    // D3DX11SaveTextureToFileW may be a stub / not support compressed formats.
+                    // A game that ships its own real d3dx11_43.dll will show a game-local path here.
+                    match util::get_module_path(handle) {
+                        Ok(path) => write_log_file(&format!("loaded d3dx11 from: {}", path)),
+                        Err(e) => write_log_file(&format!("loaded d3dx11 (path unavailable: {:?})", e)),
+                    }
                     unsafe {
                         Ok(D3DXFn::DX11(D3DX11Fn {
                             D3DX11SaveTextureToFileW: std::mem::transmute(util::get_proc_address(

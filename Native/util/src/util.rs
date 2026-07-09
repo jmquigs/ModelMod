@@ -327,14 +327,23 @@ pub fn to_wide_str(s: &str) -> Vec<u16> {
 }
 
 pub fn get_module_name() -> Result<String> {
-    use std::os::windows::prelude::*;
     use winapi::um::libloaderapi::*;
+
+    let handle = unsafe { GetModuleHandleW(std::ptr::null_mut()) };
+    get_module_path(handle)
+}
+
+/// Return the on-disk path for a loaded module handle (as returned by `load_lib`).
+/// Useful for logging exactly which DLL the OS loader resolved for a given name,
+/// which can differ between the system copy and a game- or app-local copy.
+pub fn get_module_path(handle: HMODULE) -> Result<String> {
+    use std::os::windows::prelude::*;
+    use winapi::um::libloaderapi::GetModuleFileNameW;
 
     unsafe {
         let ssize = 65535;
         let mut mpath: Vec<u16> = Vec::with_capacity(ssize);
 
-        let handle = GetModuleHandleW(std::ptr::null_mut());
         let r = GetModuleFileNameW(handle, mpath.as_mut_ptr(), ssize as DWORD);
         if r == 0 {
             return Err(HookError::ModuleNameError(format!(
