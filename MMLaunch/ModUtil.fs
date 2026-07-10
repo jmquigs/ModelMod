@@ -33,8 +33,8 @@ module DdsUtil =
 
     type HeaderInfo = { FourCC : string; HasDX10 : bool }
 
-    let PathToTexCli = [ "TPlib"; "..\\TPLib"; "..\\..\\TPLib"; "..\\..\\..\\TPLib";  ]
-    let PathToSnapshotProfiles = [ "SnapshotProfiles"; "..\\SnapshotProfiles"; "..\\..\\SnapshotProfiles"; "..\\..\\..\\SnapshotProfiles" ]
+    let PathToTexCli = [ "TPlib"; "ModelMod\\TPLib"; "..\\TPLib"; "..\\..\\TPLib"; "..\\..\\..\\TPLib";  ]
+    let PathToSnapshotProfiles = [ "SnapshotProfiles"; "ModelMod\\SnapshotProfiles"; "..\\SnapshotProfiles"; "..\\..\\SnapshotProfiles"; "..\\..\\..\\SnapshotProfiles" ]
     let SnapTexFormatFile = "TexFormat.txt"
     let TexConvName = "texconv.exe"
 
