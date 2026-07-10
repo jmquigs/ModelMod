@@ -350,12 +350,12 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
 
     let mut func_hooked = 0;
 
-    if iunknown.QueryInterface as usize != hook_context_QueryInterface as usize {
+    if iunknown.QueryInterface as usize != hook_context_QueryInterface as *const () as usize {
         iunknown.QueryInterface = hook_context_QueryInterface;
         func_hooked += 1;
     }
 
-    if iunknown.Release as usize != hook_release as usize {
+    if iunknown.Release as usize != hook_release as *const () as usize {
         iunknown.Release = hook_release;
         func_hooked += 1;
     }
@@ -364,23 +364,23 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
     //     (*vtbl).VSSetConstantBuffers = hook_VSSetConstantBuffers;
     //     func_hooked += 1;
     // }
-    if debugmode::draw_hook_enabled() && (*vtbl).DrawIndexed as usize != hook_draw_indexed as usize {
+    if debugmode::draw_hook_enabled() && (*vtbl).DrawIndexed as usize != hook_draw_indexed as *const () as usize {
         (*vtbl).DrawIndexed = hook_draw_indexed;
         func_hooked += 1;
     }
-    if (*vtbl).IASetVertexBuffers as usize != hook_IASetVertexBuffers as usize {
+    if (*vtbl).IASetVertexBuffers as usize != hook_IASetVertexBuffers as *const () as usize {
         (*vtbl).IASetVertexBuffers = hook_IASetVertexBuffers;
         func_hooked += 1;
     }
-    if (*vtbl).IASetInputLayout as usize != hook_IASetInputLayout as usize {
+    if (*vtbl).IASetInputLayout as usize != hook_IASetInputLayout as *const () as usize {
         (*vtbl).IASetInputLayout = hook_IASetInputLayout;
         func_hooked += 1;
     }
-    if (*vtbl).IASetPrimitiveTopology as usize != hook_IASetPrimitiveTopology as usize {
+    if (*vtbl).IASetPrimitiveTopology as usize != hook_IASetPrimitiveTopology as *const () as usize {
         (*vtbl).IASetPrimitiveTopology = hook_IASetPrimitiveTopology;
         func_hooked += 1;
     }
-    if (*vtbl).PSSetShaderResources as usize != hook_PSSetShaderResources as usize {
+    if (*vtbl).PSSetShaderResources as usize != hook_PSSetShaderResources as *const () as usize {
         (*vtbl).PSSetShaderResources = hook_PSSetShaderResources;
         func_hooked += 1;
     }
@@ -557,19 +557,19 @@ pub unsafe fn apply_device_hook(device:*mut ID3D11Device) -> Result<()> {
         let real_create_input_layout = (*vtbl).CreateInputLayout;
         let real_query_interface = (*vtbl).parent.QueryInterface;
 
-        if real_create_buffer as usize == hook_CreateBuffer as usize {
+        if real_create_buffer as usize == hook_CreateBuffer as *const () as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook CreateBuffer due to missing real function")));
         }
-        if (real_create_texture_2d as usize) == hook_CreateTexture2D as usize {
+        if (real_create_texture_2d as usize) == hook_CreateTexture2D as *const () as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook CreateTexture2D due to missing real function")));
         }
-        if real_create_input_layout as usize == hook_CreateInputLayoutFn as usize {
+        if real_create_input_layout as usize == hook_CreateInputLayoutFn as *const () as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook CreateInputLayout due to missing real function")));
         }
-        if real_query_interface as usize == hook_device_QueryInterface as usize {
+        if real_query_interface as usize == hook_device_QueryInterface as *const () as usize {
             return Err(HookError::D3D11DeviceHookFailed(
                 format!("unable to hook QueryInterface due to missing real function")));
         }
@@ -641,11 +641,11 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     // for the real functions as we do in the device case, since a new context should always have
     // the real functions.  but error out if that is not so.  check 1 function on iunknown and 1
     // on device (but not drawindexed since we can late hook that).
-    if real_release as usize == hook_release as usize {
+    if real_release as usize == hook_release as *const () as usize {
         write_log_file("error: context already appears to be hooked");
         return Err(HookError::D3D11DeviceHookFailed("context already hooked".to_string()));
     }
-    if real_ia_set_input_layout as usize == hook_IASetInputLayout as usize {
+    if real_ia_set_input_layout as usize == hook_IASetInputLayout as *const () as usize {
         write_log_file("error: context already appears to be hooked");
         return Err(HookError::D3D11DeviceHookFailed("context already hooked".to_string()));
     }
@@ -1201,7 +1201,7 @@ pub unsafe extern "system" fn hook_device_QueryInterface(
             return E_NOINTERFACE;
         }
     };
-    if hook_device.real_query_interface as usize == hook_device_QueryInterface as usize {
+    if hook_device.real_query_interface as usize == hook_device_QueryInterface as *const () as usize {
         write_log_file(&format!("Error: hook_device_QueryInterface returning E_NOINTERFACE due real fn same as hook fn"));
         return E_NOINTERFACE;
     }
