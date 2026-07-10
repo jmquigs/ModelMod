@@ -71,14 +71,26 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
         },
         DevicePointer::D3D11(_device) => {
             let base_names = vec!["d3dx11_43.dll", "d3dx11_42.dll"];
-            // just try loading it first from the system
-            let mut handle = base_names.iter().find_map(|base_name| {
-                match util::load_lib(base_name) {
-                    Ok(handle) => Some(handle),
-                    Err(_) => None,
-                }
-            });
+            
+            let mut handle:Option<HMODULE> = None;
+
+            let load_from_sys = || {
+                base_names.iter().find_map(|base_name| {
+                    match util::load_lib(base_name) {
+                        Ok(handle) => Some(handle),
+                        Err(_) => None,
+                    }
+                })
+            };
+            
             let mut searched:Vec<String> = vec![];
+
+            // on actual windows try load from sys first; don't do this on wine because it will load, but 
+            // we'll get wine's partially implemented version of the associated functions (on wine 
+            // prefer the copy stored in TPLib)
+            if !util::is_wine() {
+                handle = load_from_sys();
+            }
             if handle.is_none() {
                 // not found so look into tplib dir, try looking for arch specific folder
                 // or file with an _arch suffix in tplib
@@ -116,13 +128,14 @@ pub fn load_lib(mm_root: &Option<String>, device: &DevicePointer) -> Result<D3DX
                 }
             }
 
+            // final (or first if we skipped it earlier) try from sys
+            if handle.is_none() {
+                handle = load_from_sys();
+            }
             match handle {
                 None => return Err(HookError::LoadLibFailed(format!("D3DX11 not found in system or {:?}", searched))),
                 Some(handle) => {
-                    // Log exactly which d3dx11 DLL the loader resolved.  Under Proton this is
-                    // typically Wine's built-in copy (in the windows system dir), whose
-                    // D3DX11SaveTextureToFileW may be a stub / not support compressed formats.
-                    // A game that ships its own real d3dx11_43.dll will show a game-local path here.
+                    // Log exactly which d3dx11 DLL the loader resolved.
                     match util::get_module_path(handle) {
                         Ok(path) => write_log_file(&format!("loaded d3dx11 from: {}", path)),
                         Err(e) => write_log_file(&format!("loaded d3dx11 (path unavailable: {:?})", e)),

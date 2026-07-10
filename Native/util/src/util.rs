@@ -16,6 +16,18 @@ use std::sync::MutexGuard;
 
 use shared_dx::error::*;
 
+use winapi::um::libloaderapi::{GetModuleHandleA};
+
+pub fn is_wine() -> bool {
+    unsafe {
+        let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr() as *const i8);
+        if ntdll.is_null() {
+            return false;
+        }
+        !GetProcAddress(ntdll, b"wine_get_version\0".as_ptr() as *const i8).is_null()
+    }
+}
+
 pub unsafe fn protect_memory(
     target: *mut winapi::ctypes::c_void,
     size: usize,
