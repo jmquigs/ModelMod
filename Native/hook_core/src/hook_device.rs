@@ -42,7 +42,7 @@ unsafe fn hook_d3d9_device(
 
     let real_draw_indexed_primitive = (*vtbl).DrawIndexedPrimitive;
     // check for already hook devices (useful in late-hook case)
-    if real_draw_indexed_primitive as usize == hook_draw_indexed_primitive as usize {
+    if real_draw_indexed_primitive as usize == hook_draw_indexed_primitive as *const () as usize {
         write_log_file(&format!("error: device already appears to be hooked, skipping"));
         return Err(HookError::D3D9DeviceHookFailed);
     }
@@ -869,7 +869,7 @@ pub fn create_d3d9(sdk_ver: u32) -> Result<*mut IDirect3D9> {
         // save pointer to real function
         let real_create_device = (*vtbl).CreateDevice;
         // hax check
-        let chook = hook_create_device as u64;
+        let chook = hook_create_device as *const () as u64;
         let creal = real_create_device as u64;
         if chook == creal {
             write_log_file(&format!("error: oops, the supposedly real create device function appears to be the hook function already; bailing out to avoid infinite recursion"));
