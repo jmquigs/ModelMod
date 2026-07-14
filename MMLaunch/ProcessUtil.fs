@@ -57,6 +57,26 @@ module ProcessUtil =
             "Logs"
             "Bin"]
 
+        // A candidate directory is only a real MM root if the native loader could
+        // actually load MMManaged.dll from it.  This mirrors get_managed_dll_path in
+        // the native util crate, which searches these same subdirs.  Requiring the
+        // managed dll rejects false positives from generic markers -- most importantly,
+        // under Wine/Proton the working dir can resolve to the unix root (drive Z:\),
+        // whose case-insensitive "/bin" matches the "Bin" marker and previously
+        // produced a bogus root of "Z:\" that PeriodicUpdate wrote to the registry.
+        let managedDllSubdirs = [""; "Bin"; "Release"; "Debug"]
+        let hasManagedDll (dir:string) =
+            let dir = if String.IsNullOrEmpty dir then "." else dir
+            managedDllSubdirs
+            |> List.exists (fun sub -> File.Exists(Path.Combine(dir, sub, "MMManaged.dll")))
+
+        // MMDotNet.sln uniquely identifies a source checkout (ModelMod-specific, so no
+        // risk of matching a system directory), so trust it directly.  Every other
+        // marker must be backed by a loadable MMManaged.dll.
+        let isValidCandidate (markerPath:string) =
+            markerPath.EndsWith("MMDotNet.sln")
+            || hasManagedDll (Path.GetDirectoryName(markerPath))
+
         let root =
             rootSearchPath
             |> List.tryPick (fun rootpath ->
@@ -64,7 +84,7 @@ module ProcessUtil =
                 |> List.map (fun filepath -> Path.Combine(rootpath, filepath))
                 |> List.tryPick (fun filepath ->
                     //printfn "try %A" (Path.GetFullPath(filepath))
-                    if (Directory.Exists(filepath) || File.Exists(filepath)) then Some(filepath) else None)
+                    if (Directory.Exists(filepath) || File.Exists(filepath)) && isValidCandidate filepath then Some(filepath) else None)
             )
         
         let fullRoot = 
@@ -80,9 +100,9 @@ module ProcessUtil =
                 //failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
             | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
 
-        if lastRoot <> Some(fullRoot) then 
+        if lastRoot <> Some(fullRoot) then
             lastRoot <- Some(fullRoot)
-            printfn "MM root changed: %A" root
+            printfn "MM root changed: %A" fullRoot
         fullRoot
 
     /// Loader isn't used anymore so this is just a placeholder until I remove the related code.
