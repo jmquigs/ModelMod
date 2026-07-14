@@ -41,6 +41,16 @@ module ProcessUtil =
 
     let mutable lastRoot:string option = None
 
+    // A candidate directory is only a real MM root if the native loader could
+    // actually load MMManaged.dll from it.  This mirrors get_managed_dll_path in
+    // the native util crate, which searches these same subdirs.  Requiring the specific 
+    // DLL to exist reduces the risk of false positives.
+    let private managedDllSubdirs = [""; "Bin"; "Release"; "Debug"]
+    let hasManagedDll (dir:string) =
+        let dir = if String.IsNullOrEmpty dir then "." else dir
+        managedDllSubdirs
+        |> List.exists (fun sub -> File.Exists(Path.Combine(dir, sub, "MMManaged.dll")))
+
     let getMMRoot() =
         // MMRoot by convention its where one of the files/directories below lives.
         // This value is also stored in the registry (PeriodicUpdate puts it there)
@@ -57,6 +67,15 @@ module ProcessUtil =
             "Logs"
             "Bin"]
 
+
+
+        // MMDotNet.sln uniquely identifies a source checkout (ModelMod-specific, so no
+        // risk of matching a system directory), so trust it directly.  Every other
+        // marker must be backed by a loadable MMManaged.dll.
+        let isValidCandidate (markerPath:string) =
+            markerPath.EndsWith("MMDotNet.sln")
+            || hasManagedDll (Path.GetDirectoryName(markerPath))
+
         let root =
             rootSearchPath
             |> List.tryPick (fun rootpath ->
@@ -64,7 +83,7 @@ module ProcessUtil =
                 |> List.map (fun filepath -> Path.Combine(rootpath, filepath))
                 |> List.tryPick (fun filepath ->
                     //printfn "try %A" (Path.GetFullPath(filepath))
-                    if (Directory.Exists(filepath) || File.Exists(filepath)) then Some(filepath) else None)
+                    if (Directory.Exists(filepath) || File.Exists(filepath)) && isValidCandidate filepath then Some(filepath) else None)
             )
         
         let fullRoot = 
@@ -72,17 +91,18 @@ module ProcessUtil =
             | None -> 
                 let regRoot = RegConfig.getMMRoot ()
                 if Directory.Exists(regRoot) 
-                    then regRoot 
+                    then 
+                        regRoot 
                     else 
-                        failwithf "Unable to find MM Root in filesystem from working dir %A, and reg root not set in register or does not exist: %A" 
+                        failwithf "Unable to find MM Root in filesystem from working dir %A, and reg root (%A) not set in registry or does not exist.  Consider restarting this program in ModelMod root dir." 
                             (System.Environment.CurrentDirectory) regRoot
             
                 //failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
             | Some(dir) -> Path.GetFullPath(Path.GetDirectoryName(dir))
 
-        if lastRoot <> Some(fullRoot) then 
+        if lastRoot <> Some(fullRoot) then
             lastRoot <- Some(fullRoot)
-            printfn "MM root changed: %A" root
+            printfn "MM root changed: %A" fullRoot
         fullRoot
 
     /// Loader isn't used anymore so this is just a placeholder until I remove the related code.
