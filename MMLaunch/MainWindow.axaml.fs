@@ -377,16 +377,25 @@ type MainViewModel() as self =
         | Some p -> setter p
 
     let mutable warnedNoRoot = false
+    let mutable warnedNoMMDLL = false
+
+    let mutable rootInitted = false
     member x.PeriodicUpdate() =
-        try
-            let currentRoot = ProcessUtil.getMMRoot ()
-            let regRoot = RegConfig.getMMRoot ()
-            if currentRoot <> regRoot then RegConfig.setMMRoot currentRoot |> ignore
-        with ex -> 
-            if not warnedNoRoot then 
-                warnedNoRoot <- true
-                ViewModelUtil.pushDialog (sprintf "Unable to determine root dir: %A" ex)
-            ()
+        if not rootInitted then
+            rootInitted <- true
+            try
+                let currentRoot = ProcessUtil.getMMRoot ()
+                let regRoot = RegConfig.getMMRoot ()
+                if currentRoot <> regRoot then RegConfig.setMMRoot currentRoot |> ignore
+                if not warnedNoMMDLL && not (ProcessUtil.hasManagedDll currentRoot) then
+                    warnedNoMMDLL <- true
+                    ViewModelUtil.pushDialog
+                        (sprintf "Warning, current root %A has no managed DLL, the native code will not be able to load from it.  Consider using regedit to clear the root in the registry" currentRoot)
+            with ex -> 
+                if not warnedNoRoot then
+                    warnedNoRoot <- true
+                    ViewModelUtil.pushDialog (sprintf "Unable to determine root dir: %A" ex)
+                ()
 
         x.UpdateLoaderState
         <| match loaderState with

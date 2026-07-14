@@ -41,6 +41,16 @@ module ProcessUtil =
 
     let mutable lastRoot:string option = None
 
+    // A candidate directory is only a real MM root if the native loader could
+    // actually load MMManaged.dll from it.  This mirrors get_managed_dll_path in
+    // the native util crate, which searches these same subdirs.  Requiring the specific 
+    // DLL to exist reduces the risk of false positives.
+    let private managedDllSubdirs = [""; "Bin"; "Release"; "Debug"]
+    let hasManagedDll (dir:string) =
+        let dir = if String.IsNullOrEmpty dir then "." else dir
+        managedDllSubdirs
+        |> List.exists (fun sub -> File.Exists(Path.Combine(dir, sub, "MMManaged.dll")))
+
     let getMMRoot() =
         // MMRoot by convention its where one of the files/directories below lives.
         // This value is also stored in the registry (PeriodicUpdate puts it there)
@@ -57,18 +67,7 @@ module ProcessUtil =
             "Logs"
             "Bin"]
 
-        // A candidate directory is only a real MM root if the native loader could
-        // actually load MMManaged.dll from it.  This mirrors get_managed_dll_path in
-        // the native util crate, which searches these same subdirs.  Requiring the
-        // managed dll rejects false positives from generic markers -- most importantly,
-        // under Wine/Proton the working dir can resolve to the unix root (drive Z:\),
-        // whose case-insensitive "/bin" matches the "Bin" marker and previously
-        // produced a bogus root of "Z:\" that PeriodicUpdate wrote to the registry.
-        let managedDllSubdirs = [""; "Bin"; "Release"; "Debug"]
-        let hasManagedDll (dir:string) =
-            let dir = if String.IsNullOrEmpty dir then "." else dir
-            managedDllSubdirs
-            |> List.exists (fun sub -> File.Exists(Path.Combine(dir, sub, "MMManaged.dll")))
+
 
         // MMDotNet.sln uniquely identifies a source checkout (ModelMod-specific, so no
         // risk of matching a system directory), so trust it directly.  Every other
@@ -92,9 +91,10 @@ module ProcessUtil =
             | None -> 
                 let regRoot = RegConfig.getMMRoot ()
                 if Directory.Exists(regRoot) 
-                    then regRoot 
+                    then 
+                        regRoot 
                     else 
-                        failwithf "Unable to find MM Root in filesystem from working dir %A, and reg root not set in register or does not exist: %A" 
+                        failwithf "Unable to find MM Root in filesystem from working dir %A, and reg root (%A) not set in registry or does not exist.  Consider restarting this program in ModelMod root dir." 
                             (System.Environment.CurrentDirectory) regRoot
             
                 //failwithf "Unable to find MM root from working dir %A" (System.Environment.CurrentDirectory)
