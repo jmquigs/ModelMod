@@ -392,15 +392,15 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
     #[cfg(feature = "snapshot-dynamic-buffers")]
     {
         use crate::hook_dynamic_buffers::{hook_Map, hook_Unmap, hook_UpdateSubresource};
-        if (*vtbl).Map as usize != hook_Map as usize {
+        if (*vtbl).Map as usize != hook_Map as *const () as usize {
             (*vtbl).Map = hook_Map;
             func_hooked += 1;
         }
-        if (*vtbl).Unmap as usize != hook_Unmap as usize {
+        if (*vtbl).Unmap as usize != hook_Unmap as *const () as usize {
             (*vtbl).Unmap = hook_Unmap;
             func_hooked += 1;
         }
-        if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as usize {
+        if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as *const () as usize {
             (*vtbl).UpdateSubresource = hook_UpdateSubresource;
             func_hooked += 1;
         }
