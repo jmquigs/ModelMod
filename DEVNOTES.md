@@ -92,4 +92,22 @@ managed code so this diminishes the utility of moving this code to rust, since t
 be hot reloaded.  The ability to reload the managed code is very useful during the process of adding support for a new game, since often tiny tweaks need to be made to formats and such and its very 
 tedious to restart the whole game just for those.
 
+### Dynamic buffer snapshots (the `snapshot-dynamic-buffers` feature)
+
+Some DX11 games don't give each mesh its own vertex/index buffer.  Instead they pack many meshes into a few large buffers (a "megabuffer") which are created empty and filled in later via `Map`/`Unmap` (often with `WRITE_NO_OVERWRITE`) or `UpdateSubresource`.  `hook_CreateBuffer` never sees that data, since there is no `pInitialData` at creation time, so snapshotting such a mesh fails with "failed to get vertex buffer data, was not previously saved".  And even when the data is there, the snapshot code required that the bound buffers contain exactly one mesh: it checked that the index buffer was exactly `prim_count * 3` indices and the vertex buffer exactly `num_vertices` verts, and bailed out otherwise.
+
+The `snapshot-dynamic-buffers` Cargo feature is an experimental attempt at handling this.  It lives in `hook_core` and transitively enables the same-named feature in `hook_snapshot`.  It is off by default.
+
+When it is on, `hook_core` hooks `Map`, `Unmap` and `UpdateSubresource` on the context vtable (see `hook_dynamic_buffers.rs`) and copies the buffer bytes out whenever the game writes them.  `hook_CreateBuffer` also starts recording `(is_index_buffer, byte_width)` for every VB/IB in `device_buffer_meta`, so those hooks can cheaply tell a tracked mesh buffer apart from the far more common constant buffer maps without doing real work in the hot path.
+
+The other half is in `hook_snapshot::set_buffers_d3d11`, which stops requiring the one-mesh-per-buffer layout and instead slices the drawn sub-region out of whatever is bound.  It walks the `prim_count * 3` indices starting at `start_index`, finds the min and max vertex they reference, copies just that vertex range out, re-bases the indices to zero, and rewrites `num_vertices`, `base_vertex_index`, `min_vertex_index` and `start_index` in the snapshot data so that managed code sees a self-contained mesh starting at offset 0.  Any bind offsets from `IASetIndexBuffer`/`IASetVertexBuffers` get folded in.  Without the feature that function keeps the original behavior, strict size checks and all.
+
+The reason this isn't on by default is cost.  The Map/Unmap path copies these buffers, which are usually large, every time the game touches them, and that slows the game down a lot.  It's only worth paying for occasional manual snapshotting of a game that needs it.  The slicing path also throws away the old strict size checks, which are a useful sanity check on games that do use one buffer per mesh.
+
+To build with it, pass `--features=snapshot-dynamic-buffers` from `Native/hook_core`; the `rb.sh` and `r2026g1.sh` helper scripts take a feature name as their first argument.
+
+One subtlety: the hooks are installed whenever the feature is compiled in, but their bodies do nothing unless `run_conf.precopy_data` is set.  That is deliberate.  The context vtable is copied once at hook time, so gating on the runtime precopy flag inside the hook bodies lets the existing precopy toggle (the `SnapPreCopyData` registry value, or pressing the clear-texture-lists key, which force-enables it) work without having to re-hook anything.
+
+Related but not gated by the feature, `hook_snapshot::take` now warns when `num_vertices` is larger than `prim_count * 3`, which is the most verts an indexed triangle list draw can possibly touch.  When that fires, `num_vertices` almost certainly came from `vb_size / vert_size` (i.e. the whole bound buffer) rather than the draw's actual range, which is a decent hint that you're looking at a shared buffer, or at CPU/software animated geometry that isn't modable anyway.
+
 
