@@ -23,8 +23,14 @@ pub struct HookDirect3D11Context {
     pub real_ia_set_input_layout: IASetInputLayoutFn,
     pub real_ia_set_primitive_topology: IASetPrimitiveTopologyFn,
     pub real_ps_set_shader_resources: PSSetShaderResourcesFn,
+    // Only present with `snapshot-dynamic-buffers`.  This struct is `Copy` and is returned by value
+    // from `get_hook_context()` on every draw and IA state call, so keep the default build's copy
+    // exactly the size it was before the feature existed.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     pub real_map: MapFn,
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     pub real_unmap: UnmapFn,
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     pub real_update_subresource: UpdateSubresourceFn,
 }
 #[derive(Clone, Copy)]

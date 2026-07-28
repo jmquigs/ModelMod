@@ -657,8 +657,11 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
     let real_ps_set_shader_resources = (*vtbl).PSSetShaderResources;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_map = (*vtbl).Map;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_unmap = (*vtbl).Unmap;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_update_subresource = (*vtbl).UpdateSubresource;
 
     // since we always make a copy of the vtable in the context at the moment, we don't search
@@ -696,8 +699,11 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_ia_set_input_layout,
         real_ia_set_primitive_topology,
         real_ps_set_shader_resources,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_map,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_unmap,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_update_subresource,
     };
 
