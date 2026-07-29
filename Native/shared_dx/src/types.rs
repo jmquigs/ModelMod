@@ -88,6 +88,16 @@ impl DX11Metrics {
 }
 
 pub struct HookD3D11State {
+    /// The real (unhooked) context fns.
+    ///
+    /// CLEANUP: written but no longer read.  The hot path now takes these from
+    /// the atomic pointer published by
+    /// `hook_render_d3d11::publish_hook_context`, which avoids a lock and a copy
+    /// of the whole table on every hooked call.  This field is kept only so that
+    /// removing it does not shift the offsets of the fields after it -- `rs` in
+    /// particular is read on every draw call -- which would confound an A/B
+    /// measurement of that change against master.  Safe to delete, along with
+    /// the `hooks` argument of `HookD3D11State::from`, once that is done.
     pub hooks: HookDirect3D11,
     /// In DX11 the device pointer is stored as part of this state because we generally
     /// do most of the work in device context functions, which don't get the device pointer.

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ptr::{null_mut, null};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::{SystemTime, Duration};
 
 use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
@@ -38,18 +38,59 @@ use winapi::um::d3d11::D3D11_BUFFER_DESC;
 use crate::debugmode::DebugModeCalledFns;
 use fnv::FnvHashMap;
 
-/// Return the d3d11 context hooks.  Returns a Copy of the hook fn pointers
-/// so that callers do not need to hold the device-state lock while invoking
-/// the real fns (which can re-enter our hooks on the same thread and would
-/// otherwise deadlock).
-fn get_hook_context() -> Result<HookDirect3D11Context> {
-    match dev_state_d3d11_read() {
-        Some((_lck, state)) => Ok(state.hooks.context),
-        None => {
-            write_log_file("draw: No d3d11 context found");
-            Err(shared_dx::error::HookError::D3D11NoContext)
-        }
+/// Published table of the real (unhooked) d3d11 context fns.
+///
+/// A hooked fn must not hold the device-state lock while calling through to the
+/// real fn, because the real fn can re-enter our hooks on the same thread and
+/// would deadlock.  This used to be handled by taking the read lock, copying the
+/// whole table out by value, and dropping the lock before the call -- which put
+/// an `RwLock` acquire plus a memcpy of the entire table on every hooked call,
+/// and made the per-call cost grow with the number of fns in the table.
+///
+/// The table is written once when the context is hooked and read constantly
+/// afterwards, so instead it is published behind an atomic pointer and callers
+/// borrow it in place: one acquire load, no lock, no copy, and a cost that no
+/// longer depends on how many fns `HookDirect3D11Context` holds.
+///
+/// The pointee is a leaked `Box`.  The table is a handful of fn pointers and is
+/// (re)published only when a context is hooked, so never freeing it costs
+/// nothing meaningful -- and it means a reader that has loaded the pointer can
+/// keep using it indefinitely with no reclamation protocol, which matters
+/// because the readers are hooked d3d fns that may be running on any thread.
+static HOOK_CONTEXT: AtomicPtr<HookDirect3D11Context> = AtomicPtr::new(null_mut());
+
+/// Publish the context hook table.  Called when a d3d11 context is hooked; a
+/// previously published table is leaked rather than freed, see `HOOK_CONTEXT`.
+pub (crate) fn publish_hook_context(ctx: HookDirect3D11Context) {
+    let new = Box::into_raw(Box::new(ctx));
+    // Release: the table contents must be visible to any thread that later sees
+    // this pointer through the acquire load in `get_hook_context`.
+    let prev = HOOK_CONTEXT.swap(new, Ordering::Release);
+    if !prev.is_null() {
+        write_log_file("published new d3d11 context hook table (previous one intentionally leaked)");
     }
+}
+
+/// Unpublish the table so that `get_hook_context` fails again.  Only needed to
+/// reset globals between tests; in a real process the hooks are installed once
+/// and stay for the life of the process.
+pub (crate) fn clear_hook_context() {
+    HOOK_CONTEXT.store(null_mut(), Ordering::Release);
+}
+
+/// Return the d3d11 context hooks.  Returns a borrow of the published table, so
+/// that callers do not hold any lock while invoking the real fns (which can
+/// re-enter our hooks on the same thread and would otherwise deadlock).
+fn get_hook_context() -> Result<&'static HookDirect3D11Context> {
+    let ctx = HOOK_CONTEXT.load(Ordering::Acquire);
+    if ctx.is_null() {
+        write_log_file("draw: No d3d11 context found");
+        return Err(shared_dx::error::HookError::D3D11NoContext);
+    }
+    // SAFETY: a non-null value here was stored by `publish_hook_context` from a
+    // `Box::into_raw` that is never freed, so the referent outlives any caller.
+    // The acquire load pairs with the release store, so its contents are visible.
+    Ok(unsafe { &*ctx })
 }
 
 pub fn u8_slice_to_hex_string(slice: &[u8]) -> String {
@@ -747,7 +788,7 @@ pub unsafe extern "system" fn hook_draw_indexed(
                                                 nmod.name.clone()));
                                         false
                                     } else {
-                                        render_mod_d3d11(THIS, &hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
+                                        render_mod_d3d11(THIS, hook_context, d3d11d, nmod, override_texture, sel_stage, (prim_count,vert_count))
                                     }
                                 } else {
                                     false

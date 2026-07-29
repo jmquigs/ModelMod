@@ -759,6 +759,12 @@ fn init_d3d11(device:*mut ID3D11Device, swapchain:*mut IDXGISwapChain, context:*
 
 
         if let Some((_lck, ds)) = dev_state_write() {
+            // Publish the real-fn table for the hooked context fns to read.  They
+            // must not reach it through this lock, since the real fns can re-enter
+            // our hooks on the same thread.  `HookD3D11State.hooks` still holds
+            // the same values, but is no longer what the hot path reads.
+            publish_hook_context(hooks.context);
+
             ds.hook = Some(HookDeviceState::D3D11(HookD3D11State {
                 hooks,
                 devptr: DevicePointer::D3D11(device),
@@ -1332,6 +1338,9 @@ pub mod tests {
                 lock.0 = null_mut();
             }
             drop(lock);
+            // The published fn table outlives the device state it was built from,
+            // so drop it too or the next test sees a stale context as a live one.
+            clear_hook_context();
             DEVICE_REALFN.write().expect(&format!("{}: device hooks clear failed", testcontext)).take();
         }
     }
