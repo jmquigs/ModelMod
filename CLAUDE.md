@@ -2,7 +2,19 @@
 
 ## General notes
 
-- When creating commit messages, prefix them with "Authored by Claude", if possible include your model name and version.
+- Commit messages: put the one-line summary on the first line, then a blank line, then an
+"Authored by Claude" attribution line which if possible includes your model name and version,
+then a blank line, then the body.  Do not put the attribution in the summary line.  For example:
+
+```
+publish d3d11 context hook table via atomic ptr
+
+Authored by Claude (claude-opus-5)
+
+get_hook_context took a DEVICE_STATE read lock and returned
+HookDirect3D11Context by value, so every hooked context fn paid an RwLock
+acquire plus a memcpy of the whole fn-pointer table.
+```
 
 ## Rust Build
 
