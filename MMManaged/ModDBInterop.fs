@@ -767,6 +767,59 @@ module ModDBInterop =
         WriteD3D9Decl of (BinaryWriter * int)
         | ReadD3D11Layout of (MMVertexElement [])
 
+    /// We don't track source data for texture coordinate semantics above index 0, but something must
+    /// still be written for them: if the element is skipped the vertex ends up short, which trips the
+    /// size check in the vertex writer and prevents the mod from loading at all.  So write stub data
+    /// of the correct size instead.  The UV components get a mid-range value (0.5,0.5) and any extra
+    /// components are zeroed.
+    let private makeTexCoordStub (elType:MMET): byte[] =
+        let half (f:float32) = System.BitConverter.GetBytes(MonoGameHelpers.floatToHalfUint16 f)
+        let flt (f:float32) = System.BitConverter.GetBytes(f)
+        let snorm (f:float32) = System.BitConverter.GetBytes(int16(f * 32767.f))
+        match elType with
+        | MMET.DeclType(dt) when dt = SDXVT.Unused -> [||]
+        | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+            // this stub predates the general handling here; keep it as is since it is
+            // known to work in at least one game
+            [| byte 16; byte 128; byte 128; byte 128 |]
+        | MMET.DeclType(dt) when dt = SDXVT.Float2 -> Array.concat [ flt 0.5f; flt 0.5f ]
+        | MMET.DeclType(dt) when dt = SDXVT.HalfTwo -> Array.concat [ half 0.5f; half 0.5f ]
+        | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
+            Array.concat [ half 0.5f; half 0.5f; half 0.f; half 0.f ]
+        | MMET.Format(f) when f = SDXF.R32G32_Float -> Array.concat [ flt 0.5f; flt 0.5f ]
+        | MMET.Format(f) when f = SDXF.R16G16_Float ->
+            let h (x:float32) = System.BitConverter.GetBytes(SharpDX.Half(x).RawValue)
+            Array.concat [ h 0.5f; h 0.5f ]
+        | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
+            Array.concat [ snorm 0.5f; snorm 0.5f; snorm 0.f; snorm 0.f ]
+        | other ->
+            // unknown type: just zero fill it, which at least keeps the vertex size correct.
+            // if even the size is unknown, write nothing, as older code did; the vert size
+            // check may then fail, but that's no worse than throwing here.
+            try
+                Array.zeroCreate (MeshUtil.getSizeFromElType other)
+            with e ->
+                log.Warn "can't determine size of texture coordinate element type %A, no stub data will be written: %s"
+                    other e.Message
+                [||]
+
+    /// Build the stub data (keyed on semantic index) for all texture coordinate elements above
+    /// semantic index 0, warning about each one.  Callers should do this on every mod load, even
+    /// when the fill itself is skipped (VBData cache hit), so that it is always apparent from the
+    /// log that part of the vertex data is fake and rendering may therefore be somewhat incorrect.
+    let private buildTexCoordStubs (modName:string) (elements:MMVertexElement []) =
+        let stubs = new System.Collections.Generic.Dictionary<int,byte[]>()
+        elements
+        |> Array.filter (fun el ->
+            el.Semantic = MMVertexElemSemantic.TextureCoordinate && el.SemanticIndex > 0)
+        |> Array.iter (fun el ->
+            let stub = makeTexCoordStub el.Type
+            if stub.Length > 0 then
+                log.Warn "mod %A: no source data available for texture coordinate semantic index %d (type %A); using %d bytes of stub data (%A), rendering may be somewhat incorrect"
+                    modName el.SemanticIndex el.Type stub.Length stub
+            stubs.[el.SemanticIndex] <- stub)
+        stubs
+
     /// Fill the render buffers associated with the specified mod.
     // Note: there is a lot of symmetry between this and the snapshot module (essentially they are the same
     // process in two different directions), but they have totally separate implementations right now.  Might be worth
@@ -822,6 +875,12 @@ module ModDBInterop =
                 | ReadD3D11Layout elements ->
                     let elStr = vertElsToString elements
                     "d3d11", [||], elements, VBDataDiskCache.hashString elStr, 0
+
+            // Build stub data for any texture coordinate semantic we have no source data for.
+            // Done here, before the VBData cache check below, so that the warnings it logs appear on
+            // every load of the mod: a cache hit skips the fill entirely, and the stub data baked
+            // into the cached bytes would otherwise be invisible in the log.
+            let texCoordStubs = buildTexCoordStubs meshrel.DBMod.Name declElements
 
             // copy index data...someday
             if (destIbSize > 0) then
@@ -1047,56 +1106,6 @@ module ModDBInterop =
                                 | Some bvd -> bvd
                             RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
-                    // We don't track source data for texture coordinate semantics above index 0, but
-                    // something must still be written for them: if the element is skipped the vertex
-                    // ends up short, which trips the size check in writeVertex and prevents the mod
-                    // from loading at all.  So write stub data of the correct size instead.  The UV
-                    // components get a mid-range value (0.5,0.5) and any extra components are zeroed;
-                    // rendering may be somewhat wrong but the mod loads.
-                    let makeTexCoordStub (elType:MMET): byte[] =
-                        let half (f:float32) = System.BitConverter.GetBytes(MonoGameHelpers.floatToHalfUint16 f)
-                        let flt (f:float32) = System.BitConverter.GetBytes(f)
-                        let snorm (f:float32) = System.BitConverter.GetBytes(int16(f * 32767.f))
-                        match elType with
-                        | MMET.DeclType(dt) when dt = SDXVT.Unused -> [||]
-                        | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
-                            // this stub predates the general handling here; keep it as is since it is
-                            // known to work in at least one game
-                            [| byte 16; byte 128; byte 128; byte 128 |]
-                        | MMET.DeclType(dt) when dt = SDXVT.Float2 -> Array.concat [ flt 0.5f; flt 0.5f ]
-                        | MMET.DeclType(dt) when dt = SDXVT.HalfTwo -> Array.concat [ half 0.5f; half 0.5f ]
-                        | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
-                            Array.concat [ half 0.5f; half 0.5f; half 0.f; half 0.f ]
-                        | MMET.Format(f) when f = SDXF.R32G32_Float -> Array.concat [ flt 0.5f; flt 0.5f ]
-                        | MMET.Format(f) when f = SDXF.R16G16_Float ->
-                            let h (x:float32) = System.BitConverter.GetBytes(SharpDX.Half(x).RawValue)
-                            Array.concat [ h 0.5f; h 0.5f ]
-                        | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
-                            Array.concat [ snorm 0.5f; snorm 0.5f; snorm 0.f; snorm 0.f ]
-                        | other ->
-                            // unknown type: just zero fill it, which at least keeps the vertex size correct.
-                            // if even the size is unknown, write nothing, as older code did; the vert size
-                            // check may then fail, but that's no worse than throwing here.
-                            try
-                                Array.zeroCreate (MeshUtil.getSizeFromElType other)
-                            with e ->
-                                log.Warn "can't determine size of texture coordinate element type %A, no stub data will be written: %s"
-                                    other e.Message
-                                [||]
-
-                    // Precompute the stubs (keyed on semantic index) so the per-vertex hot loop doesn't
-                    // have to build them, and warn about each one here rather than from that loop.
-                    let texCoordStubs = new System.Collections.Generic.Dictionary<int,byte[]>()
-                    declElements
-                    |> Array.filter (fun el ->
-                        el.Semantic = MMVertexElemSemantic.TextureCoordinate && el.SemanticIndex > 0)
-                    |> Array.iter (fun el ->
-                        let stub = makeTexCoordStub el.Type
-                        if stub.Length > 0 then
-                            log.Warn "no source data available for texture coordinate semantic index %d (type %A); writing %d bytes of stub data: %A"
-                                el.SemanticIndex el.Type stub.Length stub
-                        texCoordStubs.[el.SemanticIndex] <- stub)
-
                     // Write part of a vertex.  The input element controls which
                     // part is written.
                     let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
@@ -1163,8 +1172,8 @@ module ModDBInterop =
                                         ()
                                     | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
                                 else
-                                    // no source data for this semantic; write the stub computed above
-                                    // (already warned about at that point)
+                                    // no source data for this semantic; write the stub built (and
+                                    // warned about) at the top of this function
                                     bw.Write(texCoordStubs.[el.SemanticIndex])
 
                             | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
