@@ -1047,11 +1047,56 @@ module ModDBInterop =
                                 | Some bvd -> bvd
                             RawBinaryWriters.rbBinormalTangent binDataLookup vertRels
 
-                    // lazy variants: these fire from the per-vertex hot loop, so
-                    // the message thunk avoids sprintf/%A cost on every call
-                    let tex1SemUnused = Logging.logOnce(0)
-                    let tex1UnormSub = Logging.logOnce(0)
-                
+                    // We don't track source data for texture coordinate semantics above index 0, but
+                    // something must still be written for them: if the element is skipped the vertex
+                    // ends up short, which trips the size check in writeVertex and prevents the mod
+                    // from loading at all.  So write stub data of the correct size instead.  The UV
+                    // components get a mid-range value (0.5,0.5) and any extra components are zeroed;
+                    // rendering may be somewhat wrong but the mod loads.
+                    let makeTexCoordStub (elType:MMET): byte[] =
+                        let half (f:float32) = System.BitConverter.GetBytes(MonoGameHelpers.floatToHalfUint16 f)
+                        let flt (f:float32) = System.BitConverter.GetBytes(f)
+                        let snorm (f:float32) = System.BitConverter.GetBytes(int16(f * 32767.f))
+                        match elType with
+                        | MMET.DeclType(dt) when dt = SDXVT.Unused -> [||]
+                        | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
+                            // this stub predates the general handling here; keep it as is since it is
+                            // known to work in at least one game
+                            [| byte 16; byte 128; byte 128; byte 128 |]
+                        | MMET.DeclType(dt) when dt = SDXVT.Float2 -> Array.concat [ flt 0.5f; flt 0.5f ]
+                        | MMET.DeclType(dt) when dt = SDXVT.HalfTwo -> Array.concat [ half 0.5f; half 0.5f ]
+                        | MMET.DeclType(dt) when dt = SDXVT.HalfFour ->
+                            Array.concat [ half 0.5f; half 0.5f; half 0.f; half 0.f ]
+                        | MMET.Format(f) when f = SDXF.R32G32_Float -> Array.concat [ flt 0.5f; flt 0.5f ]
+                        | MMET.Format(f) when f = SDXF.R16G16_Float ->
+                            let h (x:float32) = System.BitConverter.GetBytes(SharpDX.Half(x).RawValue)
+                            Array.concat [ h 0.5f; h 0.5f ]
+                        | MMET.Format(f) when f = SDXF.R16G16B16A16_SNorm ->
+                            Array.concat [ snorm 0.5f; snorm 0.5f; snorm 0.f; snorm 0.f ]
+                        | other ->
+                            // unknown type: just zero fill it, which at least keeps the vertex size correct.
+                            // if even the size is unknown, write nothing, as older code did; the vert size
+                            // check may then fail, but that's no worse than throwing here.
+                            try
+                                Array.zeroCreate (MeshUtil.getSizeFromElType other)
+                            with e ->
+                                log.Warn "can't determine size of texture coordinate element type %A, no stub data will be written: %s"
+                                    other e.Message
+                                [||]
+
+                    // Precompute the stubs (keyed on semantic index) so the per-vertex hot loop doesn't
+                    // have to build them, and warn about each one here rather than from that loop.
+                    let texCoordStubs = new System.Collections.Generic.Dictionary<int,byte[]>()
+                    declElements
+                    |> Array.filter (fun el ->
+                        el.Semantic = MMVertexElemSemantic.TextureCoordinate && el.SemanticIndex > 0)
+                    |> Array.iter (fun el ->
+                        let stub = makeTexCoordStub el.Type
+                        if stub.Length > 0 then
+                            log.Warn "no source data available for texture coordinate semantic index %d (type %A); writing %d bytes of stub data: %A"
+                                el.SemanticIndex el.Type stub.Length stub
+                        texCoordStubs.[el.SemanticIndex] <- stub)
+
                     // Write part of a vertex.  The input element controls which
                     // part is written.
                     let writeElement (v:PTNIndex) (el:VertexTypes.MMVertexElement) =
@@ -1117,20 +1162,11 @@ module ModDBInterop =
                                         // remaining two shorts unused for now but maybe not in general case
                                         ()
                                     | _ -> failwithf "Unsupported type for texture coordinate: %A" el.Type
-                                else 
-                                    match el.Type with
-                                    | MMET.DeclType(dt) when dt = SDXVT.UByte4N ->
-                                        // I don't track this data currently but write some stub bytes so the mod at least loads; if we don't
-                                        // write anything the vert size check will complain about an insufficient number of bytes
-                                        let stubBytes = [| byte 16; byte 128; byte 128; byte 128 |]
-                                        tex1UnormSub (fun () ->
-                                            sprintf "warning: writing stub bytes %A for tex coord semantic index %d (format %A); no source data available" stubBytes el.SemanticIndex el.Type)
-                                        bw.Write(stubBytes)
-                                    | _ ->
-                                        tex1SemUnused (fun () ->
-                                            sprintf "warning: texture coord semantic index > 0 is ignored: index: %A; format: %A"
-                                                el.SemanticIndex el.Type)
-                            
+                                else
+                                    // no source data for this semantic; write the stub computed above
+                                    // (already warned about at that point)
+                                    bw.Write(texCoordStubs.[el.SemanticIndex])
+
                             | MMVertexElemSemantic.Normal -> normalWriter modNrmIndex modVertIndex el bw
                             | MMVertexElemSemantic.Binormal
                             | MMVertexElemSemantic.Tangent -> binormalTangentWriter modNrmIndex modVertIndex el bw

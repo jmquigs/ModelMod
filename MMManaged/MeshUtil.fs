@@ -502,26 +502,31 @@ map_Kd $$filename
 
         int hElement.Offset + sizeBytes
 
+    let getSizeFromFormat (f:SharpDX.DXGI.Format) =
+        match f with
+        | SharpDX.DXGI.Format.R32_Float -> 4
+        | SharpDX.DXGI.Format.R32G32_Float -> 8
+        | SharpDX.DXGI.Format.R32G32B32_Float -> 12
+        | SharpDX.DXGI.Format.R32G32B32A32_Float -> 16
+        | SharpDX.DXGI.Format.R16G16_Float -> 4
+        | SharpDX.DXGI.Format.R16G16_SNorm -> 4
+        | SharpDX.DXGI.Format.R16G16B16A16_Float -> 8
+        | SharpDX.DXGI.Format.R8G8B8A8_UInt -> 4
+        | SharpDX.DXGI.Format.B8G8R8A8_UNorm -> 4
+        | SharpDX.DXGI.Format.R16G16B16A16_SInt -> 8
+        | SharpDX.DXGI.Format.R16G16B16A16_SNorm -> 8
+        | _ -> failwithf "Some lazy person didn't fill in the size of format type %A" f
+
+    /// Returns the size (in bytes) of a single vertex element.
+    let getSizeFromElType (elType:VertexTypes.MMVertexElementType) =
+        match elType with
+        | VertexTypes.MMVertexElementType.DeclType(dt) -> getSizeFromDeclType dt
+        | VertexTypes.MMVertexElementType.Format(f) -> getSizeFromFormat f
+
     let getVertSizeFromEls(elements:VertexTypes.MMVertexElement []) =
         let hElement =
             elements |> Array.maxBy (fun el -> el.Offset)
-        let sizeBytes =
-            match hElement.Type with
-            | VertexTypes.MMVertexElementType.DeclType(dt) -> getSizeFromDeclType dt
-            | VertexTypes.MMVertexElementType.Format(f) ->
-                match f with
-                | SharpDX.DXGI.Format.R32_Float -> 4
-                | SharpDX.DXGI.Format.R32G32_Float -> 8
-                | SharpDX.DXGI.Format.R32G32B32_Float -> 12
-                | SharpDX.DXGI.Format.R32G32B32A32_Float -> 16
-                | SharpDX.DXGI.Format.R16G16_Float -> 4
-                | SharpDX.DXGI.Format.R16G16_SNorm -> 4
-                | SharpDX.DXGI.Format.R16G16B16A16_Float -> 8
-                | SharpDX.DXGI.Format.R8G8B8A8_UInt -> 4
-                | SharpDX.DXGI.Format.B8G8R8A8_UNorm -> 4
-                | SharpDX.DXGI.Format.R16G16B16A16_SInt -> 8
-                | SharpDX.DXGI.Format.R16G16B16A16_SNorm -> 8
-                | _ -> failwithf "Some lazy person didn't fill in the size of format type %A" f
+        let sizeBytes = getSizeFromElType hElement.Type
         int hElement.Offset + sizeBytes
 
     /// Returns true if the declaration list contains blend data, false otherwise.
