@@ -114,6 +114,18 @@ pub struct ClrState {
 
 pub struct RunConf {
     pub precopy_data: bool,
+    /// When true (the default), DX11 dynamic buffer capture only copies buffers while a snapshot
+    /// is actually in progress (`is_snapping`), rather than on every write for the rest of the
+    /// session.  Copying a large dynamic buffer on every one of its (often very many) writes per
+    /// frame is what makes precopy unplayably slow; the snapshot only needs the bytes written
+    /// during the frames it is capturing.
+    ///
+    /// Set the `SnapPreCopyAlways` registry dword to 1 to get the old always-on behavior, which
+    /// is the fallback if a game writes its mesh buffers less often than once per snap window.
+    ///
+    /// Only has an effect with the `snapshot-dynamic-buffers` feature: without it the registry
+    /// value is not even read, and nothing reads this field, so a default build ignores it.
+    pub precopy_only_when_snapping: bool,
     pub force_tex_cpu_read: bool,
     /// Game profile data loaded from the profile found for this registry key
     /// (example: `Software\ModelMod\Profiles\Profile0000`), or empty if none was found.
@@ -219,6 +231,7 @@ lazy_static! {
 pub static mut GLOBAL_STATE: HookState = HookState {
     run_conf: RunConf {
         precopy_data: false,
+        precopy_only_when_snapping: true,
         force_tex_cpu_read: false,
         profile: EMPTY_GAME_PROFILE,
     },
@@ -273,7 +286,6 @@ pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::n
 /// finishes loading. Callers should keep the lock for as short a span as
 /// possible — particularly on the DIP path.
 pub static LOADED_MODS: Mutex<Option<LoadedModState>> = Mutex::new(None);
-
 const TRACK_GS_PTR:bool = true;
 
 /// Container structure providing access to the global state pointer.

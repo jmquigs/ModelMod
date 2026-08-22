@@ -16,6 +16,7 @@ use winapi::shared::guiddef::{GUID, REFGUID, REFIID};
 // use winapi::um::wingdi::RGNDATA;
 
 use fnv::FnvHashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 //extern HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID *ppvOut, LPUNKNOWN punkOuter);
@@ -133,6 +134,17 @@ pub const DIK_SLASH: u8 = 0x35;
 pub struct KeyEvent {
     pub key: u8,
     pub pressed: bool,
+}
+
+/// Whether shift was held when the presses currently being dispatched were read.  Set just before
+/// the press handlers run, so it is only meaningful from inside one.
+static PRESS_SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// True if shift was held for the press being dispatched.  Lets a command offer a variant of
+/// itself on shift without needing a second key binding.  Commands only run while ctrl (or menu)
+/// is held, so this is the shift in ctrl-shift-<key>.
+pub fn press_shift_down() -> bool {
+    PRESS_SHIFT_DOWN.load(Ordering::Relaxed)
 }
 
 pub struct Input {
@@ -363,6 +375,7 @@ impl Input {
         let process_key_events = self.ctrl_pressed || menu_pressed;
 
         if process_key_events {
+            PRESS_SHIFT_DOWN.store(self.shift_pressed, Ordering::Relaxed);
             for evt in self.events.iter() {
                 //write_log_file(&format!("event: {:x} pressed: {}", ke.key, ke.pressed));
                 if evt.pressed {

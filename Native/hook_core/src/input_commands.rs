@@ -190,6 +190,22 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
 
     hook_snapshot::reset();
 
+    // Holding shift additionally drops everything captured from a dynamic buffer.
+    //
+    // That is worth doing after a scene change, since those captures may belong to buffers the
+    // game has destroyed since (and whose addresses may now hold something else), but it is not
+    // always wanted: a dropped buffer has to be captured again before it can be snapshotted, and
+    // a game that writes its mesh buffers rarely may not oblige within a snap window.  So the
+    // plain key keeps whatever has been captured, and shift asks for a clean slate.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    {
+        if input::press_shift_down() {
+            crate::hook_dynamic_buffers::reset_captured_dynamic_buffers();
+        } else {
+            write_log_file("hold shift with the clear key to also drop captured dynamic buffers");
+        }
+    }
+
     unsafe {
         if !GLOBAL_STATE.run_conf.precopy_data || !GLOBAL_STATE.run_conf.force_tex_cpu_read {
             // Since they pressed the clear texture key that signals they intend to snapshot, so
@@ -204,7 +220,19 @@ fn cmd_clear_texture_lists(device: DevicePointer) {
                     write_log_file(&format!("failed to reapply device hook: {:?}", e))
                 }).unwrap_or(false)
             }) {
-                write_log_file(&format!("==> precopy data now enabled; it was disabled, so you will need to reload game data for snapshots"));
+                write_log_file("==> precopy data now enabled; it was disabled at startup");
+                #[cfg(feature = "snapshot-dynamic-buffers")]
+                if let DevicePointer::D3D11(_) = device {
+                    // DX11: buffers the game refills via Map/UpdateSubresource are picked up from
+                    // the next update onward without a reload, because the update hooks resolve
+                    // buffer metadata on demand.  Buffers that were filled once at creation time
+                    // are a different story: DX11 can't read them back, and the CreateBuffer hook
+                    // was not installed when they were made, so only a reload gets those.
+                    write_log_file("==> DX11: dynamically updated meshes will be captured on their next update; \
+                        statically created ones still need a reload of the game data that owns them");
+                }
+                #[cfg(not(feature = "snapshot-dynamic-buffers"))]
+                write_log_file("==> you will need to reload game data for snapshots");
             }
 
             // For DX9: log whether force_tex_cpu_read is enabled so the user knows
@@ -378,6 +406,7 @@ fn setup_fkey_input(device: DevicePointer, inp: &mut input::Input) {
         input::DIK_F4,
         Box::new(move || cmd_select_prev_texture(device)),
     );
+    // hold shift to also drop captured dynamic buffers; see cmd_clear_texture_lists
     inp.add_press_fn(input::DIK_F6, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(input::DIK_F7, Box::new(cmd_take_snapshot));
     inp.add_press_fn(input::DIK_NUMPAD8, Box::new(select_next_variant));
@@ -394,6 +423,7 @@ fn setup_punct_input(device: DevicePointer, inp: &mut input::Input) {
     // If you change these, be sure to change LocStrings/ProfileText in MMLaunch!
     inp.add_press_fn(input::DIK_BACKSLASH, Box::new(move || cmd_reload_mods(device)));
     inp.add_press_fn(input::DIK_RBRACKET, Box::new(cmd_toggle_show_mods));
+    // hold shift to also drop captured dynamic buffers; see cmd_clear_texture_lists
     inp.add_press_fn(input::DIK_SEMICOLON, Box::new(move || cmd_clear_texture_lists(device)));
     inp.add_press_fn(
         input::DIK_COMMA,

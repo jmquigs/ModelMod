@@ -384,22 +384,26 @@ pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:b
         (*vtbl).PSSetShaderResources = hook_PSSetShaderResources;
         func_hooked += 1;
     }
-    // Map/Unmap/UpdateSubresource are hooked so that buffers the game fills *after* creation
-    // (e.g. dynamic "megabuffers" updated via Map/WRITE_NO_OVERWRITE or UpdateSubresource) can be
-    // copied for snapshotting.  Installed unconditionally like the draw hooks; the hook bodies are
-    // no-ops unless precopy_data is enabled, so the runtime precopy toggle works without rehooking
-    // the (already-copied) context vtable.
-    if (*vtbl).Map as usize != hook_Map as usize {
-        (*vtbl).Map = hook_Map;
-        func_hooked += 1;
-    }
-    if (*vtbl).Unmap as usize != hook_Unmap as usize {
-        (*vtbl).Unmap = hook_Unmap;
-        func_hooked += 1;
-    }
-    if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as usize {
-        (*vtbl).UpdateSubresource = hook_UpdateSubresource;
-        func_hooked += 1;
+    // The dynamic buffer hooks (only with the `snapshot-dynamic-buffers` feature), so that buffers
+    // the game fills *after* creation -- e.g. a "megabuffer" written via Map/WRITE_NO_OVERWRITE or
+    // UpdateSubresource -- can be copied for snapshotting.  Installed unconditionally within that
+    // feature, like the draw hooks; the hook bodies do nothing unless a snapshot is running, so
+    // the runtime precopy toggle works without rehooking the (already-copied) context vtable.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    {
+        use crate::hook_dynamic_buffers::{hook_Map, hook_Unmap, hook_UpdateSubresource};
+        if (*vtbl).Map as usize != hook_Map as *const () as usize {
+            (*vtbl).Map = hook_Map;
+            func_hooked += 1;
+        }
+        if (*vtbl).Unmap as usize != hook_Unmap as *const () as usize {
+            (*vtbl).Unmap = hook_Unmap;
+            func_hooked += 1;
+        }
+        if (*vtbl).UpdateSubresource as usize != hook_UpdateSubresource as *const () as usize {
+            (*vtbl).UpdateSubresource = hook_UpdateSubresource;
+            func_hooked += 1;
+        }
     }
 
     if TRACK_REHOOK_TIME {
@@ -653,8 +657,11 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
     let real_ia_set_input_layout = (*vtbl).IASetInputLayout;
     let real_ia_set_primitive_topology = (*vtbl).IASetPrimitiveTopology;
     let real_ps_set_shader_resources = (*vtbl).PSSetShaderResources;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_map = (*vtbl).Map;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_unmap = (*vtbl).Unmap;
+    #[cfg(feature = "snapshot-dynamic-buffers")]
     let real_update_subresource = (*vtbl).UpdateSubresource;
 
     // since we always make a copy of the vtable in the context at the moment, we don't search
@@ -692,8 +699,11 @@ unsafe fn hook_d3d11(device:*mut ID3D11Device,_swapchain:*mut IDXGISwapChain, co
         real_ia_set_input_layout,
         real_ia_set_primitive_topology,
         real_ps_set_shader_resources,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_map,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_unmap,
+        #[cfg(feature = "snapshot-dynamic-buffers")]
         real_update_subresource,
     };
 
@@ -736,6 +746,16 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
         }
     }
 
+    // Opt back in to copying mesh buffers on every update rather than only while a snapshot is
+    // running.  Only useful for a game that updates its buffers less often than once per snap
+    // window; it is otherwise the difference between a playable framerate and a slideshow.
+    // Only the dynamic buffer capture reads this, so don't bother querying it without that.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    {
+        GLOBAL_STATE.run_conf.precopy_only_when_snapping =
+            !matches!(util::reg_query_root_dword("SnapPreCopyAlways"), Ok(v) if v > 0);
+    }
+
     let force_tex_cpu_read = util::reg_query_root_dword("SnapForceTexCpuRead");
     let old_force_tex_cpu_read = GLOBAL_STATE.run_conf.force_tex_cpu_read;
     if let Ok(force_tex_cpu_read) = force_tex_cpu_read {
@@ -746,8 +766,15 @@ pub unsafe fn query_and_set_runconf_in_globalstate(check_precopy:bool) -> bool {
     if old_force_tex_cpu_read != GLOBAL_STATE.run_conf.force_tex_cpu_read {
         changed = true;
     }
-    write_log_file(&format!("runconf: precopy data: {}, force tex cpu read: {} (setting changed: {})",
-        GLOBAL_STATE.run_conf.precopy_data, GLOBAL_STATE.run_conf.force_tex_cpu_read,
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    let dynbuf = format!(" (dynamic buffer capture only while snapping: {})",
+        GLOBAL_STATE.run_conf.precopy_only_when_snapping);
+    #[cfg(not(feature = "snapshot-dynamic-buffers"))]
+    let dynbuf = "";
+    write_log_file(&format!("runconf: precopy data: {}{}, force tex cpu read: {} (setting changed: {})",
+        GLOBAL_STATE.run_conf.precopy_data,
+        dynbuf,
+        GLOBAL_STATE.run_conf.force_tex_cpu_read,
         changed,
     ));
     write_log_file(&format!("runconf: game profile: {:?}", GLOBAL_STATE.run_conf.profile));
@@ -1041,13 +1068,32 @@ unsafe extern "system" fn hook_CreateBuffer(
     );
 
     if res == 0 && ppBuffer != null_mut() && (*ppBuffer) != null_mut() && !pDesc.is_null() {
-        // For index/vertex buffers, record metadata (type + size) so the Map/Unmap/
-        // UpdateSubresource hooks can identify this buffer later -- even if it is created empty
-        // and filled afterwards (the "megabuffer" case).  If initial data was supplied we also
-        // copy it out now, since DX11 offers no way to read the buffer back from the CPU later.
+        // For index/vertex buffers, record metadata (type + size) so the dynamic buffer hooks can
+        // identify this buffer later -- even if it is created empty and filled afterwards (the
+        // "megabuffer" case).  If initial data was supplied we also copy it out now, since DX11
+        // offers no way to read the buffer back from the CPU later; that copy is the ordinary
+        // static path and happens with or without the feature.
         let is_ib = (*pDesc).BindFlags & D3D11_BIND_INDEX_BUFFER != 0;
         let is_vb = (*pDesc).BindFlags & D3D11_BIND_VERTEX_BUFFER != 0;
-        if is_ib || is_vb {
+        if !(is_ib || is_vb) {
+            // Not a mesh buffer.  The meta map is keyed on the raw pointer and D3D reuses freed
+            // addresses, so a constant buffer landing on a former VB/IB address would otherwise
+            // inherit that buffer's stale entry.  Only correct that when an entry actually
+            // exists: constant buffer creation can be frequent and shouldn't pay for a write
+            // lock just to record an absence the dynamic buffer hooks would fill in themselves.
+            #[cfg(feature = "snapshot-dynamic-buffers")]
+            {
+                let stale = dev_state_d3d11_read()
+                    .map(|(_lck, state)| state.rs.device_buffer_meta.contains_key(&(*ppBuffer as usize)))
+                    .unwrap_or(false);
+                if stale {
+                    dev_state_d3d11_write().map(|(_lock,ds)| {
+                        ds.rs.device_buffer_meta.insert(*ppBuffer as usize,
+                            shared_dx::dx11rs::BufferMeta::Other);
+                    });
+                }
+            }
+        } else {
             let buf_ptr = *ppBuffer as usize;
             let byte_width = (*pDesc).ByteWidth;
 
@@ -1067,10 +1113,28 @@ unsafe extern "system" fn hook_CreateBuffer(
                     None
                 };
 
-            dev_state_d3d11_write()
-            .map(|(_lock,ds)| {
-                ds.rs.device_buffer_meta.insert(buf_ptr, (is_ib, byte_width));
-                if let Some(dest_v) = initial_copy {
+            #[cfg(feature = "snapshot-dynamic-buffers")]
+            dev_state_d3d11_write().map(|(_lock,ds)| {
+                ds.rs.device_buffer_meta.insert(buf_ptr,
+                    shared_dx::dx11rs::BufferMeta::Mesh { is_index: is_ib, byte_width });
+            });
+
+            // take the write lock only when there's data to store (matches original behavior).
+            if let Some(dest_v) = initial_copy {
+                dev_state_d3d11_write()
+                .map(|(_lock,ds)| {
+                    #[cfg(feature = "snapshot-dynamic-buffers")]
+                    {
+                        use shared_dx::dx11rs::{BufferCaptureInfo, BufferWriteKind,
+                            BUFFER_CAPTURE_SEQ};
+                        let seq = BUFFER_CAPTURE_SEQ.fetch_add(1, Ordering::Relaxed);
+                        let count = ds.rs.buffer_capture_info.get(&buf_ptr)
+                            .map(|i| i.count).unwrap_or(0) + 1;
+                        ds.rs.buffer_capture_info.insert(buf_ptr, BufferCaptureInfo {
+                            kind: BufferWriteKind::InitialData,
+                            seq, count, bytes: dest_v.len(),
+                        });
+                    }
                     if is_ib {
                         ds.rs.device_index_buffer_data.insert(buf_ptr, dest_v);
                         ds.rs.device_index_buffer_createtime.push((buf_ptr, SystemTime::now()));
@@ -1079,8 +1143,8 @@ unsafe extern "system" fn hook_CreateBuffer(
                         ds.rs.device_vertex_buffer_data.insert(buf_ptr, dest_v);
                         ds.rs.device_vertex_buffer_createtime.push((buf_ptr, SystemTime::now()));
                     }
-                }
-            });
+                });
+            }
         }
     }
 

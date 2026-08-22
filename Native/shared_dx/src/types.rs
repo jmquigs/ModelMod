@@ -50,6 +50,20 @@ pub struct DX11Metrics {
     pub drawn_recently: FnvHashMap<(u32,u32),MetricsDrawStatus>, // (prim,vert) => (mtype,count)
     pub rehook_time_nanos: u64,
     pub rehook_calls: u32,
+    // The `dyn_precopy_` fields below measure only the copies made out of dynamic buffers, which
+    // is the atypical case: they stay zero unless the `snapshot-dynamic-buffers` feature is
+    // enabled and a snapshot is actively capturing.  The ordinary static path (a copy of
+    // `pInitialData` taken in `hook_CreateBuffer`) is not counted here, being a one-off per buffer
+    // rather than a recurring per-update cost.
+    /// Number of dynamic buffer captures done for precopy.
+    pub dyn_precopy_captures: u32,
+    /// Bytes copied by those captures.  Watch this: a large buffer that the game refills many
+    /// times per frame can push it into the GB/sec range, which is what makes precopy crawl.
+    pub dyn_precopy_bytes: u64,
+    /// Wall time spent inside those copies.
+    pub dyn_precopy_nanos: u64,
+    /// Largest single buffer captured, in bytes.
+    pub dyn_precopy_largest: u32,
 }
 
 impl DX11Metrics {
@@ -61,6 +75,10 @@ impl DX11Metrics {
             drawn_recently: FnvHashMap::default(),
             rehook_time_nanos: 0,
             rehook_calls: 0,
+            dyn_precopy_captures: 0,
+            dyn_precopy_bytes: 0,
+            dyn_precopy_nanos: 0,
+            dyn_precopy_largest: 0,
         }
     }
     pub fn reset(&mut self) {
@@ -70,6 +88,10 @@ impl DX11Metrics {
         self.drawn_recently.clear();
         self.rehook_time_nanos = 0;
         self.rehook_calls = 0;
+        self.dyn_precopy_captures = 0;
+        self.dyn_precopy_bytes = 0;
+        self.dyn_precopy_nanos = 0;
+        self.dyn_precopy_largest = 0;
     }
     /// Return number of milisecs since last reset
     pub fn ms_since_reset(&self) -> u64 {
