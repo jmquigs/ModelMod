@@ -75,6 +75,24 @@ module RegUtil =
             sw.Write(s)
             sw.ToString()
 
+    /// Minimum number of trailing path components (including the exe file name) that a profile
+    /// must share with the target exe to be considered a match.  1 would match on file name
+    /// alone, which is too weak: many games ship a generically named exe.
+    let minMatchComponents = 2
+
+    /// Split a path into components, ignoring separator style and empty parts.
+    /// Caller is responsible for case normalization.
+    let pathComponents (p:string) =
+        p.Split([|'\\'; '/'|]) |> Array.filter (fun s -> s <> "")
+
+    /// Number of trailing components shared by both paths.
+    let commonSuffixLen (a:string[]) (b:string[]) =
+        let rec count i =
+            if i >= a.Length || i >= b.Length then i
+            elif a.[a.Length - 1 - i] = b.[b.Length - 1 - i] then count (i + 1)
+            else i
+        count 0
+
 /// Utilities for accessing ModelMod specific configuration data.
 ///
 /// Note the GameProfile portion of this also now has an implementation in the rust code (util::GameProfile) which 
@@ -142,6 +160,61 @@ module RegConfig =
             if pExePath <> "" && pExePath.Equals(exePath, StringComparison.InvariantCultureIgnoreCase) then
                 Some(pBase) // exclude hive
             else None)
+
+    /// Choose the profile whose ExePath best matches exePath, from a list of
+    /// (profile key, ExePath) pairs in registry order.
+    ///
+    /// An exact (case-insensitive) match wins outright; failing that, the profile sharing the
+    /// most trailing path components wins, as long as it shares at least
+    /// RegUtil.minMatchComponents.  This lets one profile serve a game that is reachable by
+    /// more than one path, which is normal under proton (the same install is visible as both
+    /// Z:\ and a steam library drive).  Splitting on components also makes the match
+    /// insensitive to the windows \\?\ prefix.  Ties are broken by registry order and logged,
+    /// since they usually mean there are leftover duplicate profiles.
+    ///
+    /// Mirrors util::game_profile::pick_best_profile in the native code; keep the two in sync.
+    let pickBestProfile (exePath:string) (profiles:(string*string)[]) =
+        let exeLower = exePath.Trim().ToLowerInvariant()
+        if exeLower = "" then
+            None
+        else
+            let exeComps = pathComponents exeLower
+            let profiles =
+                profiles
+                |> Array.map (fun (pKey,pExe) -> pKey, pExe.Trim().ToLowerInvariant())
+                |> Array.filter (fun (_,pExe) -> pExe <> "")
+
+            let exact = profiles |> Array.tryPick (fun (pKey,pExe) -> if pExe = exeLower then Some(pKey) else None)
+            match exact with
+            | Some(_) -> exact
+            | None ->
+                let candidates =
+                    profiles
+                    |> Array.map (fun (pKey,pExe) -> commonSuffixLen exeComps (pathComponents pExe), pKey, pExe)
+                    |> Array.filter (fun (score,_,_) -> score >= minMatchComponents)
+                if candidates.Length = 0 then
+                    None
+                else
+                    let bestScore = candidates |> Array.map (fun (score,_,_) -> score) |> Array.max
+                    let tied = candidates |> Array.filter (fun (score,_,_) -> score = bestScore)
+                    if tied.Length > 1 then
+                        let tiedPaths = tied |> Array.map (fun (_,_,pExe) -> pExe)
+                        log.Warn "Ambiguous profile match: %d profiles tie at %d component(s): %A; using the first, consider removing the duplicates" tied.Length bestScore tiedPaths
+                    let (score,pKey,pExe) = tied.[0]
+                    log.Info "Matched exe %A to profile %A (%A) on %d trailing component(s)" exeLower pKey pExe score
+                    Some(pKey)
+
+    /// Given an exe path, find its profile key path using the relaxed match above, or None if
+    /// not found.  Deliberately not used by saveProfile or the MMLaunch duplicate-exe check,
+    /// which need an exact match so that creating a profile can't silently take over an
+    /// existing one.
+    let findProfilePathForExe (exePath:string) =
+        getProfileKeyNames()
+        |> Array.map (fun pName ->
+            let pBase = regLoc.ProfRoot @@ pName // exclude hive
+            let profRoot = regLoc.Hive.Name @@ pBase
+            pBase, (regget(profRoot, RegKeys.ProfExePath, "") :?> string))
+        |> pickBestProfile exePath
 
     /// Fail with exception if write to specified key is not authorized.
     /// The hardcoded string here is deliberate, so that we don't end up writing
@@ -337,7 +410,7 @@ module RegConfig =
 
         let conf =
             // Search all profiles for a subkey that has the exe as its ExePath
-            let targetProfile = findProfilePath exePath
+            let targetProfile = findProfilePathForExe exePath
             let targetProfile =
                 // may need to handle windows "object directory" prefix
                 let funkyPrefix = @"\\?\"
@@ -347,7 +420,7 @@ module RegConfig =
                     let ep = exePath.Replace(funkyPrefix, "")
                     log.Warn "exePath contains %A prefix, trying without it: %A" funkyPrefix ep
                     // try again without the windows \\? prefix
-                    findProfilePath ep
+                    findProfilePathForExe ep
                 | None -> None
             let runConfig =
                 match targetProfile with

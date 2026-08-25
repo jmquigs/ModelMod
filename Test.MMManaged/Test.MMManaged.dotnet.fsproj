@@ -43,6 +43,7 @@
     <Compile Include="TestModDBInterop.fs" />
     <Compile Include="TestWriters.fs" />
     <Compile Include="TestMeshRelation.fs" />
+    <Compile Include="TestRegConfig.fs" />
   </ItemGroup>
 
   <ItemGroup>
