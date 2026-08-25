@@ -27,8 +27,54 @@ This is a Windows-only project, but cross-compilation works from Linux, although
 
 ## F# Build (MMManaged.sln)
 
-- If you are running in linux container you probably won't be able to build this code, since it requires some version of visual studio 
-(2019 or 2022) to be installed and this is generally not feasible on linux.  It you have access to the "dotnet" tool you could try building with that, though this isn't how the code is normally built, it may be sufficient to check if it compiles at least.
+Normally built with visual studio (2019 or 2022) on windows.  The `*.dotnet.fsproj` variants
+(and `MMAll.dotnet.sln`) also build and test on linux, which is enough to catch compile errors
+in F# changes.  This isn't how the code is normally built, so treat a windows build as the
+source of truth, but don't skip the linux build just because there's no visual studio.
+
+Setup, on ubuntu 24.04 (this worked in the claude code web container; the ubuntu archive and
+nuget.org were reachable even though `builds.dotnet.microsoft.com` was blocked, so use the
+distro package rather than the dotnet-install.sh script):
+
+```
+apt-get install -y dotnet-sdk-8.0
+```
+
+The projects reference third party assemblies by HintPath into `packages/`, which paket would
+normally populate.  Paket's restore target shells out to mono and will fail the build before
+the compiler runs, so disable it and fetch the packages directly:
+
+```
+dotnet build MMManaged/MMManaged.dotnet.fsproj -p:PaketRestoreDisabled=True
+```
+
+Packages needed under `packages/` (download the .nupkg from
+`https://api.nuget.org/v3-flatcontainer/<id-lowercased>/<ver>/<id-lowercased>.<ver>.nupkg`
+and unzip it into the named dir):
+
+- `packages/MonoGame.Framework.WindowsDX` <- MonoGame.Framework.WindowsDX 3.3.0 (also supplies SharpDX)
+- `packages/YamlDotNet` <- YamlDotNet 5.1.0
+- `packages/FsPickler.5.3.2` <- FsPickler 5.3.2 (MMManaged.Engine only)
+
+The NUnit console runner used below comes from the same place: NUnit.ConsoleRunner 3.16.3,
+`tools/nunit3-console.exe` inside the nupkg.  It doesn't belong in `packages/`; unzip it
+somewhere scratch.
+
+To run the NUnit tests on linux: `dotnet test` does *not* work, because the distro SDK ships no
+net-framework test host.  Install `mono-complete`, copy `FSharp.Core.4.4.3.0/FSharp.Core.dll`
+into the build output dir (it is referenced with Private=False so it isn't copied there), and
+run NUnit's own console runner:
+
+```
+dotnet build Test.MMManaged/Test.MMManaged.dotnet.fsproj -p:PaketRestoreDisabled=True
+cp FSharp.Core.4.4.3.0/FSharp.Core.dll Debug/
+cd Debug && mono /path/to/nunit3-console.exe Test.MMManaged.dll
+```
+
+Known: 6 tests fail on linux regardless of the change under test (TestMesh, TestMeshTransform
+x2, TestModDB, TestModDBInterop, TestYaml).  They all die in `Util.TestDataDir`'s static
+constructor, which searches windows-style relative paths for TestData.  Compare against a
+master build before assuming a failure is yours.
 
 ## Interop notes
 
