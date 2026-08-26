@@ -94,6 +94,20 @@ tedious to restart the whole game just for those.
 
 ### DX11 dynamic buffer snapshots (the `snapshot-dynamic-buffers` feature)
 
+MM assumes that each mesh has its own vertex/index buffer and these are largely static - i.e the game isn't updating them every frame to do, for instance, software animation - which isn't supported.
+
+At least one game takes this approach for most of its character meshes, so is mostly moddable, but will draw some parts out of a large buffer that is dynamically updated (and animated on the CPU).  
+
+This was more common in older game engines, which had limits on the 
+number of bone transfers they could squeeze into DX9 shader constants (~256) - so things like a cape might be split out into a separate draw, because the game couldn't fit that into a single draw call with the rest of the character (which can have many bones for limbs, facial and finger animations).
+
+Normally these parts will be lost in snapshot, and if software-animated (which is likely), they could not be modded anyway.  However _if_ the part was snapshotted, in some cases it is possible in practice to "weld" it back to a GPU animated part that is moddable, by hand in blender, and it looks ok despite the host part not having all the weights needed to render it like the original.
+The original can then be hidden with a deletion mod, which has the host part as a parent to reduce the chance of misfire.  This isn't theoretical as I've done it at least once. 🙃
+
+`snapshot-dynamic-buffers` was added to support this case.  When built with this (in DX11), the game will track those buffers in an attempt provide the ability to snapshot pieces like this.  But since it typically introduces a performance hit when enabled, especially when snapshotting, possibly resulting in missing static parts if the snap window is too short, it is off by default.  So normally uou want to turn it on, snapshot what you need, then turn it off.
+
+Now some details provided by Claude (I skimmed these at least once):
+
 Some DX11 games pack many meshes into a few large buffers (a "megabuffer") that are created empty
 and filled later via `Map`/`Unmap` or `UpdateSubresource`, which `hook_CreateBuffer` never sees.
 The `snapshot-dynamic-buffers` Cargo feature captures those buffers and slices the drawn

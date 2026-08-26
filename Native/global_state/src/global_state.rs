@@ -114,6 +114,9 @@ pub struct ClrState {
 
 pub struct RunConf {
     pub precopy_data: bool,
+    /// This only has an effect with the `snapshot-dynamic-buffers` feature: without it the registry
+    /// value is not even read, and nothing reads this field, so a default build ignores it.
+    /// 
     /// When true (the default), DX11 dynamic buffer capture only copies buffers while a snapshot
     /// is actually in progress (`is_snapping`), rather than on every write for the rest of the
     /// session.  Copying a large dynamic buffer on every one of its (often very many) writes per
@@ -122,9 +125,7 @@ pub struct RunConf {
     ///
     /// Set the `SnapPreCopyAlways` registry dword to 1 to get the old always-on behavior, which
     /// is the fallback if a game writes its mesh buffers less often than once per snap window.
-    ///
-    /// Only has an effect with the `snapshot-dynamic-buffers` feature: without it the registry
-    /// value is not even read, and nothing reads this field, so a default build ignores it.
+    /// Note the framerate reduction from doing that may well be severe.
     pub precopy_only_when_snapping: bool,
     pub force_tex_cpu_read: bool,
     /// Game profile data loaded from the profile found for this registry key

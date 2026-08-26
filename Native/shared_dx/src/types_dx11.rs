@@ -27,6 +27,8 @@ pub struct HookDirect3D11Context {
     // `snapshot-dynamic-buffers`.  This struct is `Copy` and is returned by value from
     // `get_hook_context()` on every draw and IA state call, so keep the default build's copy
     // exactly the size it was before the feature existed.
+    // JMQ: not sure whether the size of this structure is really a perf factor or not, but its on the verge already of 
+    // tipping over 128 bytes and I am concerned LLVM may drop some related optimization when it exceeds that.
     #[cfg(feature = "snapshot-dynamic-buffers")]
     pub real_map: MapFn,
     #[cfg(feature = "snapshot-dynamic-buffers")]

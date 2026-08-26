@@ -150,9 +150,9 @@ pub unsafe fn take(devptr:&mut DevicePointer, sd:&mut types::interop::SnapshotDa
         // For an indexed triangle list, the most unique verts a draw can touch is prim_count * 3
         // (no shared indices). If num_vertices exceeds that, it most likely came from
         // vb_size / vert_size (the whole bound VB) rather than this draw's range -- see
-        // compute_prim_vert_count in hook_render_d3d11.rs. That's a strong hint that either the
-        // VB is shared across many draws, or the geometry is CPU/software-animated and not
-        // usefully snapshottable, and may also explain a subsequent missing-index-buffer error.
+        // compute_prim_vert_count in hook_render_d3d11.rs. That's a strong hint that the
+        // VB is shared across many draws and/or the geometry is CPU/software-animated and not
+        // snapshottable except via the `snapshot-dynamic-buffers` feature.
         let implied_max_verts = sd.prim_count.saturating_mul(3);
         if sd.num_vertices > implied_max_verts {
             write_log_file(&format!(
@@ -1071,11 +1071,10 @@ pub unsafe fn present_process() {
     if (*gs).is_snapping {
         let now = SystemTime::now();
         let max_dur = std::time::Duration::from_millis(snap_ms as u64);
-        // Strictly wall clock, with nothing subtracted from it.  Anything that shortens this in
-        // proportion to work done *during* the window can fail to terminate: buffer capture is
-        // only running because the window is open, so discounting its cost lets a frame that is
-        // ~entirely capture advance the clock by ~nothing, which keeps the window open, which
-        // keeps capture running.  Use snap_ms to lengthen the window instead (DX11 generally
+        // Strictly wall clock, with nothing subtracted from it.  So a long running snapshot 
+        // operation (as for a large dynamic buffer captured with `snapshot-dynamic-buffers`)
+        // could use all available time with nothing left over for other pieces.  Solution is 
+        // to use snap_ms to lengthen the window instead (DX11 generally
         // wants more than the default; see the SNAP_CONFIG comment above).
         let elapsed = now
             .duration_since((*gs).snap_start)
