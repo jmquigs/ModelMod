@@ -17,7 +17,7 @@ use types::native_mod::{ModD3DData, ModD3DState, NativeModData};
 use winapi::ctypes::c_void;
 use winapi::shared::dxgiformat::{DXGI_FORMAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM};
 use winapi::shared::dxgitype::DXGI_SAMPLE_DESC;
-use winapi::shared::winerror::{E_NOINTERFACE};
+use winapi::shared::winerror::E_NOINTERFACE;
 use winapi::um::d3d11::{ID3D11Buffer, ID3D11InputLayout, D3D11_PRIMITIVE_TOPOLOGY,
     ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA,
@@ -42,7 +42,7 @@ use fnv::FnvHashMap;
 /// so that callers do not need to hold the device-state lock while invoking
 /// the real fns (which can re-enter our hooks on the same thread and would
 /// otherwise deadlock).
-fn get_hook_context() -> Result<HookDirect3D11Context> {
+pub(crate) fn get_hook_context() -> Result<HookDirect3D11Context> {
     match dev_state_d3d11_read() {
         Some((_lck, state)) => Ok(state.hooks.context),
         None => {

@@ -51,3 +51,8 @@ default = []
 profile = []
 mmdisable = []
 frequent-updates = []
+# Experimental: capture dynamically-updated (Map/UpdateSubresource) DX11 index/vertex buffers and
+# slice the drawn sub-region so meshes stored in large shared "megabuffers" can be snapshotted.
+# Off by default: capture only runs during a snapshot, but it still makes snapshotting slower than
+# the plain whole-buffer path, which also has stricter size checks.
+snapshot-dynamic-buffers = ["hook_snapshot/snapshot-dynamic-buffers", "shared_dx/snapshot-dynamic-buffers"]

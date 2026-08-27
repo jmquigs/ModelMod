@@ -146,6 +146,18 @@ pub fn process_metrics(preserve_prims:bool, interval:u32) {
                             let rehook_ms = metrics.rehook_time_nanos / 1000 / 1000;
                             write_log_file(&format!("  rehook calls: {}, total ms: {}", metrics.rehook_calls, rehook_ms));
                         }
+                        if metrics.dyn_precopy_captures > 0 {
+                            // If dynamic buffer copying is what's killing the framerate, it shows
+                            // up here: compare the copy time against the interval it was measured
+                            // over.
+                            let mb = metrics.dyn_precopy_bytes as f64 / (1024.0 * 1024.0);
+                            let copy_ms = metrics.dyn_precopy_nanos / 1000 / 1000;
+                            write_log_file(&format!(
+                                "  dyn precopy: {} captures, {:.1} MB copied in {} ms (largest buffer {:.1} MB) over {} ms",
+                                metrics.dyn_precopy_captures, mb, copy_ms,
+                                metrics.dyn_precopy_largest as f64 / (1024.0 * 1024.0),
+                                ms_since_reset));
+                        }
                         if metrics.drawn_recently.len() > 0 {
                             write_log_file("  drawn recently:");
                             for (pv, ds) in &metrics.drawn_recently {

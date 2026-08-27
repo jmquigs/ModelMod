@@ -92,4 +92,58 @@ managed code so this diminishes the utility of moving this code to rust, since t
 be hot reloaded.  The ability to reload the managed code is very useful during the process of adding support for a new game, since often tiny tweaks need to be made to formats and such and its very 
 tedious to restart the whole game just for those.
 
+### DX11 dynamic buffer snapshots (the `snapshot-dynamic-buffers` feature)
 
+MM assumes that each mesh has its own vertex/index buffer and these are largely static - i.e the game isn't updating them every frame to do, for instance, software animation - which isn't supported.
+
+At least one game takes this approach for most of its character meshes, so is mostly moddable, but will draw some parts out of a large buffer that is dynamically updated (and animated on the CPU).  
+
+This was more common in older game engines, which had limits on the 
+number of bone transfers they could squeeze into DX9 shader constants (~256) - so things like a cape might be split out into a separate draw, because the game couldn't fit that into a single draw call with the rest of the character (which can have many bones for limbs, facial and finger animations).
+
+Normally these parts will be lost in snapshot, and if software-animated (which is likely), they could not be modded anyway.  However _if_ the part was snapshotted, in some cases it is possible in practice to "weld" it back to a GPU animated part that is moddable, by hand in blender, and it looks ok despite the host part not having all the weights needed to render it like the original.
+The original can then be hidden with a deletion mod, which has the host part as a parent to reduce the chance of misfire.  This isn't theoretical as I've done it at least once. 🙃
+
+`snapshot-dynamic-buffers` was added to support this case.  When built with this (in DX11), the game will track those buffers in an attempt provide the ability to snapshot pieces like this.  But since it typically introduces a performance hit when enabled, especially when snapshotting, possibly resulting in missing static parts if the snap window is too short, it is off by default.  So normally uou want to turn it on, snapshot what you need, then turn it off.
+
+Now some details provided by Claude (I skimmed these at least once):
+
+Some DX11 games pack many meshes into a few large buffers (a "megabuffer") that are created empty
+and filled later via `Map`/`Unmap` or `UpdateSubresource`, which `hook_CreateBuffer` never sees.
+The `snapshot-dynamic-buffers` Cargo feature captures those buffers and slices the drawn
+sub-region out of them at snapshot time.  It lives in `hook_core` and transitively enables the
+same-named feature in `hook_snapshot` and `shared_dx`.  Build with
+`--features=snapshot-dynamic-buffers` from `Native/hook_core`; `rb.sh` and `r2026g1.sh` take a
+feature name as their first argument.
+
+The code calls these **dynamic buffers**, as shorthand for "an index or vertex buffer whose
+contents ModelMod obtains by watching the game write it, rather than from the `pInitialData` it
+was created with".  Anything described that way, and anything named `dyn_*`, only does something
+when this feature is enabled; a default build sees only the static creation-time path.
+
+It is off by default because it is still slower at snapshotting than the plain path, and the
+whole-buffer path it replaces has strict size checks that are a useful sanity check on games that
+do use one buffer per mesh.
+
+Two things about it are worth knowing at this level; the code comments cover the rest.
+
+Capture only runs while a snapshot is in progress, not for the whole session, because the cost is
+one copy of an entire buffer per *update* of that buffer and a game may refill one many times per
+frame.  `SnapPreCopyAlways=1` in the registry restores always-on capture, needed only if a game
+refills its mesh buffers less often than one snap window.
+
+Holding **shift** with the clear-texture-lists key additionally drops everything captured from a
+dynamic buffer, so the next snapshot uses freshly captured data or fails cleanly rather than
+possibly serving bytes from a buffer the game has since destroyed.  The key on its own leaves
+captured data alone.  Worth doing on entering a new scene; the cost is that a dropped buffer has
+to be captured again before it can be snapshotted, which a game that writes its mesh buffers
+rarely may not do within a snap window.  Buffers filled at creation time are never dropped, since
+DX11 cannot read a buffer back and they are not affected by the problem.
+
+Precopy itself can be turned on either by the `SnapPreCopyData` registry value at startup or in
+game by the clear-texture-lists key.  The in-game route works for dynamically updated buffers, but
+a buffer filled once at creation time before precopy was on is unrecoverable without recreating
+it, since DX11 will not read a buffer back.
+
+`process_metrics` reports capture count, MB copied, time spent and largest buffer; that is the
+first thing to look at when snapshotting is slower than expected.

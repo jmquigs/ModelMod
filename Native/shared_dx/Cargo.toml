@@ -14,3 +14,10 @@ winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "objidl
 [dependencies]
 lazy_static = "*"
 fnv = "1.0.6"
+
+[features]
+# See hook_core's snapshot-dynamic-buffers feature; this adds the Map/Unmap/UpdateSubresource
+# function pointers to HookDirect3D11Context.  That struct is Copy and is returned by value on
+# every draw call, so the fields are kept out of the default build.  Enabled transitively by
+# hook_core and hook_snapshot's features of the same name.
+snapshot-dynamic-buffers = []

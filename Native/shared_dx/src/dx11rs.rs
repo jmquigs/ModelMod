@@ -119,6 +119,89 @@ impl Display for VertexFormat {
     }
 }
 
+/// What a resource the game is writing turned out to be, as seen by the dynamic buffer hooks.
+/// Cached by resource pointer in `DX11RenderState::device_buffer_meta` so that the very common
+/// constant-buffer write costs a single hash lookup rather than a `GetType`/`GetDesc` pair.
+///
+/// Note the cache is keyed on a raw pointer and D3D reuses freed addresses, so a cached value is
+/// a filter, not a source of truth: capture paths re-query the resource before copying anything
+/// out of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferMeta {
+    /// A vertex or index buffer whose contents we want for snapshots, with its `ByteWidth`.
+    Mesh { is_index: bool, byte_width: u32 },
+    /// Anything else: a constant buffer, a texture, a zero-sized buffer, etc.
+    Other,
+}
+
+/// How a tracked mesh buffer's stored bytes were last produced.  Diagnostic only: a snapshot that
+/// comes out as garbage usually means our copy did not match what the draw actually read, and the
+/// write path (and its D3D11_MAP type) is the first thing worth knowing.
+///
+/// Recorded only while the dynamic buffer feature is on, which is why `InitialData` appears here
+/// even though it describes an ordinary static buffer: with the feature on, the creation-time copy
+/// is tracked alongside the dynamic ones so the two can be told apart later.
+#[cfg(feature = "snapshot-dynamic-buffers")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferWriteKind {
+    /// Copied from `pInitialData` when the buffer was created.
+    InitialData,
+    /// Copied at `Unmap`; carries the `D3D11_MAP` type the game passed to `Map`.
+    Map(u32),
+    /// Whole-resource `UpdateSubresource`.
+    UpdateSubresource,
+    /// Boxed (partial) `UpdateSubresource` covering bytes `[left, right)`.
+    UpdateSubresourceBox(u32, u32),
+}
+
+#[cfg(feature = "snapshot-dynamic-buffers")]
+impl Display for BufferWriteKind {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            BufferWriteKind::InitialData => write!(f, "CreateBuffer initial data"),
+            // D3D11_MAP values; spelled out here so the log doesn't need decoding.
+            BufferWriteKind::Map(t) => {
+                let name = match t {
+                    1 => "READ",
+                    2 => "WRITE",
+                    3 => "READ_WRITE",
+                    4 => "WRITE_DISCARD",
+                    5 => "WRITE_NO_OVERWRITE",
+                    _ => "?",
+                };
+                write!(f, "Map({})", name)
+            },
+            BufferWriteKind::UpdateSubresource => write!(f, "UpdateSubresource"),
+            BufferWriteKind::UpdateSubresourceBox(l, r) =>
+                write!(f, "UpdateSubresource[{}..{}]", l, r),
+        }
+    }
+}
+
+/// Provenance of one tracked buffer's stored bytes.  See `BUFFER_CAPTURE_SEQ` for what `seq` is
+/// good for.
+#[cfg(feature = "snapshot-dynamic-buffers")]
+#[derive(Debug, Clone, Copy)]
+pub struct BufferCaptureInfo {
+    pub kind: BufferWriteKind,
+    /// Value of `BUFFER_CAPTURE_SEQ` when this buffer was last captured.
+    pub seq: u64,
+    /// How many times this buffer has been captured.
+    pub count: u64,
+    /// Length in bytes of the stored copy after that capture.
+    pub bytes: usize,
+}
+
+/// Monotonic counter incremented on every dynamic buffer capture.
+///
+/// Its value is meaningless on its own; the point is the differences.  Comparing the index and
+/// vertex buffers' `seq` at snapshot time says whether the two copies came from the same batch of
+/// writes or whether one of them is many captures stale, which is the difference between a
+/// coherent mesh and a poly soup.
+#[cfg(feature = "snapshot-dynamic-buffers")]
+pub static BUFFER_CAPTURE_SEQ: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 pub struct DX11RenderState {
     /// Current vertex buffer properties, vector of (buf index,byte width,stride).
     pub vb_state: Vec<(u32,u32,u32)>,
@@ -145,15 +228,42 @@ pub struct DX11RenderState {
     /// structure and you know there aren't any clones.
     pub device_semantic_string_table: FnvHashMap<String, Vec<u8>>,
     /// When snapshotting this stores all index buffer data, because we can't read it on the fly.
+    /// Holds copies taken at creation from `pInitialData` and, with the `snapshot-dynamic-buffers`
+    /// feature, copies captured from dynamic buffers as the game writes them.  The two are mixed
+    /// here on purpose; `buffer_capture_info` records which is which.
     pub device_index_buffer_data: FnvHashMap<usize, Vec<u8>>,
     /// Controls when index data is removed
     pub device_index_buffer_createtime: Vec<(usize,SystemTime)>,
     pub device_index_buffer_totalsize_nextlog: (usize,usize),
     /// When snapshotting this stores all vertex buffer data, because we can't read it on the fly.
+    /// Mixes creation-time and dynamic copies exactly as `device_index_buffer_data` does.
     pub device_vertex_buffer_data: FnvHashMap<usize, Vec<u8>>,
     /// Controls when vertex data is removed
     pub device_vertex_buffer_createtime: Vec<(usize,SystemTime)>,
     pub device_vertex_buffer_totalsize_nextlog: (usize,usize),
+    /// What each resource the dynamic buffer hooks have seen turned out to be, keyed by resource
+    /// pointer.  This lets them identify whether a resource being written is a VB/IB we want to
+    /// capture (and how big it is) without repeating the `GetType`/`GetDesc` calls on the hot
+    /// path.  Needed because the game may create a buffer empty and fill it later, in which case
+    /// `device_*_buffer_data` won't have an entry yet.
+    ///
+    /// Entries are written both by `hook_CreateBuffer` and lazily by the dynamic buffer hooks the
+    /// first time they see an unknown resource.  The lazy path is what makes a runtime precopy
+    /// enable work on buffers that already existed before the toggle.
+    ///
+    /// Only populated with the `snapshot-dynamic-buffers` feature; empty otherwise.
+    pub device_buffer_meta: FnvHashMap<usize, BufferMeta>,
+    /// Writes in progress on a dynamic buffer, keyed by resource pointer.  The CPU pointer the
+    /// game was handed is only known when the write starts, but the data must be copied when it
+    /// ends (before the pointer is invalidated).  Tuple is
+    /// `(cpu_ptr, is_index_buffer, byte_width, map_type)`.
+    ///
+    /// Only populated with the `snapshot-dynamic-buffers` feature; empty otherwise.
+    pub mapped_buffers: FnvHashMap<usize, (usize, bool, u32, u32)>,
+    /// Diagnostic provenance for each captured mesh buffer, keyed by buffer pointer.  Written by
+    /// the dynamic buffer capture paths, read and logged by the snapshot code.
+    #[cfg(feature = "snapshot-dynamic-buffers")]
+    pub buffer_capture_info: FnvHashMap<usize, BufferCaptureInfo>,
 }
 
 impl DX11RenderState {
@@ -172,6 +282,12 @@ impl DX11RenderState {
             device_vertex_buffer_data: FnvHashMap::with_capacity_and_hasher(1600, Default::default()),
             device_vertex_buffer_createtime: Vec::new(),
             device_vertex_buffer_totalsize_nextlog: (0,0),
+            // Allocate lazily (no capacity): these stay empty unless the snapshot-dynamic-buffers
+            // feature is enabled and actively capturing, so this keeps the default build zero-cost.
+            device_buffer_meta: FnvHashMap::default(),
+            mapped_buffers: FnvHashMap::default(),
+            #[cfg(feature = "snapshot-dynamic-buffers")]
+            buffer_capture_info: FnvHashMap::default(),
         }
     }
 
