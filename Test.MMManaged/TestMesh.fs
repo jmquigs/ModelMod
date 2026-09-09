@@ -7,7 +7,7 @@ open ModelMod
 open ModelMod.CoreTypes
 
 let monolith =
-    let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
+    let mpath = Path.Combine(Util.TestDataDir,"MonolithRef.mmobj")
     MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
 open MonoGameHelpers

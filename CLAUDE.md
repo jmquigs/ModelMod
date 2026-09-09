@@ -71,10 +71,8 @@ cp FSharp.Core.4.4.3.0/FSharp.Core.dll Debug/
 cd Debug && mono /path/to/nunit3-console.exe Test.MMManaged.dll
 ```
 
-Known: 6 tests fail on linux regardless of the change under test (TestMesh, TestMeshTransform
-x2, TestModDB, TestModDBInterop, TestYaml).  They all die in `Util.TestDataDir`'s static
-constructor, which searches windows-style relative paths for TestData.  Compare against a
-master build before assuming a failure is yours.
+All tests pass on linux.  `State.reloadSnapshotProfiles` logs an error about a missing
+`TestData/SnapshotProfiles` dir during the interop test; that is expected and not a failure.
 
 ## Interop notes
 
