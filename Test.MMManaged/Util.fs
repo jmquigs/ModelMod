@@ -12,22 +12,18 @@ let veqEqEpsilon (ep:float32) (v1:Vec3F) (v2:Vec3F) =
     let dz = Math.Abs(v1.Z - v2.Z)
     dx < ep && dy < ep && dz < ep
 
-let TestDataDir = 
-    let asmPath = Assembly.GetExecutingAssembly().CodeBase.Replace("file:///","")
+let TestDataDir =
+    // walk up from the assembly dir looking for TestData; the output layout differs between the
+    // VS and dotnet builds.  avoid literal path separators, they aren't portable.
+    let asmDir = Path.GetDirectoryName(Uri(Assembly.GetExecutingAssembly().CodeBase).LocalPath)
 
-    let paths = [ @"..\..\TestData"; @"..\TestData"; "@\..\..\..\..\..\TestData" ]
+    let rec search (dir:DirectoryInfo) levels =
+        if isNull (box dir) || levels = 0 then
+            None
+        else
+            let cand = Path.Combine(dir.FullName, "TestData")
+            if Directory.Exists cand then Some(cand) else search dir.Parent (levels-1)
 
-    let paths = paths |> List.map (fun p -> Path.GetFullPath(Path.Combine(asmPath,p)))
-
-    let found =     
-        paths |> List.tryPick (fun p -> 
-            if Directory.Exists p then
-                Some(p)
-            else
-                None
-    )
-
-    match found with 
-    | None -> failwithf "Failed to locate test data directory, searched: %A" paths
+    match search (DirectoryInfo(asmDir)) 6 with
+    | None -> failwithf "Failed to locate test data directory at or above: %s" asmDir
     | Some path -> path
-    

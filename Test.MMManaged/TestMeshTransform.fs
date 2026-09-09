@@ -10,7 +10,7 @@ open ModelMod.CoreTypes
 let vecEq = Util.veqEqEpsilon 0.000001f
 
 let monolith =
-    let mpath = Path.Combine(Util.TestDataDir,"monolithref.mmobj")
+    let mpath = Path.Combine(Util.TestDataDir,"MonolithRef.mmobj")
     MeshUtil.readFrom(mpath,CoreTypes.GPUReplacement,CoreTypes.DefaultReadFlags)
 
 [<Test>]
