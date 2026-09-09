@@ -27,10 +27,10 @@ This is a Windows-only project, but cross-compilation works from Linux, although
 
 ## F# Build (MMManaged.sln)
 
-Normally built with visual studio (2019 or 2022) on windows.  The `*.dotnet.fsproj` variants
-(and `MMAll.dotnet.sln`) also build and test on linux, which is enough to catch compile errors
-in F# changes.  This isn't how the code is normally built, so treat a windows build as the
-source of truth, but don't skip the linux build just because there's no visual studio.
+Historically built with visual studio (2019 or 2022) on windows.  The `*.dotnet.fsproj` variants
+(and `MMAll.dotnet.sln`) also build and test on linux.  More recently, the dotnet build has become 
+the default choice over windows for testing 
+local changes in proton on linux - so output of these builds can be used in production-like environments.
 
 Setup, on ubuntu 24.04 (this worked in the claude code web container; the ubuntu archive and
 nuget.org were reachable even though `builds.dotnet.microsoft.com` was blocked, so use the
