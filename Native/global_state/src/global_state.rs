@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::SystemTime;
 use std::fmt;
 use fnv::FnvHashMap;
@@ -287,6 +287,23 @@ pub static mut ANIM_SNAP_STATE:UnsafeCell<Option<AnimSnapState>> = UnsafeCell::n
 /// finishes loading. Callers should keep the lock for as short a span as
 /// possible — particularly on the DIP path.
 pub static LOADED_MODS: Mutex<Option<LoadedModState>> = Mutex::new(None);
+
+/// Whether MM may re-apply hooks to a context that is already hooked (the
+/// `apply_context_hooks(ctx, false)` path, which reuses the vtable the context currently
+/// points at).  Defaults to true.  A host that chain-loads MM behind its own d3d11 proxy
+/// clears it via the `MMSetAllowRehook` export: in that setup the current vtable is the
+/// host's copy, and rehooking would overwrite the host's slots with MM's hooks (whose saved
+/// real pointers go straight to the system DLL), dropping the host out of the call chain.
+pub static ALLOW_REHOOK: AtomicBool = AtomicBool::new(true);
+
+pub fn rehook_allowed() -> bool {
+    ALLOW_REHOOK.load(Ordering::Relaxed)
+}
+
+pub fn set_rehook_allowed(allow: bool) {
+    ALLOW_REHOOK.store(allow, Ordering::Relaxed)
+}
+
 const TRACK_GS_PTR:bool = true;
 
 /// Container structure providing access to the global state pointer.

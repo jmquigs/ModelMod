@@ -104,19 +104,56 @@ type Main() =
         let failLogPath = Path.Combine(location, "MMManaged.error.log")
         File.WriteAllText(failLogPath, x.ToString())
 
-    static member InitNativeInterface(context:string) =
-        let oninitialized,logfactory =
-            match context with
-            | "mm_native" ->
-                (NativeImportsAsMMNative.OnInitialized,
+    /// Find the `native_module=<name>` entry that native code appends to the entry arguments
+    /// (after the handle, context and version at indices 0-2).  Returns the lowercased, trimmed
+    /// value, or `context` when the entry is absent or empty (older native code, or the native
+    /// side could not determine its own module name).  Pure, so it can be unit tested.
+    static member ParseNativeModule(args:string[], context:string) : string =
+        let prefix = "native_module="
+        let found =
+            args
+            |> Seq.skip (min 3 args.Length)
+            |> Seq.tryPick (fun (arg:string) ->
+                let arg = arg.Trim()
+                if arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) then
+                    let value = arg.Substring(prefix.Length).Trim().ToLowerInvariant()
+                    if value = "" then None else Some value
+                else None)
+        match found with
+        | Some v -> v
+        | None -> context
+
+    /// Select the native import module.  `nativeModule` is the base name of the DLL the native
+    /// code is actually running in and takes precedence: when ModelMod is installed as
+    /// d3d11_mm.dll and chain-loaded by another proxy occupying d3d11.dll, importing from
+    /// "d3d11.dll" would bind to that other proxy.  Anything else falls back to the mapping by
+    /// `context`.  Returns the name of the import module selected, for logging; logging itself
+    /// is not available until this has run.
+    static member InitNativeInterface(context:string, nativeModule:string) : string =
+        let importsName,oninitialized,logfactory =
+            match nativeModule,context with
+            | "d3d11_mm",_ ->
+                NativeImports.Selected <- Some(NativeImports.ofD3D11MM)
+                ("NativeImportsAsD3D11MM",
+                    NativeImportsAsD3D11MM.OnInitialized,
+                    NativeLogging.factory NativeImportsAsD3D11MM.LogInfo NativeImportsAsD3D11MM.LogWarn NativeImportsAsD3D11MM.LogError)
+            | _,"mm_native" ->
+                NativeImports.Selected <- Some(NativeImports.ofMMNative)
+                ("NativeImportsAsMMNative",
+                    NativeImportsAsMMNative.OnInitialized,
                     NativeLogging.factory NativeImportsAsMMNative.LogInfo NativeImportsAsMMNative.LogWarn NativeImportsAsMMNative.LogError)
-            | "d3d9" ->
-                (NativeImportsAsD3D9.OnInitialized,
+            | _,"d3d9" ->
+                NativeImports.Selected <- Some(NativeImports.ofD3D9)
+                ("NativeImportsAsD3D9",
+                    NativeImportsAsD3D9.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D9.LogInfo NativeImportsAsD3D9.LogWarn NativeImportsAsD3D9.LogError)
-            | "d3d11" ->
-                (NativeImportsAsD3D11.OnInitialized,
+            | _,"d3d11" ->
+                NativeImports.Selected <- Some(NativeImports.ofD3D11)
+                ("NativeImportsAsD3D11",
+                    NativeImportsAsD3D11.OnInitialized,
                     NativeLogging.factory NativeImportsAsD3D11.LogInfo NativeImportsAsD3D11.LogWarn NativeImportsAsD3D11.LogError)
-            | "standalone" ->
+            | _,"standalone" ->
+                NativeImports.Selected <- None
                 let oninit (callbacks,gsp):int =
                     printfn "ONINITIALIZED";
                     standaloneState <- Some({ callbacks = callbacks; globalStatePointer = gsp })
@@ -124,11 +161,12 @@ type Main() =
                 let infof (cat:string,msg:string) = printfn "Info[%s]: %s" cat msg
                 let warnf (cat:string,msg:string) = printfn "Warn[%s]: %s" cat msg
                 let errf (cat:string,msg:string) =  printfn "ERR [%s]: %s" cat msg
-                (oninit, NativeLogging.factory infof warnf errf)
-            | s ->
+                ("standalone", oninit, NativeLogging.factory infof warnf errf)
+            | _,s ->
                 failwithf "unrecognized context: %s" s
         Main.OnInitialized <- Some(oninitialized)
         Logging.setLoggerFactory logfactory
+        importsName
 
     static member IdentifyInLog() =
         // try to log a test message.  if we can't do that, we're gonna have a bad time.
@@ -211,12 +249,18 @@ type Main() =
 
             CoreState.Context <- context
 
-            Main.InitNativeInterface(context)
+            // The native module must be known before the imports (including logging) are bound.
+            let nativeModule = Main.ParseNativeModule(args, context)
+            let importsName = Main.InitNativeInterface(context, nativeModule)
 
             ret <- Main.IdentifyInLog()
             if ret <> 0 then
                 failwithf "Log init failed: %A" ret
             loginit <- true
+
+            Main.Log.Info "Native module: %s (context %s), imports: %s" nativeModule context importsName
+            if nativeModule <> "d3d11_mm" && nativeModule <> context then
+                Main.Log.Warn "Unrecognized native module '%s'; imports were selected by context '%s' instead" nativeModule context
 
             let checkSizeMatch (argstr:string) (paramstr:string) (mtype:System.Type) = 
                 if argstr.StartsWith(paramstr) then 

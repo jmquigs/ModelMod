@@ -13,7 +13,7 @@ ci = []
 crc32fast = "1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["libloaderapi", "d3d9", "d3d11", "objidlbase",
+winapi = { version = "0.3", features = ["libloaderapi", "errhandlingapi", "d3d9", "d3d11", "objidlbase",
     "processthreadsapi", "memoryapi", "winerror", "winuser", "winreg",
     "dinput"] }
 shared_dx = { path = "../shared_dx" }

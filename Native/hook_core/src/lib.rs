@@ -47,7 +47,7 @@ mod hook_device_d3d11;
 mod hook_dynamic_buffers;
 
 pub use interop::{LogError, LogInfo, LogWarn};
-pub use interop::{OnInitialized, SaveTexture};
+pub use interop::{OnInitialized, SaveTexture, MMSetAllowRehook};
 
 pub use hook_render::Direct3DCreate9;
 pub use hook_render::D3DPERF_BeginEvent;

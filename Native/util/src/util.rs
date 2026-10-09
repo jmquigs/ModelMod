@@ -370,6 +370,49 @@ pub fn get_module_path(handle: HMODULE) -> Result<String> {
     }
 }
 
+/// Return the handle of whichever loaded module contains `addr`.  The module's reference
+/// count is left unchanged, so the handle must not be passed to `FreeLibrary`.
+pub fn get_module_handle_from_address(addr: usize) -> Result<HMODULE> {
+    use winapi::um::libloaderapi::{
+        GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    };
+    use winapi::um::errhandlingapi::GetLastError;
+
+    let mut handle: HMODULE = std::ptr::null_mut();
+    let r = unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            addr as *const u16,
+            &mut handle,
+        )
+    };
+    if r == 0 || handle.is_null() {
+        let err = unsafe { GetLastError() };
+        return Err(HookError::ModuleNameError(format!(
+            "failed to get module handle from address {:x}: error {}",
+            addr, err
+        )));
+    }
+    Ok(handle)
+}
+
+/// Return the lowercased file stem of the module containing `addr`, for instance
+/// `d3d11_mm` for `...\d3d11_mm.dll`.  Pass the address of a function in the calling
+/// crate to find out which DLL that crate was loaded as; unlike `GetModuleHandle("d3d11.dll")`
+/// this gives the right answer when another proxy occupies that name.
+pub fn get_module_base_name_from_address(addr: usize) -> Result<String> {
+    use std::path::Path;
+
+    let handle = get_module_handle_from_address(addr)?;
+    let path = get_module_path(handle)?;
+    let stem = Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or(HookError::ModuleNameError(format!("no file stem in module path: {}", path)))?;
+    Ok(stem.to_lowercase())
+}
+
 pub fn get_module_name_base() -> Result<String> {
     get_module_name()
         .and_then(|mod_name| {

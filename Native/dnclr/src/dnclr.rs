@@ -262,6 +262,22 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
             run_context
         ));
 
+        // Tell managed code which DLL this native code is actually running in, so that it can
+        // bind its imports to that module rather than to whatever is loaded as `d3d11.dll`
+        // (when chain-loaded as d3d11_mm.dll, that is a different proxy).  Use the address of
+        // a function in this crate; `GetModuleHandle("d3d11.dll")` would find the wrong module.
+        let native_module_arg = match util::get_module_base_name_from_address(reload_managed_dll as *const () as usize) {
+            Ok(name) => {
+                write_log_file(&format!("native module for managed imports: {}", name));
+                format!("|native_module={}", name)
+            },
+            Err(e) => {
+                write_log_file(&format!(
+                    "failed to determine native module name, managed code will use the load context: {:?}", e));
+                String::new()
+            }
+        };
+
         // can only pass one argument (a string), so delimit the arguments with pipe
         // note: intentially defeating the purpose of GSPointerRef here since we need to 
         // pass the pointer to managed code so that it can pass it back to us in 
@@ -270,12 +286,13 @@ pub fn reload_managed_dll(mm_root: &Option<String>, run_context:Option<&'static 
         let ptr = global_state_ptr.gsp as usize;
         drop(global_state_ptr); // to avoid the gs tracking code logging when the managed code calls OnInitialized
         let argument = util::to_wide_str(&format!(
-            "{}|{}|{}|mod_structsize={}|mod_snapprofile_structsize={}",
+            "{}|{}|{}|mod_structsize={}|mod_snapprofile_structsize={}{}",
             ptr,
             run_context,
             NATIVE_CODE_VERSION,
             size_of::<ModData>(),
             size_of::<ModSnapProfile>(),
+            native_module_arg,
         ));
     unsafe {
         let mut ret: u32 = 0xFFFFFFFF;

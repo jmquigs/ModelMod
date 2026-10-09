@@ -4,6 +4,7 @@ use std::os::raw::c_char;
 
 
 
+use shared_dx::defs_dx9::BOOL;
 use shared_dx::util::write_log_file;
 use global_state::HookState;
 use types::interop::*;
@@ -100,6 +101,18 @@ pub unsafe extern "system" fn GetBoundVertexBufferChecksum() -> u32 {
         Some(map) => map.get(&ptr).and_then(|s| s.checksum()).unwrap_or(0),
         None => 0,
     }
+}
+
+/// Called by a host that chain-loads MM (installed as d3d11_mm.dll behind the host's own
+/// d3d11.dll proxy) to allow or disallow re-applying hooks to an already-hooked context.
+/// See `global_state::ALLOW_REHOOK`.  The host calls this right after loading MM, before any
+/// device exists; it only touches an atomic and the log file, so it is safe at any time.
+#[allow(unused)]
+#[no_mangle]
+pub unsafe extern "system" fn MMSetAllowRehook(allow: BOOL) {
+    let allow = allow != 0;
+    global_state::set_rehook_allowed(allow);
+    write_log_file(&format!("ModelMod: rehook allowed = {} (set by host)", allow));
 }
 
 #[allow(unused)]

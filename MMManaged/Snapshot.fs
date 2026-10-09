@@ -957,9 +957,11 @@ module Snapshot =
             // from this snapshot can use it as a secondary mesh identifier.
             let vbChecksum =
                 try
+                    // Route through the import set selected at init rather than naming a
+                    // NativeImportsAs* module, so this binds to the DLL ModelMod was actually
+                    // loaded as (d3d11.dll or d3d11_mm.dll).
                     match CoreState.Context with
-                    | "d3d9" -> NativeImportsAsD3D9.GetBoundVertexBufferChecksum()
-                    | "d3d11" -> NativeImportsAsD3D11.GetBoundVertexBufferChecksum()
+                    | "d3d9" | "d3d11" -> NativeImports.boundVertexBufferChecksum()
                     | _ -> 0u
                 with e ->
                     log.Warn "failed to read bound VB checksum: %A" e

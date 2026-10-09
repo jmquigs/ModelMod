@@ -46,7 +46,7 @@ use std::mem::ManuallyDrop;
 use std::ptr::null_mut;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use winapi::um::d3d11::D3D11_CREATE_DEVICE_SINGLETHREADED;
@@ -282,7 +282,29 @@ pub unsafe fn find_and_copy_vtable<T>(iunk:*mut IUnknown, vtable:*const c_void, 
 
 const TRACK_REHOOK_TIME:bool = false;
 
+/// Returns true if a rehook of an already-hooked context may proceed at `site`.  When the
+/// host has disabled rehooking (see `global_state::ALLOW_REHOOK`), logs once per site, via
+/// `logged`, and returns false.  Callers then skip the rehook and continue as if it had
+/// succeeded; the call sites are hot, hence the once-only log.
+pub fn rehook_allowed_at(site: &str, logged: &AtomicBool) -> bool {
+    if global_state::rehook_allowed() {
+        return true;
+    }
+    if !logged.swap(true, Ordering::Relaxed) {
+        write_log_file(&format!("ModelMod: rehook skipped at {} (disabled by host)", site));
+    }
+    false
+}
+
+static REHOOK_SKIP_LOGGED_APPLY_CONTEXT_HOOKS: AtomicBool = AtomicBool::new(false);
+
 pub unsafe fn apply_context_hooks(context:*mut ID3D11DeviceContext, first_hook:bool) -> Result<i32> {
+    // Backstop for the rehook gate: call sites check `rehook_allowed_at` themselves, but any
+    // that don't (or are re-enabled later) must still not touch an already-hooked vtable.
+    if !first_hook && !rehook_allowed_at("apply_context_hooks", &REHOOK_SKIP_LOGGED_APPLY_CONTEXT_HOOKS) {
+        return Ok(0);
+    }
+
     let rehook_start =
         if TRACK_REHOOK_TIME {
             Some(SystemTime::now())
