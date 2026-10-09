@@ -392,6 +392,34 @@ module NativeImportsAsD3D11 =
     /// Returns the CRC32 of the currently bound stream-0 vertex buffer, or 0 if unknown.
     extern uint32 GetBoundVertexBufferChecksum()
 
+/// Same imports as NativeImportsAsD3D11, but bound to d3d11_mm.dll.  Used when ModelMod is
+/// installed under that name and chain-loaded by another proxy occupying d3d11.dll.
+module NativeImportsAsD3D11MM =
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall ) >]
+    extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogInfo([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogWarn([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    extern void LogError([<MarshalAs(UnmanagedType.LPStr)>]string category, [<MarshalAs(UnmanagedType.LPStr)>]string s)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Saves a dds texture from the specified texture stage.  This is handled by native code, which has
+    /// direct access to the D3DX library; no easy equivalent here in managed land.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool SaveTexture(int index, [<MarshalAs(UnmanagedType.LPWStr)>]string filepath)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Fills in the specified NativeMemoryBuffer with the current pixel shader code.
+    /// WARNING: the argument must be an address of a NativeMemoryBuffer.  Otherwise it will crash.
+    /// WARNING: the data address in the memory buffer is only valid until the next call to GetPixelShader().
+    /// If you call this function twice in succession and then use the results from the first call, it will crash.
+    extern [<MarshalAs(UnmanagedType.U1)>]bool GetPixelShader(System.IntPtr buffer)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the specified vertex buffer pointer, or 0 if unknown.
+    extern uint32 GetVertexBufferChecksum(uint64 vbPtr)
+    [< DllImport("d3d11_mm.dll", CallingConvention = CallingConvention.StdCall) >]
+    /// Returns the CRC32 of the currently bound stream-0 vertex buffer, or 0 if unknown.
+    extern uint32 GetBoundVertexBufferChecksum()
+
 module NativeImportsAsD3D9 =
     [< DllImport("d3d9.dll", CallingConvention = CallingConvention.StdCall ) >]
     extern int OnInitialized(MMNative.ManagedCallbacks callback, uint64 globalStateAddress)
@@ -435,3 +463,54 @@ module NativeImportsAsMMNative =
     extern uint32 GetVertexBufferChecksum(uint64 vbPtr)
     [< DllImport("mm_native.dll", CallingConvention = CallingConvention.StdCall ) >]
     extern uint32 GetBoundVertexBufferChecksum()
+
+/// The runtime-callable native functions, selected by Main.InitNativeInterface from whichever
+/// NativeImportsAs* module matches the DLL the native code is actually running in.
+type NativeFns = {
+    SaveTexture: int * string -> bool
+    GetPixelShader: System.IntPtr -> bool
+    GetVertexBufferChecksum: uint64 -> uint32
+    GetBoundVertexBufferChecksum: unit -> uint32
+}
+
+/// Holds the selected native import set.  This lives in the shell assembly (MMManaged), is set
+/// once by Main.Main, and survives engine reloads; engine code should call native functions
+/// through it rather than naming a NativeImportsAs* module directly.
+module NativeImports =
+    /// None until Main.InitNativeInterface runs, and in standalone mode.
+    let mutable Selected : NativeFns option = None
+
+    let ofD3D11 : NativeFns = {
+        SaveTexture = (fun (idx, path) -> NativeImportsAsD3D11.SaveTexture(idx, path))
+        GetPixelShader = NativeImportsAsD3D11.GetPixelShader
+        GetVertexBufferChecksum = NativeImportsAsD3D11.GetVertexBufferChecksum
+        GetBoundVertexBufferChecksum = NativeImportsAsD3D11.GetBoundVertexBufferChecksum
+    }
+
+    let ofD3D11MM : NativeFns = {
+        SaveTexture = (fun (idx, path) -> NativeImportsAsD3D11MM.SaveTexture(idx, path))
+        GetPixelShader = NativeImportsAsD3D11MM.GetPixelShader
+        GetVertexBufferChecksum = NativeImportsAsD3D11MM.GetVertexBufferChecksum
+        GetBoundVertexBufferChecksum = NativeImportsAsD3D11MM.GetBoundVertexBufferChecksum
+    }
+
+    let ofD3D9 : NativeFns = {
+        SaveTexture = (fun (idx, path) -> NativeImportsAsD3D9.SaveTexture(idx, path))
+        GetPixelShader = NativeImportsAsD3D9.GetPixelShader
+        GetVertexBufferChecksum = NativeImportsAsD3D9.GetVertexBufferChecksum
+        GetBoundVertexBufferChecksum = NativeImportsAsD3D9.GetBoundVertexBufferChecksum
+    }
+
+    let ofMMNative : NativeFns = {
+        SaveTexture = (fun (idx, path) -> NativeImportsAsMMNative.SaveTexture(idx, path))
+        GetPixelShader = NativeImportsAsMMNative.GetPixelShader
+        GetVertexBufferChecksum = NativeImportsAsMMNative.GetVertexBufferChecksum
+        GetBoundVertexBufferChecksum = NativeImportsAsMMNative.GetBoundVertexBufferChecksum
+    }
+
+    /// CRC32 of the currently bound stream-0 vertex buffer via the selected imports, or 0 if
+    /// no import set is selected.
+    let boundVertexBufferChecksum () : uint32 =
+        match Selected with
+        | Some fns -> fns.GetBoundVertexBufferChecksum()
+        | None -> 0u
