@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ptr::{null_mut, null};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, Duration};
 
 use global_state::{GLOBAL_STATE, LOADED_MODS, METRICS_TRACK_MOD_PRIMS, HWND};
@@ -31,7 +31,7 @@ use winapi::um::{d3d11::ID3D11DeviceContext, winnt::INT};
 use winapi::shared::minwindef::UINT;
 use device_state::{dev_state_d3d11_read, dev_state_d3d11_write};
 use shared_dx::error::{Result, HookError};
-use crate::hook_device_d3d11::apply_context_hooks;
+use crate::hook_device_d3d11::{apply_context_hooks, rehook_allowed_at};
 use crate::hook_render::{process_metrics, frame_init_clr, frame_load_mods, check_and_render_mod, CheckRenderModResult, track_set_texture, get_override_tex_if_selected};
 use crate::{input_commands, debugmode, mod_render};
 use winapi::um::d3d11::D3D11_BUFFER_DESC;
@@ -286,15 +286,22 @@ pub unsafe extern "system" fn hook_IASetVertexBuffers(
     )
 }
 
+static REHOOK_SKIP_LOGGED_IASETINPUTLAYOUT: AtomicBool = AtomicBool::new(false);
+
 pub unsafe extern "system" fn hook_IASetInputLayout(
     THIS: *mut ID3D11DeviceContext,
     pInputLayout: *mut ID3D11InputLayout,
 ) {
     debugmode::note_called(DebugModeCalledFns::Hook_ContextIASetInputLayout, THIS as usize);
     if !debugmode::draw_already_hooked() && debugmode::draw_hook_enabled() {
-        match apply_context_hooks(THIS, false) {
-            Ok(i) => write_log_file(&format!("applied {} context hook(s)", i)),
-            Err(e) => write_log_file(&format!("error applying context hooks: {:?}", e)),
+        // Late-hooking the draw function rewrites the context's current vtable; a chain-loading
+        // host can forbid that (see global_state::ALLOW_REHOOK), in which case the debug
+        // draw-hook toggle simply doesn't take effect.
+        if rehook_allowed_at("hook_IASetInputLayout", &REHOOK_SKIP_LOGGED_IASETINPUTLAYOUT) {
+            match apply_context_hooks(THIS, false) {
+                Ok(i) => write_log_file(&format!("applied {} context hook(s)", i)),
+                Err(e) => write_log_file(&format!("error applying context hooks: {:?}", e)),
+            }
         }
     }
 
