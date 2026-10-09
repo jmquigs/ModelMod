@@ -90,43 +90,35 @@ let runBuildNative() =
 
     if not (Directory.Exists("Release")) then Directory.CreateDirectory("Release") |> ignore
 
-    // note current cargo toolchain, long timeout due to slow CI
-    let result = runCaptured "rustup" "show" (System.TimeSpan.FromMinutes(2.00))
-    let result = result |> Array.filter (fun l -> l.Contains("default")) |> Array.head
-    let defToolchain = result.Split([|" "|], System.StringSplitOptions.RemoveEmptyEntries).[0]
-
+    // Both architectures are built with the host (x86_64) toolchain by passing --target to cargo,
+    // rather than by switching the default toolchain with `rustup default`.  Switching to the i686
+    // toolchain fails on CI ("toolchain may not be able to run on this system"), and installing a
+    // target is cheaper anyway (just the std lib for that triple, no second compiler).
     let dobuild bits =
-        let tc =
+        let triple =
             match bits with
-            | 32 -> "stable-i686-pc-windows-msvc"
-            | 64 -> "stable-x86_64-pc-windows-msvc"
+            | 32 -> "i686-pc-windows-msvc"
+            | 64 -> "x86_64-pc-windows-msvc"
             | _ -> failwithf "invalid bits: %d" bits
 
-        if defToolchain <> tc then
-            printfn "============== Warning! Switching to rust toolchain: %s; your prior toolchain will be restored on exit, but not if you Ctrl-C" tc
-
-        if Directory.Exists(@"Native\target\release") then Directory.Delete(@"Native\target\release", true)
-        if Directory.Exists(@"Native\target\debug") then Directory.Delete(@"Native\target\debug", true)
+        let targetDir = sprintf @"Native\target\%s" triple
+        if Directory.Exists(sprintf @"%s\release" targetDir) then Directory.Delete(sprintf @"%s\release" targetDir, true)
+        if Directory.Exists(sprintf @"%s\debug" targetDir) then Directory.Delete(sprintf @"%s\debug" targetDir, true)
 
         let wd = (sprintf @"%s\Native" wd)
-        // switching the toolchain needs a long timeout, because if its not installed (like on CI)
+        // adding the target needs a long timeout, because if its not installed (like on CI)
         // it will be downloaded and setup which can take a while in that slow environment
-        runUncaptured "rustup" (sprintf "default %s" tc) wd (System.TimeSpan.FromMinutes(5.00))
-        runUncaptured "cargo" "build --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
-        runUncaptured "cargo" "test --release --features ci" wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "rustup" (sprintf "target add %s" triple) wd (System.TimeSpan.FromMinutes(5.00))
+        runUncaptured "cargo" (sprintf "build --release --features ci --target %s" triple) wd (System.TimeSpan.FromMinutes 10.00)
+        runUncaptured "cargo" (sprintf "test --release --features ci --target %s" triple) wd (System.TimeSpan.FromMinutes 10.00)
 
         let destDir = sprintf "Release\\modelmod_%d" bits
         if not (Directory.Exists(destDir)) then Directory.CreateDirectory(destDir) |> ignore
-        File.Copy(@"Native\target\release\hook_core.dll", sprintf @"%s\d3d9.dll" destDir, true)
-        File.Copy(@"Native\target\release\hook_core.dll", sprintf @"%s\d3d11.dll" destDir, true)
+        File.Copy(sprintf @"%s\release\hook_core.dll" targetDir, sprintf @"%s\d3d9.dll" destDir, true)
+        File.Copy(sprintf @"%s\release\hook_core.dll" targetDir, sprintf @"%s\d3d11.dll" destDir, true)
 
-    try
-        dobuild 64
-        dobuild 32
-    finally
-        if defToolchain.Trim() <> "" then
-            runCaptured "rustup" (sprintf "default %s" defToolchain) |> ignore
-            printfn "==> restored prior toolchain: %A" defToolchain
+    dobuild 64
+    dobuild 32
 
 
 // This target has no deps so that it can be run independently
